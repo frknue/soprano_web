@@ -338,6 +338,10 @@ struct BrowserTabState: Codable, Equatable, Sendable {
     var url: String?
     var title: String = ""
     var zoom: Double = 1
+    /// WebKit's archived back/forward list (`WKWebView.interactionState`).
+    /// Nil in files written before it was saved; the tab then restores its
+    /// URL only.
+    var interactionState: Data?
 }
 
 extension BrowserTabState {
@@ -347,6 +351,7 @@ extension BrowserTabState {
         url = try? c.decodeIfPresent(String.self, forKey: .url)
         title = (try? c.decodeIfPresent(String.self, forKey: .title)) ?? title
         zoom = (try? c.decodeIfPresent(Double.self, forKey: .zoom)) ?? zoom
+        interactionState = try? c.decodeIfPresent(Data.self, forKey: .interactionState)
     }
 }
 
@@ -355,6 +360,8 @@ struct BrowserSession: Codable, Equatable, Sendable {
     var tabs: [BrowserTabState]
     var selectedIndex: Int
     var savedAt: Date
+    /// Most recently closed last; see `BrowserClosedTabStack`.
+    var closedTabs: [BrowserTabState] = []
 }
 
 extension BrowserSession {
@@ -366,7 +373,8 @@ extension BrowserSession {
             version: (try? c.decodeIfPresent(Int.self, forKey: .version)) ?? 1,
             tabs: (try? c.decodeIfPresent(LossyArray<BrowserTabState>.self, forKey: .tabs))?.elements ?? [],
             selectedIndex: (try? c.decodeIfPresent(Int.self, forKey: .selectedIndex)) ?? 0,
-            savedAt: (try? c.decodeIfPresent(Date.self, forKey: .savedAt)) ?? .distantPast
+            savedAt: (try? c.decodeIfPresent(Date.self, forKey: .savedAt)) ?? .distantPast,
+            closedTabs: (try? c.decodeIfPresent(LossyArray<BrowserTabState>.self, forKey: .closedTabs))?.elements ?? []
         )
     }
 }

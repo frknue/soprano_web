@@ -31,6 +31,7 @@ enum SnapshotCommand {
         var sheetButton: String?
         var elementClicks: [String] = []
         var showSecurityInfo = false
+        var session = SnapshotSessionOptions()
     }
 
     enum OptionError: Error, CustomStringConvertible {
@@ -58,6 +59,7 @@ enum SnapshotCommand {
                                [--click [cmd-|shift-cmd-|middle-]X,Y]...
                                [--sign-in <user:password>] [--sheet-button <title>]
                                [--click-element <css selector>]... [--security-info]
+    \(SnapshotSessionOptions.usage)
     """
 
     nonisolated static func parse(_ arguments: [String]) throws -> Options {
@@ -137,6 +139,8 @@ enum SnapshotCommand {
                 options.elementClicks.append(try value(option))
             case "--security-info":
                 options.showSecurityInfo = true
+            case let flag where SnapshotSessionOptions.flags.contains(flag):
+                try options.session.parse(flag) { try value(flag) }
             default:
                 throw OptionError.unknownOption(option)
             }
@@ -177,7 +181,7 @@ enum SnapshotCommand {
             homepage: "",
             themeID: options.theme,
             appearance: .system,
-            restoreSession: false,
+            restoreSession: options.session.restoresSession,
             downloadDirectory: temp.path,
             verticalTabs: options.verticalTabs
         )
@@ -196,6 +200,7 @@ enum SnapshotCommand {
             sitePermissions.set(.popups, .allow, host: host)
         }
         let session = BrowserSessionStore(url: temp.appendingPathComponent("session.json"))
+        options.session.prepare(sessionURL: session.url)
 
         let defaultsSuite = "com.soprano.web.snapshot.\(UUID().uuidString)"
         let defaults = UserDefaults(suiteName: defaultsSuite)!
@@ -295,6 +300,7 @@ enum SnapshotCommand {
             pressSheetButton(title, window: window)
             wait(options.wait)
         }
+        options.session.run(controller, wait: options.wait)
 
         if options.showHints {
             controller.selectedTab?.vimium?.startHintsForSnapshot()
@@ -351,7 +357,9 @@ enum SnapshotCommand {
 
         var pageImage: NSImage?
         if !options.showSettings, !options.showHelp, !options.showPrompt,
-           !options.showFind, captureWindow === window, let webView = controller.selectedTab?.webView {
+           !options.showFind, captureWindow === window,
+           controller.selectedTab?.lifecycle.crashView == nil,
+           let webView = controller.selectedTab?.webView {
             var finished = false
             webView.takeSnapshot(with: nil) { image, _ in
                 pageImage = image

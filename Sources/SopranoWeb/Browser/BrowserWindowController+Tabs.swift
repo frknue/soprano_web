@@ -105,20 +105,17 @@ extension BrowserWindowController {
         return configuration
     }
 
-    func addRestoredTab(_ state: BrowserTabState) {
+    /// Adds a tab for a saved state without loading it; it loads, history
+    /// included, when it is first selected (`loadRestoredTabIfNeeded`).
+    @discardableResult
+    func addRestoredTab(_ state: BrowserTabState, at index: Int? = nil) -> BrowserTab {
         let tab = makeTab()
-        tab.title = state.title
+        tab.title = state.url == nil && state.title.isEmpty ? "New Tab" : state.title
         tab.zoom = state.zoom
-        tab.suppressNextHistoryRecord = true
-        tabs.append(tab)
-        if let value = state.url,
-           let url = URL(string: value)
-        {
-            tab.isStartPage = false
-            tab.webView.load(URLRequest(url: url))
-        } else {
-            loadStartPage(tab)
-        }
+        tab.isStartPage = false
+        tab.lifecycle.pendingRestore = state
+        tabs.insert(tab, at: min(max(0, index ?? tabs.count), tabs.count))
+        return tab
     }
 
     private func observe(_ tab: BrowserTab) {
@@ -195,6 +192,7 @@ extension BrowserWindowController {
         if tab.isStartPage, staleStartTabs.remove(tab.id) != nil {
             loadStartPage(tab)
         }
+        prepareSelectedTab(tab)
         tabStrip.update(
             tabs: tabs.map(\.item),
             selectedID: tab.id
@@ -228,18 +226,8 @@ extension BrowserWindowController {
     func closeTab(id: UUID) {
         guard let index = tabs.firstIndex(where: { $0.id == id }) else { return }
         let tab = tabs[index]
-        closedTabs.append(tab.state)
-        if closedTabs.count > 20 {
-            closedTabs.removeFirst(closedTabs.count - 20)
-        }
-        resolveLoadWaiters(
-            for: tab,
-            result: .failure(BrowserAutomationError.unavailable("The tab was closed."))
-        )
-        tab.vimium?.shutdown()
-        tab.invalidateObservations()
-        tab.webView.stopLoading()
-        tab.webView.removeFromSuperview()
+        closedTabs.push(tab.state)
+        discardTab(tab)
         tabs.remove(at: index)
 
         if tabs.isEmpty {
@@ -262,7 +250,7 @@ extension BrowserWindowController {
     }
 
     func reopenClosedTab() {
-        guard let state = closedTabs.popLast() else { return }
+        guard let state = closedTabs.pop() else { return }
         addRestoredTab(state)
         selectTab(index: tabs.count - 1, focus: true)
         updateTabStrip()
@@ -306,17 +294,16 @@ extension BrowserWindowController {
         saveSession()
     }
 
-    /// Opens the tab's page in a new selected tab. Nil when there is
-    /// nothing to duplicate.
+    /// Copies the tab, back/forward list included, into a new selected tab
+    /// right after it. Nil when there is no such tab.
     @discardableResult
     func duplicateTab(id: UUID) -> BrowserTab? {
-        guard let tab = tabs.first(where: { $0.id == id }) else { return nil }
-        if tab.isStartPage {
-            return newTab(focusAddress: false)
-        } else if let url = tab.webView.url?.absoluteString {
-            return newTab(url: url)
-        }
-        return nil
+        guard let index = tabs.firstIndex(where: { $0.id == id }) else { return nil }
+        let copy = addRestoredTab(tabs[index].state, at: index + 1)
+        selectTab(index: index + 1, focus: true)
+        updateTabStrip()
+        saveSession()
+        return copy
     }
 
     func toggleMute(_ tab: BrowserTab) {

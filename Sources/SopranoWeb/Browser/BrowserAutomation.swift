@@ -141,6 +141,13 @@ extension BrowserWindowController {
 
     // MARK: - Automation
 
+    /// Commands that never read the target tab's page, so they leave a
+    /// lazily restored tab unloaded.
+    static let commandsWithoutPage: Set<String> = [
+        "goto", "navigate", "url", "get-url", "title", "tabs", "new-tab",
+        "select-tab", "close-tab", "focus-address",
+    ]
+
     /// Runs one CLI request. `--tab n` targets that tab without selecting it.
     func performAutomation(
         _ request: BrowserCommandRequest,
@@ -159,6 +166,11 @@ extension BrowserWindowController {
             target = tabs[tabIndex - 1]
         } else {
             target = selectedTab
+        }
+        // A lazily restored tab has no page yet; commands that read or drive
+        // the page load it first, without selecting it.
+        if let target, !Self.commandsWithoutPage.contains(command) {
+            loadRestoredTabIfNeeded(target)
         }
         let noTab = BrowserAutomationError.unavailable("No tab is open.")
 
@@ -199,7 +211,9 @@ extension BrowserWindowController {
             completion(.success(tab.webView.url?.absoluteString ?? ""))
 
         case "url", "get-url":
-            if target?.isStartPage == true {
+            if let target, target.lifecycle.pendingRestore != nil {
+                completion(.success(target.state.url ?? "about:start"))
+            } else if target?.isStartPage == true {
                 completion(.success("about:start"))
             } else {
                 completion(.success(
@@ -208,7 +222,11 @@ extension BrowserWindowController {
             }
 
         case "title":
-            completion(.success(target?.webView.title ?? ""))
+            if let target, target.lifecycle.pendingRestore != nil {
+                completion(.success(target.state.title))
+            } else {
+                completion(.success(target?.webView.title ?? ""))
+            }
 
         case "tabs":
             let lines = tabs.enumerated().map { index, tab in
