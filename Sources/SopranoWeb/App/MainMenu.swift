@@ -52,6 +52,7 @@ final class MainMenuController: NSObject, NSMenuItemValidation {
         let fileMenu = NSMenu(title: "File")
         fileMenu.addItem(item("New Tab", #selector(newTab), "t"))
         fileMenu.addItem(item("Reopen Closed Tab", #selector(reopenClosedTab), "t", [.command, .shift]))
+        fileMenu.addItem(item("Open Location…", #selector(openLocation), "l"))
         fileMenu.addItem(.separator())
         fileMenu.addItem(item("Close Tab", #selector(closeTab), "w"))
         fileMenu.addItem(item("Close Window", #selector(closeWindow), "w", [.command, .shift]))
@@ -191,6 +192,11 @@ final class MainMenuController: NSObject, NSMenuItemValidation {
     @objc private func newTab() {
         controller()?.newTab(focusAddress: true)
         controller()?.revealWindowIfNeeded()
+    }
+
+    @objc private func openLocation() {
+        controller()?.showWindowAndEnsureTab()
+        controller()?.focusAddressBar()
     }
 
     @objc private func closeTab() {

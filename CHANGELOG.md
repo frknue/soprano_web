@@ -37,3 +37,7 @@ app.
 ### Changed
 - Closing the last tab now closes the window, like Safari and Chrome. The app
   keeps running in the Dock; reopening it creates a fresh start tab.
+
+### Fixed
+- `⌘L` (File → Open Location…) now focuses and selects the address bar; the
+  shortcut was listed in Keyboard Shortcuts but never bound.
