@@ -44,13 +44,23 @@ extension BrowserWindowController {
     }
 
     func goBack() {
-        guard let tab = selectedTab, tab.webView.canGoBack else { return }
+        guard let tab = selectedTab else { return }
+        goBack(tab)
+    }
+
+    func goBack(_ tab: BrowserTab) {
+        guard tab.webView.canGoBack else { return }
         tab.pendingURL = tab.webView.backForwardList.backItem?.url.absoluteString
         tab.webView.goBack()
     }
 
     func goForward() {
-        guard let tab = selectedTab, tab.webView.canGoForward else { return }
+        guard let tab = selectedTab else { return }
+        goForward(tab)
+    }
+
+    func goForward(_ tab: BrowserTab) {
+        guard tab.webView.canGoForward else { return }
         tab.pendingURL = tab.webView.backForwardList.forwardItem?.url.absoluteString
         tab.webView.goForward()
     }
@@ -71,6 +81,10 @@ extension BrowserWindowController {
 
     func reload() {
         guard let tab = selectedTab else { return }
+        reload(tab)
+    }
+
+    func reload(_ tab: BrowserTab) {
         if let failed = tab.failedURL, let url = URL(string: failed) {
             navigate(tab, to: url)
         } else if tab.isStartPage {
@@ -325,6 +339,7 @@ extension BrowserWindowController {
 
     func waitForLoad(
         _ tab: BrowserTab,
+        timeout: TimeInterval = BrowserCommandRequest.defaultWaitTimeout,
         completion: @escaping (Result<String, Error>) -> Void
     ) {
         if !tab.webView.isLoading, tab.pendingURL == nil {
@@ -333,7 +348,7 @@ extension BrowserWindowController {
         }
         let id = UUID()
         let timer = Timer(
-            timeInterval: 10,
+            timeInterval: timeout,
             target: self,
             selector: #selector(loadWaiterTimedOut(_:)),
             userInfo: id.uuidString,
