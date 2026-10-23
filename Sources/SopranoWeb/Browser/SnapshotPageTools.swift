@@ -7,7 +7,7 @@ import WebKit
 /// `--page-print-to <pdf>` does the same for the page's own `window.print()`,
 /// `--export-pdf <pdf>`, `--save-archive <webarchive>`, `--save-source <html>`
 /// run Export as PDF and Save As without the save panel,
-/// `--select <css>` selects an element's text and
+/// `--select-text <css>` selects an element's text and
 /// `--context-menu <css>` right-clicks an element, logs WebKit's menu item
 /// identifiers and the rewritten menu, then closes it;
 /// `--context-menu-pick <title>` also chooses the item with that title.
@@ -26,12 +26,12 @@ enum SnapshotPageTools {
 
     nonisolated static let flags = [
         "--print-to", "--page-print-to", "--export-pdf", "--save-archive", "--save-source",
-        "--select", "--context-menu", "--context-menu-pick",
+        "--select-text", "--context-menu", "--context-menu-pick",
     ]
 
     static let usage = """
                                [--print-to <pdf>] [--page-print-to <pdf>] [--export-pdf <pdf>]
-                               [--save-archive <file>] [--save-source <file>] [--select <css>]
+                               [--save-archive <file>] [--save-source <file>] [--select-text <css>]
                                [--context-menu <css>] [--context-menu-pick <title>]
     """
 
@@ -42,7 +42,7 @@ enum SnapshotPageTools {
         case "--export-pdf": options.exportPDF = URL(fileURLWithPath: value)
         case "--save-archive": options.saveArchive = URL(fileURLWithPath: value)
         case "--save-source": options.saveSource = URL(fileURLWithPath: value)
-        case "--select": options.select = value
+        case "--select-text": options.select = value
         case "--context-menu": options.contextMenu = value
         case "--context-menu-pick": options.contextMenuPick = value
         default: break

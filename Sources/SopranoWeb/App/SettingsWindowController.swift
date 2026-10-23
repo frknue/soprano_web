@@ -120,7 +120,7 @@ final class SettingsWindowController: NSWindowController, NSTextFieldDelegate {
         self.websiteDataButton = ChromeButton(title: "Manage…", theme: theme, kind: .standard)
         self.defaultBrowserButton = ChromeButton(title: "Make Default", theme: theme, kind: .standard)
         let window = NSWindow(
-            contentRect: NSRect(x: 0, y: 0, width: 620, height: 768),
+            contentRect: NSRect(x: 0, y: 0, width: 620, height: 712),
             styleMask: [.titled, .closable, .fullSizeContentView],
             backing: .buffered,
             defer: false
@@ -132,7 +132,7 @@ final class SettingsWindowController: NSWindowController, NSTextFieldDelegate {
         window.titlebarAppearsTransparent = true
         window.isReleasedWhenClosed = false
         window.backgroundColor = theme.colors.bgBase
-        window.minSize = NSSize(width: 620, height: 768)
+        window.minSize = NSSize(width: 620, height: 712)
 
         rootView.wantsLayer = true
         window.contentView = rootView

@@ -219,11 +219,20 @@ extension BrowserWindowController {
 
     @objc func performContextMenuAction(_ sender: NSMenuItem) {
         guard let command = sender.representedObject as? BrowserContextMenuCommand else { return }
+        let opener = command.webView.flatMap { tab(for: $0) }
         switch command.action {
         case let .openInNewTab(url), let .openImageInNewTab(url), let .search(_, url):
-            newTab(url: url.absoluteString)
+            if let opener {
+                openLinkTab(url, opener: opener, select: true)
+            } else {
+                newTab(url: url.absoluteString)
+            }
         case let .openInBackgroundTab(url):
-            newTab(url: url.absoluteString, select: false)
+            if let opener {
+                openLinkTab(url, opener: opener, select: false)
+            } else {
+                newTab(url: url.absoluteString, select: false)
+            }
         case let .download(url):
             let webView = command.webView ?? selectedTab?.webView
             webView?.startDownload(using: URLRequest(url: url)) { [weak self] download in
