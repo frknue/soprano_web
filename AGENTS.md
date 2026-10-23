@@ -104,7 +104,8 @@ WebKit, not Chromium or Gecko:
   every Chromium security update. It buys CDP and Chrome extension/site parity.
 - WebKit is an OS framework, matches Soprano's existing browser pane and
   automation surface, signs like the rest of the family, and inherits engine
-  security fixes from macOS. The cost is no CDP and no Chrome Web Store.
+  security fixes from macOS. The cost is no CDP, and Chrome extensions only
+  through `WKWebExtension` (macOS 15.4), which lacks some `chrome.*` APIs.
 
 Do not add a second engine without a concrete product requirement (a Chrome-only
 site or a CDP flow that cannot use the CLI).
@@ -137,9 +138,10 @@ site or a CDP flow that cannot use the CLI).
 
 ## Known gaps
 
-Single window; no private windows, named profiles, extensions, password manager,
-tab groups/sync, favicons, printing/PDF export. Default-browser registration is
-not offered in-app; use System Settings if wanted.
+`docs/ROADMAP.md` lists what is not built yet, in build order, and
+`docs/ARC-PARITY.md` the evidence behind each item: Arc's behavior, file:line,
+the WebKit API with its macOS version, and prior art. Read both before adding a
+browser feature; move or delete the roadmap item when it ships.
 
 `BrowserAutomationScripts.swift` is a copy of the JavaScript in Soprano's browser
 pane. Extract the scripts into a Foundation-only file in Soprano and add that

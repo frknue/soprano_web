@@ -149,9 +149,10 @@ local JSON; nothing leaves the machine.
 
 Soprano Web 0.1 is a single-window browser. Deliberately not built yet: private
 windows, named profiles, Chrome/Safari extension installation, a password
-manager, tab groups/sync, favicons, printing and PDF export. The engine decision
-is WebKit; see `AGENTS.md` for why and what would have to change before adding a
-second engine.
+manager, tab groups/sync, favicons, printing and PDF export. `docs/ROADMAP.md`
+lists what comes next and in which order; `docs/ARC-PARITY.md` compares it with
+Arc. The engine decision is WebKit; see `AGENTS.md` for why and what would have
+to change before adding a second engine.
 
 ## Architecture
 
