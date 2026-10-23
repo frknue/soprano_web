@@ -8,6 +8,7 @@ final class BrowserWindowController: NSWindowController {
     let history: BrowserHistoryStore
     let bookmarks: BrowserBookmarkStore
     let downloads: BrowserDownloadStore
+    let sitePermissions: BrowserSitePermissionStore
     let sessionStore: BrowserSessionStore
     let persistsSession: Bool
 
@@ -76,6 +77,7 @@ final class BrowserWindowController: NSWindowController {
         history: BrowserHistoryStore,
         bookmarks: BrowserBookmarkStore,
         downloads: BrowserDownloadStore,
+        sitePermissions: BrowserSitePermissionStore,
         sessionStore: BrowserSessionStore = BrowserSessionStore(),
         persistsSession: Bool = true,
         frame: NSRect? = nil,
@@ -86,6 +88,7 @@ final class BrowserWindowController: NSWindowController {
         self.history = history
         self.bookmarks = bookmarks
         self.downloads = downloads
+        self.sitePermissions = sitePermissions
         self.sessionStore = sessionStore
         self.persistsSession = persistsSession
         self.theme = themeManager.currentTheme

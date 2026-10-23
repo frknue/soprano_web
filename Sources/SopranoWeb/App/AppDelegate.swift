@@ -24,6 +24,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         let history = BrowserHistoryStore(url: support.appendingPathComponent("history.json"))
         let bookmarks = BrowserBookmarkStore(url: support.appendingPathComponent("bookmarks.json"))
         let downloads = BrowserDownloadStore(url: support.appendingPathComponent("downloads.json"))
+        let sitePermissions = BrowserSitePermissionStore(
+            url: support.appendingPathComponent("site-permissions.json")
+        )
         let sessionStore = BrowserSessionStore(url: support.appendingPathComponent("session.json"))
 
         let controller = BrowserWindowController(
@@ -32,6 +35,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             history: history,
             bookmarks: bookmarks,
             downloads: downloads,
+            sitePermissions: sitePermissions,
             sessionStore: sessionStore
         )
         windowController = controller

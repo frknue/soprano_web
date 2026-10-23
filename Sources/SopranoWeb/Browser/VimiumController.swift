@@ -365,16 +365,18 @@ final class VimiumController: NSObject {
             windowController?.selectPreviousVisitedTab()
 
         case .moveTabLeft:
-            windowController?.moveSelectedTab(by: -1)
+            moveTab(by: -1)
         case .moveTabRight:
-            windowController?.moveSelectedTab(by: 1)
+            moveTab(by: 1)
 
         case .createTab:
             for _ in 0..<count {
                 windowController?.newTab(focusAddress: false)
             }
         case .duplicateTab:
-            windowController?.duplicateSelectedTab()
+            if let tab, windowController?.duplicateTab(id: tab.id) == nil {
+                toast("Nothing to duplicate.")
+            }
         case .closeTab:
             for _ in 0..<count {
                 windowController?.closeSelectedTab()
@@ -444,10 +446,25 @@ final class VimiumController: NSObject {
     }
 
     private func toggleMute() {
-        evaluate(VimiumPageScripts.mute()) { [weak self] value in
-            let muted = self?.booleanValue(value) ?? false
-            self?.toast(muted ? "Tab muted." : "Tab unmuted.")
+        guard let tab, let windowController else { return }
+        windowController.toggleMute(tab)
+        toast(tab.isMuted ? "Tab muted." : "Tab unmuted.")
+    }
+
+    private func moveTab(by offset: Int) {
+        guard let tab, let windowController else { return }
+        let tabs = windowController.tabs
+        guard tabs.count > 1 else {
+            toast("Only one tab is open.")
+            return
         }
+        guard let index = tabs.firstIndex(where: { $0.id == tab.id }),
+              tabs.indices.contains(index + offset)
+        else {
+            toast(offset < 0 ? "Already the first tab." : "Already the last tab.")
+            return
+        }
+        windowController.moveTab(id: tab.id, toIndex: index + offset)
     }
 
     private func goUp(root: Bool) {

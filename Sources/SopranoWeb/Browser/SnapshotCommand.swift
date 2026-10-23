@@ -154,6 +154,9 @@ enum SnapshotCommand {
         let history = BrowserHistoryStore(url: temp.appendingPathComponent("history.json"))
         let bookmarks = BrowserBookmarkStore(url: temp.appendingPathComponent("bookmarks.json"))
         let downloads = BrowserDownloadStore(url: temp.appendingPathComponent("downloads.json"))
+        let sitePermissions = BrowserSitePermissionStore(
+            url: temp.appendingPathComponent("site-permissions.json")
+        )
         let session = BrowserSessionStore(url: temp.appendingPathComponent("session.json"))
 
         let defaultsSuite = "com.soprano.web.snapshot.\(UUID().uuidString)"
@@ -166,6 +169,7 @@ enum SnapshotCommand {
             history: history,
             bookmarks: bookmarks,
             downloads: downloads,
+            sitePermissions: sitePermissions,
             sessionStore: session,
             persistsSession: false,
             frame: NSRect(origin: .zero, size: options.size),

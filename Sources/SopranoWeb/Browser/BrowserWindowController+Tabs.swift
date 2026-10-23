@@ -47,6 +47,21 @@ extension BrowserWindowController {
             VimiumFocusHandler(controller: self, tabID: tabID),
             name: VimiumPageScripts.focusMessageName
         )
+        for script in BrowserPageScripts.all {
+            contentController.addUserScript(WKUserScript(
+                source: script.source,
+                injectionTime: script.injectionTime,
+                forMainFrameOnly: script.forMainFrameOnly,
+                in: script.world.contentWorld
+            ))
+        }
+        for world in BrowserPageScript.World.allCases {
+            contentController.add(
+                BrowserPageMessageHandler(controller: self, world: world),
+                contentWorld: world.contentWorld,
+                name: BrowserPageScripts.messageName
+            )
+        }
         configuration.userContentController = contentController
 
         let webView = BrowserWebView(frame: .zero, configuration: configuration)
@@ -180,11 +195,11 @@ extension BrowserWindowController {
             loadStartPage(tab)
         }
         tabStrip.update(
-            tabs: tabs.map { ($0.id, $0.displayTitle) },
+            tabs: tabs.map(\.item),
             selectedID: tab.id
         )
         verticalTabsView.update(
-            tabs: tabs.map { ($0.id, $0.displayTitle) },
+            tabs: tabs.map(\.item),
             selectedID: tab.id
         )
         updateChrome()
@@ -255,7 +270,7 @@ extension BrowserWindowController {
 
     func updateTabStrip() {
         guard let selectedTab else { return }
-        let list = tabs.map { ($0.id, $0.displayTitle) }
+        let list = tabs.map(\.item)
         tabStrip.update(tabs: list, selectedID: selectedTab.id)
         verticalTabsView.update(tabs: list, selectedID: selectedTab.id)
     }
@@ -275,31 +290,50 @@ extension BrowserWindowController {
         selectTab(index: index, focus: true)
     }
 
-    func moveSelectedTab(by offset: Int) {
-        guard tabs.count > 1 else {
-            showVimiumToast("Only one tab is open.")
-            return
+    /// Moves the tab to `index` (clamped to the tab list); the selection
+    /// stays on the same tab.
+    func moveTab(id: UUID, toIndex index: Int) {
+        guard let from = tabs.firstIndex(where: { $0.id == id }) else { return }
+        let target = min(max(0, index), tabs.count - 1)
+        guard target != from else { return }
+        let selectedID = selectedTab?.id
+        tabs.insert(tabs.remove(at: from), at: target)
+        if let selectedID, let selected = tabs.firstIndex(where: { $0.id == selectedID }) {
+            selectedIndex = selected
         }
-        let target = selectedIndex + offset
-        guard tabs.indices.contains(target) else {
-            showVimiumToast(offset < 0 ? "Already the first tab." : "Already the last tab.")
-            return
-        }
-        tabs.swapAt(selectedIndex, target)
-        selectedIndex = target
         updateTabStrip()
         saveSession()
     }
 
-    func duplicateSelectedTab() {
-        guard let tab = selectedTab else { return }
+    /// Opens the tab's page in a new selected tab. Nil when there is
+    /// nothing to duplicate.
+    @discardableResult
+    func duplicateTab(id: UUID) -> BrowserTab? {
+        guard let tab = tabs.first(where: { $0.id == id }) else { return nil }
         if tab.isStartPage {
-            _ = newTab(focusAddress: false)
+            return newTab(focusAddress: false)
         } else if let url = tab.webView.url?.absoluteString {
-            _ = newTab(url: url)
-        } else {
-            showVimiumToast("Nothing to duplicate.")
+            return newTab(url: url)
         }
+        return nil
+    }
+
+    func toggleMute(_ tab: BrowserTab) {
+        tab.isMuted.toggle()
+        tab.webView.evaluateJavaScript(Self.muteScript(tab.isMuted)) { _, _ in }
+        metadataChanged(tab)
+    }
+
+    private static func muteScript(_ muted: Bool) -> String {
+        """
+        (() => {
+          window.__sopranoMuted = \(muted);
+          document.querySelectorAll('audio, video').forEach((media) => {
+            media.muted = window.__sopranoMuted;
+          });
+          return window.__sopranoMuted;
+        })()
+        """
     }
 
     func tab(for webView: WKWebView) -> BrowserTab? {

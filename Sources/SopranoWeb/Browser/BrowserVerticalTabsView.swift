@@ -103,13 +103,13 @@ final class BrowserVerticalTabsView: NSView {
         fatalError("init(coder:) is not supported")
     }
 
-    func update(tabs: [(id: UUID, title: String)], selectedID: UUID) {
+    func update(tabs: [BrowserTabItem], selectedID: UUID) {
         let ids = tabs.map(\.id)
         if ids != order {
             rebuild(tabs: tabs)
         } else {
             for tab in tabs {
-                buttons[tab.id]?.title = tab.title
+                buttons[tab.id]?.item = tab
             }
         }
         self.selectedID = selectedID
@@ -152,7 +152,7 @@ final class BrowserVerticalTabsView: NSView {
         needsDisplay = true
     }
 
-    private func rebuild(tabs: [(id: UUID, title: String)]) {
+    private func rebuild(tabs: [BrowserTabItem]) {
         for constraint in rowWidthConstraints.values {
             constraint.isActive = false
         }
@@ -165,7 +165,7 @@ final class BrowserVerticalTabsView: NSView {
         order = tabs.map(\.id)
 
         for tab in tabs {
-            let button = BrowserTabButton(id: tab.id, title: tab.title, theme: theme)
+            let button = BrowserTabButton(item: tab, theme: theme)
             button.translatesAutoresizingMaskIntoConstraints = false
             button.onSelect = { [weak self] id in self?.onSelect?(id) }
             button.onClose = { [weak self] id in self?.onClose?(id) }

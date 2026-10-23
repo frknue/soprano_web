@@ -1,6 +1,29 @@
 import AppKit
 import WebKit
 
+/// What the tab strip and the vertical rail render for one tab. Change the
+/// tab, then call `metadataChanged(_:)` so the views get a fresh item.
+struct BrowserTabItem: Equatable {
+    let id: UUID
+    var title: String
+    /// Nil on the start page.
+    var url: URL?
+    var favicon: NSImage?
+    var isLoading: Bool
+    var isPlayingAudio: Bool
+    var isMuted: Bool
+
+    static func == (lhs: BrowserTabItem, rhs: BrowserTabItem) -> Bool {
+        lhs.id == rhs.id
+            && lhs.title == rhs.title
+            && lhs.url == rhs.url
+            && lhs.favicon === rhs.favicon
+            && lhs.isLoading == rhs.isLoading
+            && lhs.isPlayingAudio == rhs.isPlayingAudio
+            && lhs.isMuted == rhs.isMuted
+    }
+}
+
 @MainActor
 final class BrowserTab {
     let id: UUID
@@ -14,6 +37,9 @@ final class BrowserTab {
     var failedURL: String?
     var pendingURL: String?
     var isShowingErrorPage = false
+    var favicon: NSImage?
+    var isPlayingAudio = false
+    var isMuted = false
     var vimium: VimiumController?
     var observations: [NSKeyValueObservation] = []
 
@@ -50,6 +76,18 @@ final class BrowserTab {
             return host
         }
         return isStartPage ? "New Tab" : "Untitled"
+    }
+
+    var item: BrowserTabItem {
+        BrowserTabItem(
+            id: id,
+            title: displayTitle,
+            url: isStartPage ? nil : (failedURL.flatMap(URL.init(string:)) ?? webView.url),
+            favicon: favicon,
+            isLoading: webView.isLoading,
+            isPlayingAudio: isPlayingAudio,
+            isMuted: isMuted
+        )
     }
 
     func invalidateObservations() {

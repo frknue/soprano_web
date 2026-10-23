@@ -5,8 +5,10 @@ import AppKit
 @MainActor
 final class BrowserTabButton: NSView {
     let tabID: UUID
-    var title: String = "" {
-        didSet { label.stringValue = title }
+    /// Only the title renders today; the other fields are for tab chrome
+    /// (favicon, loading and audio indicators).
+    var item: BrowserTabItem {
+        didSet { label.stringValue = item.title }
     }
     var isSelected = false {
         didSet { refresh() }
@@ -21,9 +23,9 @@ final class BrowserTabButton: NSView {
     private var isHovered = false
     private var trackingArea: NSTrackingArea?
 
-    init(id: UUID, title: String, theme: AppTheme) {
-        self.tabID = id
-        self.title = title
+    init(item: BrowserTabItem, theme: AppTheme) {
+        self.tabID = item.id
+        self.item = item
         self.theme = theme
         self.closeButton = ChromeIconButton(
             symbolName: "xmark",
@@ -37,7 +39,7 @@ final class BrowserTabButton: NSView {
         wantsLayer = true
         layer?.cornerRadius = Chrome.Radius.control
 
-        label.stringValue = title
+        label.stringValue = item.title
         label.translatesAutoresizingMaskIntoConstraints = false
         label.lineBreakMode = .byTruncatingTail
         label.usesSingleLineMode = true
@@ -121,6 +123,6 @@ final class BrowserTabButton: NSView {
         label.textColor = isSelected || isHovered ? colors.textPrimary : colors.textMuted
         closeButton.isHidden = !(isSelected || isHovered)
         closeButton.apply(theme: theme)
-        setAccessibilityLabel(title)
+        setAccessibilityLabel(item.title)
     }
 }

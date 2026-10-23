@@ -39,4 +39,11 @@ struct BrowserDelegateSelectorTests {
             )
         }
     }
+
+    @Test func pageMessageHandlerExposesItsSelector() {
+        #expect(class_getInstanceMethod(
+            BrowserPageMessageHandler.self,
+            NSSelectorFromString("userContentController:didReceiveScriptMessage:")
+        ) != nil)
+    }
 }
