@@ -1,7 +1,8 @@
 import AppKit
 
-/// The address bar row: address field, bookmark, downloads and the sidebar
-/// toggle, with a 2 pt loading line along its bottom edge.
+/// The address bar row: back, forward and reload, the address field,
+/// bookmark, downloads and the sidebar toggle, with a 2 pt loading line
+/// along its bottom edge.
 @MainActor
 final class BrowserToolbarView: NSView, NSTextFieldDelegate {
     var onSubmit: ((String) -> Void)?
@@ -13,6 +14,7 @@ final class BrowserToolbarView: NSView, NSTextFieldDelegate {
     var onSecurityInfo: (() -> Void)?
 
     let addressField = NSTextField()
+    let navigationControls: BrowserNavigationControls
     private let addressFrame: ChromeFieldView
     private let securityIcon = NSImageView()
     /// Status controls at the address field's trailing edge (the pop-up
@@ -32,6 +34,7 @@ final class BrowserToolbarView: NSView, NSTextFieldDelegate {
     init(theme: AppTheme) {
         self.theme = theme
         self.addressFrame = ChromeFieldView(theme: theme)
+        self.navigationControls = BrowserNavigationControls(theme: theme)
         self.verticalTabsButton = ChromeIconButton(
             symbolName: "sidebar.left",
             accessibilityLabel: "Vertical Tabs",
@@ -78,6 +81,7 @@ final class BrowserToolbarView: NSView, NSTextFieldDelegate {
         downloadsButton.toolTip = "Downloads (⌥⌘L)"
         sidebarButton.toolTip = "Sidebar (⇧⌘H)"
 
+        addSubview(navigationControls)
         addSubview(addressFrame)
         securityIcon.translatesAutoresizingMaskIntoConstraints = false
         securityIcon.imageScaling = .scaleProportionallyDown
@@ -126,7 +130,9 @@ final class BrowserToolbarView: NSView, NSTextFieldDelegate {
             bookmarkButton.trailingAnchor.constraint(equalTo: downloadsButton.leadingAnchor, constant: -2),
             bookmarkButton.centerYAnchor.constraint(equalTo: sidebarButton.centerYAnchor),
 
-            addressFrame.leadingAnchor.constraint(equalTo: verticalTabsButton.trailingAnchor, constant: 8),
+            navigationControls.leadingAnchor.constraint(equalTo: verticalTabsButton.trailingAnchor, constant: 4),
+            navigationControls.centerYAnchor.constraint(equalTo: verticalTabsButton.centerYAnchor),
+            addressFrame.leadingAnchor.constraint(equalTo: navigationControls.trailingAnchor, constant: 8),
             addressFrame.trailingAnchor.constraint(equalTo: bookmarkButton.leadingAnchor, constant: -8),
             addressFrame.centerYAnchor.constraint(equalTo: verticalTabsButton.centerYAnchor),
             addressFrame.heightAnchor.constraint(equalToConstant: Chrome.fieldHeight),
@@ -165,6 +171,7 @@ final class BrowserToolbarView: NSView, NSTextFieldDelegate {
         for button in [verticalTabsButton, bookmarkButton, downloadsButton, sidebarButton] {
             button.apply(theme: theme)
         }
+        navigationControls.apply(theme: theme)
         addressFrame.apply(theme: theme)
         ChromeFieldView.styleEmbedded(addressField, colors: theme.colors, font: ChromeFont.row)
         addressField.placeholderAttributedString = NSAttributedString(

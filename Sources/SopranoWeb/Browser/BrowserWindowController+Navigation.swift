@@ -141,6 +141,7 @@ extension BrowserWindowController {
 
     func updateChrome() {
         guard let tab = selectedTab else { return }
+        updateTabChrome(for: tab)
         let url = tab.webView.url
         let shownURL = tab.failedURL ?? url?.absoluteString ?? ""
         toolbar.setAddress(tab.isStartPage ? "" : shownURL, security: securityState(for: tab))

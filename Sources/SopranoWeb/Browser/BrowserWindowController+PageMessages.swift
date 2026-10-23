@@ -28,6 +28,10 @@ extension BrowserWindowController {
             receivePopupBlocked(body: body, tab: tab)
         case (BrowserCertificateInterstitialPage.messageType, .page):
             handleCertificateInterstitialMessage(body: body, tab: tab, frame: frame)
+        case ("favicons", .isolated):
+            receiveFavicons(body, tab: tab, frame: frame)
+        case ("linkHover", .isolated):
+            receiveLinkHover(body, tab: tab, frame: frame)
         default:
             return
         }

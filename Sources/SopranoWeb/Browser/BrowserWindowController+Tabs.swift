@@ -135,6 +135,7 @@ extension BrowserWindowController {
             webView.observe(\.url, options: [.new]) { [weak self, weak tab] _, _ in
                 MainActor.assumeIsolated {
                     guard let self, let tab else { return }
+                    self.tabURLChanged(tab)
                     self.metadataChanged(tab)
                 }
             },
@@ -146,8 +147,8 @@ extension BrowserWindowController {
             },
             webView.observe(\.isLoading, options: [.new]) { [weak self, weak tab] _, _ in
                 MainActor.assumeIsolated {
-                    guard let self, let tab, tab.id == self.selectedTab?.id else { return }
-                    self.updateChrome()
+                    guard let self, let tab else { return }
+                    self.metadataChanged(tab)
                 }
             },
             webView.observe(\.canGoBack, options: [.new]) { [weak self, weak tab] _, _ in
