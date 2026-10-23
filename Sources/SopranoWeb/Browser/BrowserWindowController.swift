@@ -24,6 +24,7 @@ final class BrowserWindowController: NSWindowController {
     var sidebarSection: BrowserSidebarSection = .history
     var findQuery = ""
     var staleStartTabs: Set<UUID> = []
+    let connectionSecurity = BrowserConnectionSecurity()
     private var settingsWindowController: SettingsWindowController?
 
     private(set) var theme: AppTheme
@@ -300,6 +301,7 @@ final class BrowserWindowController: NSWindowController {
         toolbar.onSubmit = { [weak self] value in self?.navigateCurrent(to: value) }
         toolbar.onBookmark = { [weak self] in self?.toggleBookmark() }
         toolbar.onDownloads = { [weak self] in self?.toggleSidebar(section: .downloads) }
+        toolbar.onSecurityInfo = { [weak self] in self?.showConnectionInfo() }
         toolbar.onSidebar = { [weak self] in
             guard let self else { return }
             self.toggleSidebar(section: self.sidebarSection)

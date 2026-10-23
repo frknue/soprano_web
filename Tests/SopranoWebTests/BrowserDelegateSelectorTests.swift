@@ -24,6 +24,7 @@ struct BrowserDelegateSelectorTests {
             "webView:didFailNavigation:withError:",
             "webView:didFailProvisionalNavigation:withError:",
             "webView:didReceiveServerRedirectForProvisionalNavigation:",
+            "webView:didReceiveAuthenticationChallenge:completionHandler:",
             "webViewWebContentProcessDidTerminate:",
             "webView:navigationAction:didBecomeDownload:",
             "webView:navigationResponse:didBecomeDownload:",

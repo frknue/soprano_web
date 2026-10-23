@@ -88,6 +88,7 @@ extension BrowserWindowController {
             vimium?.handle(event) ?? false
         }
         observe(tab)
+        observeSecurity(tab)
         return tab
     }
 

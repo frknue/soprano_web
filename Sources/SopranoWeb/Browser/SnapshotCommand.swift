@@ -27,6 +27,10 @@ enum SnapshotCommand {
         var clicks: [Click] = []
         var showSheet = false
         var printTabs = false
+        var signIn: String?
+        var sheetButton: String?
+        var elementClicks: [String] = []
+        var showSecurityInfo = false
     }
 
     enum OptionError: Error, CustomStringConvertible {
@@ -52,6 +56,8 @@ enum SnapshotCommand {
                                [--vertical-tabs] [--collapsed] [--hints] [--help] [--prompt]
                                [--allow-popups <host>] [--tab <url>]... [--sheet] [--print-tabs]
                                [--click [cmd-|shift-cmd-|middle-]X,Y]...
+                               [--sign-in <user:password>] [--sheet-button <title>]
+                               [--click-element <css selector>]... [--security-info]
     """
 
     nonisolated static func parse(_ arguments: [String]) throws -> Options {
@@ -123,6 +129,14 @@ enum SnapshotCommand {
                 options.showSheet = true
             case "--print-tabs":
                 options.printTabs = true
+            case "--sign-in":
+                options.signIn = try value(option)
+            case "--sheet-button":
+                options.sheetButton = try value(option)
+            case "--click-element":
+                options.elementClicks.append(try value(option))
+            case "--security-info":
+                options.showSecurityInfo = true
             default:
                 throw OptionError.unknownOption(option)
             }
@@ -265,6 +279,22 @@ enum SnapshotCommand {
                 before: min(deadline, Date().addingTimeInterval(0.05))
             )
         }
+        if let credentials = options.signIn {
+            submitSignIn(credentials, controller: controller)
+            wait(options.wait)
+        }
+        for selector in options.elementClicks {
+            click(selector, controller: controller)
+            wait(options.wait)
+        }
+        if options.showSecurityInfo {
+            controller.showConnectionInfo()
+            wait(0.35)
+        }
+        if let title = options.sheetButton {
+            pressSheetButton(title, window: window)
+            wait(options.wait)
+        }
 
         if options.showHints {
             controller.selectedTab?.vimium?.startHintsForSnapshot()
@@ -301,8 +331,6 @@ enum SnapshotCommand {
             captureWindow = NSApp.windows.first { $0.title == "Vimium Help" } ?? window
         } else if options.showPrompt {
             captureWindow = NSApp.windows.first { $0 is VimiumPromptPanel } ?? window
-        } else if options.showSheet, let sheet = window.attachedSheet {
-            captureWindow = sheet
         } else {
             captureWindow = window
         }
@@ -346,6 +374,9 @@ enum SnapshotCommand {
         if let pageImage, let webView = controller.selectedTab?.webView {
             let frame = webView.convert(webView.bounds, to: captureContent)
             pageImage.draw(in: frame)
+        }
+        if options.showSheet {
+            drawAttachedSheet(of: window, in: captureContent)
         }
         output.unlockFocus()
 
