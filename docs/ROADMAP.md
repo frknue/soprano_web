@@ -9,74 +9,27 @@ and the `browser` CLI stay; Arc has neither.
 
 ## 1. Daily-driver blockers
 
-Sign-in and links
-- Popup blocker: `javaScriptCanOpenWindowsAutomatically = false`, open only user-initiated
-  windows, show a "popup blocked" control. Implement `webViewDidClose` so `window.close()`
-  closes OAuth and payment popups. Popup-sized `windowFeatures` become popup windows once
-  §2 lands.
-- ⌘-click and middle-click open a background tab, ⇧⌘-click a foreground tab
-  (`WKNavigationAction.modifierFlags`; `buttonNumber` is a bitmask, middle = 4).
-- `webView(_:didReceive:completionHandler:)`: HTTP Basic/Digest sheet, client certificates
-  (`SFChooseIdentityPanel`), a TLS-error interstitial with Show Certificate
-  (`SFCertificateTrustPanel`) and a per-host exception.
-- Security indicator from `hasOnlySecureContent` and `serverTrust`, not the URL scheme.
-- Ask before handing a link to another app (`mailto:`, `zoommtg:`, …); remember per site.
-- Add `Version/… Safari/605.1.15` through `applicationNameForUserAgent`; sites that sniff
-  Safari reject the bare WKWebView user agent.
+Built on `feat/stage-1` (see `CHANGELOG.md`): pop-up blocking and `window.close()`,
+modifier clicks, external-app prompts, Safari user agent; HTTP sign-in, client
+certificates, TLS interstitial and a real security indicator; address-bar suggestions and
+inline completion; lazy restore with back/forward history, persisted closed tabs, crash
+recovery; favicons, tab drag/menu/indicators, navigation buttons, link status; print, PDF,
+Save As, web-view context menu, text and Services menus, Share; Clear Browsing Data,
+Website Data, resumable downloads, Make Default; per-site camera/mic/notification/pop-up
+decisions, autoplay, notification shim, robust mute; the `browser` CLI over a user-only
+socket; robust settings and stores.
 
-Address bar
-- Suggestions from history (visit and typed counts), bookmarks and open tabs (Switch to
-  Tab), plus search-engine suggestions behind a setting; inline completion; Esc reverts.
-- Fix the field keeping stale text while focused (`BrowserToolbarView.setAddress`).
-
-Tabs and session
-- Restore each tab's back/forward list (`interactionState`) and load restored tabs on first
-  selection instead of all at launch.
-- Crash recovery: reload once on `webViewWebContentProcessDidTerminate`, show a crash page
-  on a loop, reload background tabs when selected.
-- Persist the closed-tab stack across launches.
-- Favicons: find `<link rel=icon>` with a content-world script, fetch through a cookie-less
-  store, cache by host.
-- Drag to reorder; tab context menu (duplicate with history, mute, copy link, close
-  others/below); full-title tooltip.
-- Back, forward (long-press history) and reload in the sidebar header, as in Arc.
-- Link-hover URL status from a content-world `mouseover` script (no public delegate).
-- Audio indicator and per-tab mute from media-element events (WebKit's mute is private).
-
-Page tools
-- Print (`printOperation(with:)`), Export as PDF (`createPDF`), Save As web archive
-  (`createWebArchiveData`). ⌘P becomes Print; the command palette moves to ⇧⌘P until ⌘T
-  becomes the Command Bar (§3).
-- Context menu through `willOpenMenu(_:with:)`: Open Link in New Tab / Background Tab,
-  Download Linked File, Copy Link, Search with <engine>.
-- Edit ▸ Spelling and Grammar, Substitutions, Speech; the Services submenu; File ▸ Share.
-
-Privacy, permissions, downloads
-- Clear Browsing Data by time range that also removes website data
-  (`WKWebsiteDataStore.removeData(ofTypes:modifiedSince:)`), and a per-site data list
-  (`fetchDataRecords`). Today "Clear History" only empties `history.json`.
-- Remember camera and microphone decisions per site; in-use indicator and stop control from
-  `cameraCaptureState`/`microphoneCaptureState`. Autoplay setting
-  (`mediaTypesRequiringUserActionForPlayback`).
-- Web notifications through a JS `Notification` shim posting `UNUserNotificationCenter`
-  notifications (WebKit's permission path is private; works while the tab is open).
-- Downloads: keep resume data and in-progress items across launches, Retry, Ask Where to
-  Save, honor `Content-Disposition: attachment`.
-
-Robustness
-- Settings: decode each key with its default (`decodeIfPresent`) and never overwrite a file
-  that failed to decode. Add a `version` field to every JSON store.
-- Menu fixes: ⌘. only stops (it calls `reload` today), the sidebar tooltip says ⇧⌘B (it
-  says ⇧⌘H, which is Home), ⌘9 selects the last tab, ⇧⌘W closes the window's tabs instead
-  of hiding the window with every tab still loaded.
-- `browser` CLI: move from distributed notifications to a Unix socket only the user can
-  open (today any local process can send `eval` and every reply is broadcast); `--tab`
-  without switching the visible tab; `callAsyncJavaScript` so `eval` can await; wait for a
-  selector or URL.
-- Settings ▸ Make Default Browser (`NSWorkspace.setDefaultApplication(at:toOpenURLsWithScheme:)`;
-  macOS asks the user to confirm).
+Left over, all needing a real window or device rather than the offscreen harness:
 - Check that 1Password's Universal Autofill (⌘\) fills sign-in forms in Soprano Web; it is
   the only 1Password route that needs no work (see Needs a decision).
+- Try camera and microphone prompts with a real camera, notification delivery from the
+  installed app, the Ask Where to Save panel, and real-mouse tab dragging, long-press
+  history menus and context menus.
+
+Known limits: notifications only while their tab is open (no Web Push), tab mute and the
+audio indicator don't cover WebAudio, `window.print()` inside iframes does nothing, and
+geolocation stays denied until the toolchain can use the macOS 27 SDK (see Needs a
+decision).
 
 ## 2. Windows, private browsing, profiles, memory
 

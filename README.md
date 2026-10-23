@@ -46,22 +46,31 @@ family, not notarized.
 
 ## The first five minutes
 
-1. Press `⌘L`, type an address or a search, press Return. Tabs live in the
-   Arc-style vertical rail on the left by default; `⌘S` collapses or expands it.
-   **Settings → Vertical tabs** switches between the vertical rail and the
-   horizontal-tab layout.
+1. Press `⌘L`, type an address or a search, press Return. The address bar
+   suggests open tabs, bookmarks and history as you type and completes the site
+   name; `↑`/`↓` pick a suggestion, `⌘Return` opens it in a new tab, `Esc`
+   restores the page's address. Tabs live in the Arc-style vertical rail on the
+   left by default; `⌘S` collapses or expands it. **Settings → Vertical tabs**
+   switches between the vertical rail and the horizontal-tab layout.
 2. `⌘T` opens the start page; the `+` beside the tabs does the same. `⌘W` closes
    a tab; closing the last one closes the window, and the app stays in the Dock.
-   Click it to reopen with a fresh start tab. `⇧⌘T` brings the last closed tab
-   back.
-3. `⌘D` bookmarks the page. `⌘Y`, `⌥⌘B` and `⌥⌘L` open History, Bookmarks and
-   Downloads in the right sidebar.
-4. `⌘F` finds in the page; `Return` / `⇧Return` move between matches.
-5. `⌘,` opens Settings: search engine, homepage, theme, appearance, session
-   restore and download folder.
+   Click it to reopen with a fresh start tab. `⇧⌘T` brings back closed tabs,
+   with their history, even after a relaunch. Drag tabs to reorder them and
+   right-click one for Duplicate, Mute, Copy Link and the close commands.
+3. `⌘`-click or middle-click a link to open it in a background tab, `⇧⌘`-click
+   for a front tab. Pop-ups a page opens without a click are blocked; the
+   **Pop-up blocked** button in the address bar opens them or allows the site.
+4. `⌘D` bookmarks the page. `⌘Y`, `⌥⌘B` and `⌥⌘L` open History, Bookmarks and
+   Downloads in the right sidebar; stopped downloads resume or retry from there.
+5. `⌘F` finds in the page; `Return` / `⇧Return` move between matches. `⌘P`
+   prints, `⇧⌘S` saves the page, File ▸ Export as PDF… writes a PDF.
+6. `⌘,` opens Settings: search engine and suggestions, homepage, theme,
+   appearance, session restore, downloads, autoplay, notifications, per-site
+   decisions (**Websites**), stored site data and the default browser.
 
 The start page shows bookmarks and recent pages. `⌘=` / `⌘-` / `⌘0` zoom the
-page. `⇧⌘B` toggles the sidebar.
+page. `⇧⌘B` toggles the sidebar. Click the lock in the address bar for the
+connection details and certificate.
 
 ## Vimium keys
 
@@ -88,15 +97,18 @@ in the help sheet; the rest of Vimium's default map is implemented.
 | `⌘L` | Focus the address bar |
 | `⌘T` / `⌘W` / `⇧⌘T` | New / close / reopen tab |
 | `⌃Tab` / `⌃⇧Tab` | Next / previous tab |
-| `⌘1`…`⌘9` | Select tab 1–9 |
-| `⌘[` / `⌘]` | Back / forward |
+| `⌘1`…`⌘8` / `⌘9` | Select tab 1–8 / last tab |
+| `⌘[` / `⌘]` | Back / forward (hold or right-click the buttons for history) |
 | `⌘R` / `⌘.` | Reload / stop |
 | `⌘F`, `⌘G`, `⇧⌘G` | Find, next match, previous match |
 | `⌘D` | Bookmark this page |
 | `⌘Y` / `⌥⌘B` / `⌥⌘L` | History / bookmarks / downloads |
+| `⇧⌘⌫` | Clear browsing data |
 | `⇧⌘B` | Toggle the right sidebar |
 | `⌘S` | Toggle the vertical tab sidebar |
-| `⌘P` | Command palette |
+| `⌘P` / `⇧⌘S` | Print / save page as |
+| `⇧⌘P` | Command palette |
+| `⇧⌘W` | Close the window and its tabs (`⇧⌘T` reopens them) |
 | `⌘,` | Settings |
 | `⌘+` / `⌘-` / `⌘0` | Zoom in / out / reset |
 
@@ -118,41 +130,53 @@ APP="/Applications/Soprano Web.app/Contents/MacOS/SopranoWeb"
 "$APP" browser tabs                     # 1-based tab list
 "$APP" browser --tab 2 url
 "$APP" browser vimium "gg"              # drive the normal-mode key layer
+"$APP" browser wait-for selector '#results li' --timeout 20
+"$APP" browser wait-for url /checkout
+"$APP" browser wait-for text 'Order placed'
+"$APP" browser eval 'fetch("/api/me").then(r => r.status)'
 ```
 
 `goto` accepts an address or a search query. It returns when navigation starts;
 call `browser wait-for-load` before `snapshot`, `title` or `get` when the page
-must be loaded. `--tab n` targets a tab by its 1-based number; otherwise the
-selected tab is used. `snapshot` assigns ephemeral refs (`@e1`, `@e2`, …) to
-interactive elements for the next commands. `eval`, `press`,
-`check`/`uncheck`, `scroll-into-view`, `is` and `dblclick` round out the surface;
-`"$APP" browser --help` lists it all.
+must be loaded. `wait-for selector|url|text` waits for a CSS match, a URL
+substring or visible text, surviving navigations. Waits default to 10 seconds;
+`--timeout` takes up to 120. `--tab n` targets a tab by its 1-based number
+without switching to it; otherwise the selected tab is used. `snapshot` assigns
+ephemeral refs (`@e1`, `@e2`, …) to interactive elements for the next commands.
+`eval` runs an expression, or an async function body that uses `return`;
+Promises are awaited, the result prints as JSON, and a JavaScript error exits 1
+with its message. `press`, `check`/`uncheck`, `scroll-into-view`, `is` and
+`dblclick` round out the surface; `"$APP" browser --help` lists it all.
 
-Requests are routed to the running app through a request-scoped distributed
-notification. There is no CDP endpoint and no Chrome extension support; this is
-the family automation model, matching Soprano's browser pane.
+The app listens on a Unix socket in its support folder (`automation.sock`; the
+Dev build has its own), mode 0600, and accepts connections only from your user.
+There is no CDP endpoint and no Chrome extension support; this is the family
+automation model, matching Soprano's browser pane.
 
 ## Files
 
 - Settings: `~/.config/soprano-web/settings.json` (written on first change).
-- Session, history, bookmarks, downloads:
-  `~/Library/Application Support/Soprano Web/`.
-- Downloads default to `~/Downloads`; Settings can choose another folder.
+- Session (with closed tabs), history, bookmarks, downloads, per-site decisions
+  (`site-permissions.json`) and favicons: `~/Library/Application Support/Soprano Web/`.
+- Downloads default to `~/Downloads`; Settings can choose another folder or ask
+  each time.
 
 The Dev build (`com.soprano.web.dev`) uses `Soprano Web Dev` and
 `~/.config/soprano-web-dev/` instead, so testing never touches release data.
 
 The `Settings ▸ Downloads` row shows the resolved path. History and bookmarks are
-local JSON; nothing leaves the machine.
+local JSON; nothing leaves the machine. Search suggestions, when on, send what
+you type to the search engine without cookies.
 
 ## Scope
 
-Soprano Web 0.1 is a single-window browser. Deliberately not built yet: private
-windows, named profiles, Chrome/Safari extension installation, a password
-manager, tab groups/sync, favicons, printing and PDF export. `docs/ROADMAP.md`
-lists what comes next and in which order; `docs/ARC-PARITY.md` compares it with
-Arc. The engine decision is WebKit; see `AGENTS.md` for why and what would have
-to change before adding a second engine.
+Soprano Web is a single-window browser. Deliberately not built yet: multiple and
+private windows, named profiles, Chrome/Safari extension installation, a password
+manager, and tab groups/sync. Web notifications work while their tab is open
+(no Web Push), and tab mute doesn't reach WebAudio. `docs/ROADMAP.md` lists what
+comes next and in which order; `docs/ARC-PARITY.md` compares it with Arc. The
+engine decision is WebKit; see `AGENTS.md` for why and what would have to change
+before adding a second engine.
 
 ## Architecture
 

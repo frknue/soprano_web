@@ -33,19 +33,25 @@ no linter or formatter; match surrounding style.
   debug and fail in release. `scripts/install.sh` and `scripts/dev.sh` build
   through `scripts/build-with-guard.sh`, which refuses to package a build that
   printed "nearly matches optional requirement".
+- The user works on this Mac while agents run: prefix every build, test,
+  harness and local test server with `taskpolicy -b`, pass `-j 2` (or `-j 1`) to
+  Swift, run one heavy process at a time, and run at most one agent that builds.
+  Nothing an agent runs may take focus, show a window or trigger a system prompt.
 - Verify UI with the offscreen snapshot command and read the PNG:
 
   ```bash
-  .build/debug/SopranoWeb snapshot --out /tmp/sw.png --size 1440x900 \
+  taskpolicy -b .build/debug/SopranoWeb snapshot --out /tmp/sw.png --size 1440x900 \
       --theme folio-paper [--url <url>] [--sidebar history|bookmarks|downloads] \
-      [--find] [--settings] [--vertical-tabs] [--collapsed]
-      [--hints] [--help] [--prompt]
+      [--find] [--settings] [--vertical-tabs] [--collapsed] [--print-tabs] …
   ```
 
   It builds the real window with volatile stores, captures the chrome with
-  AppKit and the page with WebKit, and writes a PNG. Layer backgrounds on views
-  unhidden after first display may not appear in the cached AppKit pass; that is
-  a harness limitation, not the app.
+  AppKit and the page with WebKit, and writes a PNG. Run it without `--out` for
+  every flag: clicks and modifier clicks, sign-in sheets, session restore and
+  crashes, address-bar typing, tab audio and hover, site permissions,
+  print/PDF/save and context menus, Clear Browsing Data and downloads. Layer
+  backgrounds on views unhidden after first display may not appear in the cached
+  AppKit pass; that is a harness limitation, not the app.
 - Verify real navigation and the agent surface against a running dev app:
 
   ```bash
@@ -69,21 +75,40 @@ no linter or formatter; match surrounding style.
 
 ## Architecture
 
-- `Browser/BrowserWindowController.swift` — the window, tab ownership, WebKit
-  delegates, navigation policy, downloads, find, sidebar and session saves.
-- `Browser/BrowserTab.swift`, `BrowserModel.swift` — tab state, settings,
-  address resolution, session format.
-- `Browser/BrowserDataStores.swift` — history, bookmarks and downloads JSON.
-- `Browser/BrowserToolbarView.swift`, `BrowserTabStripView.swift`,
+- `Browser/BrowserWindowController.swift` — the window class, stored state, init,
+  layout, wiring, settings and theme. Its behavior lives in extension files by
+  concern: `+Tabs`, `+Navigation` (`WKNavigationDelegate`), `+UIDelegate`
+  (`WKUIDelegate`), `+Downloads` (`WKDownloadDelegate`), `+Sidebar`, `+Vimium`,
+  `+Session` (restore, closed tabs, crash recovery), `+PageMessages`, `+Links`
+  (pop-ups, modifier clicks, external apps), `+SignIn` (auth challenges, TLS
+  interstitial, connection security), `+Permissions` (camera/mic, notifications,
+  audio, Websites), `+TabChrome` / `+TabActions` (favicons, link status, tab menu),
+  `+AddressBar` (suggestions dropdown), `+PageTools` (print, PDF, save, web-view
+  context menu) and `+Privacy` (Clear Browsing Data, Website Data, default
+  browser). Each WebKit protocol conformance sits on the extension that holds its
+  methods.
+- `Browser/BrowserTab.swift`, `BrowserModel.swift` — tab state, settings
+  (decoded key by key), address resolution, session format with interaction state
+  and the closed-tab stack.
+- `Browser/BrowserDataStores.swift` — history, bookmarks and downloads JSON
+  (`{version, entries}` envelopes, lossy decoding); `BrowserSitePermissionStore.swift`
+  — per-host allow/deny decisions (`site-permissions.json`); `BrowserFavicon.swift`
+  — favicon selection, fetch and cache.
+- `Browser/BrowserPageScripts.swift` — every injected page script and the
+  `sopranoWeb` message channel; messages are accepted only from the world (page or
+  isolated) their type was written for.
+- `Browser/BrowserToolbarView.swift`, `BrowserAddressBarController.swift`,
+  `BrowserAddressSuggestions.swift`, `BrowserTabStripView.swift`,
   `BrowserVerticalTabsView.swift`, `BrowserTabButton.swift`,
-  `BrowserSidebarView.swift`, `BrowserFindBar.swift`,
-  `BrowserStartPage.swift`, `BrowserErrorPage.swift` — chrome and local pages.
-- `Browser/BrowserAutomationCommand.swift` + `BrowserAutomation.swift` — CLI
-  routing and the `@e1` snapshot/action scripts. `browser vimium <keys>` feeds
-  the selected tab's Vimium controller for verification.
+  `BrowserSidebarView.swift`, `BrowserFindBar.swift`, `BrowserStartPage.swift`,
+  `BrowserErrorPage.swift` — chrome and local pages.
+- `Browser/BrowserAutomationCommand.swift`, `BrowserAutomationSocket.swift`,
+  `BrowserAutomation.swift` — the `browser` CLI over a user-only Unix socket and
+  the `@e1` snapshot/action scripts. `browser vimium <keys>` feeds the selected
+  tab's Vimium controller for verification.
 - `Browser/VimiumController.swift`, `VimiumKeyMap.swift`, `VimiumPageScripts.swift`,
   `VimiumPanels.swift`, `BrowserWebView.swift` — the native Vimium mode layer.
-- `Browser/SnapshotCommand.swift` — offscreen UI harness.
+- `Browser/SnapshotCommand*.swift`, `SnapshotPageTools.swift` — offscreen UI harness.
 - `App/` — app delegate, menu, settings window, resources.
 - `Vendored/` — Folio design system from Soprano. Never edit these files here.
 

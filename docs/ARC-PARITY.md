@@ -2,8 +2,9 @@
 
 What Arc does, what Soprano Web does today, and what the system WebKit allows. Snapshot
 taken 2026-10-23 against Arc 1.169.0 (Chromium 155), Soprano Web `main` @3be5e23 and the
-macOS 27 SDK. `docs/ROADMAP.md` turns this into a build order. Bracketed tags point to
-[Sources](#sources).
+macOS 27 SDK; the "Soprano Web" column describes that commit. Stage 1 (roadmap §1) has
+since built every row marked 1. `docs/ROADMAP.md` turns this into a build order.
+Bracketed tags point to [Sources](#sources).
 
 ## Arc's status
 
