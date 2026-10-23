@@ -21,6 +21,11 @@ final class SettingsWindowController: NSWindowController, NSTextFieldDelegate {
     private let downloadLabel = NSTextField(labelWithString: "")
     private let pathLabel = NSTextField(labelWithString: "")
     private var rowLabels: [NSTextField] = []
+    private let askDownloadSwitch: ChromeSwitch
+    private let websiteDataButton: ChromeButton
+    private let defaultBrowserLabel = NSTextField(labelWithString: "")
+    private let defaultBrowserButton: ChromeButton
+    private var websiteDataSheet: BrowserWebsiteDataSheet?
 
     init(settingsStore: BrowserSettingsStore, themeManager: ThemeManager) {
         self.settingsStore = settingsStore
@@ -74,8 +79,16 @@ final class SettingsWindowController: NSWindowController, NSTextFieldDelegate {
             target: nil,
             action: nil
         )
+        self.askDownloadSwitch = ChromeSwitch(
+            isOn: settingsStore.settings.askDownloadLocation,
+            theme: theme,
+            target: nil,
+            action: nil
+        )
+        self.websiteDataButton = ChromeButton(title: "Manage…", theme: theme, kind: .standard)
+        self.defaultBrowserButton = ChromeButton(title: "Make Default", theme: theme, kind: .standard)
         let window = NSWindow(
-            contentRect: NSRect(x: 0, y: 0, width: 620, height: 472),
+            contentRect: NSRect(x: 0, y: 0, width: 620, height: 600),
             styleMask: [.titled, .closable, .fullSizeContentView],
             backing: .buffered,
             defer: false
@@ -87,7 +100,7 @@ final class SettingsWindowController: NSWindowController, NSTextFieldDelegate {
         window.titlebarAppearsTransparent = true
         window.isReleasedWhenClosed = false
         window.backgroundColor = theme.colors.bgBase
-        window.minSize = NSSize(width: 620, height: 472)
+        window.minSize = NSSize(width: 620, height: 600)
 
         rootView.wantsLayer = true
         window.contentView = rootView
@@ -128,6 +141,14 @@ final class SettingsWindowController: NSWindowController, NSTextFieldDelegate {
         restoreSwitch.action = #selector(restoreChanged)
         verticalTabsSwitch.target = self
         verticalTabsSwitch.action = #selector(verticalTabsChanged)
+        askDownloadSwitch.target = self
+        askDownloadSwitch.action = #selector(askDownloadChanged)
+        websiteDataButton.target = self
+        websiteDataButton.action = #selector(websiteDataPressed)
+        defaultBrowserButton.target = self
+        defaultBrowserButton.action = #selector(makeDefaultPressed)
+        defaultBrowserLabel.font = ChromeFont.label
+        defaultBrowserLabel.lineBreakMode = .byTruncatingTail
 
         downloadLabel.translatesAutoresizingMaskIntoConstraints = false
         downloadLabel.font = ChromeFont.monoSmall
@@ -151,6 +172,9 @@ final class SettingsWindowController: NSWindowController, NSTextFieldDelegate {
             [rowLabel("Restore session"), restoreSwitch],
             [rowLabel("Vertical tabs"), verticalTabsSwitch],
             [rowLabel("Downloads"), downloadRow()],
+            [rowLabel("Ask where to save"), askDownloadSwitch],
+            [rowLabel("Website data"), websiteDataButton],
+            [rowLabel("Default browser"), defaultBrowserRow()],
         ]
         let grid = NSGridView(views: rows)
         grid.translatesAutoresizingMaskIntoConstraints = false
@@ -163,6 +187,7 @@ final class SettingsWindowController: NSWindowController, NSTextFieldDelegate {
         rootView.addSubview(pathLabel)
         rootView.addSubview(doneButton)
         refreshDownloadLabel()
+        refreshDefaultBrowser()
 
         NSLayoutConstraint.activate([
             header.topAnchor.constraint(equalTo: rootView.topAnchor, constant: 42),
@@ -185,6 +210,8 @@ final class SettingsWindowController: NSWindowController, NSTextFieldDelegate {
 
             downloadLabel.widthAnchor.constraint(equalToConstant: 240),
             downloadButton.widthAnchor.constraint(equalToConstant: 92),
+            websiteDataButton.widthAnchor.constraint(equalToConstant: 200),
+            defaultBrowserButton.widthAnchor.constraint(equalToConstant: 112),
 
             pathLabel.leadingAnchor.constraint(equalTo: rootView.leadingAnchor, constant: 28),
             pathLabel.trailingAnchor.constraint(equalTo: doneButton.leadingAnchor, constant: -16),
@@ -197,6 +224,12 @@ final class SettingsWindowController: NSWindowController, NSTextFieldDelegate {
         ])
 
         applyTheme(theme)
+    }
+
+    /// The default browser can change outside the app between openings.
+    override func showWindow(_ sender: Any?) {
+        refreshDefaultBrowser()
+        super.showWindow(sender)
     }
 
     @available(*, unavailable)
@@ -219,6 +252,23 @@ final class SettingsWindowController: NSWindowController, NSTextFieldDelegate {
         stack.spacing = 8
         stack.alignment = .centerY
         return stack
+    }
+
+    private func defaultBrowserRow() -> NSView {
+        let stack = NSStackView(views: [defaultBrowserLabel, defaultBrowserButton])
+        stack.orientation = .horizontal
+        stack.spacing = 8
+        stack.alignment = .centerY
+        return stack
+    }
+
+    private func refreshDefaultBrowser() {
+        let handler = BrowserDefaultBrowser.currentHandler()
+        let isDefault = BrowserDefaultBrowser.isDefault(handler: handler)
+        defaultBrowserLabel.stringValue = BrowserDefaultBrowser.displayName(of: handler)
+        defaultBrowserLabel.toolTip = handler?.path
+        defaultBrowserButton.title = isDefault ? "Default" : "Make Default"
+        defaultBrowserButton.isEnabled = !isDefault && BrowserDefaultBrowser.canBecomeDefault()
     }
 
     private func refreshDownloadLabel() {
@@ -244,6 +294,11 @@ final class SettingsWindowController: NSWindowController, NSTextFieldDelegate {
         ChromeFieldView.styleEmbedded(homepageField, colors: theme.colors, font: ChromeFont.label)
         restoreSwitch.apply(theme: theme)
         verticalTabsSwitch.apply(theme: theme)
+        askDownloadSwitch.apply(theme: theme)
+        websiteDataButton.apply(theme: theme)
+        defaultBrowserButton.apply(theme: theme)
+        defaultBrowserLabel.textColor = theme.colors.textPrimary
+        websiteDataSheet?.apply(theme: theme)
         downloadLabel.textColor = theme.colors.textPrimary
         pathLabel.textColor = theme.colors.textMuted
         pathLabel.stringValue = "Settings: \(settingsStore.displayPath)"
@@ -264,6 +319,8 @@ final class SettingsWindowController: NSWindowController, NSTextFieldDelegate {
         homepageField.stringValue = settingsStore.settings.homepage
         restoreSwitch.isOn = settingsStore.settings.restoreSession
         verticalTabsSwitch.isOn = settingsStore.settings.usesVerticalTabs
+        askDownloadSwitch.isOn = settingsStore.settings.askDownloadLocation
+        refreshDefaultBrowser()
         refreshDownloadLabel()
         needsLayout()
     }
@@ -324,6 +381,27 @@ final class SettingsWindowController: NSWindowController, NSTextFieldDelegate {
     @objc private func verticalTabsChanged() {
         let value = verticalTabsSwitch.isOn
         settingsStore.update { $0.verticalTabs = value }
+    }
+
+    @objc private func askDownloadChanged() {
+        let value = askDownloadSwitch.isOn
+        settingsStore.update { $0.askDownloadLocation = value }
+    }
+
+    /// Opens the Website Data list as a sheet on Settings.
+    @objc func websiteDataPressed() {
+        guard let window, websiteDataSheet == nil else { return }
+        let sheet = BrowserWebsiteDataSheet(theme: theme)
+        websiteDataSheet = sheet
+        sheet.present(on: window) { [weak self] in
+            self?.websiteDataSheet = nil
+        }
+    }
+
+    @objc private func makeDefaultPressed() {
+        BrowserDefaultBrowser.makeDefault { [weak self] _ in
+            self?.refreshDefaultBrowser()
+        }
     }
 
     @objc private func downloadPressed() {

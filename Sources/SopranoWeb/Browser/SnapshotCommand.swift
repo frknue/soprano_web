@@ -22,6 +22,7 @@ enum SnapshotCommand {
         var showHints = false
         var showHelp = false
         var showPrompt = false
+        var privacy = PrivacyOptions()
     }
 
     enum OptionError: Error, CustomStringConvertible {
@@ -45,6 +46,7 @@ enum SnapshotCommand {
                                [--theme folio-paper|folio-ink|<id>] [--wait <seconds>]
                                [--sidebar history|bookmarks|downloads] [--find] [--settings]
                                [--vertical-tabs] [--collapsed] [--hints] [--help] [--prompt]
+    \(privacyUsage)
     """
 
     nonisolated static func parse(_ arguments: [String]) throws -> Options {
@@ -103,7 +105,9 @@ enum SnapshotCommand {
             case "--prompt":
                 options.showPrompt = true
             default:
-                throw OptionError.unknownOption(option)
+                guard try parsePrivacy(option, value: { try value(option) }, into: &options.privacy) else {
+                    throw OptionError.unknownOption(option)
+                }
             }
             index += 1
         }
@@ -194,6 +198,8 @@ enum SnapshotCommand {
             }
         }
 
+        runPrivacyScenario(options.privacy, controller: controller, wait: options.wait)
+
         if let section = options.sidebar {
             if history.entries.isEmpty {
                 history.record(url: "https://example.com", title: "Example Domain")
@@ -259,7 +265,10 @@ enum SnapshotCommand {
         }
 
         let captureWindow: NSWindow
-        if options.showSettings {
+        let privacySheet = makePrivacySheet(options.privacy, controller: controller)
+        if let privacySheet {
+            captureWindow = privacySheet
+        } else if options.showSettings {
             captureWindow = NSApp.windows.first { $0.title == "Settings" } ?? window
         } else if options.showHelp {
             captureWindow = NSApp.windows.first { $0.title == "Vimium Help" } ?? window
@@ -284,7 +293,7 @@ enum SnapshotCommand {
         base.addRepresentation(baseRep)
 
         var pageImage: NSImage?
-        if !options.showSettings, !options.showHelp, !options.showPrompt,
+        if privacySheet == nil, !options.showSettings, !options.showHelp, !options.showPrompt,
            !options.showFind, let webView = controller.selectedTab?.webView {
             var finished = false
             webView.takeSnapshot(with: nil) { image, _ in

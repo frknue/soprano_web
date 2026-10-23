@@ -97,6 +97,16 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         false
     }
 
+    /// Active downloads stop with resume data first, so they show as
+    /// interrupted (and resumable) after relaunch.
+    func applicationShouldTerminate(_ sender: NSApplication) -> NSApplication.TerminateReply {
+        guard let controller = windowController, controller.hasActiveDownloads else { return .terminateNow }
+        controller.interruptDownloadsForQuit {
+            NSApp.reply(toApplicationShouldTerminate: true)
+        }
+        return .terminateLater
+    }
+
     func applicationShouldHandleReopen(
         _ sender: NSApplication,
         hasVisibleWindows flag: Bool

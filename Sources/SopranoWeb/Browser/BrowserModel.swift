@@ -170,6 +170,9 @@ struct BrowserSettings: Codable, Equatable, Sendable {
     /// Nil means the default (on). Stored as an optional so older settings
     /// files without the key keep their other values and start vertical.
     var verticalTabs: Bool? = true
+    /// Show a save panel for every download instead of saving to
+    /// `downloadDirectory`.
+    var askDownloadLocation: Bool = false
 
     static let `default` = BrowserSettings()
 
@@ -202,6 +205,7 @@ extension BrowserSettings {
         downloadDirectory = (try? c.decodeIfPresent(String.self, forKey: .downloadDirectory)) ?? downloadDirectory
         // Missing stays nil, which `usesVerticalTabs` reads as on.
         verticalTabs = try? c.decodeIfPresent(Bool.self, forKey: .verticalTabs)
+        askDownloadLocation = (try? c.decodeIfPresent(Bool.self, forKey: .askDownloadLocation)) ?? askDownloadLocation
     }
 }
 
