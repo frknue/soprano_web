@@ -141,21 +141,26 @@ extension BrowserWindowController {
 
     // MARK: - Automation
 
+    /// Runs one CLI request. `--tab n` targets that tab without selecting it.
     func performAutomation(
-        command: String,
-        arguments: [String],
-        tabIndex: Int?,
+        _ request: BrowserCommandRequest,
         completion: @escaping (Result<String, Error>) -> Void
     ) {
-        if let tabIndex {
+        let command = request.command
+        let arguments = request.arguments
+        let target: BrowserTab?
+        if let tabIndex = request.tabIndex {
             guard tabIndex > 0, tabs.indices.contains(tabIndex - 1) else {
                 completion(.failure(BrowserAutomationError.invalidArguments(
                     "No tab \(tabIndex). Use `tabs` to list them."
                 )))
                 return
             }
-            selectTab(index: tabIndex - 1, focus: false)
+            target = tabs[tabIndex - 1]
+        } else {
+            target = selectedTab
         }
+        let noTab = BrowserAutomationError.unavailable("No tab is open.")
 
         switch command {
         case "goto", "navigate":
@@ -174,36 +179,36 @@ extension BrowserWindowController {
                 )))
                 return
             }
-            guard let tab = selectedTab else {
-                completion(.failure(BrowserAutomationError.unavailable("No tab is open.")))
+            guard let tab = target else {
+                completion(.failure(noTab))
                 return
             }
             navigate(tab, to: url)
             completion(.success(url.absoluteString))
 
-        case "back":
-            goBack()
-            completion(.success(selectedTab?.webView.url?.absoluteString ?? ""))
-
-        case "forward":
-            goForward()
-            completion(.success(selectedTab?.webView.url?.absoluteString ?? ""))
-
-        case "reload":
-            reload()
-            completion(.success(selectedTab?.webView.url?.absoluteString ?? ""))
+        case "back", "forward", "reload":
+            guard let tab = target else {
+                completion(.failure(noTab))
+                return
+            }
+            switch command {
+            case "back": goBack(tab)
+            case "forward": goForward(tab)
+            default: reload(tab)
+            }
+            completion(.success(tab.webView.url?.absoluteString ?? ""))
 
         case "url", "get-url":
-            if selectedTab?.isStartPage == true {
+            if target?.isStartPage == true {
                 completion(.success("about:start"))
             } else {
                 completion(.success(
-                    selectedTab?.failedURL ?? selectedTab?.webView.url?.absoluteString ?? ""
+                    target?.failedURL ?? target?.webView.url?.absoluteString ?? ""
                 ))
             }
 
         case "title":
-            completion(.success(selectedTab?.webView.title ?? ""))
+            completion(.success(target?.webView.title ?? ""))
 
         case "tabs":
             let lines = tabs.enumerated().map { index, tab in
@@ -231,7 +236,7 @@ extension BrowserWindowController {
             completion(.success("tab \(number)"))
 
         case "close-tab":
-            let number = arguments.first.flatMap(Int.init) ?? (selectedIndex + 1)
+            let number = arguments.first.flatMap(Int.init) ?? request.tabIndex ?? (selectedIndex + 1)
             guard tabs.indices.contains(number - 1) else {
                 completion(.failure(BrowserAutomationError.invalidArguments("No tab \(number).")))
                 return
@@ -240,8 +245,8 @@ extension BrowserWindowController {
             completion(.success("closed tab \(number)"))
 
         case "vimium":
-            guard let tab = selectedTab else {
-                completion(.failure(BrowserAutomationError.unavailable("No tab is open.")))
+            guard let tab = target else {
+                completion(.failure(noTab))
                 return
             }
             guard let keys = arguments.first else {
@@ -254,11 +259,35 @@ extension BrowserWindowController {
             completion(.success("vimium \(keys)"))
 
         case "wait-for-load":
-            guard let tab = selectedTab else {
-                completion(.failure(BrowserAutomationError.unavailable("No tab is open.")))
+            guard let tab = target else {
+                completion(.failure(noTab))
                 return
             }
-            waitForLoad(tab, completion: completion)
+            waitForLoad(
+                tab,
+                timeout: request.timeout ?? BrowserCommandRequest.defaultWaitTimeout,
+                completion: completion
+            )
+
+        case "wait-for":
+            guard let tab = target else {
+                completion(.failure(noTab))
+                return
+            }
+            guard arguments.count == 2,
+                  let condition = AutomationWaitCondition(kind: arguments[0], value: arguments[1])
+            else {
+                completion(.failure(BrowserAutomationError.invalidArguments(
+                    "Usage: soprano-web browser wait-for <selector|url|text> <value> [--timeout s]"
+                )))
+                return
+            }
+            waitFor(
+                condition,
+                in: tab,
+                timeout: request.timeout ?? BrowserCommandRequest.defaultWaitTimeout,
+                completion: completion
+            )
 
         case "focus-address":
             focusAddressBar()
@@ -269,6 +298,7 @@ extension BrowserWindowController {
                 BrowserAutomationScripts.snapshotScript(
                     interactiveOnly: arguments.contains("--interactive")
                 ),
+                in: target,
                 completion: completion
             )
 
@@ -279,7 +309,11 @@ extension BrowserWindowController {
                 )))
                 return
             }
-            evaluateJavaScript(arguments.joined(separator: " "), completion: completion)
+            guard let tab = target else {
+                completion(.failure(noTab))
+                return
+            }
+            evaluateAsync(arguments.joined(separator: " "), in: tab.webView, completion: completion)
 
         case "click", "dblclick", "focus", "hover", "check", "uncheck", "scroll-into-view":
             guard let selector = arguments.first else {
@@ -291,6 +325,7 @@ extension BrowserWindowController {
             evaluateAction(
                 BrowserAutomationScripts.elementActionScript(command: command, selector: selector),
                 selector: selector,
+                in: target,
                 completion: completion
             )
 
@@ -309,6 +344,7 @@ extension BrowserWindowController {
                     text: text
                 ),
                 selector: selector,
+                in: target,
                 completion: completion
             )
 
@@ -322,6 +358,7 @@ extension BrowserWindowController {
             evaluateAction(
                 BrowserAutomationScripts.keyPressScript(key: key),
                 selector: key,
+                in: target,
                 completion: completion
             )
 
@@ -339,6 +376,7 @@ extension BrowserWindowController {
                     attribute: arguments.count > 2 ? arguments[2] : nil
                 ),
                 selector: arguments[1],
+                in: target,
                 completion: completion
             )
 
@@ -352,6 +390,7 @@ extension BrowserWindowController {
             evaluateAction(
                 BrowserAutomationScripts.stateScript(kind: arguments[0], selector: arguments[1]),
                 selector: arguments[1],
+                in: target,
                 completion: completion
             )
 
@@ -362,7 +401,11 @@ extension BrowserWindowController {
                 )))
                 return
             }
-            takeScreenshot(path: path, completion: completion)
+            guard let tab = target else {
+                completion(.failure(noTab))
+                return
+            }
+            takeScreenshot(of: tab, path: path, completion: completion)
 
         default:
             completion(.failure(BrowserAutomationError.invalidArguments(
@@ -371,28 +414,51 @@ extension BrowserWindowController {
         }
     }
 
-    private func evaluateJavaScript(
-        _ script: String,
+    /// `eval`: the source runs as an expression when it parses as one, else
+    /// as an async function body. The result is awaited and returned as JSON
+    /// text; a throw or rejection fails with the JavaScript message.
+    private func evaluateAsync(
+        _ source: String,
+        in webView: WKWebView,
         completion: @escaping (Result<String, Error>) -> Void
     ) {
-        guard let webView = selectedTab?.webView else {
-            completion(.failure(BrowserAutomationError.unavailable("No tab is open.")))
-            return
-        }
-        webView.evaluateJavaScript(script) { value, error in
-            if let error {
-                completion(.failure(BrowserAutomationError.javascript(error.localizedDescription)))
-                return
+        webView.callAsyncJavaScript(
+            BrowserAutomationEval.expressionCheck(source),
+            arguments: [:],
+            in: nil,
+            in: .page
+        ) { check in
+            let isExpression: Bool
+            if case .success = check { isExpression = true } else { isExpression = false }
+            webView.callAsyncJavaScript(
+                BrowserAutomationEval.body(source, asExpression: isExpression),
+                arguments: [:],
+                in: nil,
+                in: .page
+            ) { result in
+                switch result {
+                case .success(let value):
+                    completion(.success(value as? String ?? "null"))
+                case .failure(let error):
+                    completion(.failure(BrowserAutomationError.javascript(
+                        Self.javaScriptMessage(error)
+                    )))
+                }
             }
-            completion(.success(BrowserAutomationScripts.printableJavaScriptValue(value)))
         }
+    }
+
+    static func javaScriptMessage(_ error: Error) -> String {
+        let error = error as NSError
+        return error.userInfo["WKJavaScriptExceptionMessage"] as? String ?? error.localizedDescription
     }
 
     private func evaluateString(
         _ script: String,
+        in tab: BrowserTab?,
         completion: @escaping (Result<String, Error>) -> Void
     ) {
-        guard let webView = selectedTab?.webView else {
+        guard let webView = tab?.webView else {
             completion(.failure(BrowserAutomationError.unavailable("No tab is open.")))
             return
         }
@@ -408,9 +474,10 @@ extension BrowserWindowController {
     private func evaluateAction(
         _ script: String,
         selector: String,
+        in tab: BrowserTab?,
         completion: @escaping (Result<String, Error>) -> Void
     ) {
-        guard let webView = selectedTab?.webView else {
+        guard let webView = tab?.webView else {
             completion(.failure(BrowserAutomationError.unavailable("No tab is open.")))
             return
         }
@@ -434,14 +501,11 @@ extension BrowserWindowController {
     }
 
     private func takeScreenshot(
+        of tab: BrowserTab,
         path: String,
         completion: @escaping (Result<String, Error>) -> Void
     ) {
-        guard let webView = selectedTab?.webView else {
-            completion(.failure(BrowserAutomationError.unavailable("No tab is open.")))
-            return
-        }
-        webView.takeSnapshot(with: nil) { image, error in
+        tab.webView.takeSnapshot(with: nil) { image, error in
             if let error {
                 completion(.failure(BrowserAutomationError.screenshot(error.localizedDescription)))
                 return

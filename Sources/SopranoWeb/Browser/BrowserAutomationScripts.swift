@@ -4,20 +4,6 @@ import Foundation
 /// match Soprano's browser pane, so an agent that already drives a Soprano
 /// browser can drive this app the same way.
 enum BrowserAutomationScripts {
-    static func printableJavaScriptValue(_ value: Any?) -> String {
-        guard let value else { return "null" }
-        if JSONSerialization.isValidJSONObject(value),
-           let data = try? JSONSerialization.data(
-               withJSONObject: value,
-               options: [.prettyPrinted, .sortedKeys]
-           ),
-           let json = String(data: data, encoding: .utf8)
-        {
-            return json
-        }
-        return String(describing: value)
-    }
-
     static func literal(_ value: String) -> String {
         guard let data = try? JSONEncoder().encode(value),
               let literal = String(data: data, encoding: .utf8)
