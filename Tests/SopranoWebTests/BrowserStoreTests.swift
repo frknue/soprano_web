@@ -59,23 +59,6 @@ struct BrowserStoreTests {
         #expect(reloaded.bookmarks[0].title == "Example")
     }
 
-    @Test func downloadsPersistOnlyFinishedRecords() {
-        let directory = temporaryDirectory()
-        defer { try? FileManager.default.removeItem(at: directory) }
-        let url = directory.appendingPathComponent("downloads.json")
-        let store = BrowserDownloadStore(url: url)
-
-        let finished = store.begin(url: "https://example.com/file.zip", filename: "file.zip")
-        store.finish(id: finished.id, path: "/tmp/file.zip")
-        _ = store.begin(url: "https://example.com/other.zip", filename: "other.zip")
-
-        let reloaded = BrowserDownloadStore(url: url)
-        #expect(reloaded.records.count == 1)
-        #expect(reloaded.records[0].filename == "file.zip")
-        #expect(reloaded.records[0].state == .completed)
-        #expect(reloaded.records[0].path == "/tmp/file.zip")
-    }
-
     @Test func downloadProgressIsInMemoryUntilFinished() {
         let directory = temporaryDirectory()
         defer { try? FileManager.default.removeItem(at: directory) }

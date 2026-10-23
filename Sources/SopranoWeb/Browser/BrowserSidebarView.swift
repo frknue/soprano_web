@@ -65,6 +65,8 @@ final class BrowserSidebarView: NSView, NSTableViewDataSource, NSTableViewDelega
     var onRemoveBookmark: ((UUID) -> Void)?
     var onRemoveDownload: ((UUID) -> Void)?
     var onCancelDownload: ((UUID) -> Void)?
+    var onResumeDownload: ((UUID) -> Void)?
+    var onRetryDownload: ((UUID) -> Void)?
     var onClear: ((BrowserSidebarSection) -> Void)?
     var onClose: (() -> Void)?
     /// The cached favicon for a history or bookmark address.
@@ -111,7 +113,7 @@ final class BrowserSidebarView: NSView, NSTableViewDataSource, NSTableViewDelega
             action: nil
         )
         self.footerButton = ChromeButton(
-            title: "Clear History",
+            title: "Clear History…",
             theme: theme,
             kind: .text,
             target: nil,
@@ -326,8 +328,8 @@ final class BrowserSidebarView: NSView, NSTableViewDataSource, NSTableViewDelega
         switch section {
         case .history:
             countLabel.stringValue = "\(rows.count) \(rows.count == 1 ? "page" : "pages")"
-            footerButton.title = "Clear History"
-            footerButton.isEnabled = !history.entries.isEmpty
+            footerButton.title = "Clear History…"
+            footerButton.isEnabled = true
             footerButton.isHidden = false
         case .bookmarks:
             countLabel.stringValue = "\(rows.count) \(rows.count == 1 ? "bookmark" : "bookmarks")"
@@ -365,6 +367,10 @@ final class BrowserSidebarView: NSView, NSTableViewDataSource, NSTableViewDelega
             ?? BrowserSidebarCellView(theme: theme)
         cell.identifier = identifier
         cell.configure(row: rows[row], theme: theme, favicon: rows[row].url.flatMap { faviconProvider?($0) })
+        cell.onAction = { [weak self] in
+            guard let self, row < self.rows.count else { return }
+            self.open(self.rows[row])
+        }
         return cell
     }
 
@@ -387,6 +393,10 @@ final class BrowserSidebarView: NSView, NSTableViewDataSource, NSTableViewDelega
         case let .download(download):
             if download.state == .completed, let path = download.path {
                 onOpenFile?(path)
+            } else if download.canResume {
+                onResumeDownload?(download.id)
+            } else if download.canRetry {
+                onRetryDownload?(download.id)
             }
         }
     }
@@ -438,6 +448,13 @@ final class BrowserSidebarView: NSView, NSTableViewDataSource, NSTableViewDelega
             } else if download.state == .inProgress {
                 menu.addItem(item("Cancel Download", #selector(menuCancel)))
                 menu.addItem(.separator())
+            } else if download.canRetry {
+                if download.canResume {
+                    menu.addItem(item("Resume Download", #selector(menuResume)))
+                }
+                menu.addItem(item("Retry Download", #selector(menuRetry)))
+                menu.addItem(item("Copy Link", #selector(menuCopyLink)))
+                menu.addItem(.separator())
             }
             menu.addItem(item("Remove from List", #selector(menuRemove)))
         }
@@ -466,6 +483,18 @@ final class BrowserSidebarView: NSView, NSTableViewDataSource, NSTableViewDelega
         onRevealFile?(path)
     }
 
+    @objc private func menuResume() {
+        guard contextRow >= 0, contextRow < rows.count else { return }
+        guard case let .download(download) = rows[contextRow] else { return }
+        onResumeDownload?(download.id)
+    }
+
+    @objc private func menuRetry() {
+        guard contextRow >= 0, contextRow < rows.count else { return }
+        guard case let .download(download) = rows[contextRow] else { return }
+        onRetryDownload?(download.id)
+    }
+
     @objc private func menuCancel() {
         guard contextRow >= 0, contextRow < rows.count else { return }
         guard case let .download(download) = rows[contextRow] else { return }
@@ -492,6 +521,17 @@ private final class BrowserSidebarCellView: NSTableCellView {
     private let subtitleLabel = NSTextField(labelWithString: "")
     private let dateLabel = NSTextField(labelWithString: "")
     private let progressBar = BrowserDownloadProgressBar()
+    /// Resume or Retry on a stopped download row.
+    private let actionButton = ChromeIconButton(
+        symbolName: "arrow.clockwise",
+        accessibilityLabel: "Retry Download",
+        pointSize: 11,
+        size: 22,
+        target: nil,
+        action: nil
+    )
+    private var actionConstraints: [NSLayoutConstraint] = []
+    var onAction: (() -> Void)?
     private var theme: AppTheme?
     private var isHovered = false
     private var trackingArea: NSTrackingArea?
@@ -527,6 +567,12 @@ private final class BrowserSidebarCellView: NSTableCellView {
         progressBar.isHidden = true
         addSubview(progressBar)
 
+        actionButton.translatesAutoresizingMaskIntoConstraints = false
+        actionButton.isHidden = true
+        actionButton.target = self
+        actionButton.action = #selector(actionPressed)
+        addSubview(actionButton)
+
         NSLayoutConstraint.activate([
             iconView.leadingAnchor.constraint(equalTo: leadingAnchor, constant: 16),
             iconView.centerYAnchor.constraint(equalTo: centerYAnchor),
@@ -539,7 +585,7 @@ private final class BrowserSidebarCellView: NSTableCellView {
 
             subtitleLabel.leadingAnchor.constraint(equalTo: titleLabel.leadingAnchor),
             subtitleLabel.topAnchor.constraint(equalTo: titleLabel.bottomAnchor, constant: 2),
-            subtitleLabel.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -16),
+            subtitleLabel.trailingAnchor.constraint(lessThanOrEqualTo: trailingAnchor, constant: -16),
 
             dateLabel.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -16),
             dateLabel.centerYAnchor.constraint(equalTo: titleLabel.centerYAnchor),
@@ -549,7 +595,14 @@ private final class BrowserSidebarCellView: NSTableCellView {
             progressBar.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -16),
             progressBar.bottomAnchor.constraint(equalTo: bottomAnchor, constant: -5),
             progressBar.heightAnchor.constraint(equalToConstant: 2),
+
+            actionButton.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -10),
+            actionButton.centerYAnchor.constraint(equalTo: centerYAnchor),
         ])
+        actionConstraints = [
+            titleLabel.trailingAnchor.constraint(lessThanOrEqualTo: actionButton.leadingAnchor, constant: -8),
+            subtitleLabel.trailingAnchor.constraint(lessThanOrEqualTo: actionButton.leadingAnchor, constant: -8),
+        ]
 
         apply(theme: theme)
     }
@@ -561,6 +614,7 @@ private final class BrowserSidebarCellView: NSTableCellView {
 
     func configure(row: BrowserSidebarRow, theme: AppTheme, favicon: NSImage? = nil) {
         apply(theme: theme)
+        setAction(nil)
         switch row {
         case let .history(entry):
             iconView.image = favicon ?? symbol("clock")
@@ -581,11 +635,45 @@ private final class BrowserSidebarCellView: NSTableCellView {
                 progressBar.progress = download.fractionCompleted
                 progressBar.isHidden = false
             } else {
-                subtitleLabel.stringValue = download.errorMessage ?? download.state.label
+                subtitleLabel.stringValue = Self.stoppedText(download)
                 progressBar.isHidden = true
+                if download.canResume {
+                    setAction(("play", "Resume Download"))
+                } else if download.canRetry {
+                    setAction(("arrow.clockwise", "Retry Download"))
+                }
             }
         }
         setAccessibilityLabel(titleLabel.stringValue)
+    }
+
+    private func setAction(_ action: (symbol: String, label: String)?) {
+        actionButton.isHidden = action == nil
+        dateLabel.isHidden = action != nil
+        if let action {
+            actionButton.setSymbol(action.symbol, accessibilityLabel: action.label, pointSize: 11)
+            actionButton.toolTip = action.label
+            if let theme {
+                actionButton.apply(theme: theme)
+            }
+        }
+        if action == nil {
+            NSLayoutConstraint.deactivate(actionConstraints)
+        } else {
+            NSLayoutConstraint.activate(actionConstraints)
+        }
+    }
+
+    @objc private func actionPressed() {
+        onAction?()
+    }
+
+    /// "Cancelled · 42% kept" for a resumable row, the error or state
+    /// otherwise.
+    private static func stoppedText(_ download: BrowserDownloadRecord) -> String {
+        let status = download.errorMessage ?? download.state.label
+        guard download.canResume, download.fractionCompleted > 0 else { return status }
+        return "\(status) · \(Int((download.fractionCompleted * 100).rounded()))% kept"
     }
 
     func apply(theme: AppTheme) {

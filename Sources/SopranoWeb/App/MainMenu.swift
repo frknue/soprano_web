@@ -120,6 +120,8 @@ final class MainMenuController: NSObject, NSMenuItemValidation {
         historyMenu.addItem(item("Show All History", #selector(showHistory), "y"))
         historyMenu.addItem(item("Show Bookmarks", #selector(showBookmarks), "b", [.command, .option]))
         historyMenu.addItem(item("Show Downloads", #selector(showDownloads), "l", [.command, .option]))
+        historyMenu.addItem(.separator())
+        historyMenu.addItem(item("Clear Browsing Data…", #selector(clearBrowsingData), "\u{8}", [.command, .shift]))
         add(historyMenu, to: main)
 
         let bookmarkMenu = NSMenu(title: "Bookmarks")
@@ -297,6 +299,10 @@ final class MainMenuController: NSObject, NSMenuItemValidation {
 
     @objc private func showDownloads() {
         controller()?.showSidebar(section: .downloads)
+    }
+
+    @objc private func clearBrowsingData() {
+        controller()?.showClearBrowsingData()
     }
 
     @objc private func bookmark() {

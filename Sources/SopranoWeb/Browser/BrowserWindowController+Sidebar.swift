@@ -147,20 +147,7 @@ extension BrowserWindowController {
     func clear(_ section: BrowserSidebarSection) {
         switch section {
         case .history:
-            guard !history.entries.isEmpty else { return }
-            let alert = NSAlert()
-            alert.messageText = "Clear History?"
-            alert.informativeText = "This removes every page from the history list. It cannot be undone."
-            alert.addButton(withTitle: "Clear")
-            alert.addButton(withTitle: "Cancel")
-            alert.alertStyle = .warning
-            if let window {
-                alert.beginSheetModal(for: window) { [weak self] response in
-                    if response == .alertFirstButtonReturn {
-                        self?.history.clear()
-                    }
-                }
-            }
+            showClearBrowsingData()
         case .downloads:
             downloads.clearFinished()
         case .bookmarks:

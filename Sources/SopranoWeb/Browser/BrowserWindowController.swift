@@ -331,6 +331,8 @@ final class BrowserWindowController: NSWindowController {
         sidebar.onRemoveBookmark = { [weak self] id in self?.bookmarks.remove(id: id) }
         sidebar.onRemoveDownload = { [weak self] id in self?.downloads.remove(id: id) }
         sidebar.onCancelDownload = { [weak self] id in self?.cancelDownload(id: id) }
+        sidebar.onResumeDownload = { [weak self] id in self?.resumeDownload(id: id) }
+        sidebar.onRetryDownload = { [weak self] id in self?.retryDownload(id: id) }
         sidebar.onClear = { [weak self] section in self?.clear(section) }
         sidebar.onClose = { [weak self] in self?.hideSidebar() }
 

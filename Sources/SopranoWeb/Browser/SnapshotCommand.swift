@@ -47,6 +47,7 @@ enum SnapshotCommand {
         var showWebsites = false
         var captureStatus: BrowserCaptureStatus?
         var pageTools = SnapshotPageTools.Options()
+        var privacy = PrivacyOptions()
     }
 
     enum OptionError: Error, CustomStringConvertible {
@@ -82,6 +83,7 @@ enum SnapshotCommand {
                                [--mute-after <seconds>] [--trace-audio] [--websites]
                                [--capture camera|microphone|camera-muted-mic|microphone-muted]
     \(SnapshotPageTools.usage)
+    \(privacyUsage)
     """
 
     nonisolated static func parse(_ arguments: [String]) throws -> Options {
@@ -218,7 +220,9 @@ enum SnapshotCommand {
             case _ where SnapshotPageTools.flags.contains(option):
                 SnapshotPageTools.parse(option, try value(option), into: &options.pageTools)
             default:
-                throw OptionError.unknownOption(option)
+                guard try parsePrivacy(option, value: { try value(option) }, into: &options.privacy) else {
+                    throw OptionError.unknownOption(option)
+                }
             }
             index += 1
         }
@@ -377,6 +381,8 @@ enum SnapshotCommand {
             }
         }
 
+        runPrivacyScenario(options.privacy, controller: controller, wait: options.wait)
+
         if let section = options.sidebar {
             if history.entries.isEmpty {
                 history.record(url: "https://example.com", title: "Example Domain")
@@ -501,7 +507,10 @@ enum SnapshotCommand {
         }
 
         let captureWindow: NSWindow
-        if options.showSettings {
+        let privacySheet = makePrivacySheet(options.privacy, controller: controller)
+        if let privacySheet {
+            captureWindow = privacySheet
+        } else if options.showSettings {
             captureWindow = settingsPreview?.window ?? window
         } else if options.showHelp {
             captureWindow = NSApp.windows.first { $0.title == "Vimium Help" } ?? window
@@ -543,8 +552,8 @@ enum SnapshotCommand {
         base.addRepresentation(baseRep)
 
         var pageImage: NSImage?
-        if !options.showSettings, !options.showHelp, !options.showPrompt, websitesSheet == nil,
-           !options.showFind, captureWindow === window,
+        if privacySheet == nil, !options.showSettings, !options.showHelp, !options.showPrompt,
+           websitesSheet == nil, !options.showFind, captureWindow === window,
            controller.selectedTab?.lifecycle.crashView == nil,
            let webView = controller.selectedTab?.webView {
             var finished = false

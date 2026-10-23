@@ -177,6 +177,9 @@ struct BrowserSettings: Codable, Equatable, Sendable {
     /// Settings ▸ "Allow websites to ask to send notifications". Off answers
     /// every request from a site without a remembered decision with "denied".
     var allowsNotificationRequests: Bool = true
+    /// Show a save panel for every download instead of saving to
+    /// `downloadDirectory`.
+    var askDownloadLocation: Bool = false
 
     static let `default` = BrowserSettings()
 
@@ -213,6 +216,7 @@ extension BrowserSettings {
         autoplay = (try? c.decodeIfPresent(AutoplayPolicy.self, forKey: .autoplay)) ?? autoplay
         allowsNotificationRequests = (try? c.decodeIfPresent(Bool.self, forKey: .allowsNotificationRequests))
             ?? allowsNotificationRequests
+        askDownloadLocation = (try? c.decodeIfPresent(Bool.self, forKey: .askDownloadLocation)) ?? askDownloadLocation
     }
 }
 

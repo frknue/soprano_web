@@ -122,6 +122,15 @@ extension BrowserWindowController {
                 self?.showSidebar(section: .downloads)
             },
             CommandItem(
+                id: "clear-browsing-data",
+                icon: "trash",
+                label: "Clear Browsing Data…",
+                description: "History, cookies, website data and cache by time range",
+                shortcut: ["⇧⌘⌫"]
+            ) { [weak self] in
+                self?.showClearBrowsingData()
+            },
+            CommandItem(
                 id: "settings",
                 icon: "gearshape",
                 label: "Settings…",
