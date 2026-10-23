@@ -3,6 +3,7 @@ import AppKit
 @MainActor
 final class MainMenuController: NSObject, NSMenuItemValidation {
     private let windowController: () -> BrowserWindowController?
+    private var shareUpdater: ShareMenuUpdater?
 
     init(windowController: @escaping () -> BrowserWindowController?) {
         self.windowController = windowController
@@ -24,6 +25,8 @@ final class MainMenuController: NSObject, NSMenuItemValidation {
         )
         appMenu.addItem(.separator())
         appMenu.addItem(item("Settings…", #selector(openSettings), "comma"))
+        appMenu.addItem(.separator())
+        appMenu.addItem(StandardMenus.services())
         appMenu.addItem(.separator())
         appMenu.addItem(
             withTitle: "Hide Soprano Web",
@@ -56,6 +59,16 @@ final class MainMenuController: NSObject, NSMenuItemValidation {
         fileMenu.addItem(.separator())
         fileMenu.addItem(item("Close Tab", #selector(closeTab), "w"))
         fileMenu.addItem(item("Close Window", #selector(closeWindow), "w", [.command, .shift]))
+        fileMenu.addItem(.separator())
+        fileMenu.addItem(item("Save As…", #selector(saveAs), "s", [.command, .shift]))
+        fileMenu.addItem(item("Export as PDF…", #selector(exportPDF), ""))
+        fileMenu.addItem(.separator())
+        fileMenu.addItem(ShareMenuUpdater.placeholder())
+        let shareUpdater = ShareMenuUpdater { [windowController] in windowController()?.shareItems ?? [] }
+        self.shareUpdater = shareUpdater
+        fileMenu.delegate = shareUpdater
+        fileMenu.addItem(.separator())
+        fileMenu.addItem(item("Print…", #selector(printPage), "p"))
         add(fileMenu, to: main)
 
         let editMenu = NSMenu(title: "Edit")
@@ -71,17 +84,22 @@ final class MainMenuController: NSObject, NSMenuItemValidation {
         editMenu.addItem(item("Find…", #selector(find), "f"))
         editMenu.addItem(item("Find Next", #selector(findNext), "g"))
         editMenu.addItem(item("Find Previous", #selector(findPrevious), "g", [.command, .shift]))
+        editMenu.addItem(.separator())
+        editMenu.addItem(StandardMenus.spellingAndGrammar())
+        editMenu.addItem(StandardMenus.substitutions())
+        editMenu.addItem(StandardMenus.transformations())
+        editMenu.addItem(StandardMenus.speech())
         add(editMenu, to: main)
 
         let viewMenu = NSMenu(title: "View")
-        viewMenu.addItem(item("Command Palette…", #selector(showPalette), "p"))
+        viewMenu.addItem(item("Command Palette…", #selector(showPalette), "p", [.command, .shift]))
         viewMenu.addItem(.separator())
         viewMenu.addItem(item("Back", #selector(back), "["))
         viewMenu.addItem(item("Forward", #selector(forward), "]"))
         viewMenu.addItem(item("Home", #selector(home), "h", [.command, .shift]))
         viewMenu.addItem(.separator())
         viewMenu.addItem(item("Reload", #selector(reload), "r"))
-        viewMenu.addItem(item("Stop", #selector(reload), "."))
+        viewMenu.addItem(item("Stop", #selector(stop), "."))
         viewMenu.addItem(.separator())
         viewMenu.addItem(item("Zoom In", #selector(zoomIn), "="))
         viewMenu.addItem(item("Zoom Out", #selector(zoomOut), "-"))
@@ -180,6 +198,10 @@ final class MainMenuController: NSObject, NSMenuItemValidation {
             return controller.canReopenClosedTab
         case #selector(bookmark):
             return controller.selectedTab.map { !$0.isStartPage && $0.webView.url != nil } ?? false
+        case #selector(printPage), #selector(exportPDF), #selector(saveAs):
+            return controller.canUsePageTools
+        case #selector(stop):
+            return controller.isSelectedTabLoading
         default:
             return true
         }
@@ -222,6 +244,10 @@ final class MainMenuController: NSObject, NSMenuItemValidation {
 
     @objc private func reload() {
         controller()?.reloadOrStop()
+    }
+
+    @objc private func stop() {
+        controller()?.stopLoading()
     }
 
     @objc private func home() {
@@ -296,6 +322,18 @@ final class MainMenuController: NSObject, NSMenuItemValidation {
         controller()?.showCommandPalette()
     }
 
+    @objc private func printPage() {
+        controller()?.printSelectedPage()
+    }
+
+    @objc private func exportPDF() {
+        controller()?.exportSelectedPageAsPDF()
+    }
+
+    @objc private func saveAs() {
+        controller()?.saveSelectedPageAs()
+    }
+
     @objc private func showShortcuts() {
         let alert = NSAlert()
         alert.messageText = "Soprano Web Shortcuts"
@@ -308,6 +346,8 @@ final class MainMenuController: NSObject, NSMenuItemValidation {
         ⌘D  Bookmark           ⌘Y  History
         ⌥⌘B Bookmarks          ⌥⌘L Downloads
         ⌘= / ⌘- / ⌘0  Zoom in / out / reset
+        ⌘P  Print              ⇧⌘S Save as
+        ⇧⌘P Command palette    ⌘.  Stop loading
         ⇧⌘B Right sidebar      ⌘S  Vertical sidebar
         """
         alert.addButton(withTitle: "OK")

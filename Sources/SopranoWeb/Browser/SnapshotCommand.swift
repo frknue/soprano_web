@@ -22,6 +22,7 @@ enum SnapshotCommand {
         var showHints = false
         var showHelp = false
         var showPrompt = false
+        var pageTools = SnapshotPageTools.Options()
     }
 
     enum OptionError: Error, CustomStringConvertible {
@@ -45,6 +46,7 @@ enum SnapshotCommand {
                                [--theme folio-paper|folio-ink|<id>] [--wait <seconds>]
                                [--sidebar history|bookmarks|downloads] [--find] [--settings]
                                [--vertical-tabs] [--collapsed] [--hints] [--help] [--prompt]
+    \(SnapshotPageTools.usage)
     """
 
     nonisolated static func parse(_ arguments: [String]) throws -> Options {
@@ -102,6 +104,8 @@ enum SnapshotCommand {
                 options.showHelp = true
             case "--prompt":
                 options.showPrompt = true
+            case _ where SnapshotPageTools.flags.contains(option):
+                SnapshotPageTools.parse(option, try value(option), into: &options.pageTools)
             default:
                 throw OptionError.unknownOption(option)
             }
@@ -238,6 +242,7 @@ enum SnapshotCommand {
                 before: min(deadline, Date().addingTimeInterval(0.05))
             )
         }
+        SnapshotPageTools.run(options.pageTools, controller: controller)
 
         if options.showHints {
             controller.selectedTab?.vimium?.startHintsForSnapshot()

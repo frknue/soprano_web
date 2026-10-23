@@ -73,7 +73,7 @@ final class BrowserToolbarView: NSView, NSTextFieldDelegate {
         verticalTabsButton.toolTip = "Vertical tabs (⌘S)"
         bookmarkButton.toolTip = "Bookmark this page (⌘D)"
         downloadsButton.toolTip = "Downloads (⌥⌘L)"
-        sidebarButton.toolTip = "Sidebar (⇧⌘H)"
+        sidebarButton.toolTip = "Sidebar (⇧⌘B)"
 
         addSubview(addressFrame)
         securityIcon.translatesAutoresizingMaskIntoConstraints = false

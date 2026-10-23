@@ -135,7 +135,7 @@ extension BrowserWindowController {
             relativeTo: window,
             commands: commands,
             placeholder: "Search commands…",
-            searchShortcut: ["⌘P"]
+            searchShortcut: ["⇧⌘P"]
         )
     }
 

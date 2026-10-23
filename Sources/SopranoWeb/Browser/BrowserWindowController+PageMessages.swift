@@ -24,6 +24,10 @@ extension BrowserWindowController {
         world: BrowserPageScript.World
     ) {
         switch (type, world) {
+        case ("print", .page):
+            printPageRequested(by: tab, frame: frame)
+        case ("contextMenu", .isolated):
+            tab.webView.contextMenuTarget = BrowserContextMenuTarget(body: body)
         default:
             return
         }

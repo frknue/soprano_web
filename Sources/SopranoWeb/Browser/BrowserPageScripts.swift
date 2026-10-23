@@ -30,7 +30,10 @@ struct BrowserPageScript: Sendable {
 @MainActor
 enum BrowserPageScripts {
     /// Every script `makeTab` installs, in order.
-    static let all: [BrowserPageScript] = []
+    static let all: [BrowserPageScript] = [
+        BrowserPageToolsScripts.printOverride,
+        BrowserPageToolsScripts.contextMenuCapture,
+    ]
 
     /// The message handler name, registered once per world.
     static let messageName = "sopranoWeb"
