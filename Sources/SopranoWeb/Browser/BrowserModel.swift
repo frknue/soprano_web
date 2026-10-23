@@ -170,6 +170,11 @@ struct BrowserSettings: Codable, Equatable, Sendable {
     /// Nil means the default (on). Stored as an optional so older settings
     /// files without the key keep their other values and start vertical.
     var verticalTabs: Bool? = true
+    /// Settings ▸ Autoplay; applies to tabs opened afterwards.
+    var autoplay: AutoplayPolicy = .stopMediaWithSound
+    /// Settings ▸ "Allow websites to ask to send notifications". Off answers
+    /// every request from a site without a remembered decision with "denied".
+    var allowsNotificationRequests: Bool = true
 
     static let `default` = BrowserSettings()
 
@@ -202,6 +207,9 @@ extension BrowserSettings {
         downloadDirectory = (try? c.decodeIfPresent(String.self, forKey: .downloadDirectory)) ?? downloadDirectory
         // Missing stays nil, which `usesVerticalTabs` reads as on.
         verticalTabs = try? c.decodeIfPresent(Bool.self, forKey: .verticalTabs)
+        autoplay = (try? c.decodeIfPresent(AutoplayPolicy.self, forKey: .autoplay)) ?? autoplay
+        allowsNotificationRequests = (try? c.decodeIfPresent(Bool.self, forKey: .allowsNotificationRequests))
+            ?? allowsNotificationRequests
     }
 }
 

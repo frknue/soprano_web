@@ -88,12 +88,14 @@ extension BrowserWindowController {
             vimium?.handle(event) ?? false
         }
         observe(tab)
+        installPermissions(on: tab)
         return tab
     }
 
     private func makeConfiguration() -> WKWebViewConfiguration {
         let configuration = WKWebViewConfiguration()
         configuration.websiteDataStore = .default()
+        configuration.mediaTypesRequiringUserActionForPlayback = settingsStore.settings.autoplay.mediaTypesRequiringUserAction
         configuration.defaultWebpagePreferences.allowsContentJavaScript = true
         configuration.preferences.isElementFullscreenEnabled = true
         configuration.preferences.javaScriptCanOpenWindowsAutomatically = true
@@ -320,20 +322,8 @@ extension BrowserWindowController {
 
     func toggleMute(_ tab: BrowserTab) {
         tab.isMuted.toggle()
-        tab.webView.evaluateJavaScript(Self.muteScript(tab.isMuted)) { _, _ in }
+        applyMute(tab)
         metadataChanged(tab)
-    }
-
-    private static func muteScript(_ muted: Bool) -> String {
-        """
-        (() => {
-          window.__sopranoMuted = \(muted);
-          document.querySelectorAll('audio, video').forEach((media) => {
-            media.muted = window.__sopranoMuted;
-          });
-          return window.__sopranoMuted;
-        })()
-        """
     }
 
     func tab(for webView: WKWebView) -> BrowserTab? {

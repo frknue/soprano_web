@@ -123,6 +123,7 @@ extension BrowserWindowController {
     }
 
     func updateChrome() {
+        updateCaptureIndicator()
         guard let tab = selectedTab else { return }
         let url = tab.webView.url
         let shownURL = tab.failedURL ?? url?.absoluteString ?? ""

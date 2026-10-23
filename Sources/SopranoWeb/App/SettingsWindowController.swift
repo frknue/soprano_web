@@ -21,6 +21,31 @@ final class SettingsWindowController: NSWindowController, NSTextFieldDelegate {
     private let downloadLabel = NSTextField(labelWithString: "")
     private let pathLabel = NSTextField(labelWithString: "")
     private var rowLabels: [NSTextField] = []
+    /// Presents Settings ▸ Websites as a sheet on the given window.
+    var onShowWebsites: ((NSWindow) -> Void)?
+    private lazy var autoplayButton: ChromeButton = {
+        let button = ChromeButton(title: settingsStore.settings.autoplay.name, theme: theme, kind: .standard)
+        button.target = self
+        button.action = #selector(autoplayPressed)
+        button.widthAnchor.constraint(equalToConstant: 200).isActive = true
+        return button
+    }()
+    private lazy var notificationsSwitch = ChromeSwitch(
+        isOn: settingsStore.settings.allowsNotificationRequests,
+        theme: theme,
+        target: self,
+        action: #selector(notificationsChanged)
+    )
+    private lazy var notificationsLabel = NSTextField(
+        wrappingLabelWithString: "Allow websites to ask to send notifications"
+    )
+    private lazy var websitesButton: ChromeButton = {
+        let button = ChromeButton(title: "Manage…", theme: theme, kind: .standard)
+        button.target = self
+        button.action = #selector(websitesPressed)
+        button.widthAnchor.constraint(equalToConstant: 200).isActive = true
+        return button
+    }()
 
     init(settingsStore: BrowserSettingsStore, themeManager: ThemeManager) {
         self.settingsStore = settingsStore
@@ -75,7 +100,7 @@ final class SettingsWindowController: NSWindowController, NSTextFieldDelegate {
             action: nil
         )
         let window = NSWindow(
-            contentRect: NSRect(x: 0, y: 0, width: 620, height: 472),
+            contentRect: NSRect(x: 0, y: 0, width: 620, height: 598),
             styleMask: [.titled, .closable, .fullSizeContentView],
             backing: .buffered,
             defer: false
@@ -87,7 +112,7 @@ final class SettingsWindowController: NSWindowController, NSTextFieldDelegate {
         window.titlebarAppearsTransparent = true
         window.isReleasedWhenClosed = false
         window.backgroundColor = theme.colors.bgBase
-        window.minSize = NSSize(width: 620, height: 472)
+        window.minSize = NSSize(width: 620, height: 598)
 
         rootView.wantsLayer = true
         window.contentView = rootView
@@ -151,6 +176,9 @@ final class SettingsWindowController: NSWindowController, NSTextFieldDelegate {
             [rowLabel("Restore session"), restoreSwitch],
             [rowLabel("Vertical tabs"), verticalTabsSwitch],
             [rowLabel("Downloads"), downloadRow()],
+            [rowLabel("Autoplay"), autoplayButton],
+            [rowLabel("Notifications"), notificationsRow()],
+            [rowLabel("Websites"), websitesButton],
         ]
         let grid = NSGridView(views: rows)
         grid.translatesAutoresizingMaskIntoConstraints = false
@@ -244,6 +272,10 @@ final class SettingsWindowController: NSWindowController, NSTextFieldDelegate {
         ChromeFieldView.styleEmbedded(homepageField, colors: theme.colors, font: ChromeFont.label)
         restoreSwitch.apply(theme: theme)
         verticalTabsSwitch.apply(theme: theme)
+        autoplayButton.apply(theme: theme)
+        notificationsSwitch.apply(theme: theme)
+        notificationsLabel.textColor = theme.colors.textPrimary
+        websitesButton.apply(theme: theme)
         downloadLabel.textColor = theme.colors.textPrimary
         pathLabel.textColor = theme.colors.textMuted
         pathLabel.stringValue = "Settings: \(settingsStore.displayPath)"
@@ -264,6 +296,8 @@ final class SettingsWindowController: NSWindowController, NSTextFieldDelegate {
         homepageField.stringValue = settingsStore.settings.homepage
         restoreSwitch.isOn = settingsStore.settings.restoreSession
         verticalTabsSwitch.isOn = settingsStore.settings.usesVerticalTabs
+        autoplayButton.title = settingsStore.settings.autoplay.name
+        notificationsSwitch.isOn = settingsStore.settings.allowsNotificationRequests
         refreshDownloadLabel()
         needsLayout()
     }
@@ -380,6 +414,47 @@ final class SettingsWindowController: NSWindowController, NSTextFieldDelegate {
 
     @objc private func menuItemSelected(_ sender: NSMenuItem) {
         (sender.representedObject as? MenuAction)?.run()
+    }
+}
+
+extension SettingsWindowController {
+    private func notificationsRow() -> NSView {
+        notificationsLabel.font = ChromeFont.label
+        // The control column is 200 pt wide; the sentence wraps beside the switch.
+        notificationsLabel.preferredMaxLayoutWidth = 200 - Chrome.switchSize.width - 8
+        notificationsSwitch.translatesAutoresizingMaskIntoConstraints = false
+        NSLayoutConstraint.activate([
+            notificationsSwitch.widthAnchor.constraint(equalToConstant: Chrome.switchSize.width),
+            notificationsSwitch.heightAnchor.constraint(equalToConstant: Chrome.switchSize.height),
+        ])
+        let stack = NSStackView(views: [notificationsSwitch, notificationsLabel])
+        stack.orientation = .horizontal
+        stack.spacing = 8
+        stack.alignment = .centerY
+        return stack
+    }
+
+    @objc private func autoplayPressed() {
+        let current = settingsStore.settings.autoplay
+        showMenu(
+            from: autoplayButton,
+            items: AutoplayPolicy.allCases.map { policy in
+                (policy.name, policy == current, { [weak self] in
+                    self?.settingsStore.update { $0.autoplay = policy }
+                    self?.refresh()
+                })
+            }
+        )
+    }
+
+    @objc private func notificationsChanged() {
+        let value = notificationsSwitch.isOn
+        settingsStore.update { $0.allowsNotificationRequests = value }
+    }
+
+    @objc private func websitesPressed() {
+        guard let window else { return }
+        onShowWebsites?(window)
     }
 }
 

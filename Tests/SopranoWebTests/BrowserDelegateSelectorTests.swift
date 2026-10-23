@@ -46,4 +46,16 @@ struct BrowserDelegateSelectorTests {
             NSSelectorFromString("userContentController:didReceiveScriptMessage:")
         ) != nil)
     }
+
+    @Test func notificationCenterExposesItsDelegateSelectors() {
+        for selector in [
+            "userNotificationCenter:willPresentNotification:withCompletionHandler:",
+            "userNotificationCenter:didReceiveNotificationResponse:withCompletionHandler:",
+        ] {
+            #expect(
+                class_getInstanceMethod(BrowserNotificationCenter.self, NSSelectorFromString(selector)) != nil,
+                "Missing notification delegate selector: \(selector)"
+            )
+        }
+    }
 }

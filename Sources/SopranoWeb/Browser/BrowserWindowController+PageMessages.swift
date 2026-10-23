@@ -24,6 +24,16 @@ extension BrowserWindowController {
         world: BrowserPageScript.World
     ) {
         switch (type, world) {
+        case ("mediaFrame", .isolated):
+            handleMediaFrame(body: body, tab: tab, frame: frame)
+        case ("mediaState", .isolated):
+            handleMediaState(body: body, tab: tab, frame: frame)
+        case ("notificationRequest", .page):
+            handleNotificationRequest(body: body, tab: tab, frame: frame)
+        case ("notificationShow", .page):
+            handleNotificationShow(body: body, tab: tab, frame: frame)
+        case ("notificationClose", .page):
+            handleNotificationClose(body: body, tab: tab, frame: frame)
         default:
             return
         }
