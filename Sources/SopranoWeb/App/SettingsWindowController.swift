@@ -18,6 +18,7 @@ final class SettingsWindowController: NSWindowController, NSTextFieldDelegate {
     private let homepageField = NSTextField()
     private let restoreSwitch: ChromeSwitch
     private let verticalTabsSwitch: ChromeSwitch
+    private let suggestionsSwitch: ChromeSwitch
     private let downloadLabel = NSTextField(labelWithString: "")
     private let pathLabel = NSTextField(labelWithString: "")
     private var rowLabels: [NSTextField] = []
@@ -74,8 +75,14 @@ final class SettingsWindowController: NSWindowController, NSTextFieldDelegate {
             target: nil,
             action: nil
         )
+        self.suggestionsSwitch = ChromeSwitch(
+            isOn: settingsStore.settings.includeSearchSuggestions,
+            theme: theme,
+            target: nil,
+            action: nil
+        )
         let window = NSWindow(
-            contentRect: NSRect(x: 0, y: 0, width: 620, height: 472),
+            contentRect: NSRect(x: 0, y: 0, width: 620, height: 514),
             styleMask: [.titled, .closable, .fullSizeContentView],
             backing: .buffered,
             defer: false
@@ -87,7 +94,7 @@ final class SettingsWindowController: NSWindowController, NSTextFieldDelegate {
         window.titlebarAppearsTransparent = true
         window.isReleasedWhenClosed = false
         window.backgroundColor = theme.colors.bgBase
-        window.minSize = NSSize(width: 620, height: 472)
+        window.minSize = NSSize(width: 620, height: 514)
 
         rootView.wantsLayer = true
         window.contentView = rootView
@@ -128,6 +135,8 @@ final class SettingsWindowController: NSWindowController, NSTextFieldDelegate {
         restoreSwitch.action = #selector(restoreChanged)
         verticalTabsSwitch.target = self
         verticalTabsSwitch.action = #selector(verticalTabsChanged)
+        suggestionsSwitch.target = self
+        suggestionsSwitch.action = #selector(suggestionsChanged)
 
         downloadLabel.translatesAutoresizingMaskIntoConstraints = false
         downloadLabel.font = ChromeFont.monoSmall
@@ -145,6 +154,7 @@ final class SettingsWindowController: NSWindowController, NSTextFieldDelegate {
 
         let rows: [[NSView]] = [
             [rowLabel("Search engine"), engineButton],
+            [rowLabel("Include search engine suggestions"), suggestionsSwitch],
             [rowLabel("Homepage"), homepageFrame],
             [rowLabel("Theme"), themeButton],
             [rowLabel("Appearance"), appearanceButton],
@@ -244,6 +254,7 @@ final class SettingsWindowController: NSWindowController, NSTextFieldDelegate {
         ChromeFieldView.styleEmbedded(homepageField, colors: theme.colors, font: ChromeFont.label)
         restoreSwitch.apply(theme: theme)
         verticalTabsSwitch.apply(theme: theme)
+        suggestionsSwitch.apply(theme: theme)
         downloadLabel.textColor = theme.colors.textPrimary
         pathLabel.textColor = theme.colors.textMuted
         pathLabel.stringValue = "Settings: \(settingsStore.displayPath)"
@@ -264,6 +275,7 @@ final class SettingsWindowController: NSWindowController, NSTextFieldDelegate {
         homepageField.stringValue = settingsStore.settings.homepage
         restoreSwitch.isOn = settingsStore.settings.restoreSession
         verticalTabsSwitch.isOn = settingsStore.settings.usesVerticalTabs
+        suggestionsSwitch.isOn = settingsStore.settings.includeSearchSuggestions
         refreshDownloadLabel()
         needsLayout()
     }
@@ -324,6 +336,11 @@ final class SettingsWindowController: NSWindowController, NSTextFieldDelegate {
     @objc private func verticalTabsChanged() {
         let value = verticalTabsSwitch.isOn
         settingsStore.update { $0.verticalTabs = value }
+    }
+
+    @objc private func suggestionsChanged() {
+        let value = suggestionsSwitch.isOn
+        settingsStore.update { $0.includeSearchSuggestions = value }
     }
 
     @objc private func downloadPressed() {

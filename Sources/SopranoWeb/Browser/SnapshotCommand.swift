@@ -22,6 +22,8 @@ enum SnapshotCommand {
         var showHints = false
         var showHelp = false
         var showPrompt = false
+        var address: String?
+        var focusAddress = false
     }
 
     enum OptionError: Error, CustomStringConvertible {
@@ -45,6 +47,7 @@ enum SnapshotCommand {
                                [--theme folio-paper|folio-ink|<id>] [--wait <seconds>]
                                [--sidebar history|bookmarks|downloads] [--find] [--settings]
                                [--vertical-tabs] [--collapsed] [--hints] [--help] [--prompt]
+                               [--address <text>] [--focus-address]
     """
 
     nonisolated static func parse(_ arguments: [String]) throws -> Options {
@@ -102,6 +105,10 @@ enum SnapshotCommand {
                 options.showHelp = true
             case "--prompt":
                 options.showPrompt = true
+            case "--address":
+                options.address = try value(option)
+            case "--focus-address":
+                options.focusAddress = true
             default:
                 throw OptionError.unknownOption(option)
             }
@@ -144,7 +151,10 @@ enum SnapshotCommand {
             appearance: .system,
             restoreSession: false,
             downloadDirectory: temp.path,
-            verticalTabs: options.verticalTabs
+            verticalTabs: options.verticalTabs,
+            // Never reach a search engine from the harness; `--address`
+            // injects canned suggestions instead.
+            includeSearchSuggestions: false
         )
         let settingsStore = BrowserSettingsStore(
             url: temp.appendingPathComponent("settings.json"),
@@ -184,6 +194,10 @@ enum SnapshotCommand {
         window.orderBack(nil)
         window.displayIfNeeded()
 
+        if options.focusAddress {
+            // Focused but not edited: the field must follow the navigation.
+            controller.focusAddressBar()
+        }
         if let value = options.url,
            let url = BrowserAddressResolver.resolve(value, searchEngine: .duckDuckGo)
         {
@@ -237,6 +251,19 @@ enum SnapshotCommand {
                 mode: .default,
                 before: min(deadline, Date().addingTimeInterval(0.05))
             )
+        }
+
+        if options.focusAddress, let tab = controller.selectedTab {
+            let editor = controller.toolbar.addressEditor
+            let shown = editor?.string ?? controller.toolbar.addressField.stringValue
+            let page = tab.failedURL ?? tab.webView.url?.absoluteString ?? ""
+            let follows = editor != nil && shown == page && !page.isEmpty
+            print("address-field: \(shown) (focused: \(editor != nil ? "yes" : "no"))")
+            print("address-follows-navigation: \(follows ? "yes" : "no") (page \(page))")
+        }
+        if let address = options.address {
+            AddressBarSnapshot.type(address, into: controller, history: history, bookmarks: bookmarks)
+            wait(0.3)
         }
 
         if options.showHints {
@@ -308,6 +335,14 @@ enum SnapshotCommand {
         if let pageImage, let webView = controller.selectedTab?.webView {
             let frame = webView.convert(webView.bounds, to: captureContent)
             pageImage.draw(in: frame)
+        }
+        let dropdown = controller.addressBar.dropdown
+        if !dropdown.isHidden, let rep = dropdown.bitmapImageRepForCachingDisplay(in: dropdown.bounds) {
+            // The dropdown floats over the page, which is drawn after the chrome.
+            dropdown.cacheDisplay(in: dropdown.bounds, to: rep)
+            let image = NSImage(size: dropdown.bounds.size)
+            image.addRepresentation(rep)
+            image.draw(in: dropdown.convert(dropdown.bounds, to: captureContent))
         }
         output.unlockFocus()
 

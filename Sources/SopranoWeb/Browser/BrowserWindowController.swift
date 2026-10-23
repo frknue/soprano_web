@@ -54,6 +54,7 @@ final class BrowserWindowController: NSWindowController {
     private var webLeadingToSidebar: NSLayoutConstraint!
 
     lazy var palette = CommandPalettePanel(themeManager: themeManager)
+    lazy var addressBar = BrowserAddressBarController(toolbar: toolbar, theme: theme)
     var globalVimiumMarks: [String: VimiumMark] = [:]
 
     var previousSelectedTabID: UUID?
@@ -141,6 +142,7 @@ final class BrowserWindowController: NSWindowController {
         window.contentView = rootView
         buildLayout()
         wireCallbacks()
+        installAddressBar()
         applyTheme(theme)
         restoreOrCreateTab()
         applyTabsLayout()
@@ -296,7 +298,7 @@ final class BrowserWindowController: NSWindowController {
         verticalTabsView.onNewTab = { [weak self] in self?.newTab(focusAddress: true) }
         toolbar.onToggleVerticalSidebar = { [weak self] in self?.toggleVerticalSidebar() }
 
-        toolbar.onSubmit = { [weak self] value in self?.navigateCurrent(to: value) }
+        toolbar.onSubmit = { [weak self] value in self?.submitAddress(value) }
         toolbar.onBookmark = { [weak self] in self?.toggleBookmark() }
         toolbar.onDownloads = { [weak self] in self?.toggleSidebar(section: .downloads) }
         toolbar.onSidebar = { [weak self] in
@@ -430,6 +432,7 @@ final class BrowserWindowController: NSWindowController {
         tabStrip.apply(theme: theme)
         verticalTabsView.apply(theme: theme)
         toolbar.apply(theme: theme)
+        addressBar.apply(theme: theme)
         findBar.apply(theme: theme)
         sidebar.apply(theme: theme)
         for tab in tabs where tab.isStartPage {
