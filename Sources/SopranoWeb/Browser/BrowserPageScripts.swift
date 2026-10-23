@@ -34,6 +34,9 @@ enum BrowserPageScripts {
         BrowserPopupScripts.blockedPopupReporter,
         BrowserTabChromeScripts.favicons,
         BrowserTabChromeScripts.linkHover,
+        BrowserPermissionScripts.mediaReporter,
+        BrowserPermissionScripts.mediaMute,
+        BrowserPermissionScripts.notifications,
     ]
 
     /// The message handler name, registered once per world.

@@ -140,6 +140,7 @@ extension BrowserWindowController {
     }
 
     func updateChrome() {
+        updateCaptureIndicator()
         guard let tab = selectedTab else { return }
         updateTabChrome(for: tab)
         let url = tab.webView.url

@@ -37,6 +37,15 @@ enum SnapshotCommand {
         var backURL: String?
         var address: String?
         var focusAddress = false
+        /// `--site-permission host:permission=allow|deny`, seeded before the window.
+        var sitePermissions: [(host: String, permission: SitePermission, decision: SitePermissionDecision)] = []
+        var autoplay: AutoplayPolicy?
+        /// Toggles the selected tab's mute this many seconds after the load starts.
+        var muteAfter: Double?
+        /// Prints the selected tab's audio/mute state on every change.
+        var traceAudio = false
+        var showWebsites = false
+        var captureStatus: BrowserCaptureStatus?
     }
 
     enum OptionError: Error, CustomStringConvertible {
@@ -68,6 +77,9 @@ enum SnapshotCommand {
                                [--tabs <url>,<url>…] [--tab-audio] [--hover <css selector>]
                                [--back-url <url>]
                                [--address <text>] [--focus-address]
+                               [--site-permission host:permission=allow|deny] [--autoplay <policy>]
+                               [--mute-after <seconds>] [--trace-audio] [--websites]
+                               [--capture camera|microphone|camera-muted-mic|microphone-muted]
     """
 
     nonisolated static func parse(_ arguments: [String]) throws -> Options {
@@ -164,6 +176,43 @@ enum SnapshotCommand {
                 options.address = try value(option)
             case "--focus-address":
                 options.focusAddress = true
+            case "--site-permission":
+                let value = try value(option)
+                let parts = value.split(separator: "=", maxSplits: 1).map(String.init)
+                guard parts.count == 2,
+                      let colon = parts[0].firstIndex(of: ":"),
+                      let decision = SitePermissionDecision(rawValue: parts[1])
+                else {
+                    throw OptionError.unknownOption("--site-permission \(value)")
+                }
+                options.sitePermissions.append((
+                    String(parts[0][..<colon]),
+                    SitePermission(rawValue: String(parts[0][parts[0].index(after: colon)...])),
+                    decision
+                ))
+            case "--autoplay":
+                let value = try value(option)
+                guard let policy = AutoplayPolicy(rawValue: value) else {
+                    throw OptionError.unknownOption("--autoplay \(value)")
+                }
+                options.autoplay = policy
+            case "--mute-after":
+                guard let seconds = Double(try value(option)), seconds >= 0 else {
+                    throw OptionError.missingValue("--mute-after")
+                }
+                options.muteAfter = seconds
+            case "--trace-audio":
+                options.traceAudio = true
+            case "--websites":
+                options.showWebsites = true
+            case "--capture":
+                switch try value(option) {
+                case "camera": options.captureStatus = BrowserCaptureStatus(camera: .active, microphone: .active)
+                case "camera-muted-mic": options.captureStatus = BrowserCaptureStatus(camera: .active, microphone: .muted)
+                case "microphone": options.captureStatus = BrowserCaptureStatus(camera: .off, microphone: .active)
+                case "microphone-muted": options.captureStatus = BrowserCaptureStatus(camera: .off, microphone: .muted)
+                default: throw OptionError.unknownOption("--capture")
+                }
             default:
                 throw OptionError.unknownOption(option)
             }
@@ -215,6 +264,9 @@ enum SnapshotCommand {
             url: temp.appendingPathComponent("settings.json"),
             settings: settings
         )
+        if let autoplay = options.autoplay {
+            settingsStore.update { $0.autoplay = autoplay }
+        }
         let themeManager = ThemeManager(themeId: options.theme, appearance: .system)
         let history = BrowserHistoryStore(url: temp.appendingPathComponent("history.json"))
         let bookmarks = BrowserBookmarkStore(url: temp.appendingPathComponent("bookmarks.json"))
@@ -224,6 +276,9 @@ enum SnapshotCommand {
         )
         if let host = options.allowPopups {
             sitePermissions.set(.popups, .allow, host: host)
+        }
+        for seed in options.sitePermissions {
+            sitePermissions.set(seed.permission, seed.decision, host: seed.host)
         }
         let session = BrowserSessionStore(url: temp.appendingPathComponent("session.json"))
         options.session.prepare(sessionURL: session.url)
@@ -250,7 +305,8 @@ enum SnapshotCommand {
             exit(1)
         }
         window.setContentSize(options.size)
-        window.setFrameOrigin(NSPoint(x: 120, y: 120))
+        (window as? BrowserWindow)?.allowsOffscreenFrame = true
+        window.setFrameOrigin(NSPoint(x: -20_000, y: -20_000))
         window.orderBack(nil)
         window.displayIfNeeded()
 
@@ -292,6 +348,30 @@ enum SnapshotCommand {
                 controller.metadataChanged(tabs[2])
             }
         }
+        if let tab = controller.selectedTab {
+            if let muteAfter = options.muteAfter {
+                Timer.scheduledTimer(withTimeInterval: muteAfter, repeats: false) { _ in
+                    MainActor.assumeIsolated { controller.toggleMute(tab) }
+                }
+            }
+            if options.traceAudio {
+                let start = Date()
+                var last: (Bool, Bool)?
+                Timer.scheduledTimer(withTimeInterval: 0.05, repeats: true) { _ in
+                    MainActor.assumeIsolated {
+                        let state = (tab.isPlayingAudio, tab.isMuted)
+                        guard last.map({ $0 != state }) ?? true else { return }
+                        last = state
+                        print(String(
+                            format: "audio t=%.2fs playing=%@ muted=%@",
+                            Date().timeIntervalSince(start),
+                            state.0 ? "true" : "false",
+                            state.1 ? "true" : "false"
+                        ))
+                    }
+                }
+            }
+        }
 
         if let section = options.sidebar {
             if history.entries.isEmpty {
@@ -326,9 +406,14 @@ enum SnapshotCommand {
         if options.showFind {
             controller.showFindBar()
         }
-        if options.showSettings {
-            controller.showSettings()
-        }
+        // Settings and Websites are built but never ordered in, so the
+        // harness puts nothing on screen.
+        let settingsPreview = options.showSettings
+            ? SettingsWindowController(settingsStore: settingsStore, themeManager: themeManager)
+            : nil
+        let websitesSheet = options.showWebsites
+            ? BrowserWebsitesSheet(store: sitePermissions, theme: themeManager.currentTheme)
+            : nil
 
         let deadline = Date().addingTimeInterval(options.wait)
         while Date() < deadline {
@@ -403,13 +488,16 @@ enum SnapshotCommand {
             ) { _, _ in }
             wait(0.5)
         }
+        if let status = options.captureStatus {
+            controller.toolbar.captureIndicator.update(status)
+        }
         if options.printTabs {
             printTabs(controller)
         }
 
         let captureWindow: NSWindow
         if options.showSettings {
-            captureWindow = NSApp.windows.first { $0.title == "Settings" } ?? window
+            captureWindow = settingsPreview?.window ?? window
         } else if options.showHelp {
             captureWindow = NSApp.windows.first { $0.title == "Vimium Help" } ?? window
         } else if options.showPrompt {
@@ -417,7 +505,24 @@ enum SnapshotCommand {
         } else {
             captureWindow = window
         }
-        guard let captureContent = captureWindow.contentView else {
+        if options.showSheet, let sheet = captureWindow.attachedSheet {
+            // NSAlert draws through a visual effect view the cached pass
+            // leaves blank, so the prompt is printed instead.
+            var texts: [String] = []
+            var queue = sheet.contentView.map { [$0] } ?? []
+            while !queue.isEmpty {
+                let view = queue.removeFirst()
+                if let field = view as? NSTextField, !field.stringValue.isEmpty {
+                    texts.append(field.stringValue)
+                } else if let button = view as? NSButton, !button.title.isEmpty {
+                    texts.append("[\(button.title)]")
+                }
+                queue.append(contentsOf: view.subviews)
+            }
+            print("sheet: " + texts.joined(separator: " | "))
+        }
+        let captured = websitesSheet?.window ?? captureWindow
+        guard let captureContent = captured.contentView else {
             FileHandle.standardError.write(Data("Snapshot could not find the window to capture.\n".utf8))
             exit(1)
         }
@@ -433,7 +538,7 @@ enum SnapshotCommand {
         base.addRepresentation(baseRep)
 
         var pageImage: NSImage?
-        if !options.showSettings, !options.showHelp, !options.showPrompt,
+        if !options.showSettings, !options.showHelp, !options.showPrompt, websitesSheet == nil,
            !options.showFind, captureWindow === window,
            controller.selectedTab?.lifecycle.crashView == nil,
            let webView = controller.selectedTab?.webView {

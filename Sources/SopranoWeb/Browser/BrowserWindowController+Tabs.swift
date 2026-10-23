@@ -89,12 +89,14 @@ extension BrowserWindowController {
         }
         observe(tab)
         observeSecurity(tab)
+        installPermissions(on: tab)
         return tab
     }
 
     private func makeConfiguration() -> WKWebViewConfiguration {
         let configuration = WKWebViewConfiguration()
         configuration.websiteDataStore = .default()
+        configuration.mediaTypesRequiringUserActionForPlayback = settingsStore.settings.autoplay.mediaTypesRequiringUserAction
         configuration.defaultWebpagePreferences.allowsContentJavaScript = true
         configuration.preferences = Self.makePreferences()
         configuration.applicationNameForUserAgent = BrowserUserAgent.applicationName
@@ -309,20 +311,8 @@ extension BrowserWindowController {
 
     func toggleMute(_ tab: BrowserTab) {
         tab.isMuted.toggle()
-        tab.webView.evaluateJavaScript(Self.muteScript(tab.isMuted)) { _, _ in }
+        applyMute(tab)
         metadataChanged(tab)
-    }
-
-    private static func muteScript(_ muted: Bool) -> String {
-        """
-        (() => {
-          window.__sopranoMuted = \(muted);
-          document.querySelectorAll('audio, video').forEach((media) => {
-            media.muted = window.__sopranoMuted;
-          });
-          return window.__sopranoMuted;
-        })()
-        """
     }
 
     func tab(for webView: WKWebView) -> BrowserTab? {

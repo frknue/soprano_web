@@ -26,6 +26,9 @@ final class BrowserToolbarView: NSView, NSTextFieldDelegate {
     /// blocked control). Hidden arranged views take no space.
     let addressAccessories = NSStackView()
     private let progressBar = BrowserProgressBar()
+    /// Camera/microphone in-use mark between the address field and the
+    /// bookmark button; hidden while the selected tab captures nothing.
+    let captureIndicator: BrowserCaptureIndicator
     private let verticalTabsButton: ChromeIconButton
     private let bookmarkButton: ChromeIconButton
     private let downloadsButton: ChromeIconButton
@@ -72,6 +75,7 @@ final class BrowserToolbarView: NSView, NSTextFieldDelegate {
             target: nil,
             action: nil
         )
+        self.captureIndicator = BrowserCaptureIndicator(theme: theme)
         super.init(frame: .zero)
         translatesAutoresizingMaskIntoConstraints = false
         wantsLayer = true
@@ -128,6 +132,7 @@ final class BrowserToolbarView: NSView, NSTextFieldDelegate {
 
         addSubview(progressBar)
         progressBar.translatesAutoresizingMaskIntoConstraints = false
+        addSubview(captureIndicator)
 
         NSLayoutConstraint.activate([
             verticalTabsButton.leadingAnchor.constraint(equalTo: leadingAnchor, constant: 10),
@@ -143,7 +148,7 @@ final class BrowserToolbarView: NSView, NSTextFieldDelegate {
             navigationControls.leadingAnchor.constraint(equalTo: verticalTabsButton.trailingAnchor, constant: 4),
             navigationControls.centerYAnchor.constraint(equalTo: verticalTabsButton.centerYAnchor),
             addressFrame.leadingAnchor.constraint(equalTo: navigationControls.trailingAnchor, constant: 8),
-            addressFrame.trailingAnchor.constraint(equalTo: bookmarkButton.leadingAnchor, constant: -8),
+            addressFrame.trailingAnchor.constraint(equalTo: captureIndicator.leadingAnchor, constant: -6),
             addressFrame.centerYAnchor.constraint(equalTo: verticalTabsButton.centerYAnchor),
             addressFrame.heightAnchor.constraint(equalToConstant: Chrome.fieldHeight),
 
@@ -162,6 +167,9 @@ final class BrowserToolbarView: NSView, NSTextFieldDelegate {
             progressBar.trailingAnchor.constraint(equalTo: trailingAnchor),
             progressBar.bottomAnchor.constraint(equalTo: bottomAnchor),
             progressBar.heightAnchor.constraint(equalToConstant: 2),
+
+            captureIndicator.trailingAnchor.constraint(equalTo: bookmarkButton.leadingAnchor, constant: -2),
+            captureIndicator.centerYAnchor.constraint(equalTo: sidebarButton.centerYAnchor),
         ])
 
         apply(theme: theme)
@@ -192,6 +200,7 @@ final class BrowserToolbarView: NSView, NSTextFieldDelegate {
             ]
         )
         progressBar.color = theme.colors.blue
+        captureIndicator.apply(theme: theme)
         refreshSecurityIcon()
         needsDisplay = true
     }

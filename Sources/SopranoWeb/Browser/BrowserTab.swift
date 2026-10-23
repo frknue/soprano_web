@@ -42,6 +42,8 @@ final class BrowserTab {
     var favicon: NSImage?
     var isPlayingAudio = false
     var isMuted = false
+    /// Audio reports and media frames; see `BrowserTabMedia`.
+    let media = BrowserTabMedia()
     var vimium: VimiumController?
     var lifecycle = BrowserTabLifecycle()
     var observations: [NSKeyValueObservation] = []

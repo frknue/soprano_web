@@ -27,6 +27,7 @@ final class BrowserWindowController: NSWindowController {
     var staleStartTabs: Set<UUID> = []
     let connectionSecurity = BrowserConnectionSecurity()
     private var settingsWindowController: SettingsWindowController?
+    let permissionsState = BrowserPermissionsState()
 
     private(set) var theme: AppTheme
     private var usesVerticalTabs: Bool
@@ -350,6 +351,7 @@ final class BrowserWindowController: NSWindowController {
         settingsStore.onChange = { [weak self] settings in
             self?.applySettings(settings)
         }
+        setUpPermissions()
     }
 
     func viewNeedsLayout() {
@@ -395,12 +397,14 @@ final class BrowserWindowController: NSWindowController {
             settingsStore: settingsStore,
             themeManager: themeManager
         )
+        controller.onShowWebsites = { [weak self] parent in self?.showWebsites(on: parent) }
         settingsWindowController = controller
         controller.showWindow(nil)
         controller.window?.makeKeyAndOrderFront(nil)
     }
 
     private func applySettings(_ settings: BrowserSettings) {
+        refreshPermissionStates()
         let themeChanged = themeManager.themeId != settings.themeID
             || themeManager.appearance != settings.appearance
         if themeChanged {

@@ -91,21 +91,7 @@ extension BrowserWindowController: WKUIDelegate {
         initiatedBy frame: WKFrameInfo,
         type: WKMediaCaptureType
     ) async -> WKPermissionDecision {
-        await withCheckedContinuation { continuation in
-            let name: String = switch type {
-            case .camera: "camera"
-            case .microphone: "microphone"
-            case .cameraAndMicrophone: "camera and microphone"
-            @unknown default: "camera and microphone"
-            }
-            presentDialog(
-                title: origin.host,
-                message: "This page wants to use the \(name).",
-                confirm: "Allow"
-            ) { allowed in
-                continuation.resume(returning: allowed ? .grant : .deny)
-            }
-        }
+        await decideMediaCapture(origin: origin, type: type)
     }
 
     private func presentDialog(

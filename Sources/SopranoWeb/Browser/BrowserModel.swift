@@ -172,6 +172,11 @@ struct BrowserSettings: Codable, Equatable, Sendable {
     var verticalTabs: Bool? = true
     /// Ask the search engine for suggestions while typing in the address bar.
     var includeSearchSuggestions: Bool = true
+    /// Settings ▸ Autoplay; applies to tabs opened afterwards.
+    var autoplay: AutoplayPolicy = .stopMediaWithSound
+    /// Settings ▸ "Allow websites to ask to send notifications". Off answers
+    /// every request from a site without a remembered decision with "denied".
+    var allowsNotificationRequests: Bool = true
 
     static let `default` = BrowserSettings()
 
@@ -205,6 +210,9 @@ extension BrowserSettings {
         // Missing stays nil, which `usesVerticalTabs` reads as on.
         verticalTabs = try? c.decodeIfPresent(Bool.self, forKey: .verticalTabs)
         includeSearchSuggestions = (try? c.decodeIfPresent(Bool.self, forKey: .includeSearchSuggestions)) ?? includeSearchSuggestions
+        autoplay = (try? c.decodeIfPresent(AutoplayPolicy.self, forKey: .autoplay)) ?? autoplay
+        allowsNotificationRequests = (try? c.decodeIfPresent(Bool.self, forKey: .allowsNotificationRequests))
+            ?? allowsNotificationRequests
     }
 }
 
