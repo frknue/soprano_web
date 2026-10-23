@@ -42,6 +42,10 @@ extension BrowserWindowController {
             handleNotificationShow(body: body, tab: tab, frame: frame)
         case ("notificationClose", .page):
             handleNotificationClose(body: body, tab: tab, frame: frame)
+        case ("print", .page):
+            printPageRequested(by: tab, frame: frame)
+        case ("contextMenu", .isolated):
+            tab.webView.contextMenuTarget = BrowserContextMenuTarget(body: body)
         default:
             return
         }

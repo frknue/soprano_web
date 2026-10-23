@@ -46,6 +46,7 @@ enum SnapshotCommand {
         var traceAudio = false
         var showWebsites = false
         var captureStatus: BrowserCaptureStatus?
+        var pageTools = SnapshotPageTools.Options()
     }
 
     enum OptionError: Error, CustomStringConvertible {
@@ -80,6 +81,7 @@ enum SnapshotCommand {
                                [--site-permission host:permission=allow|deny] [--autoplay <policy>]
                                [--mute-after <seconds>] [--trace-audio] [--websites]
                                [--capture camera|microphone|camera-muted-mic|microphone-muted]
+    \(SnapshotPageTools.usage)
     """
 
     nonisolated static func parse(_ arguments: [String]) throws -> Options {
@@ -213,6 +215,8 @@ enum SnapshotCommand {
                 case "microphone-muted": options.captureStatus = BrowserCaptureStatus(camera: .off, microphone: .muted)
                 default: throw OptionError.unknownOption("--capture")
                 }
+            case _ where SnapshotPageTools.flags.contains(option):
+                SnapshotPageTools.parse(option, try value(option), into: &options.pageTools)
             default:
                 throw OptionError.unknownOption(option)
             }
@@ -452,6 +456,7 @@ enum SnapshotCommand {
             AddressBarSnapshot.type(address, into: controller, history: history, bookmarks: bookmarks)
             wait(0.3)
         }
+        SnapshotPageTools.run(options.pageTools, controller: controller)
 
         if options.showHints {
             controller.selectedTab?.vimium?.startHintsForSnapshot()

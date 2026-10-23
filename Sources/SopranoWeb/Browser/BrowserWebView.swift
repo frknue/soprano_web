@@ -6,6 +6,17 @@ import WebKit
 final class BrowserWebView: WKWebView {
     var keyHandler: ((NSEvent) -> Bool)?
 
+    /// Set by the isolated-world `contextmenu` listener just before WebKit
+    /// opens a context menu; consumed by `willOpenMenu(_:with:)`.
+    var contextMenuTarget: BrowserContextMenuTarget?
+
+    override func willOpenMenu(_ menu: NSMenu, with event: NSEvent) {
+        super.willOpenMenu(menu, with: event)
+        let target = contextMenuTarget.flatMap { $0.isFresh(at: Date()) ? $0 : nil }
+        contextMenuTarget = nil
+        (uiDelegate as? BrowserWindowController)?.prepareContextMenu(menu, target: target, in: self)
+    }
+
     override func keyDown(with event: NSEvent) {
         if keyHandler?(event) == true {
             return
