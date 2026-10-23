@@ -7,17 +7,34 @@ struct BrowserHistoryEntry: Codable, Identifiable, Equatable, Sendable {
     var url: String
     var title: String
     var visitedAt: Date
+    /// True when the visit started from the address bar. Nil in entries
+    /// written before the flag existed; read as not typed.
+    var typed: Bool?
 
-    init(id: UUID = UUID(), url: String, title: String, visitedAt: Date = Date()) {
+    init(id: UUID = UUID(), url: String, title: String, visitedAt: Date = Date(), typed: Bool? = nil) {
         self.id = id
         self.url = url
         self.title = title
         self.visitedAt = visitedAt
+        self.typed = typed
     }
 
     var displayTitle: String {
         let trimmed = title.trimmingCharacters(in: .whitespacesAndNewlines)
         return trimmed.isEmpty ? url : trimmed
+    }
+}
+
+extension BrowserHistoryEntry {
+    /// `typed` is optional and lossy: a missing or malformed flag keeps the
+    /// visit and reads as not typed.
+    init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        id = try c.decode(UUID.self, forKey: .id)
+        url = try c.decode(String.self, forKey: .url)
+        title = try c.decode(String.self, forKey: .title)
+        visitedAt = try c.decode(Date.self, forKey: .visitedAt)
+        typed = (try? c.decodeIfPresent(Bool.self, forKey: .typed)) ?? nil
     }
 }
 
@@ -38,7 +55,7 @@ final class BrowserHistoryStore {
         entries.sort { $0.visitedAt > $1.visitedAt }
     }
 
-    func record(url address: String, title: String, at date: Date = Date()) {
+    func record(url address: String, title: String, at date: Date = Date(), typed: Bool = false) {
         guard let parsed = URL(string: address),
               ["http", "https", "file"].contains(parsed.scheme?.lowercased() ?? "")
         else { return }
@@ -49,12 +66,16 @@ final class BrowserHistoryStore {
         {
             entries[0].title = title
             entries[0].visitedAt = date
+            if typed { entries[0].typed = true }
             onChange?()
             persist()
             return
         }
 
-        entries.insert(BrowserHistoryEntry(url: address, title: title, visitedAt: date), at: 0)
+        entries.insert(
+            BrowserHistoryEntry(url: address, title: title, visitedAt: date, typed: typed ? true : nil),
+            at: 0
+        )
         if entries.count > limit {
             entries.removeLast(entries.count - limit)
         }

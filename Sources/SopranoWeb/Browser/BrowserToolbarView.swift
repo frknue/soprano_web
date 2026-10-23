@@ -12,8 +12,13 @@ final class BrowserToolbarView: NSView, NSTextFieldDelegate {
     var onToggleVerticalSidebar: (() -> Void)?
     var onAddressFocusChange: ((Bool) -> Void)?
     var onSecurityInfo: (() -> Void)?
+    /// The user changed the address text; carries the field's new text.
+    var onAddressTextChange: ((String) -> Void)?
+    /// A key command while the address is edited (↑, ↓, Return, Esc, …);
+    /// returns true when handled.
+    var onAddressCommand: ((Selector) -> Bool)?
 
-    let addressField = NSTextField()
+    let addressField = BrowserAddressField()
     let navigationControls: BrowserNavigationControls
     private let addressFrame: ChromeFieldView
     private let securityIcon = NSImageView()
@@ -28,6 +33,10 @@ final class BrowserToolbarView: NSView, NSTextFieldDelegate {
 
     private var theme: AppTheme
     private var security: BrowserSecurityState = .local
+    /// The selected page's address, as last passed to `setAddress`.
+    private(set) var pageAddress = ""
+    /// The user changed the text since the field was last focused.
+    private(set) var isAddressEdited = false
 
     static let preferredHeight: CGFloat = 46
 
@@ -99,6 +108,7 @@ final class BrowserToolbarView: NSView, NSTextFieldDelegate {
         addressField.delegate = self
         addressField.target = self
         addressField.action = #selector(addressSubmitted)
+        addressField.onFocus = { [weak self] in self?.isAddressEdited = false }
         addressField.translatesAutoresizingMaskIntoConstraints = false
         addressFrame.addSubview(addressField)
         addressAccessories.orientation = .horizontal
@@ -187,8 +197,10 @@ final class BrowserToolbarView: NSView, NSTextFieldDelegate {
     }
 
     func setAddress(_ text: String, security: BrowserSecurityState) {
-        if !isEditingAddress {
-            addressField.stringValue = text
+        pageAddress = text
+        // A focused field follows navigation until the user edits it.
+        if !isEditingAddress || !isAddressEdited {
+            showAddress(text)
         }
         self.security = security
         refreshSecurityIcon()
@@ -220,6 +232,28 @@ final class BrowserToolbarView: NSView, NSTextFieldDelegate {
         }
     }
 
+    /// The address frame the suggestion dropdown hangs from.
+    var addressAnchorView: NSView {
+        addressFrame
+    }
+
+    var addressEditor: NSTextView? {
+        addressField.currentEditor() as? NSTextView
+    }
+
+    /// Drops the user's edits and shows the page's address again, selected.
+    func revertAddress() {
+        isAddressEdited = false
+        showAddress(pageAddress)
+        addressEditor?.selectAll(nil)
+    }
+
+    private func showAddress(_ text: String) {
+        guard addressField.stringValue != text else { return }
+        addressField.stringValue = text
+        addressEditor?.selectAll(nil)
+    }
+
     func setSidebarToggle(_ on: Bool) {
         sidebarButton.isToggledOn = on
     }
@@ -242,7 +276,17 @@ final class BrowserToolbarView: NSView, NSTextFieldDelegate {
     func controlTextDidEndEditing(_ notification: Notification) {
         addressFrame.isFocused = false
         addressFrame.needsDisplay = true
+        isAddressEdited = false
         onAddressFocusChange?(false)
+    }
+
+    func controlTextDidChange(_ notification: Notification) {
+        isAddressEdited = true
+        onAddressTextChange?(addressField.stringValue)
+    }
+
+    func control(_ control: NSControl, textView: NSTextView, doCommandBy commandSelector: Selector) -> Bool {
+        onAddressCommand?(commandSelector) ?? false
     }
 
     @objc private func addressSubmitted() {

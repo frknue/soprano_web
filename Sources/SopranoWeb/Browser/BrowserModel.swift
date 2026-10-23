@@ -170,6 +170,8 @@ struct BrowserSettings: Codable, Equatable, Sendable {
     /// Nil means the default (on). Stored as an optional so older settings
     /// files without the key keep their other values and start vertical.
     var verticalTabs: Bool? = true
+    /// Ask the search engine for suggestions while typing in the address bar.
+    var includeSearchSuggestions: Bool = true
 
     static let `default` = BrowserSettings()
 
@@ -202,6 +204,7 @@ extension BrowserSettings {
         downloadDirectory = (try? c.decodeIfPresent(String.self, forKey: .downloadDirectory)) ?? downloadDirectory
         // Missing stays nil, which `usesVerticalTabs` reads as on.
         verticalTabs = try? c.decodeIfPresent(Bool.self, forKey: .verticalTabs)
+        includeSearchSuggestions = (try? c.decodeIfPresent(Bool.self, forKey: .includeSearchSuggestions)) ?? includeSearchSuggestions
     }
 }
 

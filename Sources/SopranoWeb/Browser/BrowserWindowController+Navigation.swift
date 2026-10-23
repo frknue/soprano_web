@@ -202,13 +202,14 @@ extension BrowserWindowController: WKNavigationDelegate {
             for: tab,
             result: .success(webView.url?.absoluteString ?? "")
         )
+        let typed = addressBar.consumeTypedNavigation(tabID: tab.id)
         if tab.suppressNextHistoryRecord {
             tab.suppressNextHistoryRecord = false
         } else if !tab.isStartPage,
                   let address = webView.url?.absoluteString,
                   ["http", "https", "file"].contains(webView.url?.scheme?.lowercased() ?? "")
         {
-            history.record(url: address, title: tab.displayTitle)
+            history.record(url: address, title: tab.displayTitle, typed: typed)
         }
         if tab.id == selectedTab?.id {
             updateChrome()
