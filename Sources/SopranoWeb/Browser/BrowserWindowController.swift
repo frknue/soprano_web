@@ -62,6 +62,7 @@ final class BrowserWindowController: NSWindowController {
     lazy var vimiumPromptPanel = VimiumPromptPanel(theme: theme)
     lazy var vimiumTextPanel = VimiumTextPanel(theme: theme)
     var vimiumToastView: NSView?
+    var popupBlockedControl: ChromeButton?
 
     static let verticalSidebarCollapsedKey = "verticalSidebarCollapsed"
 

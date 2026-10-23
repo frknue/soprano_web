@@ -12,6 +12,7 @@ struct BrowserDelegateSelectorTests {
             "webView:decidePolicyForNavigationAction:decisionHandler:",
             "webView:decidePolicyForNavigationResponse:decisionHandler:",
             "webView:createWebViewWithConfiguration:forNavigationAction:windowFeatures:",
+            "webViewDidClose:",
             "webView:runJavaScriptAlertPanelWithMessage:initiatedByFrame:completionHandler:",
             "webView:runJavaScriptConfirmPanelWithMessage:initiatedByFrame:completionHandler:",
             "webView:runJavaScriptTextInputPanelWithPrompt:defaultText:initiatedByFrame:completionHandler:",

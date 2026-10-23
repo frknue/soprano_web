@@ -42,6 +42,7 @@ final class BrowserTab {
     var isMuted = false
     var vimium: VimiumController?
     var observations: [NSKeyValueObservation] = []
+    var links = BrowserTabLinks()
 
     init(
         id: UUID = UUID(),

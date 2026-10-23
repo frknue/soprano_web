@@ -14,6 +14,9 @@ final class BrowserToolbarView: NSView, NSTextFieldDelegate {
     let addressField = NSTextField()
     private let addressFrame: ChromeFieldView
     private let securityIcon = NSImageView()
+    /// Status controls at the address field's trailing edge (the pop-up
+    /// blocked control). Hidden arranged views take no space.
+    let addressAccessories = NSStackView()
     private let progressBar = BrowserProgressBar()
     private let verticalTabsButton: ChromeIconButton
     private let bookmarkButton: ChromeIconButton
@@ -91,6 +94,12 @@ final class BrowserToolbarView: NSView, NSTextFieldDelegate {
         addressField.action = #selector(addressSubmitted)
         addressField.translatesAutoresizingMaskIntoConstraints = false
         addressFrame.addSubview(addressField)
+        addressAccessories.orientation = .horizontal
+        addressAccessories.spacing = 4
+        addressAccessories.translatesAutoresizingMaskIntoConstraints = false
+        addressAccessories.setHuggingPriority(.required, for: .horizontal)
+        addressAccessories.setContentCompressionResistancePriority(.required, for: .horizontal)
+        addressFrame.addSubview(addressAccessories)
         ChromeFieldView.styleEmbedded(addressField, colors: theme.colors, font: ChromeFont.row)
         addressField.placeholderAttributedString = NSAttributedString(
             string: "Search or enter address",
@@ -125,7 +134,9 @@ final class BrowserToolbarView: NSView, NSTextFieldDelegate {
             securityIcon.heightAnchor.constraint(equalToConstant: 14),
 
             addressField.leadingAnchor.constraint(equalTo: securityIcon.trailingAnchor, constant: 6),
-            addressField.trailingAnchor.constraint(equalTo: addressFrame.trailingAnchor, constant: -8),
+            addressField.trailingAnchor.constraint(equalTo: addressAccessories.leadingAnchor, constant: -4),
+            addressAccessories.trailingAnchor.constraint(equalTo: addressFrame.trailingAnchor, constant: -4),
+            addressAccessories.centerYAnchor.constraint(equalTo: addressFrame.centerYAnchor),
             addressField.centerYAnchor.constraint(equalTo: addressFrame.centerYAnchor),
 
             progressBar.leadingAnchor.constraint(equalTo: leadingAnchor),

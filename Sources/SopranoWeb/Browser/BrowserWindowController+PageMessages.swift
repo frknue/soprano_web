@@ -24,6 +24,8 @@ extension BrowserWindowController {
         world: BrowserPageScript.World
     ) {
         switch (type, world) {
+        case ("popupBlocked", .page):
+            receivePopupBlocked(body: body, tab: tab)
         default:
             return
         }

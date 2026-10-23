@@ -8,13 +8,7 @@ extension BrowserWindowController: WKUIDelegate {
         for navigationAction: WKNavigationAction,
         windowFeatures: WKWindowFeatures
     ) -> WKWebView? {
-        let tab = makeTab(configuration: configuration)
-        tab.isStartPage = false
-        tabs.append(tab)
-        selectTab(index: tabs.count - 1, focus: true)
-        updateTabStrip()
-        saveSession()
-        return tab.webView
+        createLinkWebView(from: webView, configuration: configuration, navigationAction: navigationAction)
     }
 
     func webView(

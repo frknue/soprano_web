@@ -22,6 +22,11 @@ enum SnapshotCommand {
         var showHints = false
         var showHelp = false
         var showPrompt = false
+        var allowPopups: String?
+        var extraTabs: [String] = []
+        var clicks: [Click] = []
+        var showSheet = false
+        var printTabs = false
     }
 
     enum OptionError: Error, CustomStringConvertible {
@@ -45,6 +50,8 @@ enum SnapshotCommand {
                                [--theme folio-paper|folio-ink|<id>] [--wait <seconds>]
                                [--sidebar history|bookmarks|downloads] [--find] [--settings]
                                [--vertical-tabs] [--collapsed] [--hints] [--help] [--prompt]
+                               [--allow-popups <host>] [--tab <url>]... [--sheet] [--print-tabs]
+                               [--click [cmd-|shift-cmd-|middle-]X,Y]...
     """
 
     nonisolated static func parse(_ arguments: [String]) throws -> Options {
@@ -102,6 +109,20 @@ enum SnapshotCommand {
                 options.showHelp = true
             case "--prompt":
                 options.showPrompt = true
+            case "--allow-popups":
+                options.allowPopups = try value(option)
+            case "--tab":
+                options.extraTabs.append(try value(option))
+            case "--click":
+                let value = try value(option)
+                guard let click = Click.parse(value) else {
+                    throw OptionError.unknownOption("--click \(value)")
+                }
+                options.clicks.append(click)
+            case "--sheet":
+                options.showSheet = true
+            case "--print-tabs":
+                options.printTabs = true
             default:
                 throw OptionError.unknownOption(option)
             }
@@ -157,6 +178,9 @@ enum SnapshotCommand {
         let sitePermissions = BrowserSitePermissionStore(
             url: temp.appendingPathComponent("site-permissions.json")
         )
+        if let host = options.allowPopups {
+            sitePermissions.set(.popups, .allow, host: host)
+        }
         let session = BrowserSessionStore(url: temp.appendingPathComponent("session.json"))
 
         let defaultsSuite = "com.soprano.web.snapshot.\(UUID().uuidString)"
@@ -192,6 +216,9 @@ enum SnapshotCommand {
             } else if let tab = controller.selectedTab {
                 controller.navigate(tab, to: url)
             }
+        }
+        for url in options.extraTabs {
+            controller.newTab(url: url, select: false)
         }
 
         if let section = options.sidebar {
@@ -257,6 +284,15 @@ enum SnapshotCommand {
             controller.presentVimiumPrompt(initialText: "", newTab: false)
             wait(0.35)
         }
+        for click in options.clicks {
+            if let webView = controller.selectedTab?.webView {
+                perform(click, in: webView)
+            }
+            wait(options.wait)
+        }
+        if options.printTabs {
+            printTabs(controller)
+        }
 
         let captureWindow: NSWindow
         if options.showSettings {
@@ -265,6 +301,8 @@ enum SnapshotCommand {
             captureWindow = NSApp.windows.first { $0.title == "Vimium Help" } ?? window
         } else if options.showPrompt {
             captureWindow = NSApp.windows.first { $0 is VimiumPromptPanel } ?? window
+        } else if options.showSheet, let sheet = window.attachedSheet {
+            captureWindow = sheet
         } else {
             captureWindow = window
         }
@@ -285,7 +323,7 @@ enum SnapshotCommand {
 
         var pageImage: NSImage?
         if !options.showSettings, !options.showHelp, !options.showPrompt,
-           !options.showFind, let webView = controller.selectedTab?.webView {
+           !options.showFind, captureWindow === window, let webView = controller.selectedTab?.webView {
             var finished = false
             webView.takeSnapshot(with: nil) { image, _ in
                 pageImage = image

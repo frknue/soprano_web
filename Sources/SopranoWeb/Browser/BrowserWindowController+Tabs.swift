@@ -95,8 +95,8 @@ extension BrowserWindowController {
         let configuration = WKWebViewConfiguration()
         configuration.websiteDataStore = .default()
         configuration.defaultWebpagePreferences.allowsContentJavaScript = true
-        configuration.preferences.isElementFullscreenEnabled = true
-        configuration.preferences.javaScriptCanOpenWindowsAutomatically = true
+        configuration.preferences = Self.makePreferences()
+        configuration.applicationNameForUserAgent = BrowserUserAgent.applicationName
         configuration.setURLSchemeHandler(
             BrowserStartPageSchemeHandler { [weak self] in self?.startPageHTML() ?? "" },
             forURLScheme: BrowserStartPageSchemeHandler.scheme

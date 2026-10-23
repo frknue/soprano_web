@@ -138,6 +138,7 @@ extension BrowserWindowController {
         toolbar.setDownloadsToggle(isSidebarVisible && sidebarSection == .downloads)
         window?.title = tab.isStartPage ? "New Tab" : tab.displayTitle
         window?.representedURL = tab.isStartPage ? nil : url
+        updatePopupBlockedControl()
     }
 }
 
@@ -164,6 +165,7 @@ extension BrowserWindowController: WKNavigationDelegate {
     func webView(_ webView: WKWebView, didCommit navigation: WKNavigation!) {
         guard let tab = tab(for: webView) else { return }
         webView.pageZoom = tab.zoom
+        linksDidCommit(tab)
         tab.isStartPage = webView.url?.scheme?.lowercased() == BrowserStartPageSchemeHandler.scheme
         if tab.id == selectedTab?.id {
             updateChrome()
@@ -273,17 +275,17 @@ extension BrowserWindowController: WKNavigationDelegate {
             return
         }
         let scheme = url.scheme?.lowercased() ?? ""
-        if !["http", "https", "file", "about", "blob", "data", BrowserStartPageSchemeHandler.scheme]
-            .contains(scheme)
-        {
-            if navigationAction.targetFrame?.isMainFrame != false {
-                NSWorkspace.shared.open(url)
-            }
+        if !BrowserWebSchemes.isWeb(url) {
+            openExternalLink(url, from: webView)
             decisionHandler(.cancel)
             return
         }
         if navigationAction.shouldPerformDownload {
             decisionHandler(.download)
+            return
+        }
+        if handleLinkNavigation(navigationAction, in: webView) {
+            decisionHandler(.cancel)
             return
         }
         if navigationAction.targetFrame?.isMainFrame != false,
