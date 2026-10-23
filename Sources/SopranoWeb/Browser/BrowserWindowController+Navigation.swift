@@ -118,7 +118,6 @@ extension BrowserWindowController {
         tab.failedURL = nil
         tab.pendingURL = BrowserStartPageSchemeHandler.url.absoluteString
         tab.isShowingErrorPage = false
-        tab.suppressNextHistoryRecord = true
         tab.zoom = tab.zoom == 0 ? 1 : tab.zoom
         tab.webView.pageZoom = tab.zoom
         tab.webView.load(URLRequest(url: BrowserStartPageSchemeHandler.url))
@@ -184,6 +183,11 @@ extension BrowserWindowController: WKNavigationDelegate {
         webView.pageZoom = tab.zoom
         linksDidCommit(tab)
         tab.isStartPage = webView.url?.scheme?.lowercased() == BrowserStartPageSchemeHandler.scheme
+        if !tab.isStartPage, tab.errorMessage == nil, tab.certificateInterstitial == nil {
+            // A committed page doesn't inherit the previous title ("New Tab"
+            // after the start page); the title observer fills in its own.
+            tab.title = webView.title?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        }
         if tab.id == selectedTab?.id {
             updateChrome()
         }

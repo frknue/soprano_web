@@ -114,6 +114,7 @@ extension BrowserWindowController {
         let tab = makeTab()
         tab.title = state.url == nil && state.title.isEmpty ? "New Tab" : state.title
         tab.zoom = state.zoom
+        tab.favicon = state.url.flatMap { faviconStore.image(forAddress: $0) }
         tab.isStartPage = false
         tab.lifecycle.pendingRestore = state
         tabs.insert(tab, at: min(max(0, index ?? tabs.count), tabs.count))
@@ -229,6 +230,7 @@ extension BrowserWindowController {
     func closeTab(id: UUID) {
         guard let index = tabs.firstIndex(where: { $0.id == id }) else { return }
         let tab = tabs[index]
+        let selectedID = selectedTab?.id
         closedTabs.push(tab.state)
         discardTab(tab)
         tabs.remove(at: index)
@@ -241,8 +243,14 @@ extension BrowserWindowController {
             return
         }
 
-        let next = min(index, tabs.count - 1)
-        selectTab(index: next, focus: true)
+        if let selectedID, selectedID != id,
+           let kept = tabs.firstIndex(where: { $0.id == selectedID })
+        {
+            // Closing a background tab leaves the selected tab selected.
+            selectTab(index: kept, focus: false)
+        } else {
+            selectTab(index: min(index, tabs.count - 1), focus: true)
+        }
         updateTabStrip()
         saveSession()
     }

@@ -149,9 +149,11 @@ enum BrowserFaviconSelection {
     }
 }
 
-/// Favicons by host: an in-memory cache over 32 px PNGs in
-/// `<support>/Favicons/`. Icons are fetched with an ephemeral, cookie-less
-/// session, so a favicon request never carries or sets site cookies.
+/// Favicons: each page gets the icon its own `<link rel=icon>` list resolves
+/// to, and the last icon per host is kept as a fallback (in memory and as
+/// 32 px PNGs in `<support>/Favicons/`) for rows and tabs that have not
+/// reported yet. Icons are fetched with an ephemeral, cookie-less session,
+/// so a favicon request never carries or sets site cookies.
 @MainActor
 final class BrowserFaviconStore {
     let directory: URL
@@ -161,10 +163,11 @@ final class BrowserFaviconStore {
     private let session: URLSession
     private var images: [String: NSImage] = [:]
     private var missing: Set<String> = []
-    /// The source list each host was last resolved from this launch, so the
-    /// same page does not refetch on every navigation.
-    private var resolvedSources: [String: [URL]] = [:]
-    private var inFlight: [String: (sources: [URL], completions: [(NSImage?) -> Void])] = [:]
+    /// The icon each reported source list resolved to this launch (nil when
+    /// every source failed), so two pages on one host keep their own icons
+    /// and the same page does not refetch on every navigation.
+    private var resolvedIcons: [[URL]: NSImage?] = [:]
+    private var inFlight: [[URL]: [(NSImage?) -> Void]] = [:]
 
     nonisolated static let maximumBytes = 1_048_576
 
@@ -197,8 +200,8 @@ final class BrowserFaviconStore {
     }
 
     /// Fetches the best icon among `candidates` (then `/favicon.ico`) for
-    /// the page's host and caches it. `completion` gets the host's icon:
-    /// the new one, or the cached one when every source failed.
+    /// the page and caches it as its host's icon. `completion` gets the
+    /// page's own icon, or the host's cached one when every source failed.
     func resolve(
         pageURL: URL,
         candidates: [BrowserFaviconCandidate],
@@ -209,16 +212,15 @@ final class BrowserFaviconStore {
             return
         }
         let sources = BrowserFaviconSelection.orderedSources(candidates, pageURL: pageURL)
-        if resolvedSources[key] == sources {
-            completion(image(forKey: key))
+        if let resolved = resolvedIcons[sources] {
+            completion(resolved ?? image(forKey: key))
             return
         }
-        if var pending = inFlight[key], pending.sources == sources {
-            pending.completions.append(completion)
-            inFlight[key] = pending
+        if inFlight[sources] != nil {
+            inFlight[sources]?.append(completion)
             return
         }
-        inFlight[key] = (sources, [completion])
+        inFlight[sources] = [completion]
         let session = session
         Task { @MainActor [weak self] in
             var result: (NSImage, Data)?
@@ -234,9 +236,8 @@ final class BrowserFaviconStore {
     }
 
     private func finish(key: String, sources: [URL], result: (NSImage, Data)?) {
-        guard let pending = inFlight[key], pending.sources == sources else { return }
-        inFlight[key] = nil
-        resolvedSources[key] = sources
+        let completions = inFlight.removeValue(forKey: sources) ?? []
+        resolvedIcons.updateValue(result?.0, forKey: sources)
         if let (image, png) = result {
             images[key] = image
             missing.remove(key)
@@ -244,9 +245,9 @@ final class BrowserFaviconStore {
             try? png.write(to: fileURL(forKey: key), options: .atomic)
             onChange?()
         }
-        let image = image(forKey: key)
-        for completion in pending.completions {
-            completion(image)
+        let icon = result?.0 ?? image(forKey: key)
+        for completion in completions {
+            completion(icon)
         }
     }
 

@@ -360,6 +360,8 @@ final class MainMenuController: NSObject, NSMenuItemValidation {
         ⌘P  Print              ⇧⌘S Save as
         ⇧⌘P Command palette    ⌘.  Stop loading
         ⇧⌘B Right sidebar      ⌘S  Vertical sidebar
+        ⌘1–⌘8 Tab by number    ⌘9  Last tab
+        ⇧⌘⌫ Clear browsing data
         """
         alert.addButton(withTitle: "OK")
         alert.runModal()
