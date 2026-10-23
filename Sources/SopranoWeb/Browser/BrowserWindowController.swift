@@ -14,7 +14,7 @@ final class BrowserWindowController: NSWindowController {
 
     var tabs: [BrowserTab] = []
     var selectedIndex = 0
-    var closedTabs: [BrowserTabState] = []
+    var closedTabs = BrowserClosedTabStack()
     var downloadsByRecord: [UUID: WKDownload] = [:]
     var progressTimer: Timer?
     var loadWaiters: [UUID: LoadWaiter] = [:]

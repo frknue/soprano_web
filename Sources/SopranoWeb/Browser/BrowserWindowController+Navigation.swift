@@ -31,6 +31,8 @@ extension BrowserWindowController {
             NSWorkspace.shared.open(url)
             return
         }
+        tab.lifecycle.pendingRestore = nil
+        if reloadCrashedEntry(tab, at: url) { return }
         tab.isStartPage = false
         tab.errorMessage = nil
         tab.failedURL = nil
@@ -96,6 +98,7 @@ extension BrowserWindowController {
     }
 
     func loadStartPage(_ tab: BrowserTab) {
+        tab.lifecycle.pendingRestore = nil
         tab.isStartPage = true
         tab.errorMessage = nil
         tab.failedURL = nil
@@ -163,6 +166,7 @@ extension BrowserWindowController: WKNavigationDelegate {
 
     func webView(_ webView: WKWebView, didCommit navigation: WKNavigation!) {
         guard let tab = tab(for: webView) else { return }
+        clearCrashState(tab)
         webView.pageZoom = tab.zoom
         tab.isStartPage = webView.url?.scheme?.lowercased() == BrowserStartPageSchemeHandler.scheme
         if tab.id == selectedTab?.id {
@@ -224,7 +228,8 @@ extension BrowserWindowController: WKNavigationDelegate {
     }
 
     func webViewWebContentProcessDidTerminate(_ webView: WKWebView) {
-        webView.reload()
+        guard let tab = tab(for: webView) else { return }
+        handleWebContentCrash(tab)
     }
 
     private func handleFailure(_ webView: WKWebView, error: Error) {

@@ -41,6 +41,7 @@ final class BrowserTab {
     var isPlayingAudio = false
     var isMuted = false
     var vimium: VimiumController?
+    var lifecycle = BrowserTabLifecycle()
     var observations: [NSKeyValueObservation] = []
 
     init(
@@ -59,11 +60,21 @@ final class BrowserTab {
         self.suppressNextHistoryRecord = suppressNextHistoryRecord
     }
 
+    /// A restored tab that has not loaded yet: its web view is empty and
+    /// `lifecycle.pendingRestore` holds the saved address and history.
+    var isRestorePending: Bool {
+        lifecycle.pendingRestore != nil
+    }
+
     var state: BrowserTabState {
-        BrowserTabState(
-            url: isStartPage ? nil : (failedURL ?? webView.url?.absoluteString),
+        BrowserTabState.snapshot(
+            pending: lifecycle.pendingRestore,
+            isStartPage: isStartPage,
+            failedURL: failedURL,
+            currentURL: webView.url?.absoluteString,
             title: title,
-            zoom: zoom
+            zoom: zoom,
+            interactionState: { webView.interactionState as? Data }
         )
     }
 
@@ -72,7 +83,9 @@ final class BrowserTab {
         if !trimmed.isEmpty {
             return trimmed
         }
-        if let host = webView.url?.host, !host.isEmpty {
+        if let host = (webView.url ?? lifecycle.pendingRestore?.url.flatMap(URL.init(string:)))?.host,
+           !host.isEmpty
+        {
             return host
         }
         return isStartPage ? "New Tab" : "Untitled"
@@ -82,7 +95,11 @@ final class BrowserTab {
         BrowserTabItem(
             id: id,
             title: displayTitle,
-            url: isStartPage ? nil : (failedURL.flatMap(URL.init(string:)) ?? webView.url),
+            url: isStartPage
+                ? nil
+                : (failedURL.flatMap(URL.init(string:))
+                    ?? webView.url
+                    ?? lifecycle.pendingRestore?.url.flatMap(URL.init(string:))),
             favicon: favicon,
             isLoading: webView.isLoading,
             isPlayingAudio: isPlayingAudio,

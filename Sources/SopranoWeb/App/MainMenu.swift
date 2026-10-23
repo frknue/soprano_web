@@ -124,7 +124,8 @@ final class MainMenuController: NSObject, NSMenuItemValidation {
         windowMenu.addItem(item("Previous Tab", #selector(previousTab), "\t", [.control, .shift]))
         windowMenu.addItem(.separator())
         for number in 1...9 {
-            let select = item("Tab \(number)", #selector(selectTabNumber(_:)), "\(number)")
+            let title = number == 9 ? "Last Tab" : "Tab \(number)"
+            let select = item(title, #selector(selectTabNumber(_:)), "\(number)")
             select.tag = number
             windowMenu.addItem(select)
         }
@@ -285,7 +286,11 @@ final class MainMenuController: NSObject, NSMenuItemValidation {
     }
 
     @objc private func selectTabNumber(_ sender: NSMenuItem) {
-        controller()?.selectTab(number: sender.tag)
+        if sender.tag == 9 {
+            controller()?.selectLastTab()
+        } else {
+            controller()?.selectTab(number: sender.tag)
+        }
     }
 
     @objc private func openSettings() {
