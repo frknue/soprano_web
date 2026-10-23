@@ -67,6 +67,8 @@ final class BrowserSidebarView: NSView, NSTableViewDataSource, NSTableViewDelega
     var onCancelDownload: ((UUID) -> Void)?
     var onClear: ((BrowserSidebarSection) -> Void)?
     var onClose: (() -> Void)?
+    /// The cached favicon for a history or bookmark address.
+    var faviconProvider: ((String) -> NSImage?)?
 
     private(set) var section: BrowserSidebarSection = .history
     private var theme: AppTheme
@@ -362,7 +364,7 @@ final class BrowserSidebarView: NSView, NSTableViewDataSource, NSTableViewDelega
         let cell = tableView.makeView(withIdentifier: identifier, owner: self) as? BrowserSidebarCellView
             ?? BrowserSidebarCellView(theme: theme)
         cell.identifier = identifier
-        cell.configure(row: rows[row], theme: theme)
+        cell.configure(row: rows[row], theme: theme, favicon: rows[row].url.flatMap { faviconProvider?($0) })
         return cell
     }
 
@@ -557,16 +559,16 @@ private final class BrowserSidebarCellView: NSTableCellView {
         fatalError("init(coder:) is not supported")
     }
 
-    func configure(row: BrowserSidebarRow, theme: AppTheme) {
+    func configure(row: BrowserSidebarRow, theme: AppTheme, favicon: NSImage? = nil) {
         apply(theme: theme)
         switch row {
         case let .history(entry):
-            iconView.image = symbol("clock")
+            iconView.image = favicon ?? symbol("clock")
             titleLabel.stringValue = entry.displayTitle
             subtitleLabel.stringValue = entry.url
             dateLabel.stringValue = Self.date(entry.visitedAt)
         case let .bookmark(bookmark):
-            iconView.image = symbol("bookmark")
+            iconView.image = favicon ?? symbol("bookmark")
             titleLabel.stringValue = bookmark.displayTitle
             subtitleLabel.stringValue = bookmark.url
             dateLabel.stringValue = Self.date(bookmark.addedAt)

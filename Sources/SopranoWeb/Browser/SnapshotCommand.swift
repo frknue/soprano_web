@@ -22,6 +22,10 @@ enum SnapshotCommand {
         var showHints = false
         var showHelp = false
         var showPrompt = false
+        var extraTabs: [String] = []
+        var tabAudio = false
+        var hoverSelector: String?
+        var backURL: String?
     }
 
     enum OptionError: Error, CustomStringConvertible {
@@ -45,6 +49,8 @@ enum SnapshotCommand {
                                [--theme folio-paper|folio-ink|<id>] [--wait <seconds>]
                                [--sidebar history|bookmarks|downloads] [--find] [--settings]
                                [--vertical-tabs] [--collapsed] [--hints] [--help] [--prompt]
+                               [--tabs <url>,<url>…] [--tab-audio] [--hover <css selector>]
+                               [--back-url <url>]
     """
 
     nonisolated static func parse(_ arguments: [String]) throws -> Options {
@@ -102,6 +108,17 @@ enum SnapshotCommand {
                 options.showHelp = true
             case "--prompt":
                 options.showPrompt = true
+            case "--tabs":
+                options.extraTabs = try value(option)
+                    .split(separator: ",")
+                    .map { $0.trimmingCharacters(in: .whitespaces) }
+                    .filter { !$0.isEmpty }
+            case "--tab-audio":
+                options.tabAudio = true
+            case "--hover":
+                options.hoverSelector = try value(option)
+            case "--back-url":
+                options.backURL = try value(option)
             default:
                 throw OptionError.unknownOption(option)
             }
@@ -170,6 +187,7 @@ enum SnapshotCommand {
             bookmarks: bookmarks,
             downloads: downloads,
             sitePermissions: sitePermissions,
+            faviconStore: BrowserFaviconStore(directory: temp.appendingPathComponent("Favicons", isDirectory: true)),
             sessionStore: session,
             persistsSession: false,
             frame: NSRect(origin: .zero, size: options.size),
@@ -190,7 +208,32 @@ enum SnapshotCommand {
             if BrowserAddressResolver.isStartPage(url) {
                 // Already on the start page.
             } else if let tab = controller.selectedTab {
+                if let back = options.backURL,
+                   let backURL = BrowserAddressResolver.resolve(back, searchEngine: .duckDuckGo)
+                {
+                    // Load a first page so Back has somewhere to go.
+                    controller.navigate(tab, to: backURL)
+                    let backDeadline = Date().addingTimeInterval(5)
+                    repeat {
+                        wait(0.05)
+                    } while (tab.webView.isLoading || tab.webView.url != backURL) && Date() < backDeadline
+                }
                 controller.navigate(tab, to: url)
+            }
+        }
+        for value in options.extraTabs {
+            controller.newTab(url: value, select: false)
+        }
+        if options.tabAudio {
+            // The second tab plays audio, the third is muted (or the
+            // selected tab plays when there is only one).
+            let tabs = controller.tabs
+            let playing = tabs.count > 1 ? tabs[1] : tabs.first
+            playing?.isPlayingAudio = true
+            if let playing { controller.metadataChanged(playing) }
+            if tabs.count > 2 {
+                tabs[2].isMuted = true
+                controller.metadataChanged(tabs[2])
             }
         }
 
@@ -257,6 +300,17 @@ enum SnapshotCommand {
             controller.presentVimiumPrompt(initialText: "", newTab: false)
             wait(0.35)
         }
+        if let selector = options.hoverSelector,
+           let webView = controller.selectedTab?.webView,
+           let argument = try? JSONSerialization.data(withJSONObject: [selector]),
+           let literal = String(data: argument, encoding: .utf8)
+        {
+            // A synthetic mouseover runs the real link-hover script.
+            webView.evaluateJavaScript(
+                "document.querySelector(\(literal)[0])?.dispatchEvent(new MouseEvent('mouseover', {bubbles: true}))"
+            ) { _, _ in }
+            wait(0.5)
+        }
 
         let captureWindow: NSWindow
         if options.showSettings {
@@ -308,6 +362,16 @@ enum SnapshotCommand {
         if let pageImage, let webView = controller.selectedTab?.webView {
             let frame = webView.convert(webView.bounds, to: captureContent)
             pageImage.draw(in: frame)
+        }
+        // The page snapshot covers the web area; draw the link bubble over it.
+        let status = controller.linkStatus
+        if !status.isHidden, status.window === captureWindow,
+           let rep = status.bitmapImageRepForCachingDisplay(in: status.bounds)
+        {
+            status.cacheDisplay(in: status.bounds, to: rep)
+            let image = NSImage(size: status.bounds.size)
+            image.addRepresentation(rep)
+            image.draw(in: status.convert(status.bounds, to: captureContent))
         }
         output.unlockFocus()
 

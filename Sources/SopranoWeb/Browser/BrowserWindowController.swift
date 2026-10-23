@@ -9,6 +9,7 @@ final class BrowserWindowController: NSWindowController {
     let bookmarks: BrowserBookmarkStore
     let downloads: BrowserDownloadStore
     let sitePermissions: BrowserSitePermissionStore
+    let faviconStore: BrowserFaviconStore
     let sessionStore: BrowserSessionStore
     let persistsSession: Bool
 
@@ -39,6 +40,7 @@ final class BrowserWindowController: NSWindowController {
     let findBar: BrowserFindBar
     let sidebar: BrowserSidebarView
     let webArea = NSView()
+    let linkStatus = BrowserLinkStatusView()
     private let hairline: ChromeRuleView
     let sidebarDivider: ChromeRuleView
     private var sidebarWidthConstraint: NSLayoutConstraint!
@@ -78,6 +80,7 @@ final class BrowserWindowController: NSWindowController {
         bookmarks: BrowserBookmarkStore,
         downloads: BrowserDownloadStore,
         sitePermissions: BrowserSitePermissionStore,
+        faviconStore: BrowserFaviconStore = BrowserFaviconStore(),
         sessionStore: BrowserSessionStore = BrowserSessionStore(),
         persistsSession: Bool = true,
         frame: NSRect? = nil,
@@ -89,6 +92,7 @@ final class BrowserWindowController: NSWindowController {
         self.bookmarks = bookmarks
         self.downloads = downloads
         self.sitePermissions = sitePermissions
+        self.faviconStore = faviconStore
         self.sessionStore = sessionStore
         self.persistsSession = persistsSession
         self.theme = themeManager.currentTheme
@@ -141,6 +145,7 @@ final class BrowserWindowController: NSWindowController {
         window.contentView = rootView
         buildLayout()
         wireCallbacks()
+        installTabChrome()
         applyTheme(theme)
         restoreOrCreateTab()
         applyTabsLayout()
@@ -432,6 +437,7 @@ final class BrowserWindowController: NSWindowController {
         toolbar.apply(theme: theme)
         findBar.apply(theme: theme)
         sidebar.apply(theme: theme)
+        linkStatus.apply(theme: theme)
         for tab in tabs where tab.isStartPage {
             loadStartPage(tab)
         }

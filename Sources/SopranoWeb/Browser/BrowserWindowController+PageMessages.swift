@@ -24,6 +24,10 @@ extension BrowserWindowController {
         world: BrowserPageScript.World
     ) {
         switch (type, world) {
+        case ("favicons", .isolated):
+            receiveFavicons(body, tab: tab, frame: frame)
+        case ("linkHover", .isolated):
+            receiveLinkHover(body, tab: tab, frame: frame)
         default:
             return
         }

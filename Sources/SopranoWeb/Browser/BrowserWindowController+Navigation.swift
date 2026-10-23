@@ -71,6 +71,10 @@ extension BrowserWindowController {
 
     func reload() {
         guard let tab = selectedTab else { return }
+        reload(tab)
+    }
+
+    func reload(_ tab: BrowserTab) {
         if let failed = tab.failedURL, let url = URL(string: failed) {
             navigate(tab, to: url)
         } else if tab.isStartPage {
@@ -124,6 +128,7 @@ extension BrowserWindowController {
 
     func updateChrome() {
         guard let tab = selectedTab else { return }
+        updateTabChrome(for: tab)
         let url = tab.webView.url
         let shownURL = tab.failedURL ?? url?.absoluteString ?? ""
         toolbar.setAddress(
