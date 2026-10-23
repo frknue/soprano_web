@@ -65,6 +65,62 @@ struct BrowserSettingsStoreTests {
         #expect(notifications == 0)
         #expect(!FileManager.default.fileExists(atPath: store.url.path))
     }
+
+    @Test func settingsFileWithMissingKeysKeepsThePresentValues() throws {
+        let directory = temporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let url = directory.appendingPathComponent("settings.json")
+        try Data("""
+        { "searchEngine": "google", "homepage": "https://example.com", "verticalTabs": false }
+        """.utf8).write(to: url)
+
+        let settings = BrowserSettingsStore(url: url).settings
+        #expect(settings.searchEngine == .google)
+        #expect(settings.homepage == "https://example.com")
+        #expect(!settings.usesVerticalTabs)
+        #expect(settings.themeID == BrowserSettings.default.themeID)
+        #expect(settings.restoreSession)
+    }
+
+    @Test func unknownSearchEngineFallsBackOnlyForThatKey() throws {
+        let json = Data("""
+        {
+          "searchEngine": "altavista",
+          "homepage": "https://example.com",
+          "themeID": "folio-ink",
+          "appearance": "dark",
+          "restoreSession": false,
+          "futureSetting": 3
+        }
+        """.utf8)
+        let settings = try JSONDecoder().decode(BrowserSettings.self, from: json)
+        #expect(settings.searchEngine == .duckDuckGo)
+        #expect(settings.homepage == "https://example.com")
+        #expect(settings.themeID == "folio-ink")
+        #expect(settings.appearance == .dark)
+        #expect(!settings.restoreSession)
+    }
+
+    @Test func unreadableSettingsFileIsPreservedOnTheNextSave() throws {
+        let directory = temporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let url = directory.appendingPathComponent("settings.json")
+        let broken = Data("{ \"searchEngine\": \"google\", ".utf8)
+        try broken.write(to: url)
+        let store = BrowserSettingsStore(url: url)
+        try Data("older".utf8).write(to: store.unreadableURL)
+
+        #expect(store.settings == .default)
+        #expect(try Data(contentsOf: url) == broken)
+
+        store.update { $0.searchEngine = .bing }
+        #expect(store.unreadableURL.lastPathComponent == "settings.json.unreadable")
+        #expect(try Data(contentsOf: store.unreadableURL) == broken)
+        #expect(BrowserSettingsStore(url: url).settings.searchEngine == .bing)
+
+        store.update { $0.homepage = "https://example.com" }
+        #expect(try Data(contentsOf: store.unreadableURL) == broken)
+    }
 }
 
 @MainActor
@@ -86,5 +142,31 @@ struct BrowserSessionStoreTests {
         store.save(session)
         let loaded = store.load()
         #expect(loaded == session)
+    }
+
+    @Test func sessionWithoutVersionOrZoomLoads() throws {
+        let directory = FileManager.default.temporaryDirectory
+            .appendingPathComponent("SopranoWebSession-\(UUID().uuidString)", isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        let url = directory.appendingPathComponent("session.json")
+        try Data("""
+        {
+          "tabs": [
+            { "url": "https://example.com", "title": "Example" },
+            { "title": "New Tab" }
+          ],
+          "selectedIndex": 1,
+          "savedAt": "2023-11-14T22:13:20Z"
+        }
+        """.utf8).write(to: url)
+
+        let loaded = try #require(BrowserSessionStore(url: url).load())
+        #expect(loaded.version == 1)
+        #expect(loaded.selectedIndex == 1)
+        #expect(loaded.tabs == [
+            BrowserTabState(url: "https://example.com", title: "Example", zoom: 1),
+            BrowserTabState(url: nil, title: "New Tab", zoom: 1),
+        ])
     }
 }

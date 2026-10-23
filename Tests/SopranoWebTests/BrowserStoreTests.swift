@@ -99,4 +99,68 @@ struct BrowserStoreTests {
         #expect(store.records[0].state == .failed)
         #expect(store.records[0].errorMessage == "No route to host")
     }
+
+    private func envelope(at url: URL) throws -> (version: Int?, count: Int?) {
+        let object = try JSONSerialization.jsonObject(with: Data(contentsOf: url)) as? [String: Any]
+        return (object?["version"] as? Int, (object?["entries"] as? [Any])?.count)
+    }
+
+    @Test func legacyBareArrayListsLoadAndAreRewrittenAsEnvelopes() throws {
+        let directory = temporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let historyURL = directory.appendingPathComponent("history.json")
+        let bookmarksURL = directory.appendingPathComponent("bookmarks.json")
+        let downloadsURL = directory.appendingPathComponent("downloads.json")
+        try Data("""
+        [{ "id": "\(UUID().uuidString)", "url": "https://example.com", "title": "Example",
+           "visitedAt": "2023-11-14T22:13:20Z" }]
+        """.utf8).write(to: historyURL)
+        try Data("""
+        [{ "id": "\(UUID().uuidString)", "url": "https://example.com", "title": "Example",
+           "addedAt": "2023-11-14T22:13:20Z" }]
+        """.utf8).write(to: bookmarksURL)
+        try Data("""
+        [{ "id": "\(UUID().uuidString)", "url": "https://example.com/a.zip", "filename": "a.zip",
+           "path": "/tmp/a.zip", "startedAt": "2023-11-14T22:13:20Z", "state": "completed",
+           "fractionCompleted": 1 }]
+        """.utf8).write(to: downloadsURL)
+
+        let history = BrowserHistoryStore(url: historyURL)
+        let bookmarks = BrowserBookmarkStore(url: bookmarksURL)
+        let downloads = BrowserDownloadStore(url: downloadsURL)
+        #expect(history.entries.map(\.url) == ["https://example.com"])
+        #expect(bookmarks.bookmarks.map(\.title) == ["Example"])
+        #expect(downloads.records.map(\.filename) == ["a.zip"])
+
+        history.record(url: "https://webkit.org", title: "WebKit")
+        bookmarks.toggle(url: "https://webkit.org", title: "WebKit")
+        let download = downloads.begin(url: "https://example.com/b.zip", filename: "b.zip")
+        downloads.finish(id: download.id, path: "/tmp/b.zip")
+
+        for url in [historyURL, bookmarksURL, downloadsURL] {
+            let file = try envelope(at: url)
+            #expect(file.version == 1)
+            #expect(file.count == 2)
+        }
+        #expect(BrowserHistoryStore(url: historyURL).entries.count == 2)
+    }
+
+    @Test func oneCorruptHistoryEntryDoesNotDropTheOthers() throws {
+        let directory = temporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let url = directory.appendingPathComponent("history.json")
+        try Data("""
+        { "version": 1, "entries": [
+          { "id": "\(UUID().uuidString)", "url": "https://a.example", "title": "A",
+            "visitedAt": "2023-11-14T22:13:20Z" },
+          { "id": "not-a-uuid", "url": 42 },
+          null,
+          { "id": "\(UUID().uuidString)", "url": "https://b.example", "title": "B",
+            "visitedAt": "2023-11-14T22:14:20Z" }
+        ] }
+        """.utf8).write(to: url)
+
+        let store = BrowserHistoryStore(url: url)
+        #expect(store.entries.map(\.url) == ["https://b.example", "https://a.example"])
+    }
 }

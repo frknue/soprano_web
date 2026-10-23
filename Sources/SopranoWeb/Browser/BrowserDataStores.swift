@@ -34,7 +34,7 @@ final class BrowserHistoryStore {
     ) {
         self.url = url
         self.limit = limit
-        self.entries = JSONFile.read([BrowserHistoryEntry].self, at: url) ?? []
+        self.entries = JSONFile.read(JSONList<BrowserHistoryEntry>.self, at: url)?.entries ?? []
         entries.sort { $0.visitedAt > $1.visitedAt }
     }
 
@@ -84,7 +84,7 @@ final class BrowserHistoryStore {
     }
 
     private func persist() {
-        try? JSONFile.write(entries, to: url)
+        try? JSONFile.write(JSONList(entries), to: url)
     }
 }
 
@@ -117,7 +117,7 @@ final class BrowserBookmarkStore {
 
     init(url: URL = BrowserFiles.supportDirectory().appendingPathComponent("bookmarks.json")) {
         self.url = url
-        self.bookmarks = JSONFile.read([BrowserBookmark].self, at: url) ?? []
+        self.bookmarks = JSONFile.read(JSONList<BrowserBookmark>.self, at: url)?.entries ?? []
         bookmarks.sort { $0.addedAt > $1.addedAt }
     }
 
@@ -151,7 +151,7 @@ final class BrowserBookmarkStore {
     }
 
     private func persist() {
-        try? JSONFile.write(bookmarks, to: url)
+        try? JSONFile.write(JSONList(bookmarks), to: url)
         onChange?()
     }
 }
@@ -218,7 +218,7 @@ final class BrowserDownloadStore {
 
     init(url: URL = BrowserFiles.supportDirectory().appendingPathComponent("downloads.json")) {
         self.url = url
-        let saved = JSONFile.read([BrowserDownloadRecord].self, at: url) ?? []
+        let saved = JSONFile.read(JSONList<BrowserDownloadRecord>.self, at: url)?.entries ?? []
         self.records = saved.filter { $0.state != .inProgress }.sorted { $0.startedAt > $1.startedAt }
     }
 
@@ -298,6 +298,6 @@ final class BrowserDownloadStore {
 
     private func persist() {
         let finished = records.filter { $0.state != .inProgress }
-        try? JSONFile.write(finished, to: url)
+        try? JSONFile.write(JSONList(finished), to: url)
     }
 }
