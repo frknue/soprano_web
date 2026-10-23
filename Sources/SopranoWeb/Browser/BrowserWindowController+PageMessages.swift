@@ -24,6 +24,8 @@ extension BrowserWindowController {
         world: BrowserPageScript.World
     ) {
         switch (type, world) {
+        case (BrowserCertificateInterstitialPage.messageType, .page):
+            handleCertificateInterstitialMessage(body: body, tab: tab, frame: frame)
         default:
             return
         }

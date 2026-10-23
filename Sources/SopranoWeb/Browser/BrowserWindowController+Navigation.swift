@@ -126,11 +126,7 @@ extension BrowserWindowController {
         guard let tab = selectedTab else { return }
         let url = tab.webView.url
         let shownURL = tab.failedURL ?? url?.absoluteString ?? ""
-        toolbar.setAddress(
-            tab.isStartPage ? "" : shownURL,
-            secure: url?.scheme?.lowercased() == "https",
-            local: tab.isStartPage || BrowserAddressResolver.isLocal(url)
-        )
+        toolbar.setAddress(tab.isStartPage ? "" : shownURL, security: securityState(for: tab))
         toolbar.setProgress(tab.webView.estimatedProgress, isLoading: tab.webView.isLoading)
         toolbar.setBookmarked(!tab.isStartPage && bookmarks.isBookmarked(shownURL))
         toolbar.setBookmarkEnabled(!tab.isStartPage && !shownURL.isEmpty)
@@ -152,6 +148,7 @@ extension BrowserWindowController: WKNavigationDelegate {
         } else {
             tab.errorMessage = nil
             tab.failedURL = nil
+            tab.certificateInterstitial = nil
         }
         if webView.url?.scheme?.lowercased() == BrowserStartPageSchemeHandler.scheme {
             tab.isStartPage = true
@@ -242,6 +239,9 @@ extension BrowserWindowController: WKNavigationDelegate {
             ?? tab.pendingURL
             ?? tab.failedURL
             ?? ""
+        if showCertificateInterstitial(tab, error: nsError, failedURL: failedURL) {
+            return
+        }
         tab.errorMessage = nsError.localizedDescription
         tab.failedURL = failedURL.isEmpty ? nil : failedURL
         tab.isShowingErrorPage = true

@@ -10,6 +10,7 @@ final class BrowserToolbarView: NSView, NSTextFieldDelegate {
     var onSidebar: (() -> Void)?
     var onToggleVerticalSidebar: (() -> Void)?
     var onAddressFocusChange: ((Bool) -> Void)?
+    var onSecurityInfo: (() -> Void)?
 
     let addressField = NSTextField()
     private let addressFrame: ChromeFieldView
@@ -21,8 +22,7 @@ final class BrowserToolbarView: NSView, NSTextFieldDelegate {
     private let sidebarButton: ChromeIconButton
 
     private var theme: AppTheme
-    private var isSecure = true
-    private var isLocal = false
+    private var security: BrowserSecurityState = .local
 
     static let preferredHeight: CGFloat = 46
 
@@ -79,6 +79,9 @@ final class BrowserToolbarView: NSView, NSTextFieldDelegate {
         securityIcon.translatesAutoresizingMaskIntoConstraints = false
         securityIcon.imageScaling = .scaleProportionallyDown
         addressFrame.addSubview(securityIcon)
+        securityIcon.addGestureRecognizer(
+            NSClickGestureRecognizer(target: self, action: #selector(securityIconClicked))
+        )
 
         addressField.isBordered = false
         addressField.isBezeled = false
@@ -165,12 +168,11 @@ final class BrowserToolbarView: NSView, NSTextFieldDelegate {
         needsDisplay = true
     }
 
-    func setAddress(_ text: String, secure: Bool, local: Bool) {
+    func setAddress(_ text: String, security: BrowserSecurityState) {
         if !isEditingAddress {
             addressField.stringValue = text
         }
-        isSecure = secure
-        isLocal = local
+        self.security = security
         refreshSecurityIcon()
     }
 
@@ -245,26 +247,18 @@ final class BrowserToolbarView: NSView, NSTextFieldDelegate {
         onSidebar?()
     }
 
+    @objc private func securityIconClicked() {
+        onSecurityInfo?()
+    }
+
     private func refreshSecurityIcon() {
-        let symbol: String
-        let tooltip: String
-        if isLocal {
-            symbol = "globe"
-            tooltip = "Local page"
-        } else if isSecure {
-            symbol = "lock.fill"
-            tooltip = "Secure connection"
-        } else {
-            symbol = "exclamationmark.triangle.fill"
-            tooltip = "Connection is not secure"
-        }
         let configuration = NSImage.SymbolConfiguration(pointSize: 10, weight: .regular)
         securityIcon.image = NSImage(
-            systemSymbolName: symbol,
-            accessibilityDescription: tooltip
+            systemSymbolName: security.symbolName,
+            accessibilityDescription: security.toolTip
         )?.withSymbolConfiguration(configuration)
-        securityIcon.contentTintColor = theme.colors.textMuted
-        securityIcon.toolTip = tooltip
+        securityIcon.contentTintColor = security.tint(in: theme.colors)
+        securityIcon.toolTip = security.toolTip
     }
 }
 

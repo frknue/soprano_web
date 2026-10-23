@@ -37,6 +37,8 @@ final class BrowserTab {
     var failedURL: String?
     var pendingURL: String?
     var isShowingErrorPage = false
+    /// Set while the tab shows the certificate interstitial.
+    var certificateInterstitial: BrowserCertificateInterstitial?
     var favicon: NSImage?
     var isPlayingAudio = false
     var isMuted = false
