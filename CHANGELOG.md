@@ -178,12 +178,32 @@ app.
   ends in Open All in Tabs; Show Bookmarks (`⌥⌘B`) moved there from History.
 - The start page shows top-level folders as cards that open in place to
   list their bookmarks.
+- Tab sleep: Settings ▸ Put inactive tabs to sleep (never, after 15 minutes,
+  after 1 hour — the default — or after 4 hours). A sleeping tab keeps its
+  title, favicon, address and back/forward history, shows dimmed in the strip
+  and the rail, and reloads when you select it (showing its last picture while
+  it loads), when a `browser` command targets it or when it moves to another
+  window. Under memory pressure, tabs idle 30 minutes (warning) or 5 minutes
+  (critical) sleep early. The selected tab of each window, tabs playing audio,
+  using the camera, microphone or screen, loading, showing a dialog, sheet or
+  sign-in prompt, pages with unsaved input, pop-up windows and sites you keep
+  awake never sleep.
+- Right-click a tab ▸ Keep This Site Awake; Settings ▸ Websites lists the
+  sites you keep awake, with Remove.
+- Zoom is remembered per site: `⌘+` / `⌘-` change the current site's zoom and
+  every open tab of that site in the same profile follows; `⌘0` resets the
+  site. Settings ▸ Default page zoom (50–300%). A percentage in the address
+  field shows a site's zoom when it differs from the default; click it to
+  reset. Settings ▸ Websites lists each site's zoom with Remove. Private
+  windows keep zoom changes until they close.
 
 ### Changed
 - History lives in a SQLite database (`History.sqlite`) instead of
   `history.json` and keeps every visit, not just the last 5,000. Your existing
   history moves over on first launch; the old file stays as
   `history.json.migrated`.
+- Zoom steps follow Safari (50, 75, 85, 100, 115, 125, 150, 175, 200, 250,
+  300%); the per-tab zoom stored in the session is no longer used.
 - Address-bar suggestions rank pages by frecency: how often and how recently
   you visited, with visits you typed counting three times and how you reached
   the page (link, typed, reload, back/forward, form) weighed in. Suggestions

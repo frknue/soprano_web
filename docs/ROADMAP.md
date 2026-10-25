@@ -81,6 +81,20 @@ decision).
   per-profile extension controllers (stage 4).
 - Tab suspension: after idle time or memory pressure, keep a snapshot and `interactionState`
   and release the web view; skip tabs playing audio, capturing, or on a keep-alive list.
+  **Built on `feat/stage-2` (sleep slice):** Settings ▸ Put inactive tabs to sleep (never,
+  15 min, 1 h default, 4 h) and a `DispatchSource` memory pressure source (warning: idle
+  30 min, critical: 5 min; "never" also holds under pressure); a sleeping tab keeps title,
+  URL, favicon, back/forward (`interactionState`) and a JPEG snapshot in memory, its web
+  view is swapped for an empty one (no WebContent process until it loads) and the old one
+  and its process go away; it looks dimmed in both layouts and wakes through the lazy
+  restore path on selection, a CLI command or a move to another window, showing the
+  snapshot while it reloads. Exempt: each window's selected tab, audio, camera/mic/screen
+  capture, loading, open dialogs/sheets/sign-in/permission prompts, `beforeunload`
+  listeners or edited fields (page-world `sleepGuard` script), pop-up windows and their
+  openers, and Keep This Site Awake (tab menu, per host, in Settings ▸ Websites). Measured:
+  a hidden attached web view already runs timers at 1/s with no rAF and 0.1% WebContent
+  CPU, the same as a detached one (`.suspend` did not suspend within 60 s; audio and page
+  state survived both), so background tabs stay attached.
 - History in SQLite with frecency for suggestions; Arc and Chrome history imports exceed the
   5,000-entry JSON cap by an order of magnitude. Bookmark folders. **Built on `feat/stage-2`
   (history slice):** `History.sqlite` through the system SQLite (WAL, one database per
@@ -112,7 +126,13 @@ decision).
   slice's scope.
 - Content blocking: uBlock Origin Lite through `WKWebExtension` (loads and blocks on
   macOS 27), or `WKContentRuleList`s built from EasyList (150,000 rules per list).
-- Zoom remembered per site (eTLD+1), plus a default zoom.
+- Zoom remembered per site, plus a default zoom. **Built on `feat/stage-2` (sleep slice):**
+  per host (not eTLD+1, as Safari and Chrome do) in the profile's `site-permissions.json`
+  (a private window's overlay keeps changes in memory); ⌘+/⌘- in Safari's steps (50–300%)
+  change every open tab of the host in the profile; ⌘0 forgets the site; Settings ▸
+  Default page zoom; a page applies its host's zoom on commit; a percentage chip in the
+  address field resets; Settings ▸ Websites lists zoom per site. The session's per-tab zoom
+  is ignored.
 
 ## 3. Arc's organization model and import
 

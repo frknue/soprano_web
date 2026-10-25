@@ -106,7 +106,22 @@ no linter or formatter; match surrounding style.
   `--bookmark-popover` runs ⌘D on the selected page and draws its popover
   into the capture (built in the offscreen window, never a shown panel) and
   `--print-bookmarks` prints the tree, the outline rows, Vimium's `b` lines,
-  the file version and the Bookmarks menu as text. Layer backgrounds
+  the file version and the Bookmarks menu as text. Sleep and zoom flags:
+  `--sleep-after <seconds>` (a test threshold; the idle pass runs on the
+  real timer four times per threshold), `--tab-sleep <setting>`,
+  `--default-zoom <percent>`, `--support-dir <dir>` (a support folder kept
+  after the run, so a second run sees saved zoom), and the actions
+  `--advance-clock <seconds>` (the injectable sleep clock, then the idle
+  pass), `--sleep-pass`, `--memory-pressure warning|critical` (the pressure
+  source's path), `--zoom-in` / `--zoom-out` / `--zoom-reset` (⌘+ ⌘- ⌘0) and
+  `--keep-awake <n>` (the tab menu item). `--print-windows` then shows per
+  tab `asleep`, `awakeBecause` (the exemption or `idle`), `snapshotBytes`,
+  `webContentPID`, `siteZoom`, per profile `savedSites`, and `webViews`
+  (replaced web views still alive, their WebContent processes still
+  running). Tabs made before the action loop (the first window's start tab)
+  sit in the harness's undrained top-level autorelease pool, so their
+  replaced web views stay alive; open tabs to sleep with `--cli "new-tab
+  <url>"`. Layer backgrounds
   on views unhidden after first display may not appear in the cached AppKit
   pass; that is a harness limitation, not the app.
 - Verify real navigation and the agent surface against a running dev app:
@@ -244,10 +259,26 @@ no linter or formatter; match surrounding style.
 - `Browser/BrowserDataStores.swift` — downloads JSON
   (`{version, entries}` envelopes, lossy decoding; a private window's download
   rows carry `privateContextID` and stay in memory);
-  `BrowserSitePermissionStore.swift` — per-host allow/deny decisions
+  `BrowserSitePermissionStore.swift` — per-host decisions and values
   (`site-permissions.json` in each profile's folder; `init(overlaying:)` is a
-  private window's in-memory layer); `BrowserFavicon.swift` — favicon
+  private window's in-memory layer, `forget` shadows a saved value there);
+  `BrowserZoom.swift` — zoom steps, `siteKey(for:)` (http(s) host or
+  `file`), per-host `zoom`/`setZoom` and `keepsAwake`; `BrowserFavicon.swift` — favicon
   selection, fetch and shared cache (`init(inMemoryOver:)` writes no files).
+- `Browser/BrowserTabSleep.swift` — `BrowserTabSleepAfter` (the setting),
+  `BrowserMemoryPressure`, `BrowserTabSleepPolicy` (exemptions and idle
+  thresholds, pure) and the page-world `sleepGuard` script (`beforeunload`,
+  edited fields, screen capture). `BrowserTabSleeper.swift` — the manager's
+  idle timer and memory pressure source (`now` and `thresholdOverride` are
+  the harness's clock and test threshold). `BrowserWindowController+Sleep`
+  — `sleepCandidate`, `sleepTab` (snapshot, then `finishSleeping`: state into
+  `lifecycle.pendingRestore`, `replaceWebView(of:)` swaps in an empty web
+  view), wake snapshot overlay, `promptBegan(for:)` (dialogs keep a tab
+  awake), `tabWasUsed`, Keep This Site Awake. Waking is
+  `loadRestoredTabIfNeeded` (selection, CLI, `attachTab` into another
+  window, `navigate`). `BrowserWindowController+Zoom` — ⌘+/⌘-/⌘0 per site,
+  `siteZoom(for:)` (applied on commit), `applySiteZooms` (store or default
+  changed) and the address-field chip.
 - `Browser/BrowserPageScripts.swift` — every injected page script and the
   `sopranoWeb` message channel; messages are accepted only from the world (page or
   isolated) their type was written for.

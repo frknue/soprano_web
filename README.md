@@ -109,15 +109,27 @@ family, not notarized.
 6. `⌘,` opens Settings: search engine and suggestions, homepage, theme,
    appearance, session restore, how long History keeps visits (**Remove history
    items**: after one day, one week, two weeks, one month, one year — the
-   default — or manually), downloads, autoplay, notifications, profiles
+   default — or manually), **Default page zoom** (50–300%), **Put inactive
+   tabs to sleep** (never, after 15 minutes, after 1 hour — the default — or
+   after 4 hours), downloads, autoplay, notifications, profiles
    (**Profiles**: add, rename, color, delete), per-site decisions
    (**Websites**), stored site data and the default browser. Websites and
    Website Data show the current window's profile and switch profiles with a
    picker; Clear Browsing Data clears the current window's profile and names it.
 
 The start page shows top-level bookmarks, folders (click one to list its
-bookmarks) and recent pages. `⌘=` / `⌘-` / `⌘0` zoom the
-page. `⇧⌘B` toggles the sidebar. Click the lock in the address bar for the
+bookmarks) and recent pages. `⌘+` / `⌘-` zoom the current site and every open
+tab of it in the same profile, and the site keeps that zoom (per host, with the
+profile's site decisions; a private window keeps it until it closes). `⌘0`
+resets the site to the default page zoom. A zoom that differs from the default
+shows as a percentage in the address field; click it to reset. Tabs you have
+not used for a while fall asleep: their page is released to save memory, the
+tab looks dimmed, and it reloads with its history when you open it. Under
+memory pressure tabs idle 30 minutes (warning) or 5 minutes (critical) sleep
+early. Tabs playing audio, using the camera, microphone or screen, loading,
+showing a prompt or holding unsaved input never sleep; right-click a tab ▸
+**Keep This Site Awake** to exempt a site (listed in Settings ▸ Websites).
+`⇧⌘B` toggles the sidebar. Click the lock in the address bar for the
 connection details and certificate.
 
 ## Vimium keys
@@ -248,6 +260,9 @@ automation model, matching Soprano's browser pane.
   **Settings ▸ Remove history items** are removed from every profile at launch
   and once a day; a damaged database is kept as `History.sqlite.corrupt` and
   History starts over.
+- Per-site zoom and Keep This Site Awake are saved with the other site
+  decisions in the profile's `site-permissions.json` (`"zoom": "1.25"`,
+  `"keepAwake": "allow"`). A sleeping tab's snapshot stays in memory.
 - A private window writes none of these files: its cookies and site data live
   in a WebKit store that is never written to disk and goes with the window,
   its new site decisions, favicons, closed tabs and download list entries stay
