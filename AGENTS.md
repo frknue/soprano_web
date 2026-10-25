@@ -55,13 +55,21 @@ no linter or formatter; match surrounding style.
   `--session <file>` restores a version 1 or 2 session (every window),
   `--new-window <url|start>` (repeatable) opens another window, cascaded,
   `--activate-window n`, `--close-window` (⇧⌘W), `--reopen-closed` (⇧⌘T),
-  `--move-tab w:t:w2` (detach + attach, the tab-move path),
-  `--start-download <url>` / `--wait-downloads`, and `--print-windows` prints
-  every window (frame, tabs with back/forward lists), the recently-closed stack
-  and the downloads as one JSON line; `--capture-window n` picks the window for
-  the PNG (default: the active one). Layer backgrounds on views unhidden after
-  first display may not appear in the cached AppKit pass; that is a harness
-  limitation, not the app.
+  `--move-tab w:t:w2` (the move a dragged tab makes, selected in w2),
+  `--move-to-new-window` (Window ▸ Move Tab to New Window), `--drop-tab
+  w:t:w2:gap` (the tab list's drop handler; gap 0 is before the first tab),
+  `--drop-outside w:t:x,y` (the drag source's handler for a drop no window
+  takes, x,y on the harness screen as printed frames), `--merge-windows`,
+  `--click-page X,Y` (a real click into the active window's page, e.g. to open
+  a pop-up window), `--find-text <text>`, `--cli "<browser arguments>"` (one
+  CLI request through the router), `--start-download <url>` /
+  `--wait-downloads`, and `--print-windows` prints every window (frame, page
+  size, pop-up flag, find query, tabs with back/forward lists and zoom), the
+  recently-closed stack and the downloads as one JSON line with a
+  `printedAt` time to match a test server's log; `--capture-window n` picks
+  the window for the PNG (default: the active one). Layer backgrounds on views
+  unhidden after first display may not appear in the cached AppKit pass; that
+  is a harness limitation, not the app.
 - Verify real navigation and the agent surface against a running dev app:
 
   ```bash
@@ -93,7 +101,12 @@ no linter or formatter; match surrounding style.
   links from other apps and the debounced `session.json` (restore every window,
   frames clamped to today's screens). `BrowserWindowPlacement` keeps harness
   windows off-screen. `BrowserAutomationRouter` (in
-  `BrowserAutomationCommand.swift`) picks the CLI's window.
+  `BrowserAutomationCommand.swift`) picks the CLI's window and runs
+  `move-to-window`. `BrowserWindowManager+TabMove.swift` moves live tabs:
+  `moveTab(_:from:to:at:select:)`, `moveTabToNewWindow`, `mergeAllWindows`,
+  `openPopupWindow`; `canMoveTab(from:to:)` is the one rule for which windows
+  may exchange tabs. `tabbedController` is the window new tabs and links from
+  other apps go to (never a pop-up window).
 - `Browser/BrowserObservers.swift` — multicast change observers: every store's
   `changes.observe { }` returns a token; windows subscribe on creation and
   cancel on close. `BrowserDownloadManager.swift` — the app's
@@ -101,11 +114,13 @@ no linter or formatter; match surrounding style.
 - `Browser/BrowserWindowController.swift` — one window: per-window stored state,
   init, layout, wiring, settings and theme. Its behavior lives in extension files
   by concern: `+Tabs` (`attachTab`/`detachTab`: everything that binds a tab to a
-  window), `+Navigation` (`WKNavigationDelegate`), `+UIDelegate`
+  window), `+TabMove` (Move Tab to New Window, the drop and drag-out handlers
+  the tab lists call, the find query a moved tab carries), `+Navigation`
+  (`WKNavigationDelegate`), `+UIDelegate`
   (`WKUIDelegate`), `+Downloads` (hand-off to the download manager), `+Sidebar`,
   `+Vimium`, `+Session` (window state, lazy restore, crash recovery,
-  `NSWindowDelegate`), `+PageMessages`, `+Links`
-  (pop-ups, modifier clicks, external apps), `+SignIn` (auth challenges, TLS
+  `NSWindowDelegate`), `+PageMessages`, `+Links` (pop-ups, pop-up windows,
+  modifier clicks, external apps), `+SignIn` (auth challenges, TLS
   interstitial, connection security), `+Permissions` (camera/mic, notifications,
   audio), `+TabChrome` / `+TabActions` (favicons, link status, tab menu),
   `+AddressBar` (suggestions dropdown), `+PageTools` (print, PDF, save, web-view
@@ -116,7 +131,9 @@ no linter or formatter; match surrounding style.
   — tab state, settings (decoded key by key), address resolution, the version 2
   session (`windows[]` with frames, `recentlyClosed`; a version 1 file migrates
   to one window and is kept as `session.json.migrated`), the recently-closed
-  stack of tabs and windows, and window frame clamping/cascading.
+  stack of tabs and windows, and window frame clamping/cascading (and where a
+  dragged-out tab's window opens). `BrowserTabMove.swift` — Merge All Windows
+  ordering and pop-up window frames from `WKWindowFeatures`.
 - `Browser/BrowserDataStores.swift` — history, bookmarks and downloads JSON
   (`{version, entries}` envelopes, lossy decoding); `BrowserSitePermissionStore.swift`
   — per-host allow/deny decisions (`site-permissions.json`); `BrowserFavicon.swift`
@@ -127,6 +144,8 @@ no linter or formatter; match surrounding style.
 - `Browser/BrowserToolbarView.swift`, `BrowserAddressBarController.swift`,
   `BrowserAddressSuggestions.swift`, `BrowserTabStripView.swift`,
   `BrowserVerticalTabsView.swift`, `BrowserTabButton.swift`,
+  `BrowserTabDragSession.swift` (a tab's system drag session and drop marker),
+  `BrowserTabReorder.swift` (drag and drop index math),
   `BrowserSidebarView.swift`, `BrowserFindBar.swift`, `BrowserStartPage.swift`,
   `BrowserErrorPage.swift` — chrome and local pages.
 - `Browser/BrowserAutomationCommand.swift`, `BrowserAutomationSocket.swift`,
@@ -199,6 +218,11 @@ browser feature; move or delete the roadmap item when it ships.
 pane. Extract the scripts into a Foundation-only file in Soprano and add that
 file to `scripts/sync-soprano-chrome.sh`; until then the two copies can drift.
 
-Vimium's `gf`/`gF` frame commands, `W` (move tab to a new window, waiting on the
-stage 2 tab-move slice), and `⌥P` pin are unavailable (pins not modeled); the
-help sheet says so.
+Vimium's `gf`/`gF` frame commands and `⌥P` pin are unavailable (pins not
+modeled); the help sheet says so.
+
+The harness drives tab drags through the same drop and drag-out handlers the
+drag session calls; a real-mouse drag between windows still needs a person at
+the Mac. A window whose address field was edited stays in memory after it
+closes (AppKit's `SPSafariPlatformSupport` keeps the last autofill control), so
+`--print-windows` reports it in `closedWindowsStillAlive`; its tabs are gone.

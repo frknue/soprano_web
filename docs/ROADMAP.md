@@ -39,8 +39,14 @@ decision).
   (session version 2 with `windows[]`; version 1 migrates), one recently-closed stack of
   tabs and windows (⇧⌘T, History ▸ Recently Closed), multicast store observers, the
   app-level download manager, per-tab `attachTab`/`detachTab`, and `browser windows` /
-  `--window` / `new-window` / `close-window`. Left for the tab-move slice: drag a tab out,
-  Move Tab to New Window, Merge All Windows, popup windows and Vimium `W`.
+  `--window` / `new-window` / `close-window`. **Built on `feat/stage-2` (tab-move
+  slice):** Window ▸ Move Tab to New Window (also in the tab menu and on Vimium
+  `W`), dragging a tab out of the strip or rail onto another window's tabs or into
+  a new window under the pointer, Window ▸ Merge All Windows, pop-up windows for
+  `window.open` with a size (compact chrome, `window.opener`, `window.close()`,
+  not saved in the session) and `browser move-to-window <k|new>`. Left: trying a
+  real-mouse drag between two on-screen windows (the harness calls the same drop
+  and drag-out handlers but can't drive a system drag session).
 - Split `BrowserWindowController` (1,696 lines, every delegate) into per-feature tab
   responders as these features land, the way DuckDuckGo's tab extensions do.
 - Private windows: one `WKWebsiteDataStore.nonPersistent()` per window, kept out of history,

@@ -59,11 +59,16 @@ family, not notarized.
    back the most recently closed tab or window, with its history, even after a
    relaunch; **History ▸ Recently Closed** lists the last 20 and reopens any of
    them. Every window comes back at launch where it was. Drag tabs to reorder
-   them and right-click one for Duplicate, Mute, Copy Link and the close
-   commands.
+   them; drag one off the tabs onto another window's tabs to move it there, or
+   anywhere else to give it a window of its own. Right-click a tab for
+   Duplicate, Mute, Copy Link, Move Tab to New Window and the close commands;
+   **Window ▸ Merge All Windows** gathers every tab into the current window.
+   A moved tab keeps its page, history, audio and zoom; nothing reloads.
 3. `⌘`-click or middle-click a link to open it in a background tab, `⇧⌘`-click
    for a front tab. Pop-ups a page opens without a click are blocked; the
    **Pop-up blocked** button in the address bar opens them or allows the site.
+   Sign-in pop-ups that ask for a size open in a small window of that size,
+   which closes itself when the site is done; other links open as tabs.
 4. `⌘D` bookmarks the page. `⌘Y`, `⌥⌘B` and `⌥⌘L` open History, Bookmarks and
    Downloads in the right sidebar; stopped downloads resume or retry from there.
 5. `⌘F` finds in the page; `Return` / `⇧Return` move between matches. `⌘P`
@@ -86,13 +91,14 @@ for the full key sheet; text fields switch to insert mode automatically, and
 - `f` / `F` show link hints; `yf` copies a link; `⌥F` queues links in new tabs.
 - `o` / `O` open the omnibar, `b` / `B` search bookmarks, `T` searches tabs.
 - `/` finds, `n` / `N` step matches, `*` / `#` find selected text.
-- `H` / `L` history, `J` / `K` tabs, `g0` / `g$` first/last, `x` / `X` close/reopen.
+- `H` / `L` history, `J` / `K` tabs, `g0` / `g$` first/last, `x` / `X` close/reopen,
+  `W` moves the tab to a new window.
 - `yy` copies the URL, `p` / `P` open the clipboard, `m` / `` ` `` handle marks.
 - `v` / `V` enter visual mode; `y` yanks.
 - `gs` shows the DOM source; `?` opens the complete key list.
 
-`gf` / `gF` (frames), `W` (new window), and `⌥P` (pin) are marked unavailable
-in the help sheet; the rest of Vimium's default map is implemented.
+`gf` / `gF` (frames) and `⌥P` (pin) are marked unavailable in the help sheet;
+the rest of Vimium's default map is implemented.
 
 ## Shortcuts
 
@@ -139,6 +145,7 @@ APP="/Applications/Soprano Web.app/Contents/MacOS/SopranoWeb"
 "$APP" browser --window 2 --tab 1 title # tab 1 of window 2
 "$APP" browser new-window https://webkit.org
 "$APP" browser --window 2 close-window
+"$APP" browser --window 1 --tab 3 move-to-window 2   # or: move-to-window new
 "$APP" browser vimium "gg"              # drive the normal-mode key layer
 "$APP" browser wait-for selector '#results li' --timeout 20
 "$APP" browser wait-for url /checkout
@@ -154,8 +161,12 @@ substring or visible text, surviving navigations. Waits default to 10 seconds;
 (`windows` lists them, `*` marking the default: the key window, else the most
 recently active one) and `--tab n` a tab of that window, without switching to
 either; otherwise the default window's selected tab is used. `close-window`
-puts the window on History ▸ Recently Closed, like `⇧⌘W`. `snapshot` assigns
-ephemeral refs (`@e1`, `@e2`, …) to interactive elements for the next commands.
+puts the window on History ▸ Recently Closed, like `⇧⌘W`. `move-to-window k`
+moves the selected tab (or `--tab n`) to the end of window k, `move-to-window
+new` into a new window behind it; the tab keeps its page and history, nothing
+is selected or brought forward, and a window left without tabs closes.
+`snapshot` assigns ephemeral refs (`@e1`, `@e2`, …) to interactive elements for
+the next commands.
 `eval` runs an expression, or an async function body that uses `return`;
 Promises are awaited, the result prints as JSON, and a JavaScript error exits 1
 with its message. `press`, `check`/`uncheck`, `scroll-into-view`, `is` and
@@ -170,9 +181,10 @@ automation model, matching Soprano's browser pane.
 
 - Settings: `~/.config/soprano-web/settings.json` (written on first change).
 - Session (every window with its frame and tabs, and the recently-closed tabs
-  and windows), history, bookmarks, downloads, per-site decisions
-  (`site-permissions.json`) and favicons: `~/Library/Application Support/Soprano Web/`.
-  A stage 1 `session.json` is kept as `session.json.migrated` when it upgrades.
+  and windows; pop-up windows are not saved), history, bookmarks, downloads,
+  per-site decisions (`site-permissions.json`) and favicons:
+  `~/Library/Application Support/Soprano Web/`. A stage 1 `session.json` is
+  kept as `session.json.migrated` when it upgrades.
 - Downloads default to `~/Downloads`; Settings can choose another folder or ask
   each time.
 
@@ -185,11 +197,11 @@ you type to the search engine without cookies.
 
 ## Scope
 
-Soprano Web saves and restores every window. Deliberately not built yet: moving
-tabs between windows, private windows, named profiles, Chrome/Safari extension
-installation, a password manager, and tab groups/sync. Web notifications work
-while their tab is open (no Web Push), and tab mute doesn't reach WebAudio.
-`docs/ROADMAP.md` lists what comes next and in which order;
+Soprano Web saves and restores every window and moves tabs between them.
+Deliberately not built yet: private windows, named profiles, Chrome/Safari
+extension installation, a password manager, and tab groups/sync. Web
+notifications work while their tab is open (no Web Push), and tab mute doesn't
+reach WebAudio. `docs/ROADMAP.md` lists what comes next and in which order;
 `docs/ARC-PARITY.md` compares it with Arc. The engine decision is WebKit; see
 `AGENTS.md` for why and what would have to change before adding a second
 engine.
@@ -205,7 +217,8 @@ engine.
 - `scripts/` — package, sign, install, icon and chrome-sync scripts.
 
 `swift test` covers address resolution, stores, settings, the session file and
-its version 1 migration, the recently-closed stack, window frames, store
+its version 1 migration, the recently-closed stack, window frames, tab drop
+positions, Merge All Windows ordering, pop-up window frames, store
 observers, start-page escaping and every WebKit delegate selector (a nearly
 matching Swift signature is accepted by the compiler but never called by
 WebKit, so the selectors are checked directly).

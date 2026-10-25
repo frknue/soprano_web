@@ -105,6 +105,24 @@ app.
 - `browser windows` lists the open windows; `--window n` works on window n
   (with `--tab n` counting inside it) without bringing it forward;
   `browser new-window [url]` and `browser close-window [n]`.
+- Window ▸ Move Tab to New Window, also in the tab's context menu and on
+  Vimium `W`: the tab moves as it is (page, back/forward history, playing
+  audio, zoom and an open find query) into a new window one step down and
+  right; the old window closes when it was its last tab.
+- Drag a tab out of the tab strip or the vertical rail: drop it on another
+  window's tabs to move it there at that spot, or anywhere else to open it in
+  a new window under the pointer. Dragging a window's only tab out leaves no
+  empty window behind.
+- Window ▸ Merge All Windows moves every tab of the other windows into the
+  current window, after its own tabs, and closes the emptied windows.
+- Sign-in and payment pop-ups a page opens with a size (`window.open` with
+  `width`/`height`) open in a small window of that size, at the requested
+  position, with back/forward/reload and the address; the page that opened it
+  can talk to it, and it closes itself when done. Pop-up windows are not
+  restored at launch or listed in Recently Closed. Links without a size still
+  open as tabs next to the page.
+- `browser [--window n] [--tab m] move-to-window <k|new>` moves a tab to window
+  k or a new window without selecting it or bringing anything forward.
 
 ### Changed
 - Closing the last tab now closes the window, like Safari and Chrome. The app
