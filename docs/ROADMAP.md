@@ -34,9 +34,13 @@ decision).
 ## 2. Windows, private browsing, profiles, memory
 
 - App-level window manager: ⌘N, drag a tab out, Move Tab to New Window, Merge All Windows,
-  popup windows, a closed-window stack. Prerequisites: stores notify many observers (each
-  has one `onChange` closure today), downloads move to an app-level manager, the session
-  file holds `windows[]`.
+  popup windows, a closed-window stack. **Built on `feat/stage-2` (windows slice):** the
+  window manager, ⌘N with cascade, every window saved and restored with its frame
+  (session version 2 with `windows[]`; version 1 migrates), one recently-closed stack of
+  tabs and windows (⇧⌘T, History ▸ Recently Closed), multicast store observers, the
+  app-level download manager, per-tab `attachTab`/`detachTab`, and `browser windows` /
+  `--window` / `new-window` / `close-window`. Left for the tab-move slice: drag a tab out,
+  Move Tab to New Window, Merge All Windows, popup windows and Vimium `W`.
 - Split `BrowserWindowController` (1,696 lines, every delegate) into per-feature tab
   responders as these features land, the way DuckDuckGo's tab extensions do.
 - Private windows: one `WKWebsiteDataStore.nonPersistent()` per window, kept out of history,

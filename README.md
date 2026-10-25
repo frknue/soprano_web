@@ -52,11 +52,15 @@ family, not notarized.
    restores the page's address. Tabs live in the Arc-style vertical rail on the
    left by default; `⌘S` collapses or expands it. **Settings → Vertical tabs**
    switches between the vertical rail and the horizontal-tab layout.
-2. `⌘T` opens the start page; the `+` beside the tabs does the same. `⌘W` closes
-   a tab; closing the last one closes the window, and the app stays in the Dock.
-   Click it to reopen with a fresh start tab. `⇧⌘T` brings back closed tabs,
-   with their history, even after a relaunch. Drag tabs to reorder them and
-   right-click one for Duplicate, Mute, Copy Link and the close commands.
+2. `⌘T` opens the start page; the `+` beside the tabs does the same. `⌘N` opens
+   a new window, one step down and right of the current one. `⌘W` closes a tab;
+   closing the last one closes the window, and the app stays in the Dock: click
+   it (or choose **New Window** from its menu) for a fresh window. `⇧⌘T` brings
+   back the most recently closed tab or window, with its history, even after a
+   relaunch; **History ▸ Recently Closed** lists the last 20 and reopens any of
+   them. Every window comes back at launch where it was. Drag tabs to reorder
+   them and right-click one for Duplicate, Mute, Copy Link and the close
+   commands.
 3. `⌘`-click or middle-click a link to open it in a background tab, `⇧⌘`-click
    for a front tab. Pop-ups a page opens without a click are blocked; the
    **Pop-up blocked** button in the address bar opens them or allows the site.
@@ -95,7 +99,10 @@ in the help sheet; the rest of Vimium's default map is implemented.
 | Shortcut | Action |
 |---|---|
 | `⌘L` | Focus the address bar |
-| `⌘T` / `⌘W` / `⇧⌘T` | New / close / reopen tab |
+| `⌘T` / `⌘W` | New / close tab |
+| `⌘N` / `⇧⌘W` | New / close window |
+| `⇧⌘T` | Reopen the last closed tab or window (History ▸ Recently Closed lists them all) |
+| `` ⌘` `` | Next window |
 | `⌃Tab` / `⌃⇧Tab` | Next / previous tab |
 | `⌘1`…`⌘8` / `⌘9` | Select tab 1–8 / last tab |
 | `⌘[` / `⌘]` | Back / forward (hold or right-click the buttons for history) |
@@ -108,7 +115,6 @@ in the help sheet; the rest of Vimium's default map is implemented.
 | `⌘S` | Toggle the vertical tab sidebar |
 | `⌘P` / `⇧⌘S` | Print / save page as |
 | `⇧⌘P` | Command palette |
-| `⇧⌘W` | Close the window and its tabs (`⇧⌘T` reopens them) |
 | `⌘,` | Settings |
 | `⌘+` / `⌘-` / `⌘0` | Zoom in / out / reset |
 
@@ -127,8 +133,12 @@ APP="/Applications/Soprano Web.app/Contents/MacOS/SopranoWeb"
 "$APP" browser fill '#search' soprano
 "$APP" browser get text 'h1'
 "$APP" browser screenshot /tmp/page.png
-"$APP" browser tabs                     # 1-based tab list
+"$APP" browser tabs                     # 1-based tab list of the current window
 "$APP" browser --tab 2 url
+"$APP" browser windows                  # 1-based window list
+"$APP" browser --window 2 --tab 1 title # tab 1 of window 2
+"$APP" browser new-window https://webkit.org
+"$APP" browser --window 2 close-window
 "$APP" browser vimium "gg"              # drive the normal-mode key layer
 "$APP" browser wait-for selector '#results li' --timeout 20
 "$APP" browser wait-for url /checkout
@@ -140,8 +150,11 @@ APP="/Applications/Soprano Web.app/Contents/MacOS/SopranoWeb"
 call `browser wait-for-load` before `snapshot`, `title` or `get` when the page
 must be loaded. `wait-for selector|url|text` waits for a CSS match, a URL
 substring or visible text, surviving navigations. Waits default to 10 seconds;
-`--timeout` takes up to 120. `--tab n` targets a tab by its 1-based number
-without switching to it; otherwise the selected tab is used. `snapshot` assigns
+`--timeout` takes up to 120. `--window n` picks a window by its 1-based number
+(`windows` lists them, `*` marking the default: the key window, else the most
+recently active one) and `--tab n` a tab of that window, without switching to
+either; otherwise the default window's selected tab is used. `close-window`
+puts the window on History ▸ Recently Closed, like `⇧⌘W`. `snapshot` assigns
 ephemeral refs (`@e1`, `@e2`, …) to interactive elements for the next commands.
 `eval` runs an expression, or an async function body that uses `return`;
 Promises are awaited, the result prints as JSON, and a JavaScript error exits 1
@@ -156,8 +169,10 @@ automation model, matching Soprano's browser pane.
 ## Files
 
 - Settings: `~/.config/soprano-web/settings.json` (written on first change).
-- Session (with closed tabs), history, bookmarks, downloads, per-site decisions
+- Session (every window with its frame and tabs, and the recently-closed tabs
+  and windows), history, bookmarks, downloads, per-site decisions
   (`site-permissions.json`) and favicons: `~/Library/Application Support/Soprano Web/`.
+  A stage 1 `session.json` is kept as `session.json.migrated` when it upgrades.
 - Downloads default to `~/Downloads`; Settings can choose another folder or ask
   each time.
 
@@ -170,27 +185,30 @@ you type to the search engine without cookies.
 
 ## Scope
 
-Soprano Web is a single-window browser. Deliberately not built yet: multiple and
-private windows, named profiles, Chrome/Safari extension installation, a password
-manager, and tab groups/sync. Web notifications work while their tab is open
-(no Web Push), and tab mute doesn't reach WebAudio. `docs/ROADMAP.md` lists what
-comes next and in which order; `docs/ARC-PARITY.md` compares it with Arc. The
-engine decision is WebKit; see `AGENTS.md` for why and what would have to change
-before adding a second engine.
+Soprano Web saves and restores every window. Deliberately not built yet: moving
+tabs between windows, private windows, named profiles, Chrome/Safari extension
+installation, a password manager, and tab groups/sync. Web notifications work
+while their tab is open (no Web Push), and tab mute doesn't reach WebAudio.
+`docs/ROADMAP.md` lists what comes next and in which order;
+`docs/ARC-PARITY.md` compares it with Arc. The engine decision is WebKit; see
+`AGENTS.md` for why and what would have to change before adding a second
+engine.
 
 ## Architecture
 
-- `Sources/SopranoWeb/Browser/` — tabs, `WKWebView` delegates, navigation,
-  history/bookmarks/downloads, sidebar, start page, automation, snapshot harness.
+- `Sources/SopranoWeb/Browser/` — the window manager, tabs, `WKWebView`
+  delegates, navigation, history/bookmarks/downloads, sidebar, start page,
+  automation, snapshot harness.
 - `Sources/SopranoWeb/App/` — app delegate, menu, settings window.
 - `Sources/SopranoWeb/Vendored/` — Folio chrome copied from Soprano. Never edit
   these here; run `scripts/sync-soprano-chrome.sh` after changing Soprano.
 - `scripts/` — package, sign, install, icon and chrome-sync scripts.
 
-`swift test` covers address resolution, stores, settings, session round-trip,
-start-page escaping and every WebKit delegate selector (a nearly matching Swift
-signature is accepted by the compiler but never called by WebKit, so the
-selectors are checked directly).
+`swift test` covers address resolution, stores, settings, the session file and
+its version 1 migration, the recently-closed stack, window frames, store
+observers, start-page escaping and every WebKit delegate selector (a nearly
+matching Swift signature is accepted by the compiler but never called by
+WebKit, so the selectors are checked directly).
 
 The window is fully programmatic AppKit, like the rest of the family: no
 storyboards, no xibs, no SwiftUI, no Electron.

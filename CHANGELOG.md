@@ -92,13 +92,34 @@ app.
   selected.
 - `browser wait-for selector|url|text <value>` and `--timeout` (up to 120 s) on
   `wait-for` and `wait-for-load`.
+- Multiple windows: File ▸ New Window (`⌘N`) opens a window with a start tab,
+  one step down and right of the current one; the Dock icon's menu has New
+  Window, and clicking the Dock icon with no window open opens one. Every
+  window is restored at launch where it was (moved onto a screen that is still
+  connected), each loading only its selected tab. Window titles follow the
+  selected tab, so Window, Mission Control and `` ⌘` `` show them.
+- History ▸ Recently Closed lists the last 20 closed tabs and windows, newest
+  first, and reopens any of them. `⇧⌘T` reopens the most recent one: a tab goes
+  back into its window at its old place (or into the current window when that
+  one is closed), a window comes back with all its tabs and their history.
+- `browser windows` lists the open windows; `--window n` works on window n
+  (with `--tab n` counting inside it) without bringing it forward;
+  `browser new-window [url]` and `browser close-window [n]`.
 
 ### Changed
 - Closing the last tab now closes the window, like Safari and Chrome. The app
   keeps running in the Dock; reopening it creates a fresh start tab.
 - The command palette moved from `⌘P` to `⇧⌘P`; `⌘9` selects the last tab.
-- Close Window (`⇧⌘W`) and the window's close button close all of its tabs
-  (reopen them with `⇧⌘T`) instead of hiding the window with the pages loaded.
+- Close Window (`⇧⌘W`), the window's close button and closing a window's last
+  tab put the whole window on History ▸ Recently Closed as one entry; `⇧⌘T`
+  reopens it with its tabs, selection and frame. Quitting (`⌘Q`) keeps every
+  window for the next launch instead.
+- Downloads belong to the app, not a window: they keep going when the window
+  that started them closes, and every window's Downloads sidebar lists them.
+- Links from other apps open in the most recently used window, or in a new
+  window when none is open.
+- `session.json` now holds every window; a session from an earlier version
+  opens as one window and is kept as `session.json.migrated`.
 - Duplicating a tab keeps its history and places the copy next to the original.
 - `Esc` in the address bar first restores the page's address, then returns to
   the page.

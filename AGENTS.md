@@ -45,13 +45,23 @@ no linter or formatter; match surrounding style.
       [--find] [--settings] [--vertical-tabs] [--collapsed] [--print-tabs] …
   ```
 
-  It builds the real window with volatile stores, captures the chrome with
-  AppKit and the page with WebKit, and writes a PNG. Run it without `--out` for
-  every flag: clicks and modifier clicks, sign-in sheets, session restore and
-  crashes, address-bar typing, tab audio and hover, site permissions,
-  print/PDF/save and context menus, Clear Browsing Data and downloads. Layer
-  backgrounds on views unhidden after first display may not appear in the cached
-  AppKit pass; that is a harness limitation, not the app.
+  It builds the real windows with volatile stores through the window manager,
+  captures the chrome with AppKit and the page with WebKit, and writes a PNG.
+  Every window it opens stays off every display and never becomes key or front.
+  Run it without `--out` for every flag: clicks and modifier clicks, sign-in
+  sheets, session restore and crashes, address-bar typing, tab audio and hover,
+  site permissions, print/PDF/save and context menus, Clear Browsing Data and
+  downloads. Window flags run in order on the active window:
+  `--session <file>` restores a version 1 or 2 session (every window),
+  `--new-window <url|start>` (repeatable) opens another window, cascaded,
+  `--activate-window n`, `--close-window` (⇧⌘W), `--reopen-closed` (⇧⌘T),
+  `--move-tab w:t:w2` (detach + attach, the tab-move path),
+  `--start-download <url>` / `--wait-downloads`, and `--print-windows` prints
+  every window (frame, tabs with back/forward lists), the recently-closed stack
+  and the downloads as one JSON line; `--capture-window n` picks the window for
+  the PNG (default: the active one). Layer backgrounds on views unhidden after
+  first display may not appear in the cached AppKit pass; that is a harness
+  limitation, not the app.
 - Verify real navigation and the agent surface against a running dev app:
 
   ```bash
@@ -75,21 +85,38 @@ no linter or formatter; match surrounding style.
 
 ## Architecture
 
-- `Browser/BrowserWindowController.swift` — the window class, stored state, init,
-  layout, wiring, settings and theme. Its behavior lives in extension files by
-  concern: `+Tabs`, `+Navigation` (`WKNavigationDelegate`), `+UIDelegate`
-  (`WKUIDelegate`), `+Downloads` (`WKDownloadDelegate`), `+Sidebar`, `+Vimium`,
-  `+Session` (restore, closed tabs, crash recovery), `+PageMessages`, `+Links`
+- `Browser/BrowserWindowManager.swift` — owned by `AppDelegate` (or the
+  harness): creates and tracks every `BrowserWindowController` (key and most
+  recently active window, ⌘N with cascade, close onto the stack), owns the
+  app-wide stores, `BrowserDownloadManager`, Settings and Websites, the
+  recently-closed stack, Vimium's global marks, notification-click routing,
+  links from other apps and the debounced `session.json` (restore every window,
+  frames clamped to today's screens). `BrowserWindowPlacement` keeps harness
+  windows off-screen. `BrowserAutomationRouter` (in
+  `BrowserAutomationCommand.swift`) picks the CLI's window.
+- `Browser/BrowserObservers.swift` — multicast change observers: every store's
+  `changes.observe { }` returns a token; windows subscribe on creation and
+  cancel on close. `BrowserDownloadManager.swift` — the app's
+  `WKDownloadDelegate`; windows hand it new downloads, which outlive them.
+- `Browser/BrowserWindowController.swift` — one window: per-window stored state,
+  init, layout, wiring, settings and theme. Its behavior lives in extension files
+  by concern: `+Tabs` (`attachTab`/`detachTab`: everything that binds a tab to a
+  window), `+Navigation` (`WKNavigationDelegate`), `+UIDelegate`
+  (`WKUIDelegate`), `+Downloads` (hand-off to the download manager), `+Sidebar`,
+  `+Vimium`, `+Session` (window state, lazy restore, crash recovery,
+  `NSWindowDelegate`), `+PageMessages`, `+Links`
   (pop-ups, modifier clicks, external apps), `+SignIn` (auth challenges, TLS
   interstitial, connection security), `+Permissions` (camera/mic, notifications,
-  audio, Websites), `+TabChrome` / `+TabActions` (favicons, link status, tab menu),
+  audio), `+TabChrome` / `+TabActions` (favicons, link status, tab menu),
   `+AddressBar` (suggestions dropdown), `+PageTools` (print, PDF, save, web-view
   context menu) and `+Privacy` (Clear Browsing Data, Website Data, default
   browser). Each WebKit protocol conformance sits on the extension that holds its
   methods.
-- `Browser/BrowserTab.swift`, `BrowserModel.swift` — tab state, settings
-  (decoded key by key), address resolution, session format with interaction state
-  and the closed-tab stack.
+- `Browser/BrowserTab.swift`, `BrowserModel.swift`, `BrowserSessionRestore.swift`
+  — tab state, settings (decoded key by key), address resolution, the version 2
+  session (`windows[]` with frames, `recentlyClosed`; a version 1 file migrates
+  to one window and is kept as `session.json.migrated`), the recently-closed
+  stack of tabs and windows, and window frame clamping/cascading.
 - `Browser/BrowserDataStores.swift` — history, bookmarks and downloads JSON
   (`{version, entries}` envelopes, lossy decoding); `BrowserSitePermissionStore.swift`
   — per-host allow/deny decisions (`site-permissions.json`); `BrowserFavicon.swift`
@@ -172,5 +199,6 @@ browser feature; move or delete the roadmap item when it ships.
 pane. Extract the scripts into a Foundation-only file in Soprano and add that
 file to `scripts/sync-soprano-chrome.sh`; until then the two copies can drift.
 
-Vimium's `gf`/`gF` frame commands, `W` new-window, and `⌥P` pin are deliberately
-unavailable (single-window app, pins not modeled); the help sheet says so.
+Vimium's `gf`/`gF` frame commands, `W` (move tab to a new window, waiting on the
+stage 2 tab-move slice), and `⌥P` pin are unavailable (pins not modeled); the
+help sheet says so.
