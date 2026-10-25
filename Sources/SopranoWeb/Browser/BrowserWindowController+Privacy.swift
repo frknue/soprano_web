@@ -28,7 +28,7 @@ extension BrowserWindowController {
     ) {
         let since = options.range.startDate(now: now)
         if options.history {
-            history.removeEntries(since: since)
+            history.removeVisits(since: since, now: now)
             // Closed tabs and windows carry their own back/forward lists.
             manager.recentlyClosed.removeAll()
             closedTabs.removeAll()

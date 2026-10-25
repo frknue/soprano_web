@@ -50,6 +50,11 @@ final class BrowserTab {
     var links = BrowserTabLinks()
     /// The next load to finish started from the address bar (a typed visit).
     var typedNavigationPending = false
+    /// How the main-frame load in flight was started (its policy decision).
+    var pendingVisitKind: BrowserVisitKind?
+    /// URL changes without a page load that may become History visits.
+    var sameDocumentVisits = BrowserSameDocumentVisits()
+    var sameDocumentTimer: Timer?
     /// `wait-for-load` requests on this tab; they follow it between windows.
     var loadWaiters: [UUID: BrowserLoadWaiter] = [:]
 
@@ -119,6 +124,8 @@ final class BrowserTab {
     func invalidateObservations() {
         observations.forEach { $0.invalidate() }
         observations.removeAll()
+        sameDocumentTimer?.invalidate()
+        sameDocumentTimer = nil
     }
 }
 

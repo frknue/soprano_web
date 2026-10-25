@@ -39,22 +39,30 @@ struct BrowserClearBrowsingDataTests {
     @Test func historyRemovalKeepsVisitsBeforeTheRange() {
         let directory = temporaryDirectory()
         defer { try? FileManager.default.removeItem(at: directory) }
-        let url = directory.appendingPathComponent("history.json")
-        let store = BrowserHistoryStore(url: url)
+        let store = BrowserHistoryStore(directory: directory)
         let now = date("2026-10-23T12:00:00Z")
         store.record(url: "https://old.example", title: "Old", at: date("2026-10-21T21:59:00Z"))
         store.record(url: "https://yesterday.example", title: "Yesterday", at: date("2026-10-22T21:00:00Z"))
         store.record(url: "https://today.example", title: "Today", at: date("2026-10-23T09:00:00Z"))
         store.record(url: "https://recent.example", title: "Recent", at: date("2026-10-23T11:30:00Z"))
+        // An older visit to a page that also has one inside the range.
+        store.record(url: "https://today.example", title: "Today", at: date("2026-10-23T11:45:00Z"))
 
-        store.removeEntries(since: BrowserClearRange.lastHour.startDate(now: now, calendar: berlin()))
-        #expect(store.entries.map(\.url) == [
+        store.removeVisits(since: BrowserClearRange.lastHour.startDate(now: now, calendar: berlin()), now: now)
+        #expect(store.visits(limit: 10).map(\.url) == [
             "https://today.example", "https://yesterday.example", "https://old.example",
         ])
-        store.removeEntries(since: BrowserClearRange.todayAndYesterday.startDate(now: now, calendar: berlin()))
-        #expect(BrowserHistoryStore(url: url).entries.map(\.url) == ["https://old.example"])
-        store.removeEntries(since: BrowserClearRange.allTime.startDate(now: now))
-        #expect(BrowserHistoryStore(url: url).entries.isEmpty)
+        let today = store.recentPages(limit: 10).first { $0.url == "https://today.example" }
+        #expect(today?.visits == 1)
+        #expect(today?.lastVisit == date("2026-10-23T09:00:00Z"))
+        #expect(store.pageCount() == 3)
+
+        store.removeVisits(since: BrowserClearRange.todayAndYesterday.startDate(now: now, calendar: berlin()), now: now)
+        #expect(BrowserHistoryStore(directory: directory).visits(limit: 10).map(\.url) == ["https://old.example"])
+        store.removeVisits(since: BrowserClearRange.allTime.startDate(now: now), now: now)
+        #expect(BrowserHistoryStore(directory: directory).visitCount() == 0)
+        #expect(store.pageCount() == 0)
+        #expect(store.suggestionCandidates(for: "old").isEmpty)
     }
 
     @Test func cookiesCheckboxRemovesSiteDataButNotCaches() {

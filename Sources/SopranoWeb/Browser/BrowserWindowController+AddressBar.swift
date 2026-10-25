@@ -43,7 +43,7 @@ extension BrowserWindowController {
         return AddressSuggestionInput(
             query: query,
             kind: kind,
-            history: history.entries,
+            history: kind.suggestsHistory ? history.suggestionCandidates(for: query) : [],
             bookmarks: bookmarks.bookmarks,
             tabs: openTabs,
             searchEngine: settingsStore.settings.searchEngine

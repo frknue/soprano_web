@@ -180,6 +180,8 @@ struct BrowserSettings: Codable, Equatable, Sendable {
     /// Show a save panel for every download instead of saving to
     /// `downloadDirectory`.
     var askDownloadLocation: Bool = false
+    /// Settings ▸ "Remove history items".
+    var historyRetention: BrowserHistoryRetention = .oneYear
 
     static let `default` = BrowserSettings()
 
@@ -217,6 +219,8 @@ extension BrowserSettings {
         allowsNotificationRequests = (try? c.decodeIfPresent(Bool.self, forKey: .allowsNotificationRequests))
             ?? allowsNotificationRequests
         askDownloadLocation = (try? c.decodeIfPresent(Bool.self, forKey: .askDownloadLocation)) ?? askDownloadLocation
+        historyRetention = (try? c.decodeIfPresent(BrowserHistoryRetention.self, forKey: .historyRetention))
+            ?? historyRetention
     }
 }
 

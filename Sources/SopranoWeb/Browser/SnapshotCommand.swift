@@ -276,7 +276,7 @@ enum SnapshotCommand {
             settingsStore.update { $0.autoplay = autoplay }
         }
         let themeManager = ThemeManager(themeId: options.theme, appearance: .system)
-        let history = BrowserHistoryStore(url: temp.appendingPathComponent("history.json"))
+        let history = BrowserHistoryStore(directory: temp)
         let bookmarks = BrowserBookmarkStore(url: temp.appendingPathComponent("bookmarks.json"))
         let downloads = BrowserDownloadStore(url: temp.appendingPathComponent("downloads.json"))
         let sitePermissions = BrowserSitePermissionStore(
@@ -384,10 +384,8 @@ enum SnapshotCommand {
         runPrivacyScenario(options.privacy, controller: controller, wait: options.wait)
 
         if let section = options.sidebar {
-            if history.entries.isEmpty {
-                history.record(url: "https://example.com", title: "Example Domain")
-                history.record(url: "https://www.iana.org/domains/reserved", title: "IANA-managed Reserved Domains")
-                history.record(url: "https://webkit.org", title: "WebKit")
+            if history.visitCount() == 0 {
+                history.importVisits(Self.seededHistory(now: Date()))
             }
             if bookmarks.bookmarks.isEmpty {
                 bookmarks.toggle(url: "https://example.com", title: "Example Domain")
@@ -644,5 +642,28 @@ enum SnapshotCommand {
         defaults.removePersistentDomain(forName: defaultsSuite)
         try? FileManager.default.removeItem(at: temp)
         exit(0)
+    }
+}
+
+extension SnapshotCommand {
+    /// `--sidebar` History: visits spread over today, yesterday, earlier
+    /// this week and older days, so the list shows its day headers.
+    static func seededHistory(now: Date, calendar: Calendar = .current) -> [BrowserHistoryImport] {
+        let today = calendar.startOfDay(for: now)
+        func day(_ offset: Int, hour: Int, minute: Int = 0) -> Date {
+            let start = calendar.date(byAdding: .day, value: -offset, to: today) ?? today
+            return calendar.date(byAdding: .minute, value: hour * 60 + minute, to: start) ?? start
+        }
+        let visits: [(String, String, Date)] = [
+            ("https://example.com/", "Example Domain", min(now.addingTimeInterval(-300), day(0, hour: 23))),
+            ("https://webkit.org/", "WebKit", min(now.addingTimeInterval(-1_800), day(0, hour: 22))),
+            ("https://developer.apple.com/documentation/webkit", "WebKit | Apple Developer Documentation", day(1, hour: 17, minute: 40)),
+            ("https://www.iana.org/domains/reserved", "IANA-managed Reserved Domains", day(1, hour: 9, minute: 15)),
+            ("https://www.swift.org/documentation/", "Documentation | Swift.org", day(3, hour: 11, minute: 5)),
+            ("https://github.com/frknue/soprano_web", "frknue/soprano_web: Soprano Web", day(5, hour: 16, minute: 30)),
+            ("https://news.ycombinator.com/", "Hacker News", day(12, hour: 8, minute: 50)),
+            ("https://en.wikipedia.org/wiki/WebKit", "WebKit - Wikipedia", day(40, hour: 20, minute: 10)),
+        ]
+        return visits.map { BrowserHistoryImport(url: $0.0, title: $0.1, visitedAt: $0.2, kind: .link) }
     }
 }

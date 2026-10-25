@@ -4,11 +4,14 @@ import AppKit
 /// can show the user's bookmarks and recent pages without a web request. A
 /// private window's start page says so and shows no recent pages.
 enum BrowserStartPage {
+    /// Pages in the Recent list.
+    static let recentLimit = 6
+
     static func html(
         theme: AppTheme,
         settings: BrowserSettings,
         bookmarks: [BrowserBookmark],
-        history: [BrowserHistoryEntry],
+        history: [BrowserHistoryPage],
         kind: BrowserWindowKind = .normal
     ) -> String {
         let colors = theme.colors
@@ -47,7 +50,7 @@ enum BrowserStartPage {
             <section>
               <h2>Recent</h2>
               <div class="recent">
-              \(history.prefix(6).map { entry in
+              \(history.prefix(BrowserStartPage.recentLimit).map { entry in
                   """
                   <a href="\(escape(entry.url))">
                     <span class="title">\(escape(entry.displayTitle))</span>

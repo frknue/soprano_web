@@ -41,7 +41,7 @@ struct BrowserPrivateWindowTests {
     }
 
     @Test func privateSuggestionsComeFromBookmarksTabsAndSearchNeverHistory() {
-        let history = [BrowserHistoryEntry(url: "https://visited.example/", title: "Visited Example")]
+        let history = [BrowserHistoryPage(url: "https://visited.example/", title: "Visited Example")]
         let bookmarks = [BrowserBookmark(url: "https://saved.example/", title: "Saved Example")]
         let tab = AddressSuggestionTab(id: UUID(), title: "Open Example", url: "https://open.example/")
         func rows(_ kind: BrowserWindowKind) -> [AddressSuggestion] {
@@ -76,7 +76,7 @@ struct BrowserPrivateWindowTests {
     }
 
     @Test func privateStartPageShowsNoRecentPages() {
-        let history = [BrowserHistoryEntry(url: "https://visited.example/", title: "Visited Example")]
+        let history = [BrowserHistoryPage(url: "https://visited.example/", title: "Visited Example")]
         let html = BrowserStartPage.html(
             theme: .folioInk,
             settings: BrowserSettings(searchEngine: .duckDuckGo),

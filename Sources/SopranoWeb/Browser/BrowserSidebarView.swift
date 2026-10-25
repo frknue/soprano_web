@@ -31,29 +31,31 @@ enum BrowserSidebarSection: String, CaseIterable, Sendable {
 }
 
 enum BrowserSidebarRow {
-    case history(BrowserHistoryEntry)
+    /// A day header in History ("Today", "Yesterday", …).
+    case day(String)
+    case history(BrowserHistoryVisit)
     case bookmark(BrowserBookmark)
     case download(BrowserDownloadRecord)
 
     var url: String? {
         switch self {
-        case let .history(entry): entry.url
+        case .day: nil
+        case let .history(visit): visit.url
         case let .bookmark(bookmark): bookmark.url
         case let .download(download): download.url
         }
     }
 
-    var id: UUID {
-        switch self {
-        case let .history(entry): entry.id
-        case let .bookmark(bookmark): bookmark.id
-        case let .download(download): download.id
-        }
+    var isDay: Bool {
+        if case .day = self { return true }
+        return false
     }
 }
 
 /// The right sidebar: history, bookmarks and downloads share one searchable
-/// list. It is deliberately one surface, not three panels.
+/// list. It is deliberately one surface, not three panels. History is
+/// grouped by day and loads `historyPageSize` visits at a time as the list
+/// scrolls.
 @MainActor
 final class BrowserSidebarView: NSView, NSTableViewDataSource, NSTableViewDelegate,
     NSTextFieldDelegate, NSMenuDelegate
@@ -61,7 +63,8 @@ final class BrowserSidebarView: NSView, NSTableViewDataSource, NSTableViewDelega
     var onOpenURL: ((String) -> Void)?
     var onOpenFile: ((String) -> Void)?
     var onRevealFile: ((String) -> Void)?
-    var onRemoveHistory: ((UUID) -> Void)?
+    /// Removes every visit to the address.
+    var onRemoveHistory: ((String) -> Void)?
     var onRemoveBookmark: ((UUID) -> Void)?
     var onRemoveDownload: ((UUID) -> Void)?
     var onCancelDownload: ((UUID) -> Void)?
@@ -88,6 +91,13 @@ final class BrowserSidebarView: NSView, NSTableViewDataSource, NSTableViewDelega
     private var footerTrailing: NSTextField?
     private var rows: [BrowserSidebarRow] = []
     private var contextRow = -1
+    /// History's loaded visits (newest first), the query they match and
+    /// whether older ones remain.
+    private var historyVisits: [BrowserHistoryVisit] = []
+    private var historyQuery = ""
+    private var historyHasMore = false
+    private var isLoadingMoreHistory = false
+    static let historyPageSize = 100
 
     let history: BrowserHistoryStore
     let bookmarks: BrowserBookmarkStore
@@ -309,7 +319,7 @@ final class BrowserSidebarView: NSView, NSTableViewDataSource, NSTableViewDelega
         let query = searchField.stringValue
         switch section {
         case .history:
-            rows = history.matching(query).map(BrowserSidebarRow.history)
+            reloadHistory(query: query)
         case .bookmarks:
             rows = bookmarks.matching(query).map(BrowserSidebarRow.bookmark)
         case .downloads:
@@ -330,7 +340,8 @@ final class BrowserSidebarView: NSView, NSTableViewDataSource, NSTableViewDelega
 
         switch section {
         case .history:
-            countLabel.stringValue = "\(rows.count) \(rows.count == 1 ? "page" : "pages")"
+            let count = history.visitCount(matching: query)
+            countLabel.stringValue = "\(count.formatted()) \(count == 1 ? "visit" : "visits")"
             footerButton.title = "Clear History…"
             footerButton.isEnabled = true
             footerButton.isHidden = false
@@ -351,6 +362,55 @@ final class BrowserSidebarView: NSView, NSTableViewDataSource, NSTableViewDelega
         tableView.reloadData()
     }
 
+    /// Redraws the rows (favicons arrived) without querying again.
+    func redisplayRows() {
+        tableView.reloadData()
+    }
+
+    /// The first page of visits, or as many as were loaded when the query
+    /// is unchanged, so a new visit does not throw away the scroll position.
+    private func reloadHistory(query: String) {
+        let limit = query == historyQuery ? max(Self.historyPageSize, historyVisits.count) : Self.historyPageSize
+        historyQuery = query
+        historyVisits = history.visits(matching: query, limit: limit)
+        historyHasMore = historyVisits.count == limit
+        rows = historyRows()
+    }
+
+    private func historyRows() -> [BrowserSidebarRow] {
+        BrowserHistoryDays.rows(for: historyVisits, now: Date()).map { row in
+            switch row {
+            case let .day(title): .day(title)
+            case let .visit(visit): .history(visit)
+            }
+        }
+    }
+
+    /// Appends the next page once the list nears its end.
+    private func loadMoreHistoryIfNeeded(near row: Int) {
+        guard section == .history, historyHasMore, !isLoadingMoreHistory,
+              row >= rows.count - 20
+        else { return }
+        isLoadingMoreHistory = true
+        // Not while the table is asking for a view.
+        DispatchQueue.main.async { [weak self] in
+            guard let self else { return }
+            self.isLoadingMoreHistory = false
+            guard self.section == .history, self.historyHasMore else { return }
+            let page = self.history.visits(
+                matching: self.historyQuery,
+                before: self.historyVisits.last,
+                limit: Self.historyPageSize
+            )
+            self.historyHasMore = page.count == Self.historyPageSize
+            guard !page.isEmpty else { return }
+            self.historyVisits += page
+            let oldCount = self.rows.count
+            self.rows = self.historyRows()
+            self.tableView.insertRows(at: IndexSet(oldCount..<self.rows.count), withAnimation: [])
+        }
+    }
+
     private var placeholder: String {
         switch section {
         case .history: "Search history"
@@ -366,6 +426,15 @@ final class BrowserSidebarView: NSView, NSTableViewDataSource, NSTableViewDelega
     }
 
     func tableView(_ tableView: NSTableView, viewFor tableColumn: NSTableColumn?, row: Int) -> NSView? {
+        loadMoreHistoryIfNeeded(near: row)
+        if case let .day(title) = rows[row] {
+            let identifier = NSUserInterfaceItemIdentifier("BrowserSidebarDay")
+            let header = tableView.makeView(withIdentifier: identifier, owner: self) as? BrowserSidebarDayView
+                ?? BrowserSidebarDayView()
+            header.identifier = identifier
+            header.configure(title: title, theme: theme)
+            return header
+        }
         let identifier = NSUserInterfaceItemIdentifier("BrowserSidebarRow")
         let cell = tableView.makeView(withIdentifier: identifier, owner: self) as? BrowserSidebarCellView
             ?? BrowserSidebarCellView(theme: theme)
@@ -379,7 +448,11 @@ final class BrowserSidebarView: NSView, NSTableViewDataSource, NSTableViewDelega
     }
 
     func tableView(_ tableView: NSTableView, shouldSelectRow row: Int) -> Bool {
-        true
+        !rows[row].isDay
+    }
+
+    func tableView(_ tableView: NSTableView, heightOfRow row: Int) -> CGFloat {
+        rows[row].isDay ? 30 : tableView.rowHeight
     }
 
     @objc private func openClickedRow() {
@@ -390,8 +463,10 @@ final class BrowserSidebarView: NSView, NSTableViewDataSource, NSTableViewDelega
 
     private func open(_ row: BrowserSidebarRow) {
         switch row {
-        case let .history(entry):
-            onOpenURL?(entry.url)
+        case .day:
+            break
+        case let .history(visit):
+            onOpenURL?(visit.url)
         case let .bookmark(bookmark):
             onOpenURL?(bookmark.url)
         case let .download(download):
@@ -434,6 +509,8 @@ final class BrowserSidebarView: NSView, NSTableViewDataSource, NSTableViewDelega
         let row = rows[contextRow]
 
         switch row {
+        case .day:
+            break
         case .history:
             menu.addItem(item("Open", #selector(menuOpen)))
             menu.addItem(item("Copy Link", #selector(menuCopyLink)))
@@ -508,8 +585,10 @@ final class BrowserSidebarView: NSView, NSTableViewDataSource, NSTableViewDelega
     @objc private func menuRemove() {
         guard contextRow >= 0, contextRow < rows.count else { return }
         switch rows[contextRow] {
-        case let .history(entry):
-            onRemoveHistory?(entry.id)
+        case .day:
+            break
+        case let .history(visit):
+            onRemoveHistory?(visit.url)
         case let .bookmark(bookmark):
             onRemoveBookmark?(bookmark.id)
         case let .download(download):
@@ -620,11 +699,14 @@ private final class BrowserSidebarCellView: NSTableCellView {
         apply(theme: theme)
         setAction(nil)
         switch row {
-        case let .history(entry):
+        case .day:
+            break
+        case let .history(visit):
             iconView.image = favicon ?? symbol("clock")
-            titleLabel.stringValue = entry.displayTitle
-            subtitleLabel.stringValue = entry.url
-            dateLabel.stringValue = Self.date(entry.visitedAt)
+            titleLabel.stringValue = visit.displayTitle
+            subtitleLabel.stringValue = visit.url
+            // The day header says which day; the row says when.
+            dateLabel.stringValue = visit.visitedAt.formatted(date: .omitted, time: .shortened)
         case let .bookmark(bookmark):
             iconView.image = favicon ?? symbol("bookmark")
             titleLabel.stringValue = bookmark.displayTitle
@@ -742,6 +824,35 @@ private final class BrowserSidebarCellView: NSTableCellView {
     }
 }
 
+/// "Today", "Yesterday", a weekday or a date above a day's visits.
+@MainActor
+private final class BrowserSidebarDayView: NSTableCellView {
+    private let label = NSTextField(labelWithString: "")
+
+    init() {
+        super.init(frame: .zero)
+        label.translatesAutoresizingMaskIntoConstraints = false
+        label.font = ChromeFont.meta
+        label.lineBreakMode = .byTruncatingTail
+        addSubview(label)
+        NSLayoutConstraint.activate([
+            label.leadingAnchor.constraint(equalTo: leadingAnchor, constant: 16),
+            label.trailingAnchor.constraint(lessThanOrEqualTo: trailingAnchor, constant: -16),
+            label.bottomAnchor.constraint(equalTo: bottomAnchor, constant: -6),
+        ])
+    }
+
+    @available(*, unavailable)
+    required init?(coder: NSCoder) {
+        fatalError("init(coder:) is not supported")
+    }
+
+    func configure(title: String, theme: AppTheme) {
+        label.stringValue = title
+        label.textColor = theme.colors.textMuted
+        setAccessibilityLabel(title)
+    }
+}
 
 @MainActor
 private final class BrowserDownloadProgressBar: NSView {

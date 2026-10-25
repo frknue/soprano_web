@@ -23,7 +23,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         let manager = BrowserWindowManager(
             themeManager: themeManager,
             settingsStore: settingsStore,
-            history: BrowserHistoryStore(url: support.appendingPathComponent("history.json")),
+            history: BrowserHistoryStore(directory: support),
             bookmarks: BrowserBookmarkStore(url: support.appendingPathComponent("bookmarks.json")),
             downloads: BrowserDownloadStore(url: support.appendingPathComponent("downloads.json")),
             sitePermissions: BrowserSitePermissionStore(

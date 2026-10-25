@@ -22,6 +22,9 @@ final class BrowserAddressBarController {
     private var allowsCompletion = false
     private var remote: (query: String, phrases: [String])?
     private var result = AddressSuggestionResult.empty
+    /// The engine of the last input, so a search-suggestion request does
+    /// not build (and query History for) another one.
+    private var searchEngine: SearchEngine?
     private var lastEditWasDeletion = false
 
     init(toolbar: BrowserToolbarView, theme: AppTheme) {
@@ -134,6 +137,7 @@ final class BrowserAddressBarController {
             close()
             return
         }
+        searchEngine = input.searchEngine
         input.allowsInlineCompletion = allowsCompletion
         input.remoteSuggestions = remote?.query == query ? remote?.phrases ?? [] : []
         let previousTarget = keepingSelection && dropdown.selectedIndex > 0
@@ -168,7 +172,7 @@ final class BrowserAddressBarController {
         let query = query
         guard includesSearchSuggestions?() == true,
               !query.isEmpty,
-              let engine = makeInput?(query).searchEngine,
+              let engine = searchEngine,
               !AddressQueryMatcher.looksLikeAddress(query, engine: engine)
         else {
             fetcher.cancel()

@@ -43,10 +43,11 @@ enum AddressBarSnapshot {
                 stamp += 1
                 // Spaced apart so the store does not merge repeat visits.
                 let date = now.addingTimeInterval(-hours * 3_600 - Double(visit) * 900 - stamp)
-                history.record(url: address, title: title, at: date, typed: visit < typed)
+                history.record(url: address, title: title, at: date, kind: visit < typed ? .typed : .link)
             }
         }
         bookmarks.toggle(url: "https://github.com/frknue/soprano_web", title: "Soprano Web")
+        print("address-history: \(history.pageCount()) pages, \(history.visitCount()) visits in \(history.databaseURL.lastPathComponent)")
         bookmarks.toggle(url: "https://developer.apple.com/documentation/webkit", title: "WebKit Documentation")
 
         controller.focusAddressBar()
@@ -65,6 +66,8 @@ enum AddressBarSnapshot {
         ])
         print("address-field: \(editor.string)")
         print("address-rows: \(controller.addressBar.rows.map(\.title).joined(separator: " | "))")
+        let candidates = history.suggestionCandidates(for: text)
+        print("address-history-candidates: \(candidates.map { "\($0.displayTitle) (\(Int($0.frecency)))" }.joined(separator: " | "))")
     }
 
     private static func settle(_ seconds: Double) {

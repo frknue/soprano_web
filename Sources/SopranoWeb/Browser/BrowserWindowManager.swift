@@ -50,6 +50,8 @@ final class BrowserWindowManager {
     static let legacyFrameKey = "NSWindow Frame SopranoWebMainWindow"
     /// Session writes wait this long for more changes.
     static let sessionSaveDelay: TimeInterval = 0.5
+    /// History's retention pass and frecency refresh repeat this often.
+    static let historyMaintenanceInterval: TimeInterval = 86_400
 
     let themeManager: ThemeManager
     let settingsStore: BrowserSettingsStore
@@ -85,6 +87,8 @@ final class BrowserWindowManager {
     private var websitesSheet: BrowserWebsitesSheet?
     private var saveTimer: Timer?
     private var observations: [BrowserObservation] = []
+    private var historyMaintenanceTimer: Timer?
+    private var appliedHistoryRetention: BrowserHistoryRetention?
 
     init(
         themeManager: ThemeManager,
@@ -123,11 +127,39 @@ final class BrowserWindowManager {
             self?.themeChanges.notify(theme)
         }
         observations = [
-            settingsStore.changes.observe { [weak self] settings in self?.applyTheme(of: settings) },
+            settingsStore.changes.observe { [weak self] settings in
+                self?.applyTheme(of: settings)
+                self?.applyHistoryRetention(settings.historyRetention)
+            },
             sitePermissions.changes.observe { [weak self] in self?.websitesSheet?.reload() },
         ]
         downloadManager.fallbackWindow = { [weak self] in self?.activeController?.window }
         BrowserNotificationCenter.shared.onClick = { [weak self] click in self?.openNotification(click) }
+        startHistoryMaintenance()
+    }
+
+    // MARK: - History retention
+
+    /// Prunes History to Settings ▸ "Remove history items" and refreshes
+    /// frecency now (off the main thread) and once a day.
+    private func startHistoryMaintenance() {
+        appliedHistoryRetention = settingsStore.settings.historyRetention
+        history.runMaintenance(retention: settingsStore.settings.historyRetention)
+        historyMaintenanceTimer = Timer.scheduledTimer(
+            withTimeInterval: Self.historyMaintenanceInterval,
+            repeats: true
+        ) { [weak self] _ in
+            MainActor.assumeIsolated {
+                guard let self else { return }
+                self.history.runMaintenance(retention: self.settingsStore.settings.historyRetention)
+            }
+        }
+    }
+
+    private func applyHistoryRetention(_ retention: BrowserHistoryRetention) {
+        guard retention != appliedHistoryRetention else { return }
+        appliedHistoryRetention = retention
+        history.runMaintenance(retention: retention)
     }
 
     // MARK: - Windows
@@ -460,7 +492,7 @@ final class BrowserWindowManager {
             theme: kind.isPrivate ? .folioInk : themeManager.currentTheme,
             settings: settingsStore.settings,
             bookmarks: bookmarks.bookmarks,
-            history: kind.suggestsHistory ? history.entries : [],
+            history: kind.suggestsHistory ? history.recentPages(limit: BrowserStartPage.recentLimit) : [],
             kind: kind
         )
     }

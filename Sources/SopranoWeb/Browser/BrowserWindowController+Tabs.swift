@@ -246,6 +246,7 @@ extension BrowserWindowController {
                 MainActor.assumeIsolated {
                     guard let self, let tab else { return }
                     self.tabURLChanged(tab)
+                    self.sameDocumentURLChanged(tab)
                     self.metadataChanged(tab)
                 }
             },

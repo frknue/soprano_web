@@ -123,6 +123,38 @@ extension BrowserWindowController {
         tab.webView.load(URLRequest(url: BrowserStartPageSchemeHandler.url))
     }
 
+    /// A URL change without a page load (`history.pushState`, a hash route)
+    /// becomes a visit once it has stayed for a second; see
+    /// `BrowserSameDocumentVisits`.
+    func sameDocumentURLChanged(_ tab: BrowserTab) {
+        tab.sameDocumentTimer?.invalidate()
+        tab.sameDocumentTimer = nil
+        guard kind.recordsHistory, !tab.isStartPage,
+              tab.sameDocumentVisits.urlChanged(
+                  to: tab.webView.url?.absoluteString,
+                  isLoading: tab.webView.isLoading,
+                  now: Date()
+              )
+        else { return }
+        tab.sameDocumentTimer = Timer.scheduledTimer(
+            withTimeInterval: BrowserSameDocumentVisits.debounce,
+            repeats: false
+        ) { [weak self, weak tab] _ in
+            MainActor.assumeIsolated {
+                guard let self, let tab, self.tabs.contains(where: { $0 === tab }) else { return }
+                tab.sameDocumentTimer = nil
+                guard self.kind.recordsHistory,
+                      let url = tab.sameDocumentVisits.takeDueVisit(
+                          currentURL: tab.webView.url?.absoluteString,
+                          isLoading: tab.webView.isLoading,
+                          now: Date()
+                      )
+                else { return }
+                self.history.record(url: url, title: tab.displayTitle, kind: .sameDocument)
+            }
+        }
+    }
+
     func markStartPagesStale() {
         for tab in tabs where tab.isStartPage {
             staleStartTabs.insert(tab.id)
@@ -153,6 +185,9 @@ extension BrowserWindowController: WKNavigationDelegate {
     func webView(_ webView: WKWebView, didStartProvisionalNavigation navigation: WKNavigation!) {
         guard let tab = tab(for: webView) else { return }
         tab.vimium?.pageDidStart()
+        tab.sameDocumentVisits.navigationStarted()
+        tab.sameDocumentTimer?.invalidate()
+        tab.sameDocumentTimer = nil
         if tab.isShowingErrorPage {
             tab.isShowingErrorPage = false
         } else {
@@ -198,8 +233,12 @@ extension BrowserWindowController: WKNavigationDelegate {
             for: tab,
             result: .success(webView.url?.absoluteString ?? "")
         )
-        let typed = tab.typedNavigationPending
+        let visitKind: BrowserVisitKind = tab.typedNavigationPending ? .typed : tab.pendingVisitKind ?? .link
         tab.typedNavigationPending = false
+        tab.pendingVisitKind = nil
+        tab.sameDocumentVisits.pageLoaded(webView.url?.absoluteString)
+        tab.sameDocumentTimer?.invalidate()
+        tab.sameDocumentTimer = nil
         if tab.suppressNextHistoryRecord {
             tab.suppressNextHistoryRecord = false
         } else if kind.recordsHistory,
@@ -207,7 +246,7 @@ extension BrowserWindowController: WKNavigationDelegate {
                   let address = webView.url?.absoluteString,
                   ["http", "https", "file"].contains(webView.url?.scheme?.lowercased() ?? "")
         {
-            history.record(url: address, title: tab.displayTitle, typed: typed)
+            history.record(url: address, title: tab.displayTitle, kind: visitKind)
         }
         if tab.id == selectedTab?.id {
             updateChrome()
@@ -312,6 +351,7 @@ extension BrowserWindowController: WKNavigationDelegate {
            ["http", "https", "file"].contains(scheme)
         {
             tab.pendingURL = url.absoluteString
+            tab.pendingVisitKind = BrowserVisitKind(navigationAction.navigationType)
         }
         decisionHandler(.allow)
     }

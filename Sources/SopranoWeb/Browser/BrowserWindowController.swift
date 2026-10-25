@@ -354,7 +354,7 @@ final class BrowserWindowController: NSWindowController {
         sidebar.onOpenURL = { [weak self] url in self?.navigateCurrent(to: url) }
         sidebar.onOpenFile = { [weak self] path in self?.openFile(path) }
         sidebar.onRevealFile = { [weak self] path in self?.revealFile(path) }
-        sidebar.onRemoveHistory = { [weak self] id in self?.history.remove(id: id) }
+        sidebar.onRemoveHistory = { [weak self] url in self?.history.removePage(url: url) }
         sidebar.onRemoveBookmark = { [weak self] id in self?.bookmarks.remove(id: id) }
         sidebar.onRemoveDownload = { [weak self] id in self?.downloads.remove(id: id) }
         sidebar.onCancelDownload = { [weak self] id in self?.cancelDownload(id: id) }
@@ -365,8 +365,12 @@ final class BrowserWindowController: NSWindowController {
 
         storeObservations = [
             history.changes.observe { [weak self] in
-                self?.sidebar.refresh()
-                self?.markStartPagesStale()
+                guard let self else { return }
+                // The list queries the database; a hidden one reloads when shown.
+                if self.isSidebarVisible, self.sidebar.section == .history {
+                    self.sidebar.refresh()
+                }
+                self.markStartPagesStale()
             },
             bookmarks.changes.observe { [weak self] in
                 self?.sidebar.refresh()
@@ -376,7 +380,7 @@ final class BrowserWindowController: NSWindowController {
             downloads.changes.observe { [weak self] in self?.sidebar.refresh() },
             faviconStore.changes.observe { [weak self] in
                 guard let self, self.isSidebarVisible else { return }
-                self.sidebar.refresh()
+                self.sidebar.redisplayRows()
             },
             sitePermissions.changes.observe { [weak self] in self?.sitePermissionsChanged() },
             manager.themeChanges.observe { [weak self] theme in

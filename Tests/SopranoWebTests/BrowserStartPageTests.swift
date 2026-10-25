@@ -26,10 +26,10 @@ struct BrowserStartPageTests {
             settings: .default,
             bookmarks: [],
             history: [
-                BrowserHistoryEntry(
+                BrowserHistoryPage(
                     url: "https://example.com/products/x",
                     title: "Product",
-                    visitedAt: Date(timeIntervalSince1970: 1_700_000_000)
+                    lastVisit: Date(timeIntervalSince1970: 1_700_000_000)
                 ),
             ]
         )

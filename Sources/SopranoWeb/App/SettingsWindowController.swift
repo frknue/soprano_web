@@ -31,6 +31,13 @@ final class SettingsWindowController: NSWindowController, NSTextFieldDelegate {
         button.widthAnchor.constraint(equalToConstant: 200).isActive = true
         return button
     }()
+    private lazy var historyRetentionButton: ChromeButton = {
+        let button = ChromeButton(title: settingsStore.settings.historyRetention.name, theme: theme, kind: .standard)
+        button.target = self
+        button.action = #selector(historyRetentionPressed)
+        button.widthAnchor.constraint(equalToConstant: 200).isActive = true
+        return button
+    }()
     private lazy var notificationsSwitch = ChromeSwitch(
         isOn: settingsStore.settings.allowsNotificationRequests,
         theme: theme,
@@ -120,7 +127,7 @@ final class SettingsWindowController: NSWindowController, NSTextFieldDelegate {
         self.websiteDataButton = ChromeButton(title: "Manage…", theme: theme, kind: .standard)
         self.defaultBrowserButton = ChromeButton(title: "Make Default", theme: theme, kind: .standard)
         let window = NSWindow(
-            contentRect: NSRect(x: 0, y: 0, width: 620, height: 712),
+            contentRect: NSRect(x: 0, y: 0, width: 620, height: 756),
             styleMask: [.titled, .closable, .fullSizeContentView],
             backing: .buffered,
             defer: false
@@ -132,7 +139,7 @@ final class SettingsWindowController: NSWindowController, NSTextFieldDelegate {
         window.titlebarAppearsTransparent = true
         window.isReleasedWhenClosed = false
         window.backgroundColor = theme.colors.bgBase
-        window.minSize = NSSize(width: 620, height: 712)
+        window.minSize = NSSize(width: 620, height: 756)
 
         rootView.wantsLayer = true
         window.contentView = rootView
@@ -205,6 +212,7 @@ final class SettingsWindowController: NSWindowController, NSTextFieldDelegate {
             [rowLabel("Theme"), themeButton],
             [rowLabel("Appearance"), appearanceButton],
             [rowLabel("Restore session"), restoreSwitch],
+            [rowLabel("Remove history items"), historyRetentionButton],
             [rowLabel("Vertical tabs"), verticalTabsSwitch],
             [rowLabel("Downloads"), downloadRow()],
             [rowLabel("Ask where to save"), askDownloadSwitch],
@@ -334,6 +342,7 @@ final class SettingsWindowController: NSWindowController, NSTextFieldDelegate {
         verticalTabsSwitch.apply(theme: theme)
         suggestionsSwitch.apply(theme: theme)
         autoplayButton.apply(theme: theme)
+        historyRetentionButton.apply(theme: theme)
         notificationsSwitch.apply(theme: theme)
         notificationsLabel.textColor = theme.colors.textPrimary
         websitesButton.apply(theme: theme)
@@ -364,6 +373,7 @@ final class SettingsWindowController: NSWindowController, NSTextFieldDelegate {
         verticalTabsSwitch.isOn = settingsStore.settings.usesVerticalTabs
         suggestionsSwitch.isOn = settingsStore.settings.includeSearchSuggestions
         autoplayButton.title = settingsStore.settings.autoplay.name
+        historyRetentionButton.title = settingsStore.settings.historyRetention.name
         notificationsSwitch.isOn = settingsStore.settings.allowsNotificationRequests
         askDownloadSwitch.isOn = settingsStore.settings.askDownloadLocation
         refreshDefaultBrowser()
@@ -536,6 +546,19 @@ extension SettingsWindowController {
             items: AutoplayPolicy.allCases.map { policy in
                 (policy.name, policy == current, { [weak self] in
                     self?.settingsStore.update { $0.autoplay = policy }
+                    self?.refresh()
+                })
+            }
+        )
+    }
+
+    @objc private func historyRetentionPressed() {
+        let current = settingsStore.settings.historyRetention
+        showMenu(
+            from: historyRetentionButton,
+            items: BrowserHistoryRetention.allCases.map { retention in
+                (retention.name, retention == current, { [weak self] in
+                    self?.settingsStore.update { $0.historyRetention = retention }
                     self?.refresh()
                 })
             }
