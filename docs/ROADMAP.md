@@ -93,8 +93,23 @@ decision).
   pruned at launch and daily; the History sidebar grouped by day, paged as it scrolls,
   searching titles and addresses; Clear Browsing Data deletes through SQL; same-document
   (`pushState`) URL changes become visits after a second. `BrowserHistoryImport` and
-  `importVisits` are the entry point for the stage 3 Arc/Chrome importers. Left: bookmark
-  folders (bookmarks slice).
+  `importVisits` are the entry point for the stage 3 Arc/Chrome importers. **Built on
+  `feat/stage-2` (bookmarks slice):** bookmark folders — `bookmarks.json` version 2 is
+  one tree (folders with ordered children, bookmarks) shared by every profile; the flat
+  version 1 list migrates into the top level once and stays as `bookmarks.json.migrated`;
+  tolerant decoding (bad nodes skipped, repeated ids dropped). The Bookmarks sidebar is
+  an outline (disclosure triangles, favicons, open folders remembered in `UserDefaults`,
+  drag to reorder and move into or out of folders, New Folder, Rename, Edit Bookmark,
+  Delete asking first for a folder with contents, Open / Open in New Tab / Open All in
+  Tabs / Copy Link) whose search lists matches with their folder path; `⌘D` and the
+  star add to the last-used folder and open a Folio popover (name, folder picker, Done,
+  Remove); the Bookmarks menu lists the tree with a submenu per folder; the start page
+  shows top-level folders as cards that expand in place; suggestions, the frecency boost
+  and Vimium `b`/`B` see every folder (Vimium shows the path).
+  `BrowserBookmarkStore.insert(_:into:at:)` is the entry point for the stage 3 Chrome,
+  Safari and HTML bookmark importers. Left: whether bookmarks stay next to stage 3's
+  pinned tabs and Favorites (open decision below); a bookmarks bar was out of this
+  slice's scope.
 - Content blocking: uBlock Origin Lite through `WKWebExtension` (loads and blocks on
   macOS 27), or `WKContentRuleList`s built from EasyList (150,000 rules per list).
 - Zoom remembered per site (eTLD+1), plus a default zoom.

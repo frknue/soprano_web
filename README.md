@@ -89,8 +89,15 @@ family, not notarized.
    **Pop-up blocked** button in the address bar opens them or allows the site.
    Sign-in pop-ups that ask for a size open in a small window of that size,
    which closes itself when the site is done; other links open as tabs.
-4. `⌘D` bookmarks the page. `⌘Y`, `⌥⌘B` and `⌥⌘L` open History, Bookmarks and
-   Downloads in the right sidebar; stopped downloads resume or retry from there.
+4. `⌘D` (or the star) bookmarks the page into the folder you used last and
+   opens a small popover to rename it, pick another folder or remove it; on a
+   bookmarked page it edits the bookmark. The Bookmarks menu lists every
+   bookmark, with a submenu per folder. `⌘Y`, `⌥⌘B` and `⌥⌘L` open History,
+   Bookmarks and Downloads in the right sidebar; stopped downloads resume or
+   retry from there. Bookmarks is an outline of folders: drag to reorder or
+   move into and out of folders, right-click for Open in New Tab, Open All in
+   Tabs, Edit Bookmark…, Rename…, New Folder and Delete; its search lists
+   matches with their folder.
    History lists every visit by day (Today, Yesterday, the weekday for the rest
    of the week, then the date) and loads older days as you scroll; the search
    field matches titles and addresses. Right-click a visit and choose **Remove
@@ -108,7 +115,8 @@ family, not notarized.
    Website Data show the current window's profile and switch profiles with a
    picker; Clear Browsing Data clears the current window's profile and names it.
 
-The start page shows bookmarks and recent pages. `⌘=` / `⌘-` / `⌘0` zoom the
+The start page shows top-level bookmarks, folders (click one to list its
+bookmarks) and recent pages. `⌘=` / `⌘-` / `⌘0` zoom the
 page. `⇧⌘B` toggles the sidebar. Click the lock in the address bar for the
 connection details and certificate.
 
@@ -120,7 +128,8 @@ for the full key sheet; text fields switch to insert mode automatically, and
 
 - `j` / `k` / `h` / `l`, `d` / `u`, `gg` / `G` scroll; counts work (`5j`).
 - `f` / `F` show link hints; `yf` copies a link; `⌥F` queues links in new tabs.
-- `o` / `O` open the omnibar, `b` / `B` search bookmarks, `T` searches tabs.
+- `o` / `O` open the omnibar, `b` / `B` search bookmarks in every folder (each
+  shows its folder), `T` searches tabs.
 - `/` finds, `n` / `N` step matches, `*` / `#` find selected text.
 - `H` / `L` history, `J` / `K` tabs, `g0` / `g$` first/last, `x` / `X` close/reopen,
   `W` moves the tab to a new window.
@@ -146,7 +155,7 @@ the rest of Vimium's default map is implemented.
 | `⌘[` / `⌘]` | Back / forward (hold or right-click the buttons for history) |
 | `⌘R` / `⌘.` | Reload / stop |
 | `⌘F`, `⌘G`, `⇧⌘G` | Find, next match, previous match |
-| `⌘D` | Bookmark this page |
+| `⌘D` | Bookmark this page (into the last-used folder), or edit its bookmark |
 | `⌘Y` / `⌥⌘B` / `⌥⌘L` | History / bookmarks / downloads |
 | `⇧⌘⌫` | Clear browsing data |
 | `⇧⌘B` | Toggle the right sidebar |
@@ -245,6 +254,13 @@ automation model, matching Soprano's browser pane.
   in memory, and certificate exceptions and client certificates chosen there
   stay in that window. Files you download from it are the exception, and so
   are bookmarks you add and settings you change there.
+- Bookmarks: `bookmarks.json`, one tree shared by every profile —
+  `{ "version": 2, "root": … }` with folders (`name`, ordered `children`) and
+  bookmarks (`url`, `title`, `addedAt`). The flat stage 1 list moves into the
+  top level once (newest first, as the sidebar showed it) and stays as
+  `bookmarks.json.migrated`; a file that can't be read is kept as
+  `bookmarks.json.corrupt`. Which folders are open in the sidebar and the
+  folder `⌘D` used last are UI state in `UserDefaults`.
 - Downloads default to `~/Downloads`; Settings can choose another folder or ask
   each time.
 
@@ -281,13 +297,15 @@ engine.
 `swift test` covers address resolution, stores, settings, the session file and
 its version 1 migration, the recently-closed stack, window frames, tab drop
 positions, Merge All Windows ordering, pop-up window frames, store
-observers, start-page escaping, what a private window keeps (site-decision
-overlay, in-memory favicons and downloads, suggestion sources, the tab-move
-rule), profiles (`profiles.json`, each profile's folder and data store, windows
-and closed tabs reopening in their profile, the move rule across profiles,
-`new-window --profile`) and every WebKit delegate selector (a nearly matching
-Swift signature is accepted by the compiler but never called by WebKit, so the
-selectors are checked directly).
+observers, start-page escaping and folder cards, the bookmark tree (version 1
+migration, tolerant decoding, add/move/rename/delete, the no-cycle move rule,
+drop positions, paths, the last-used folder), what a private window keeps
+(site-decision overlay, in-memory favicons and downloads, suggestion sources,
+the tab-move rule), profiles (`profiles.json`, each profile's folder and data
+store, windows and closed tabs reopening in their profile, the move rule across
+profiles, `new-window --profile`) and every WebKit delegate selector (a nearly
+matching Swift signature is accepted by the compiler but never called by
+WebKit, so the selectors are checked directly).
 
 The window is fully programmatic AppKit, like the rest of the family: no
 storyboards, no xibs, no SwiftUI, no Electron.

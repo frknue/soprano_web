@@ -162,6 +162,22 @@ app.
   Browsing Data… (`⇧⌘⌫`) clears the current window's profile and says which.
 - `browser new-window [url] --profile <name>` opens a window in that profile;
   an unknown name is an error.
+- Bookmark folders. Sidebar ▸ Bookmarks (`⌥⌘B`) is an outline: click the
+  triangle (or double-click a folder) to open it, and drag bookmarks and
+  folders to reorder them or move them into and out of folders. Folders
+  stay open as you left them. Right-click for Open, Open in New Tab, Open All
+  in Tabs, Copy Link, Edit Bookmark… (name and address), Rename…, New Folder
+  and Delete (a folder with bookmarks asks first); New Folder also sits at
+  the bottom of the sidebar. Searching lists matching bookmarks with the
+  folder they're in.
+- `⌘D` and the star open a small popover: a new bookmark goes into the folder
+  you used last, and the popover lets you rename it, pick another folder or
+  remove it (Return or Done saves, Esc closes). On a bookmarked page the
+  same popover edits the bookmark.
+- The Bookmarks menu lists your bookmarks, with a submenu per folder that
+  ends in Open All in Tabs; Show Bookmarks (`⌥⌘B`) moved there from History.
+- The start page shows top-level folders as cards that open in place to
+  list their bookmarks.
 
 ### Changed
 - History lives in a SQLite database (`History.sqlite`) instead of
@@ -209,6 +225,10 @@ app.
   your user can open; `--tab n` works on tab n without switching to it; `eval`
   awaits Promises, accepts `return`, prints JSON and fails with the JavaScript
   error.
+- Address-bar suggestions and Vimium's `b` / `B` include bookmarks in every
+  folder; Vimium shows each bookmark's folder. Your bookmarks move into the
+  new folder format on first launch; the old file stays as
+  `bookmarks.json.migrated`.
 
 ### Fixed
 - `⌘L` (File → Open Location…) now focuses and selects the address bar; the
@@ -227,3 +247,4 @@ app.
   second; jumping to an anchor on the page does not.
 - Muting a tab also mutes media that starts later and stays muted after
   navigating.
+- Typing in the sidebar's search field filters the list as you type.

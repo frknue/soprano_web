@@ -93,7 +93,20 @@ no linter or formatter; match surrounding style.
   one; numbers count private windows, unlike the CLI's). The harness's
   support folder is a temporary one, so profile folders go with it; it
   deletes every profile it made before exiting, so no WebKit data store is
-  left behind. Layer backgrounds
+  left behind. Bookmark flags: `--sidebar` seeds a bookmark tree (nested
+  folders, an empty one) when there are no bookmarks, `--bookmarks-tree`
+  seeds it before the first window (the start page's folder cards),
+  `--bookmarks-file <json>` starts from that `bookmarks.json` (a version 1
+  file migrates), `--expand-folder <name|all>` (repeatable) opens outline
+  folders, `--bookmark-drop <title>:on|above:<row>` (repeatable) runs the
+  outline's drop handler (`performBookmarkDrop`, what a real drop calls; rows
+  as `--print-bookmarks` numbers them; prints moved or refused),
+  `--bookmark-search <text>` types into the sidebar search,
+  `--bookmark-folder <name>` sets ⌘D's last-used folder,
+  `--bookmark-popover` runs ⌘D on the selected page and draws its popover
+  into the capture (built in the offscreen window, never a shown panel) and
+  `--print-bookmarks` prints the tree, the outline rows, Vimium's `b` lines,
+  the file version and the Bookmarks menu as text. Layer backgrounds
   on views unhidden after first display may not appear in the cached AppKit
   pass; that is a harness limitation, not the app.
 - Verify real navigation and the agent surface against a running dev app:
@@ -178,6 +191,8 @@ no linter or formatter; match surrounding style.
   the tab lists call, the find query a moved tab carries), `+Navigation`
   (`WKNavigationDelegate`), `+UIDelegate`
   (`WKUIDelegate`), `+Downloads` (hand-off to the download manager), `+Sidebar`,
+  `+Bookmarks` (⌘D and the star's popover, the sidebar's Open All in Tabs,
+  New Folder, Edit/Rename and Delete with its confirmation),
   `+Vimium`, `+Session` (window state, lazy restore, crash recovery,
   `NSWindowDelegate`), `+PageMessages`, `+Links` (pop-ups, pop-up windows,
   modifier clicks, external apps), `+SignIn` (auth challenges, TLS
@@ -210,7 +225,23 @@ no linter or formatter; match surrounding style.
   `BrowserVisitKind`, `BrowserFrecency`, `BrowserHistoryRetention`,
   `BrowserHistoryDays` (the sidebar's day headers) and
   `BrowserSameDocumentVisits` (when a `pushState` URL change becomes a visit).
-- `Browser/BrowserDataStores.swift` — bookmarks and downloads JSON
+- `Browser/BrowserBookmarks.swift` — the bookmark tree, the only way in or
+  out of `bookmarks.json`: `BrowserBookmarkTree` (one root with the fixed
+  `rootID`; pure insert, move — never into itself or a descendant, the index
+  is the drop gap counted before the item leaves —, rename, edit, remove,
+  `bookmarks(url:)`, `entries()` with folder paths, `folderEntries`,
+  `folderForNewBookmark(lastUsed:)`), `BrowserBookmarkFile` (version 2
+  `root`; version 1 lists migrate newest first, bad nodes skipped, repeated
+  ids dropped), `BrowserBookmarkStore` (shared by every profile; `insert` is
+  the importers' entry point; a version 1 file is kept as `.migrated`, an
+  unreadable one as `.corrupt`), `BrowserBookmarkUIState` (expanded folders
+  and ⌘D's last folder in `UserDefaults`) and `BrowserBookmarkOutline` (the
+  sidebar's visible rows and where a drop lands).
+  `BrowserBookmarkEditor.swift` is the Folio popover (⌘D, Edit Bookmark,
+  Rename, New Folder) and its child panel; `BrowserBookmarkOutlineCell.swift`
+  an outline row; `BrowserBookmarksMenu.swift` the Bookmarks menu's tree,
+  rebuilt on every change (`dump` prints it).
+- `Browser/BrowserDataStores.swift` — downloads JSON
   (`{version, entries}` envelopes, lossy decoding; a private window's download
   rows carry `privateContextID` and stay in memory);
   `BrowserSitePermissionStore.swift` — per-host allow/deny decisions
