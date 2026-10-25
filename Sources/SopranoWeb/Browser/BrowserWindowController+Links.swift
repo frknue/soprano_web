@@ -72,7 +72,7 @@ extension BrowserWindowController {
         return tab
     }
 
-    /// Inserts a freshly made tab after its opener and records the opener.
+    /// Attaches a freshly made tab after its opener and records the opener.
     @discardableResult
     func insertLinkTab(_ tab: BrowserTab, opener: BrowserTab, select: Bool) -> BrowserTab {
         tab.isStartPage = false
@@ -87,15 +87,7 @@ extension BrowserWindowController {
         } else {
             index = tabs.count
         }
-        let selectedID = selectedTab?.id
-        tabs.insert(tab, at: index)
-        if select {
-            selectTab(index: index, focus: true)
-        } else if let selectedID, let selected = tabs.firstIndex(where: { $0.id == selectedID }) {
-            selectedIndex = selected
-        }
-        updateTabStrip()
-        saveSession()
+        attachTab(tab, at: index, select: select)
         return tab
     }
 
@@ -124,10 +116,7 @@ extension BrowserWindowController {
             insertLinkTab(tab, opener: opener, select: disposition != .backgroundTab)
         } else {
             tab.isStartPage = false
-            tabs.append(tab)
-            selectTab(index: tabs.count - 1, focus: true)
-            updateTabStrip()
-            saveSession()
+            attachTab(tab, select: true)
         }
         return tab.webView
     }

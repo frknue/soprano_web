@@ -1,39 +1,32 @@
 import AppKit
 import WebKit
 
+/// One browser window and its tabs. App-wide pieces (stores, downloads,
+/// Settings, the recently-closed stack) live on `manager`; this keeps
+/// per-window state only.
 @MainActor
 final class BrowserWindowController: NSWindowController {
-    let themeManager: ThemeManager
-    let settingsStore: BrowserSettingsStore
-    let history: BrowserHistoryStore
-    let bookmarks: BrowserBookmarkStore
-    let downloads: BrowserDownloadStore
-    let sitePermissions: BrowserSitePermissionStore
-    let faviconStore: BrowserFaviconStore
-    let sessionStore: BrowserSessionStore
-    let persistsSession: Bool
+    unowned let manager: BrowserWindowManager
+    /// Stable for the window's life and across relaunches (session `id`).
+    let id: UUID
 
     var tabs: [BrowserTab] = []
     var selectedIndex = 0
-    var closedTabs = BrowserClosedTabStack()
-    var downloadsByRecord: [UUID: WKDownload] = [:]
-    var progressTimer: Timer?
-    var loadWaiters: [UUID: LoadWaiter] = [:]
-    var recordsByDownload: [ObjectIdentifier: UUID] = [:]
-    var destinationsByDownload: [ObjectIdentifier: URL] = [:]
     var isSidebarVisible = false
     var sidebarSection: BrowserSidebarSection = .history
     var findQuery = ""
     var staleStartTabs: Set<UUID> = []
-    let connectionSecurity = BrowserConnectionSecurity()
-    private var settingsWindowController: SettingsWindowController?
+    /// HTTP sign-in sheets waiting on this window.
+    let credentialPrompts = BrowserCredentialPrompts()
     let permissionsState = BrowserPermissionsState()
+    /// Store, theme and settings subscriptions; cancelled when the window
+    /// closes.
+    private var storeObservations: [BrowserObservation] = []
 
     private(set) var theme: AppTheme
     private var usesVerticalTabs: Bool
     private var isVerticalSidebarCollapsed: Bool
     private var lastSearchEngine: SearchEngine
-    private let defaults: UserDefaults
     let verticalTabsView: BrowserVerticalTabsView
     let rootView = NSView()
     private let topBar = NSView()
@@ -59,7 +52,6 @@ final class BrowserWindowController: NSWindowController {
 
     lazy var palette = CommandPalettePanel(themeManager: themeManager)
     lazy var addressBar = BrowserAddressBarController(toolbar: toolbar, theme: theme)
-    var globalVimiumMarks: [String: VimiumMark] = [:]
 
     var previousSelectedTabID: UUID?
     var lastFindQuery = ""
@@ -71,68 +63,42 @@ final class BrowserWindowController: NSWindowController {
 
     static let verticalSidebarCollapsedKey = "verticalSidebarCollapsed"
 
-    struct LoadWaiter {
-        let tabID: UUID
-        let timer: Timer
-        let completion: (Result<String, Error>) -> Void
-    }
-
-    init(
-        themeManager: ThemeManager,
-        settingsStore: BrowserSettingsStore,
-        history: BrowserHistoryStore,
-        bookmarks: BrowserBookmarkStore,
-        downloads: BrowserDownloadStore,
-        sitePermissions: BrowserSitePermissionStore,
-        faviconStore: BrowserFaviconStore = BrowserFaviconStore(),
-        sessionStore: BrowserSessionStore = BrowserSessionStore(),
-        persistsSession: Bool = true,
-        frame: NSRect? = nil,
-        defaults: UserDefaults = .standard
-    ) {
-        self.themeManager = themeManager
-        self.settingsStore = settingsStore
-        self.history = history
-        self.bookmarks = bookmarks
-        self.downloads = downloads
-        self.sitePermissions = sitePermissions
-        self.faviconStore = faviconStore
-        self.sessionStore = sessionStore
-        self.persistsSession = persistsSession
+    /// An empty window at `frame` (screen coordinates the window really
+    /// uses); the manager adds its tabs. Create windows through
+    /// `BrowserWindowManager`.
+    init(manager: BrowserWindowManager, id: UUID = UUID(), frame: NSRect) {
+        self.manager = manager
+        self.id = id
+        let themeManager = manager.themeManager
+        let settings = manager.settingsStore.settings
         self.theme = themeManager.currentTheme
-        self.usesVerticalTabs = settingsStore.settings.usesVerticalTabs
-        self.isVerticalSidebarCollapsed = defaults.bool(
+        self.usesVerticalTabs = settings.usesVerticalTabs
+        self.isVerticalSidebarCollapsed = manager.defaults.bool(
             forKey: Self.verticalSidebarCollapsedKey
         )
-        self.lastSearchEngine = settingsStore.settings.searchEngine
-        self.defaults = defaults
+        self.lastSearchEngine = settings.searchEngine
         self.verticalTabsView = BrowserVerticalTabsView(theme: themeManager.currentTheme)
         self.toolbar = BrowserToolbarView(theme: theme)
         self.tabStrip = BrowserTabStripView(theme: theme)
         self.findBar = BrowserFindBar(theme: theme)
         self.sidebar = BrowserSidebarView(
             theme: theme,
-            history: history,
-            bookmarks: bookmarks,
-            downloads: downloads
+            history: manager.history,
+            bookmarks: manager.bookmarks,
+            downloads: manager.downloads
         )
         self.hairline = ChromeRuleView(axis: .horizontal, color: theme.colors.borderSubtle)
         self.sidebarDivider = ChromeRuleView(axis: .vertical, color: theme.colors.borderSubtle)
 
-        let initialFrame = frame ?? MainWindowSizing.initialFrame(
-            in: NSScreen.main?.visibleFrame ?? MainWindowSizing.fallbackVisibleFrame
-        )
         let window = BrowserWindow(
-            contentRect: initialFrame,
+            contentRect: frame,
             styleMask: [.titled, .closable, .miniaturizable, .resizable, .fullSizeContentView],
             backing: .buffered,
             defer: false
         )
+        window.allowsOffscreenFrame = manager.placement.isOffscreen
         super.init(window: window)
 
-        guard self.window != nil else {
-            fatalError("BrowserWindowController requires a window")
-        }
         window.delegate = self
         window.titlebarAppearsTransparent = true
         window.titleVisibility = .hidden
@@ -141,9 +107,8 @@ final class BrowserWindowController: NSWindowController {
         window.tabbingMode = .disallowed
         window.minSize = NSSize(width: 760, height: 520)
         window.backgroundColor = theme.colors.bgBase
-        if persistsSession {
-            window.setFrameAutosaveName("SopranoWebMainWindow")
-        }
+        window.title = "New Tab"
+        window.setFrame(frame, display: false)
 
         rootView.wantsLayer = true
         window.contentView = rootView
@@ -152,7 +117,6 @@ final class BrowserWindowController: NSWindowController {
         installTabChrome()
         installAddressBar()
         applyTheme(theme)
-        restoreOrCreateTab()
         applyTabsLayout()
     }
 
@@ -160,6 +124,17 @@ final class BrowserWindowController: NSWindowController {
     required init?(coder: NSCoder) {
         fatalError("init(coder:) is not supported")
     }
+
+    // App-wide stores, owned by the manager.
+    var themeManager: ThemeManager { manager.themeManager }
+    var settingsStore: BrowserSettingsStore { manager.settingsStore }
+    var history: BrowserHistoryStore { manager.history }
+    var bookmarks: BrowserBookmarkStore { manager.bookmarks }
+    var downloads: BrowserDownloadStore { manager.downloads }
+    var sitePermissions: BrowserSitePermissionStore { manager.sitePermissions }
+    var faviconStore: BrowserFaviconStore { manager.faviconStore }
+    var connectionSecurity: BrowserConnectionSecurity { manager.connectionSecurity }
+    private var defaults: UserDefaults { manager.defaults }
 
     var selectedTab: BrowserTab? {
         guard tabs.indices.contains(selectedIndex) else { return tabs.first }
@@ -336,24 +311,32 @@ final class BrowserWindowController: NSWindowController {
         sidebar.onClear = { [weak self] section in self?.clear(section) }
         sidebar.onClose = { [weak self] in self?.hideSidebar() }
 
-        history.onChange = { [weak self] in
-            self?.sidebar.refresh()
-            self?.markStartPagesStale()
-        }
-        bookmarks.onChange = { [weak self] in
-            self?.sidebar.refresh()
-            self?.markStartPagesStale()
-            self?.updateChrome()
-        }
-        downloads.onChange = { [weak self] in self?.sidebar.refresh() }
-
-        themeManager.onThemeChanged = { [weak self] theme in
-            self?.applyTheme(theme)
-        }
-        settingsStore.onChange = { [weak self] settings in
-            self?.applySettings(settings)
-        }
+        storeObservations = [
+            history.changes.observe { [weak self] in
+                self?.sidebar.refresh()
+                self?.markStartPagesStale()
+            },
+            bookmarks.changes.observe { [weak self] in
+                self?.sidebar.refresh()
+                self?.markStartPagesStale()
+                self?.updateChrome()
+            },
+            downloads.changes.observe { [weak self] in self?.sidebar.refresh() },
+            faviconStore.changes.observe { [weak self] in
+                guard let self, self.isSidebarVisible else { return }
+                self.sidebar.refresh()
+            },
+            sitePermissions.changes.observe { [weak self] in self?.sitePermissionsChanged() },
+            manager.themeChanges.observe { [weak self] theme in self?.applyTheme(theme) },
+            settingsStore.changes.observe { [weak self] settings in self?.applySettings(settings) },
+        ]
         setUpPermissions()
+    }
+
+    /// Stops the store, theme and settings subscriptions (window closed).
+    func cancelStoreObservations() {
+        storeObservations.forEach { $0.cancel() }
+        storeObservations.removeAll()
     }
 
     func viewNeedsLayout() {
@@ -363,18 +346,10 @@ final class BrowserWindowController: NSWindowController {
 
     // MARK: - Settings and theme
 
+    /// Shows the window when it is minimized or hidden; never in the harness.
     func revealWindowIfNeeded() {
         guard let window, !window.isVisible else { return }
-        showWindow(nil)
-        window.makeKeyAndOrderFront(nil)
-    }
-
-    func showWindowAndEnsureTab() {
-        if tabs.isEmpty {
-            newTab(focusAddress: true)
-        }
-        showWindow(nil)
-        window?.makeKeyAndOrderFront(nil)
+        manager.present(self)
     }
 
     func toggleVerticalSidebar() {
@@ -390,28 +365,11 @@ final class BrowserWindowController: NSWindowController {
     }
 
     func showSettings() {
-        if let settingsWindowController {
-            settingsWindowController.showWindow(nil)
-            settingsWindowController.window?.makeKeyAndOrderFront(nil)
-            return
-        }
-        let controller = SettingsWindowController(
-            settingsStore: settingsStore,
-            themeManager: themeManager
-        )
-        controller.onShowWebsites = { [weak self] parent in self?.showWebsites(on: parent) }
-        settingsWindowController = controller
-        controller.showWindow(nil)
-        controller.window?.makeKeyAndOrderFront(nil)
+        manager.showSettings()
     }
 
     private func applySettings(_ settings: BrowserSettings) {
         refreshPermissionStates()
-        let themeChanged = themeManager.themeId != settings.themeID
-            || themeManager.appearance != settings.appearance
-        if themeChanged {
-            themeManager.update(themeId: settings.themeID, appearance: settings.appearance)
-        }
         let searchChanged = lastSearchEngine != settings.searchEngine
         lastSearchEngine = settings.searchEngine
         if searchChanged {

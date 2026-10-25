@@ -23,7 +23,6 @@ final class BrowserAddressBarController {
     private var remote: (query: String, phrases: [String])?
     private var result = AddressSuggestionResult.empty
     private var lastEditWasDeletion = false
-    private var typedNavigationTabs: Set<UUID> = []
 
     init(toolbar: BrowserToolbarView, theme: AppTheme) {
         self.toolbar = toolbar
@@ -113,18 +112,6 @@ final class BrowserAddressBarController {
         result = .empty
         dropdown.update(rows: [], selectedIndex: 0)
         dropdown.isHidden = true
-    }
-
-    // MARK: Typed visits
-
-    /// The next finished load in this tab started from the address bar.
-    func markTypedNavigation(tabID: UUID) {
-        typedNavigationTabs.insert(tabID)
-    }
-
-    /// Whether the load that just finished in this tab was typed; clears it.
-    func consumeTypedNavigation(tabID: UUID) -> Bool {
-        typedNavigationTabs.remove(tabID) != nil
     }
 
     // MARK: Snapshot harness

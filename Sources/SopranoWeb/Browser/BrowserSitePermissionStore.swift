@@ -36,7 +36,7 @@ final class BrowserSitePermissionStore {
     /// Host key → permission raw value → decision raw value.
     private(set) var sites: [String: [String: String]]
     let url: URL
-    var onChange: (() -> Void)?
+    let changes = BrowserObservers<Void>()
 
     init(url: URL = BrowserFiles.supportDirectory().appendingPathComponent("site-permissions.json")) {
         self.url = url
@@ -94,7 +94,7 @@ final class BrowserSitePermissionStore {
 
     private func persist() {
         try? JSONFile.write(File(version: Self.currentVersion, sites: sites), to: url)
-        onChange?()
+        changes.notify()
     }
 
     private struct File: Codable {

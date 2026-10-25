@@ -259,9 +259,9 @@ struct BrowserCertificateExceptions {
     }
 }
 
-/// Connection security state shared by the window's tabs: certificate
-/// exceptions, the client identity chosen per host, and the queue of HTTP
-/// sign-in challenges waiting for the sheet. Nothing here is persisted.
+/// Connection decisions shared by every window: certificate exceptions and
+/// the client identity chosen per host (one chooser per host at a time).
+/// Nothing here is persisted.
 @MainActor
 final class BrowserConnectionSecurity {
     typealias ChallengeCompletion = @MainActor @Sendable (URLSession.AuthChallengeDisposition, URLCredential?) -> Void
@@ -280,9 +280,14 @@ final class BrowserConnectionSecurity {
     var exceptions = BrowserCertificateExceptions()
     var identityChoices: [String: IdentityChoice] = [:]
     var pendingIdentityRequests: [String: [ChallengeCompletion]] = [:]
+}
+
+/// One window's HTTP sign-in challenges waiting for its sheet.
+@MainActor
+final class BrowserCredentialPrompts {
     /// The first request is the one the sheet shows.
-    var credentialRequests: [CredentialRequest] = []
-    var credentialSheet: BrowserCredentialSheet?
+    var requests: [BrowserConnectionSecurity.CredentialRequest] = []
+    var sheet: BrowserCredentialSheet?
 }
 
 /// The HTTP sign-in sheet's alert and fields, kept so the snapshot harness

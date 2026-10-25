@@ -191,7 +191,7 @@ extension SnapshotCommand {
             spin(seconds: delay)
             printDownload("before quit", record(), store: store)
             var settled = false
-            controller.interruptDownloadsForQuit { settled = true }
+            controller.downloadManager.interruptForQuit { settled = true }
             spin(seconds: 5) { settled }
             let relaunched = BrowserDownloadStore(url: store.url)
             printDownload("after relaunch", relaunched.records.first { $0.id == id }, store: relaunched)

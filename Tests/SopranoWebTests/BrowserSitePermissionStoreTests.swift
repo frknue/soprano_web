@@ -17,7 +17,8 @@ struct BrowserSitePermissionStoreTests {
         let url = directory.appendingPathComponent("site-permissions.json")
         let store = BrowserSitePermissionStore(url: url)
         var changes = 0
-        store.onChange = { changes += 1 }
+        let observation = store.changes.observe { changes += 1 }
+        defer { observation.cancel() }
 
         store.set(.camera, .allow, host: "meet.example")
         store.set(.popups, .deny, host: "meet.example")

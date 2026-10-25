@@ -2,11 +2,10 @@ import AppKit
 
 @MainActor
 final class AppDelegate: NSObject, NSApplicationDelegate {
-    private(set) var windowController: BrowserWindowController?
+    private(set) var windowManager: BrowserWindowManager?
     private var menuController: MainMenuController?
     private var automationController: BrowserAutomationController?
     private var pendingURLs: [URL] = []
-    private var didFinishLaunching = false
 
     func applicationWillFinishLaunching(_ notification: Notification) {
         Self.installApplicationIcon()
@@ -21,100 +20,90 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         themeManager.startDrivingApplicationAppearance()
 
         let support = BrowserFiles.supportDirectory()
-        let history = BrowserHistoryStore(url: support.appendingPathComponent("history.json"))
-        let bookmarks = BrowserBookmarkStore(url: support.appendingPathComponent("bookmarks.json"))
-        let downloads = BrowserDownloadStore(url: support.appendingPathComponent("downloads.json"))
-        let sitePermissions = BrowserSitePermissionStore(
-            url: support.appendingPathComponent("site-permissions.json")
-        )
-        let sessionStore = BrowserSessionStore(url: support.appendingPathComponent("session.json"))
-
-        let controller = BrowserWindowController(
+        let manager = BrowserWindowManager(
             themeManager: themeManager,
             settingsStore: settingsStore,
-            history: history,
-            bookmarks: bookmarks,
-            downloads: downloads,
-            sitePermissions: sitePermissions,
-            sessionStore: sessionStore
+            history: BrowserHistoryStore(url: support.appendingPathComponent("history.json")),
+            bookmarks: BrowserBookmarkStore(url: support.appendingPathComponent("bookmarks.json")),
+            downloads: BrowserDownloadStore(url: support.appendingPathComponent("downloads.json")),
+            sitePermissions: BrowserSitePermissionStore(
+                url: support.appendingPathComponent("site-permissions.json")
+            ),
+            faviconStore: BrowserFaviconStore(),
+            sessionStore: BrowserSessionStore(url: support.appendingPathComponent("session.json"))
         )
-        windowController = controller
+        windowManager = manager
 
-        let menu = MainMenuController { [weak self] in self?.windowController }
+        let menu = MainMenuController { [weak self] in self?.windowManager }
         menu.install()
         menuController = menu
 
         automationController = BrowserAutomationController { [weak self] in
-            self?.windowController
+            self?.windowManager
         }
 
-        controller.showWindow(nil)
-        controller.window?.makeKeyAndOrderFront(nil)
+        manager.restoreSession()
         NSApp.activate(ignoringOtherApps: true)
-        if controller.selectedTab?.isStartPage == true {
+        if let controller = manager.activeController, controller.selectedTab?.isStartPage == true {
             controller.focusAddressBar()
         }
 
-        didFinishLaunching = true
-        openPendingURLs()
+        if !pendingURLs.isEmpty {
+            manager.open(pendingURLs)
+            pendingURLs = []
+        }
     }
 
+    /// Links from other apps open in the most recently active window, or a
+    /// new window when none is open.
     func application(_ application: NSApplication, open urls: [URL]) {
-        pendingURLs.append(contentsOf: urls)
-        if didFinishLaunching {
-            openPendingURLs()
+        guard let windowManager else {
+            pendingURLs.append(contentsOf: urls)
+            return
         }
-    }
-
-    private func openPendingURLs() {
-        guard let controller = windowController, !pendingURLs.isEmpty else { return }
-        let urls = pendingURLs
-        pendingURLs = []
-        if urls.isEmpty { return }
-        controller.showWindow(nil)
-        controller.window?.makeKeyAndOrderFront(nil)
-        for (index, url) in urls.enumerated() {
-            if url.isFileURL {
-                var isDirectory: ObjCBool = false
-                guard FileManager.default.fileExists(atPath: url.path, isDirectory: &isDirectory),
-                      !isDirectory.boolValue
-                else { continue }
-            }
-            if index == 0,
-               controller.tabs.count == 1,
-               let tab = controller.selectedTab,
-               tab.isStartPage
-            {
-                controller.navigate(tab, to: url)
-            } else {
-                controller.newTab(url: url.absoluteString)
-            }
-        }
-        controller.focusPage()
+        windowManager.open(urls)
     }
 
     func applicationShouldTerminateAfterLastWindowClosed(_ sender: NSApplication) -> Bool {
         false
     }
 
-    /// Active downloads stop with resume data first, so they show as
-    /// interrupted (and resumable) after relaunch.
+    /// Quitting keeps every window in the session (not on the
+    /// recently-closed stack). Active downloads stop with resume data
+    /// first, so they show as interrupted (and resumable) after relaunch.
     func applicationShouldTerminate(_ sender: NSApplication) -> NSApplication.TerminateReply {
-        guard let controller = windowController, controller.hasActiveDownloads else { return .terminateNow }
-        controller.interruptDownloadsForQuit {
+        guard let windowManager else { return .terminateNow }
+        windowManager.isTerminating = true
+        windowManager.saveSessionNow()
+        guard windowManager.downloadManager.hasActiveDownloads else { return .terminateNow }
+        windowManager.downloadManager.interruptForQuit {
             NSApp.reply(toApplicationShouldTerminate: true)
         }
         return .terminateLater
     }
 
+    /// Clicking the Dock icon with no windows open opens a new window.
     func applicationShouldHandleReopen(
         _ sender: NSApplication,
         hasVisibleWindows flag: Bool
     ) -> Bool {
-        if !flag {
-            windowController?.showWindowAndEnsureTab()
+        if let windowManager, windowManager.controllers.isEmpty {
+            windowManager.newWindow()
         }
         return true
+    }
+
+    func applicationDockMenu(_ sender: NSApplication) -> NSMenu? {
+        let menu = NSMenu()
+        let item = NSMenuItem(title: "New Window", action: #selector(newWindowFromDock), keyEquivalent: "")
+        item.target = self
+        menu.addItem(item)
+        return menu
+    }
+
+    @objc private func newWindowFromDock() {
+        windowManager?.newWindow()
+        NSApp.activate(ignoringOtherApps: true)
     }
 
     func applicationSupportsSecureRestorableState(_ app: NSApplication) -> Bool {
@@ -122,7 +111,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     func applicationWillTerminate(_ notification: Notification) {
-        windowController?.saveSession()
+        windowManager?.saveSessionNow()
     }
 
     static func installApplicationIcon() {

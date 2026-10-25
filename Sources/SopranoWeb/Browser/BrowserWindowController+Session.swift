@@ -4,39 +4,30 @@ import WebKit
 extension BrowserWindowController {
     // MARK: - Session
 
-    var currentSession: BrowserSession {
-        BrowserSession(
+    /// What the session saves for this window.
+    var windowState: BrowserWindowState {
+        BrowserWindowState(
+            id: id,
+            frame: manager.sessionFrame(of: self).map(BrowserWindowFrame.init),
             tabs: tabs.map(\.state),
-            selectedIndex: selectedIndex,
-            savedAt: Date(),
-            closedTabs: closedTabs.entries
+            selectedIndex: selectedIndex
         )
     }
 
+    /// Something the session holds changed; the manager writes every window
+    /// shortly after (debounced).
     func saveSession() {
-        guard persistsSession else { return }
-        sessionStore.save(currentSession)
+        manager.scheduleSessionSave()
     }
 
-    /// Restores the saved tabs (when the setting is on) and the closed-tab
-    /// stack. Only the selected tab loads; the others load on first
-    /// selection. `persistsSession` gates writes only, so the snapshot
-    /// harness can restore a session file it was handed.
-    func restoreOrCreateTab() {
-        let session = sessionStore.load()
-        closedTabs = BrowserClosedTabStack(session?.closedTabs ?? [])
-        if settingsStore.settings.restoreSession,
-           let session,
-           !session.tabs.isEmpty
-        {
-            for state in session.tabs {
-                addRestoredTab(state)
-            }
-            let index = min(max(0, session.selectedIndex), tabs.count - 1)
-            selectTab(index: index, focus: false)
-        } else {
-            newTab(focusAddress: true)
+    /// Adds a saved window's tabs. Only the selected tab loads; the others
+    /// load on first selection.
+    func restoreTabs(_ state: BrowserWindowState) {
+        for tab in state.tabs {
+            addRestoredTab(tab)
         }
+        guard !tabs.isEmpty else { return }
+        selectTab(index: min(max(0, state.selectedIndex), tabs.count - 1), focus: false)
     }
 
     /// Runs when a tab becomes the selected one: a restored tab loads, a
@@ -85,8 +76,8 @@ extension BrowserWindowController {
         return url.absoluteString == saved
     }
 
-    /// Releases a tab that is leaving the window. The caller removes it from
-    /// `tabs`.
+    /// Releases a tab that left the window for good (closed). The caller
+    /// detaches it first.
     func discardTab(_ tab: BrowserTab) {
         resolveLoadWaiters(
             for: tab,
@@ -96,24 +87,6 @@ extension BrowserWindowController {
         tab.invalidateObservations()
         tab.webView.stopLoading()
         tab.webView.removeFromSuperview()
-    }
-
-    /// Closing the window (⇧⌘W or the close button) closes its tabs onto
-    /// the closed-tab stack, the selected one last so ⇧⌘T brings it back
-    /// first.
-    func closeAllTabs() {
-        guard !tabs.isEmpty else { return }
-        let selectedID = selectedTab?.id
-        let ordered = tabs.filter { $0.id != selectedID } + tabs.filter { $0.id == selectedID }
-        for tab in ordered {
-            closedTabs.push(tab.state)
-            discardTab(tab)
-        }
-        tabs.removeAll()
-        selectedIndex = 0
-        tabStrip.clear()
-        verticalTabsView.clear()
-        saveSession()
     }
 
     // MARK: - Crash recovery
@@ -214,12 +187,26 @@ extension BrowserWindowController {
 }
 
 extension BrowserWindowController: NSWindowDelegate {
+    /// The close button and ⇧⌘W: the whole window goes onto the
+    /// recently-closed stack.
     func windowShouldClose(_ sender: NSWindow) -> Bool {
-        closeAllTabs()
+        manager.windowClosing(self)
         return true
     }
 
     func windowWillClose(_ notification: Notification) {
+        manager.windowClosing(self)
+    }
+
+    func windowDidBecomeKey(_ notification: Notification) {
+        manager.windowBecameActive(self)
+    }
+
+    func windowDidMove(_ notification: Notification) {
+        saveSession()
+    }
+
+    func windowDidResize(_ notification: Notification) {
         saveSession()
     }
 }

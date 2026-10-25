@@ -2,11 +2,12 @@ import AppKit
 
 @MainActor
 final class MainMenuController: NSObject, NSMenuItemValidation {
-    private let windowController: () -> BrowserWindowController?
+    private let windowManager: () -> BrowserWindowManager?
     private var shareUpdater: ShareMenuUpdater?
+    private var recentlyClosedUpdater: RecentlyClosedMenuUpdater?
 
-    init(windowController: @escaping () -> BrowserWindowController?) {
-        self.windowController = windowController
+    init(windowManager: @escaping () -> BrowserWindowManager?) {
+        self.windowManager = windowManager
         super.init()
     }
 
@@ -54,6 +55,7 @@ final class MainMenuController: NSObject, NSMenuItemValidation {
 
         let fileMenu = NSMenu(title: "File")
         fileMenu.addItem(item("New Tab", #selector(newTab), "t"))
+        fileMenu.addItem(item("New Window", #selector(newWindow), "n"))
         fileMenu.addItem(item("Reopen Closed Tab", #selector(reopenClosedTab), "t", [.command, .shift]))
         fileMenu.addItem(item("Open Location…", #selector(openLocation), "l"))
         fileMenu.addItem(.separator())
@@ -64,7 +66,7 @@ final class MainMenuController: NSObject, NSMenuItemValidation {
         fileMenu.addItem(item("Export as PDF…", #selector(exportPDF), ""))
         fileMenu.addItem(.separator())
         fileMenu.addItem(ShareMenuUpdater.placeholder())
-        let shareUpdater = ShareMenuUpdater { [windowController] in windowController()?.shareItems ?? [] }
+        let shareUpdater = ShareMenuUpdater { [windowManager] in windowManager()?.activeController?.shareItems ?? [] }
         self.shareUpdater = shareUpdater
         fileMenu.delegate = shareUpdater
         fileMenu.addItem(.separator())
@@ -120,6 +122,14 @@ final class MainMenuController: NSObject, NSMenuItemValidation {
         historyMenu.addItem(item("Show All History", #selector(showHistory), "y"))
         historyMenu.addItem(item("Show Bookmarks", #selector(showBookmarks), "b", [.command, .option]))
         historyMenu.addItem(item("Show Downloads", #selector(showDownloads), "l", [.command, .option]))
+        historyMenu.addItem(.separator())
+        let recentlyClosed = NSMenu(title: "Recently Closed")
+        let recentlyClosedUpdater = RecentlyClosedMenuUpdater(windowManager: windowManager)
+        recentlyClosed.delegate = recentlyClosedUpdater
+        self.recentlyClosedUpdater = recentlyClosedUpdater
+        let recentlyClosedItem = NSMenuItem(title: "Recently Closed", action: nil, keyEquivalent: "")
+        recentlyClosedItem.submenu = recentlyClosed
+        historyMenu.addItem(recentlyClosedItem)
         historyMenu.addItem(.separator())
         historyMenu.addItem(item("Clear Browsing Data…", #selector(clearBrowsingData), "\u{8}", [.command, .shift]))
         add(historyMenu, to: main)
@@ -189,7 +199,21 @@ final class MainMenuController: NSObject, NSMenuItemValidation {
     }
 
     func validateMenuItem(_ menuItem: NSMenuItem) -> Bool {
-        guard let controller = windowController() else { return false }
+        guard let manager = windowManager() else { return false }
+        switch menuItem.action {
+        case #selector(newWindow), #selector(newTab), #selector(openLocation), #selector(openSettings):
+            return true
+        case #selector(reopenClosedTab):
+            menuItem.title = manager.recentlyClosed.newest?.isWindow == true
+                ? "Reopen Closed Window"
+                : "Reopen Closed Tab"
+            return !manager.recentlyClosed.isEmpty
+        case #selector(closeWindow):
+            return NSApp.keyWindow != nil || manager.activeController != nil
+        default:
+            break
+        }
+        guard let controller = manager.activeController else { return false }
         switch menuItem.action {
         case #selector(back):
             return controller.selectedTab?.webView.canGoBack ?? false
@@ -197,8 +221,6 @@ final class MainMenuController: NSObject, NSMenuItemValidation {
             return controller.selectedTab?.webView.canGoForward ?? false
         case #selector(closeTab):
             return !controller.tabs.isEmpty
-        case #selector(reopenClosedTab):
-            return controller.canReopenClosedTab
         case #selector(bookmark):
             return controller.selectedTab.map { !$0.isStartPage && $0.webView.url != nil } ?? false
         case #selector(printPage), #selector(exportPDF), #selector(saveAs):
@@ -210,18 +232,33 @@ final class MainMenuController: NSObject, NSMenuItemValidation {
         }
     }
 
+    /// The window menu commands act on: the key browser window, else the
+    /// most recently active one.
     private func controller() -> BrowserWindowController? {
-        windowController()
+        windowManager()?.activeController
     }
 
     @objc private func newTab() {
-        controller()?.newTab(focusAddress: true)
-        controller()?.revealWindowIfNeeded()
+        guard let controller = controller() else {
+            windowManager()?.newWindow()
+            return
+        }
+        controller.newTab(focusAddress: true)
+        controller.revealWindowIfNeeded()
+    }
+
+    @objc private func newWindow() {
+        windowManager()?.newWindow()
     }
 
     @objc private func openLocation() {
-        controller()?.showWindowAndEnsureTab()
-        controller()?.focusAddressBar()
+        guard let manager = windowManager() else { return }
+        guard let controller = manager.activeController else {
+            manager.newWindow()
+            return
+        }
+        manager.present(controller)
+        controller.focusAddressBar()
     }
 
     @objc private func closeTab() {
@@ -229,12 +266,18 @@ final class MainMenuController: NSObject, NSMenuItemValidation {
     }
 
     @objc private func reopenClosedTab() {
-        controller()?.reopenClosedTab()
-        controller()?.revealWindowIfNeeded()
+        windowManager()?.reopenMostRecent()
     }
 
+    /// ⇧⌘W closes the key window: a browser window onto the recently-closed
+    /// stack, any other window (Settings) the usual way.
     @objc private func closeWindow() {
-        controller()?.window?.performClose(nil)
+        guard let manager = windowManager() else { return }
+        if let key = NSApp.keyWindow, !manager.controllers.contains(where: { $0.window === key }) {
+            key.performClose(nil)
+        } else if let controller = manager.activeController {
+            manager.closeWindow(controller)
+        }
     }
 
     @objc private func back() {
@@ -326,7 +369,7 @@ final class MainMenuController: NSObject, NSMenuItemValidation {
     }
 
     @objc private func openSettings() {
-        controller()?.showSettings()
+        windowManager()?.showSettings()
     }
 
     @objc private func showPalette() {
@@ -351,7 +394,9 @@ final class MainMenuController: NSObject, NSMenuItemValidation {
         alert.informativeText = """
         ⌘L  Address bar
         ⌘T  New tab            ⌘W  Close tab
-        ⇧⌘T Reopen closed tab  ⌃Tab / ⌃⇧Tab  Next / previous tab
+        ⌘N  New window         ⇧⌘W Close window
+        ⇧⌘T Reopen closed tab or window
+        ⌃Tab / ⌃⇧Tab  Next / previous tab
         ⌘[  Back               ⌘]  Forward
         ⌘R  Reload             ⌘F  Find in page
         ⌘D  Bookmark           ⌘Y  History
@@ -365,5 +410,42 @@ final class MainMenuController: NSObject, NSMenuItemValidation {
         """
         alert.addButton(withTitle: "OK")
         alert.runModal()
+    }
+}
+
+/// Fills History ▸ Recently Closed each time it opens: closed tabs and
+/// windows, newest first.
+@MainActor
+private final class RecentlyClosedMenuUpdater: NSObject, NSMenuDelegate {
+    private let windowManager: () -> BrowserWindowManager?
+
+    init(windowManager: @escaping () -> BrowserWindowManager?) {
+        self.windowManager = windowManager
+    }
+
+    func menuNeedsUpdate(_ menu: NSMenu) {
+        menu.removeAllItems()
+        let entries = windowManager()?.recentlyClosed.newestFirst ?? []
+        guard !entries.isEmpty else {
+            let empty = NSMenuItem(title: "Nothing Recently Closed", action: nil, keyEquivalent: "")
+            empty.isEnabled = false
+            menu.addItem(empty)
+            return
+        }
+        for entry in entries {
+            let item = NSMenuItem(title: entry.title, action: #selector(reopen(_:)), keyEquivalent: "")
+            item.target = self
+            item.representedObject = entry.id
+            item.image = NSImage(
+                systemSymbolName: entry.isWindow ? "macwindow" : "doc",
+                accessibilityDescription: entry.isWindow ? "Window" : "Tab"
+            )
+            menu.addItem(item)
+        }
+    }
+
+    @objc private func reopen(_ sender: NSMenuItem) {
+        guard let id = sender.representedObject as? UUID else { return }
+        windowManager()?.reopen(entryID: id)
     }
 }

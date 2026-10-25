@@ -37,10 +37,6 @@ extension BrowserWindowController {
         sidebar.faviconProvider = { [weak self] address in
             self?.faviconStore.image(forAddress: address)
         }
-        faviconStore.onChange = { [weak self] in
-            guard let self, self.isSidebarVisible else { return }
-            self.sidebar.refresh()
-        }
     }
 
     /// Navigation buttons and the link bubble follow the selected tab.

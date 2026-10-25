@@ -13,10 +13,10 @@ extension BrowserWindowController {
         let space = challenge.protectionSpace
         switch BrowserChallengeRoute(authenticationMethod: space.authenticationMethod) {
         case .credentials:
-            connectionSecurity.credentialRequests.append(
+            credentialPrompts.requests.append(
                 BrowserConnectionSecurity.CredentialRequest(challenge: challenge, completion: completionHandler)
             )
-            if connectionSecurity.credentialRequests.count == 1 {
+            if credentialPrompts.requests.count == 1 {
                 presentNextCredentialSheet()
             }
         case .clientCertificate:
@@ -40,7 +40,7 @@ extension BrowserWindowController {
     /// challenge for the same protection space gets the same answer, so a
     /// page and its subresources ask once.
     private func presentNextCredentialSheet() {
-        guard let request = connectionSecurity.credentialRequests.first else { return }
+        guard let request = credentialPrompts.requests.first else { return }
         let challenge = request.challenge
         let space = challenge.protectionSpace
         guard let window else {
@@ -83,7 +83,7 @@ extension BrowserWindowController {
         grid.frame.size = grid.fittingSize
         alert.accessoryView = grid
         alert.window.initialFirstResponder = userField.stringValue.isEmpty ? userField : passwordField
-        connectionSecurity.credentialSheet = BrowserCredentialSheet(
+        credentialPrompts.sheet = BrowserCredentialSheet(
             alert: alert,
             userField: userField,
             passwordField: passwordField
@@ -91,7 +91,7 @@ extension BrowserWindowController {
 
         alert.beginSheetModal(for: window) { [weak self] response in
             guard let self else { return }
-            self.connectionSecurity.credentialSheet = nil
+            self.credentialPrompts.sheet = nil
             if response == .alertFirstButtonReturn {
                 self.finishCredentialRequests(
                     for: space,
@@ -116,8 +116,8 @@ extension BrowserWindowController {
         disposition: URLSession.AuthChallengeDisposition,
         credential: URLCredential?
     ) {
-        let matching = connectionSecurity.credentialRequests.filter { $0.challenge.protectionSpace == space }
-        connectionSecurity.credentialRequests.removeAll { $0.challenge.protectionSpace == space }
+        let matching = credentialPrompts.requests.filter { $0.challenge.protectionSpace == space }
+        credentialPrompts.requests.removeAll { $0.challenge.protectionSpace == space }
         for request in matching {
             request.completion(disposition, credential)
         }

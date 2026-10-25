@@ -26,18 +26,29 @@ struct BrowserCommandRequest: Codable, Equatable, Sendable {
     let command: String
     let arguments: [String]
     let tabIndex: Int?
+    /// `--window n` (1-based, see `windows`); nil is the key window, else
+    /// the most recently active one.
+    let windowIndex: Int?
     /// Seconds a `wait-for-load` or `wait-for` request may wait; nil otherwise.
     let timeout: TimeInterval?
 
     enum CodingKeys: String, CodingKey {
         case command, arguments, timeout
         case tabIndex = "tab"
+        case windowIndex = "window"
     }
 
-    init(command: String, arguments: [String], tabIndex: Int?, timeout: TimeInterval? = nil) {
+    init(
+        command: String,
+        arguments: [String],
+        tabIndex: Int?,
+        windowIndex: Int? = nil,
+        timeout: TimeInterval? = nil
+    ) {
         self.command = command
         self.arguments = arguments
         self.tabIndex = tabIndex
+        self.windowIndex = windowIndex
         self.timeout = timeout
     }
 
@@ -69,16 +80,23 @@ struct BrowserCommandRequest: Codable, Equatable, Sendable {
         }
 
         var tabIndex: Int?
+        var windowIndex: Int?
         var index = 0
         while index < tokens.count {
-            if tokens[index] == "--tab" {
+            let flag = tokens[index]
+            if flag == "--tab" || flag == "--window" {
+                let noun = flag == "--tab" ? "tab" : "window"
                 guard index + 1 < tokens.count else {
-                    throw BrowserAutomationError.invalidArguments("--tab requires a tab number")
+                    throw BrowserAutomationError.invalidArguments("\(flag) requires a \(noun) number")
                 }
                 guard let value = Int(tokens[index + 1]), value > 0 else {
-                    throw BrowserAutomationError.invalidArguments("--tab must be a positive number")
+                    throw BrowserAutomationError.invalidArguments("\(flag) must be a positive number")
                 }
-                tabIndex = value
+                if flag == "--tab" {
+                    tabIndex = value
+                } else {
+                    windowIndex = value
+                }
                 tokens.removeSubrange(index...(index + 1))
                 continue
             }
@@ -86,7 +104,7 @@ struct BrowserCommandRequest: Codable, Equatable, Sendable {
         }
 
         guard let command = tokens.first else {
-            return BrowserCommandRequest(command: "help", arguments: [], tabIndex: tabIndex)
+            return BrowserCommandRequest(command: "help", arguments: [], tabIndex: tabIndex, windowIndex: windowIndex)
         }
         var arguments = Array(tokens.dropFirst())
         if command == "screenshot", let path = arguments.first, !path.hasPrefix("/") {
@@ -117,6 +135,7 @@ struct BrowserCommandRequest: Codable, Equatable, Sendable {
             command: command,
             arguments: arguments,
             tabIndex: tabIndex,
+            windowIndex: windowIndex,
             timeout: timeout
         )
     }
@@ -161,30 +180,37 @@ struct BrowserAutomationResponse: Codable, Equatable, Sendable {
 enum BrowserCommand {
     static let help = """
     Usage:
-      soprano-web browser open [url]
-      soprano-web browser [--tab n] goto <url>
-      soprano-web browser [--tab n] wait-for-load [--timeout s]
-      soprano-web browser [--tab n] wait-for selector <css> [--timeout s]
-      soprano-web browser [--tab n] wait-for url <substring> [--timeout s]
-      soprano-web browser [--tab n] wait-for text <text> [--timeout s]
-      soprano-web browser [--tab n] vimium <keys>
-      soprano-web browser [--tab n] back|forward|reload|url|title
-      soprano-web browser [--tab n] snapshot [--interactive]
-      soprano-web browser [--tab n] eval <javascript>
-      soprano-web browser [--tab n] click|dblclick|focus|hover <selector|@ref>
-      soprano-web browser [--tab n] fill|type <selector|@ref> <text>
-      soprano-web browser [--tab n] check|uncheck|scroll-into-view <selector|@ref>
-      soprano-web browser [--tab n] press <key>
-      soprano-web browser [--tab n] get <text|html|value|attr|count> <selector> [attribute]
-      soprano-web browser [--tab n] is <visible|enabled|checked> <selector|@ref>
-      soprano-web browser [--tab n] screenshot <path.png>
-      soprano-web browser tabs
-      soprano-web browser new-tab [url]
-      soprano-web browser select-tab <n>
-      soprano-web browser [--tab n] close-tab [n]
+      soprano-web browser [--window n] open [url]
+      soprano-web browser [--window n] [--tab n] goto <url>
+      soprano-web browser [--window n] [--tab n] wait-for-load [--timeout s]
+      soprano-web browser [--window n] [--tab n] wait-for selector <css> [--timeout s]
+      soprano-web browser [--window n] [--tab n] wait-for url <substring> [--timeout s]
+      soprano-web browser [--window n] [--tab n] wait-for text <text> [--timeout s]
+      soprano-web browser [--window n] [--tab n] vimium <keys>
+      soprano-web browser [--window n] [--tab n] back|forward|reload|url|title
+      soprano-web browser [--window n] [--tab n] snapshot [--interactive]
+      soprano-web browser [--window n] [--tab n] eval <javascript>
+      soprano-web browser [--window n] [--tab n] click|dblclick|focus|hover <selector|@ref>
+      soprano-web browser [--window n] [--tab n] fill|type <selector|@ref> <text>
+      soprano-web browser [--window n] [--tab n] check|uncheck|scroll-into-view <selector|@ref>
+      soprano-web browser [--window n] [--tab n] press <key>
+      soprano-web browser [--window n] [--tab n] get <text|html|value|attr|count> <selector> [attribute]
+      soprano-web browser [--window n] [--tab n] is <visible|enabled|checked> <selector|@ref>
+      soprano-web browser [--window n] [--tab n] screenshot <path.png>
+      soprano-web browser [--window n] tabs
+      soprano-web browser [--window n] new-tab [url]
+      soprano-web browser [--window n] select-tab <n>
+      soprano-web browser [--window n] [--tab n] close-tab [n]
+      soprano-web browser windows
+      soprano-web browser new-window [url]
+      soprano-web browser [--window n] close-window [n]
 
-    `--tab n` targets tab n (1-based, see `tabs`) without changing the selected
-    tab; without it the selected tab is used.
+    `windows` lists the open windows (1-based) with their tab count and the
+    selected tab's title; `*` marks the window commands use by default: the
+    key window, else the most recently active one. `--window n` targets
+    window n and `--tab n` tab n of that window (1-based, see `windows` and
+    `tabs`); neither selects a tab or brings a window forward.
+    `close-window` puts the window on History ▸ Recently Closed, like ⇧⌘W.
     `snapshot` assigns ephemeral refs such as `e1`; pass them back as `@e1`.
     `eval` runs an expression, or an async function body that uses `return`;
     Promises are awaited and the result prints as JSON. A thrown error or a
@@ -253,19 +279,20 @@ enum BrowserCommand {
     }
 }
 
-/// App-side receiver: owns the automation socket for this app variant and
-/// routes each request to the window controller.
+/// App-side receiver: owns the automation socket for this app variant,
+/// picks the window (`--window n`, else the key or most recently active
+/// one) and routes each request to it.
 @MainActor
 final class BrowserAutomationController {
-    private let windowController: () -> BrowserWindowController?
+    private let windowManager: () -> BrowserWindowManager?
     private var server: BrowserAutomationServer?
     private var terminationObserver: NSObjectProtocol?
 
     init(
-        windowController: @escaping () -> BrowserWindowController?,
+        windowManager: @escaping () -> BrowserWindowManager?,
         socketPath: String? = BrowserAutomationSocket.path(for: BrowserAutomationSocket.current)
     ) {
-        self.windowController = windowController
+        self.windowManager = windowManager
         guard let socketPath else {
             FileHandle.standardError.write(Data(
                 "Soprano Web automation is off: no socket path fits sun_path.\n".utf8
@@ -302,23 +329,91 @@ final class BrowserAutomationController {
         _ request: BrowserCommandRequest,
         reply: @escaping BrowserAutomationServer.Reply
     ) {
-        guard let controller = windowController() else {
+        guard let manager = windowManager() else {
             reply(BrowserAutomationResponse(result: .failure(
                 BrowserAutomationError.unavailable("Soprano Web is not ready.")
             )))
             return
         }
+        BrowserAutomationRouter.perform(request, in: manager) { result in
+            reply(BrowserAutomationResponse(result: result))
+        }
+    }
+}
 
-        if request.command == "open" || request.command == "new-tab" {
-            let url = request.arguments.first
-            let tab = controller.newTab(url: url)
-            controller.revealWindowIfNeeded()
-            reply(BrowserAutomationResponse(result: .success(url ?? tab.state.url ?? "about:start")))
+/// Window-level CLI commands and the window a request goes to.
+@MainActor
+enum BrowserAutomationRouter {
+    static func perform(
+        _ request: BrowserCommandRequest,
+        in manager: BrowserWindowManager,
+        completion: @escaping (Result<String, Error>) -> Void
+    ) {
+        let url = request.arguments.first
+        switch request.command {
+        case "windows":
+            completion(.success(windowList(manager)))
+            return
+        case "new-window":
+            let controller = manager.newWindow(url: url)
+            completion(.success("window \(manager.number(of: controller) ?? manager.controllers.count)"))
+            return
+        default:
+            break
+        }
+
+        let target: BrowserWindowController
+        if let number = request.windowIndex {
+            guard manager.controllers.indices.contains(number - 1) else {
+                completion(.failure(BrowserAutomationError.invalidArguments(
+                    "No window \(number). Use `windows` to list them."
+                )))
+                return
+            }
+            target = manager.controllers[number - 1]
+        } else if let active = manager.activeController {
+            target = active
+        } else if request.command == "open" || request.command == "new-tab" {
+            let controller = manager.newWindow(url: url)
+            completion(.success(url ?? controller.selectedTab?.state.url ?? "about:start"))
+            return
+        } else {
+            completion(.failure(BrowserAutomationError.unavailable(
+                "No window is open. Use `new-window` to open one."
+            )))
             return
         }
 
-        controller.performAutomation(request) { result in
-            reply(BrowserAutomationResponse(result: result))
+        switch request.command {
+        case "close-window":
+            var closing = target
+            if let value = request.arguments.first {
+                guard let number = Int(value), manager.controllers.indices.contains(number - 1) else {
+                    completion(.failure(BrowserAutomationError.invalidArguments("No window \(value).")))
+                    return
+                }
+                closing = manager.controllers[number - 1]
+            }
+            let number = manager.number(of: closing) ?? 0
+            manager.closeWindow(closing)
+            completion(.success("closed window \(number)"))
+        case "open":
+            let tab = target.newTab(url: url)
+            target.revealWindowIfNeeded()
+            completion(.success(url ?? tab.state.url ?? "about:start"))
+        default:
+            target.performAutomation(request, completion: completion)
         }
+    }
+
+    /// `* 1\t3 tabs\tExample Domain`, one line per window.
+    static func windowList(_ manager: BrowserWindowManager) -> String {
+        let active = manager.activeController
+        return manager.controllers.enumerated().map { index, controller in
+            let mark = controller === active ? "*" : " "
+            let count = controller.tabs.count
+            let title = controller.selectedTab?.displayTitle ?? "New Tab"
+            return "\(mark) \(index + 1)\t\(count) \(count == 1 ? "tab" : "tabs")\t\(title)"
+        }.joined(separator: "\n")
     }
 }

@@ -43,7 +43,8 @@ final class BrowserHistoryStore {
     private(set) var entries: [BrowserHistoryEntry]
     let url: URL
     let limit: Int
-    var onChange: (() -> Void)?
+    /// Every window's sidebar and start pages follow these.
+    let changes = BrowserObservers<Void>()
 
     init(
         url: URL = BrowserFiles.supportDirectory().appendingPathComponent("history.json"),
@@ -67,7 +68,7 @@ final class BrowserHistoryStore {
             entries[0].title = title
             entries[0].visitedAt = date
             if typed { entries[0].typed = true }
-            onChange?()
+            changes.notify()
             persist()
             return
         }
@@ -79,13 +80,13 @@ final class BrowserHistoryStore {
         if entries.count > limit {
             entries.removeLast(entries.count - limit)
         }
-        onChange?()
+        changes.notify()
         persist()
     }
 
     func remove(id: UUID) {
         entries.removeAll { $0.id == id }
-        onChange?()
+        changes.notify()
         persist()
     }
 
@@ -94,7 +95,7 @@ final class BrowserHistoryStore {
         let count = entries.count
         entries.removeAll { $0.visitedAt >= date }
         guard entries.count != count else { return }
-        onChange?()
+        changes.notify()
         persist()
     }
 
@@ -136,7 +137,7 @@ struct BrowserBookmark: Codable, Identifiable, Equatable, Sendable {
 final class BrowserBookmarkStore {
     private(set) var bookmarks: [BrowserBookmark]
     let url: URL
-    var onChange: (() -> Void)?
+    let changes = BrowserObservers<Void>()
 
     init(url: URL = BrowserFiles.supportDirectory().appendingPathComponent("bookmarks.json")) {
         self.url = url
@@ -175,7 +176,7 @@ final class BrowserBookmarkStore {
 
     private func persist() {
         try? JSONFile.write(JSONList(bookmarks), to: url)
-        onChange?()
+        changes.notify()
     }
 }
 
@@ -262,7 +263,7 @@ final class BrowserDownloadStore {
     let url: URL
     /// Holds one `<record id>.resume` file per resumable download.
     let resumeDataDirectory: URL
-    var onChange: (() -> Void)?
+    let changes = BrowserObservers<Void>()
 
     init(url: URL = BrowserFiles.supportDirectory().appendingPathComponent("downloads.json")) {
         self.url = url
@@ -289,7 +290,7 @@ final class BrowserDownloadStore {
     func begin(url address: String, filename: String, path: String? = nil) -> BrowserDownloadRecord {
         let record = BrowserDownloadRecord(url: address, filename: filename, path: path)
         records.insert(record, at: 0)
-        onChange?()
+        changes.notify()
         persist()
         return record
     }
@@ -301,7 +302,7 @@ final class BrowserDownloadStore {
         let value = min(1, max(0, fraction))
         guard abs(records[index].fractionCompleted - value) >= 0.005 else { return }
         records[index].fractionCompleted = value
-        onChange?()
+        changes.notify()
     }
 
     /// Sets the destination chosen once the response arrived (Retry reuses
@@ -310,7 +311,7 @@ final class BrowserDownloadStore {
         guard let index = records.firstIndex(where: { $0.id == id }) else { return }
         records[index].path = path
         records[index].filename = URL(fileURLWithPath: path).lastPathComponent
-        onChange?()
+        changes.notify()
         persist()
     }
 
@@ -323,7 +324,7 @@ final class BrowserDownloadStore {
         records[index].errorMessage = nil
         discardResumeData(at: index)
         prune()
-        onChange?()
+        changes.notify()
         persist()
     }
 
@@ -347,7 +348,7 @@ final class BrowserDownloadStore {
               records[index].state.isStopped
         else { return }
         saveResumeData(data, at: index)
-        onChange?()
+        changes.notify()
         persist()
     }
 
@@ -368,7 +369,7 @@ final class BrowserDownloadStore {
         records[index].finishedAt = nil
         records[index].errorMessage = nil
         discardResumeData(at: index)
-        onChange?()
+        changes.notify()
         persist()
     }
 
@@ -377,7 +378,7 @@ final class BrowserDownloadStore {
             discardResumeData(at: index)
         }
         records.removeAll { $0.id == id }
-        onChange?()
+        changes.notify()
         persist()
     }
 
@@ -408,7 +409,7 @@ final class BrowserDownloadStore {
             saveResumeData(resumeData, at: index)
         }
         prune()
-        onChange?()
+        changes.notify()
         persist()
     }
 
@@ -422,7 +423,7 @@ final class BrowserDownloadStore {
         }
         let ids = Set(removed.map { records[$0].id })
         records.removeAll { ids.contains($0.id) }
-        onChange?()
+        changes.notify()
         persist()
     }
 

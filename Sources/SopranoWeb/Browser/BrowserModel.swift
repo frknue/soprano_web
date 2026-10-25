@@ -224,7 +224,7 @@ extension BrowserSettings {
 final class BrowserSettingsStore {
     private(set) var settings: BrowserSettings
     let url: URL
-    var onChange: ((BrowserSettings) -> Void)?
+    let changes = BrowserObservers<BrowserSettings>()
     /// Set when `settings.json` exists but cannot be read; the first write
     /// moves it to `unreadableURL` instead of overwriting it.
     private var preservesUnreadableFile = false
@@ -261,7 +261,7 @@ final class BrowserSettingsStore {
         guard next != settings else { return }
         settings = next
         write(next)
-        onChange?(next)
+        changes.notify(next)
     }
 
     func save() {
@@ -370,26 +370,123 @@ extension BrowserTabState {
     }
 }
 
-struct BrowserSession: Codable, Equatable, Sendable {
-    var version: Int = 1
+/// A window frame in screen coordinates (bottom-left origin).
+struct BrowserWindowFrame: Codable, Equatable, Sendable {
+    var x: Double
+    var y: Double
+    var width: Double
+    var height: Double
+
+    init(_ rect: NSRect) {
+        x = rect.origin.x
+        y = rect.origin.y
+        width = rect.width
+        height = rect.height
+    }
+
+    var rect: NSRect {
+        NSRect(x: x, y: y, width: width, height: height)
+    }
+}
+
+/// One saved window: its tabs, the selected one and where it was.
+struct BrowserWindowState: Codable, Equatable, Sendable {
+    /// Stable across relaunches, so a closed tab finds its window again.
+    var id = UUID()
+    /// Nil for the window a version 1 session migrates to.
+    var frame: BrowserWindowFrame?
     var tabs: [BrowserTabState]
-    var selectedIndex: Int
+    var selectedIndex = 0
+}
+
+extension BrowserWindowState {
+    init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        id = (try? c.decodeIfPresent(UUID.self, forKey: .id)) ?? UUID()
+        frame = try? c.decodeIfPresent(BrowserWindowFrame.self, forKey: .frame)
+        tabs = (try? c.decodeIfPresent(LossyArray<BrowserTabState>.self, forKey: .tabs))?.elements ?? []
+        selectedIndex = (try? c.decodeIfPresent(Int.self, forKey: .selectedIndex)) ?? 0
+    }
+
+    /// The selected tab's title, as the Window menu showed it.
+    var title: String {
+        let tab = tabs.indices.contains(selectedIndex) ? tabs[selectedIndex] : tabs.first
+        return tab?.displayTitle ?? "New Window"
+    }
+}
+
+extension BrowserTabState {
+    /// The title a closed tab shows in History ▸ Recently Closed.
+    var displayTitle: String {
+        let trimmed = title.trimmingCharacters(in: .whitespacesAndNewlines)
+        if !trimmed.isEmpty { return trimmed }
+        if let host = url.flatMap(URL.init(string:))?.host, !host.isEmpty { return host }
+        return url == nil ? "New Tab" : "Untitled"
+    }
+}
+
+/// `session.json`: every open window and the recently-closed stack.
+///
+/// Version 1 (stage 1) held one window's `tabs`, `selectedIndex` and
+/// `closedTabs`; it decodes as one window whose closed tabs return to it.
+struct BrowserSession: Codable, Equatable, Sendable {
+    static let currentVersion = 2
+
+    /// The version of the file this was read from; new sessions are current.
+    var version = Self.currentVersion
+    var windows: [BrowserWindowState]
+    /// Index in `windows` of the window that was in front.
+    var activeWindowIndex: Int?
+    /// Most recently closed last; see `BrowserRecentlyClosedStack`.
+    var recentlyClosed: [BrowserClosedEntry] = []
     var savedAt: Date
-    /// Most recently closed last; see `BrowserClosedTabStack`.
-    var closedTabs: [BrowserTabState] = []
+
+    enum CodingKeys: String, CodingKey {
+        case version, windows, activeWindowIndex, recentlyClosed, savedAt
+    }
+
+    private enum Version1Keys: String, CodingKey {
+        case tabs, selectedIndex, closedTabs
+    }
 }
 
 extension BrowserSession {
-    /// Files written before `version` existed are version 1; a tab that does
-    /// not decode is skipped instead of dropping the session.
+    /// Files written before `version` existed are version 1. A window, tab or
+    /// closed entry that does not decode is skipped instead of dropping the
+    /// session.
     init(from decoder: Decoder) throws {
         let c = try decoder.container(keyedBy: CodingKeys.self)
+        let savedAt = (try? c.decodeIfPresent(Date.self, forKey: .savedAt)) ?? .distantPast
+        guard c.contains(.windows) else {
+            self = try Self.version1(from: decoder, savedAt: savedAt)
+            return
+        }
         self.init(
-            version: (try? c.decodeIfPresent(Int.self, forKey: .version)) ?? 1,
-            tabs: (try? c.decodeIfPresent(LossyArray<BrowserTabState>.self, forKey: .tabs))?.elements ?? [],
-            selectedIndex: (try? c.decodeIfPresent(Int.self, forKey: .selectedIndex)) ?? 0,
-            savedAt: (try? c.decodeIfPresent(Date.self, forKey: .savedAt)) ?? .distantPast,
-            closedTabs: (try? c.decodeIfPresent(LossyArray<BrowserTabState>.self, forKey: .closedTabs))?.elements ?? []
+            version: (try? c.decodeIfPresent(Int.self, forKey: .version)) ?? Self.currentVersion,
+            windows: (try? c.decodeIfPresent(LossyArray<BrowserWindowState>.self, forKey: .windows))?.elements ?? [],
+            activeWindowIndex: try? c.decodeIfPresent(Int.self, forKey: .activeWindowIndex),
+            recentlyClosed: (try? c.decodeIfPresent(LossyArray<BrowserClosedEntry>.self, forKey: .recentlyClosed))?
+                .elements ?? [],
+            savedAt: savedAt
+        )
+    }
+
+    /// One window with the saved tabs; the closed tabs go back to it.
+    private static func version1(from decoder: Decoder, savedAt: Date) throws -> BrowserSession {
+        let c = try decoder.container(keyedBy: Version1Keys.self)
+        let tabs = (try? c.decodeIfPresent(LossyArray<BrowserTabState>.self, forKey: .tabs))?.elements ?? []
+        let closed = (try? c.decodeIfPresent(LossyArray<BrowserTabState>.self, forKey: .closedTabs))?.elements ?? []
+        let window = BrowserWindowState(
+            tabs: tabs,
+            selectedIndex: (try? c.decodeIfPresent(Int.self, forKey: .selectedIndex)) ?? 0
+        )
+        let windowID = tabs.isEmpty ? nil : window.id
+        return BrowserSession(
+            version: 1,
+            windows: tabs.isEmpty ? [] : [window],
+            activeWindowIndex: tabs.isEmpty ? nil : 0,
+            recentlyClosed: closed.map { BrowserClosedEntry(.tab($0, windowID: windowID, index: nil)) },
+            savedAt: savedAt
         )
     }
 }
@@ -402,15 +499,24 @@ final class BrowserSessionStore {
         self.url = url
     }
 
+    /// Where a version 1 file is kept after it migrates.
+    var migratedURL: URL {
+        url.appendingPathExtension("migrated")
+    }
+
+    /// Reads the session. A version 1 file is copied to `migratedURL` once;
+    /// the next save replaces it with version 2.
     func load() -> BrowserSession? {
-        JSONFile.read(BrowserSession.self, at: url)
+        guard let session = JSONFile.read(BrowserSession.self, at: url) else { return nil }
+        if session.version < BrowserSession.currentVersion,
+           !FileManager.default.fileExists(atPath: migratedURL.path)
+        {
+            try? FileManager.default.copyItem(at: url, to: migratedURL)
+        }
+        return session
     }
 
     func save(_ session: BrowserSession) {
         try? JSONFile.write(session, to: url)
-    }
-
-    func clear() {
-        try? FileManager.default.removeItem(at: url)
     }
 }

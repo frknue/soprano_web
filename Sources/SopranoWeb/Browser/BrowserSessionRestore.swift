@@ -1,32 +1,193 @@
 import AppKit
 
-/// Recently closed tabs for ⇧⌘T, newest last. Holds the 20 most recent and
-/// is saved with the session, so it survives a relaunch.
-struct BrowserClosedTabStack: Equatable, Sendable {
+/// One History ▸ Recently Closed entry: a tab or a whole window.
+struct BrowserClosedEntry: Codable, Equatable, Sendable, Identifiable {
+    enum Content: Equatable, Sendable {
+        /// A tab, the window it was in and its index there (nil: the end).
+        case tab(BrowserTabState, windowID: UUID?, index: Int?)
+        /// A window with its tabs, selection and frame.
+        case window(BrowserWindowState)
+    }
+
+    var id: UUID
+    var content: Content
+
+    init(_ content: Content, id: UUID = UUID()) {
+        self.id = id
+        self.content = content
+    }
+
+    /// The menu title: the tab's title, or the window's selected tab and its
+    /// tab count.
+    var title: String {
+        switch content {
+        case .tab(let state, _, _):
+            return state.displayTitle
+        case .window(let window):
+            let count = window.tabs.count
+            return "\(window.title) — \(count) \(count == 1 ? "tab" : "tabs")"
+        }
+    }
+
+    var isWindow: Bool {
+        if case .window = content { return true }
+        return false
+    }
+
+    /// Where reopening puts this entry: a tab returns to its window at its
+    /// old index while that window is open, otherwise to the key window (at
+    /// the end); a window, or a tab with no window to go to, opens a new
+    /// window.
+    func reopenTarget(openWindowIDs: [UUID], keyWindowID: UUID?) -> BrowserReopenTarget {
+        switch content {
+        case .window:
+            return .newWindow
+        case .tab(_, let windowID, let index):
+            if let windowID, openWindowIDs.contains(windowID) {
+                return .window(windowID, index: index)
+            }
+            if let keyWindowID {
+                return .window(keyWindowID, index: nil)
+            }
+            return .newWindow
+        }
+    }
+
+    private enum CodingKeys: String, CodingKey {
+        case id, kind, tab, windowID, index, window
+    }
+
+    init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        id = (try? c.decodeIfPresent(UUID.self, forKey: .id)) ?? UUID()
+        switch try c.decode(String.self, forKey: .kind) {
+        case "tab":
+            content = .tab(
+                try c.decode(BrowserTabState.self, forKey: .tab),
+                windowID: try? c.decodeIfPresent(UUID.self, forKey: .windowID),
+                index: try? c.decodeIfPresent(Int.self, forKey: .index)
+            )
+        case "window":
+            content = .window(try c.decode(BrowserWindowState.self, forKey: .window))
+        case let kind:
+            throw DecodingError.dataCorruptedError(
+                forKey: .kind,
+                in: c,
+                debugDescription: "Unknown closed entry kind \(kind)"
+            )
+        }
+    }
+
+    func encode(to encoder: Encoder) throws {
+        var c = encoder.container(keyedBy: CodingKeys.self)
+        try c.encode(id, forKey: .id)
+        switch content {
+        case let .tab(state, windowID, index):
+            try c.encode("tab", forKey: .kind)
+            try c.encode(state, forKey: .tab)
+            try c.encodeIfPresent(windowID, forKey: .windowID)
+            try c.encodeIfPresent(index, forKey: .index)
+        case .window(let window):
+            try c.encode("window", forKey: .kind)
+            try c.encode(window, forKey: .window)
+        }
+    }
+}
+
+enum BrowserReopenTarget: Equatable, Sendable {
+    /// Into this open window, at `index` (nil or past the end: the end).
+    case window(UUID, index: Int?)
+    case newWindow
+}
+
+/// Recently closed tabs and windows for ⇧⌘T and History ▸ Recently Closed,
+/// newest last. One stack for the app; holds the 20 most recent and is
+/// saved with the session, so it survives a relaunch.
+struct BrowserRecentlyClosedStack: Equatable, Sendable {
     static let capacity = 20
 
-    private(set) var entries: [BrowserTabState]
+    private(set) var entries: [BrowserClosedEntry]
 
-    init(_ entries: [BrowserTabState] = []) {
+    init(_ entries: [BrowserClosedEntry] = []) {
         self.entries = Array(entries.suffix(Self.capacity))
     }
 
     var isEmpty: Bool { entries.isEmpty }
     var count: Int { entries.count }
+    var newest: BrowserClosedEntry? { entries.last }
+    /// The menu order.
+    var newestFirst: [BrowserClosedEntry] { entries.reversed() }
 
-    mutating func push(_ state: BrowserTabState) {
-        entries.append(state)
+    mutating func push(_ entry: BrowserClosedEntry) {
+        entries.append(entry)
         if entries.count > Self.capacity {
             entries.removeFirst(entries.count - Self.capacity)
         }
     }
 
-    mutating func pop() -> BrowserTabState? {
+    mutating func pop() -> BrowserClosedEntry? {
         entries.popLast()
+    }
+
+    /// Takes one entry out (reopened from the menu).
+    mutating func remove(id: UUID) -> BrowserClosedEntry? {
+        guard let index = entries.firstIndex(where: { $0.id == id }) else { return nil }
+        return entries.remove(at: index)
     }
 
     mutating func removeAll() {
         entries.removeAll()
+    }
+}
+
+/// Window frames for restore and new windows.
+enum BrowserWindowFrames {
+    /// How far a new window steps down and right from the key window.
+    static let cascadeOffset: CGFloat = 22
+
+    /// Fits a saved frame on today's screens: the screen it overlaps most
+    /// (or the first one when it overlaps none) holds the whole frame, which
+    /// shrinks to fit but not below `minSize`.
+    static func clamped(_ frame: NSRect, to screens: [NSRect], minSize: NSSize) -> NSRect {
+        guard let screen = bestScreen(for: frame, in: screens) else { return frame }
+        var result = frame
+        result.size.width = min(max(frame.width, minSize.width), screen.width)
+        result.size.height = min(max(frame.height, minSize.height), screen.height)
+        result.origin.x = min(max(frame.minX, screen.minX), screen.maxX - result.width)
+        result.origin.y = min(max(frame.minY, screen.minY), screen.maxY - result.height)
+        return result
+    }
+
+    /// A new window's frame: the key window's size, one step down and right,
+    /// back at the screen's top left when the step would leave the screen.
+    static func cascaded(from frame: NSRect, screens: [NSRect]) -> NSRect {
+        var next = frame.offsetBy(dx: cascadeOffset, dy: -cascadeOffset)
+        guard let screen = bestScreen(for: frame, in: screens) else { return next }
+        if next.maxX > screen.maxX || next.minY < screen.minY {
+            next.origin = NSPoint(x: screen.minX, y: screen.maxY - next.height)
+        }
+        return next
+    }
+
+    /// The frame stage 1 autosaved under `NSWindow Frame SopranoWebMainWindow`
+    /// ("x y width height screenX screenY screenWidth screenHeight"); a
+    /// migrated version 1 window opens there.
+    static func autosavedFrame(_ value: String?) -> NSRect? {
+        let numbers = (value ?? "").split(separator: " ").compactMap { Double($0) }
+        guard numbers.count >= 4, numbers[2] > 0, numbers[3] > 0 else { return nil }
+        return NSRect(x: numbers[0], y: numbers[1], width: numbers[2], height: numbers[3])
+    }
+
+    private static func bestScreen(for frame: NSRect, in screens: [NSRect]) -> NSRect? {
+        func overlap(_ screen: NSRect) -> CGFloat {
+            let shared = screen.intersection(frame)
+            return shared.isNull ? 0 : shared.width * shared.height
+        }
+        let best = screens.max { overlap($0) < overlap($1) }
+        if let best, overlap(best) > 0 {
+            return best
+        }
+        return screens.first
     }
 }
 

@@ -193,7 +193,7 @@ struct VimiumKeyMap {
         ">>": .moveTabRight,
         "g0": .firstTab,
         "g$": .lastTab,
-        "W": .unsupported("Move to a new window is not available in this single-window browser."),
+        "W": .unsupported("Moving a tab to a new window is not available yet."),
         "t": .createTab,
         "yt": .duplicateTab,
         "x": .closeTab,

@@ -48,6 +48,10 @@ final class BrowserTab {
     var lifecycle = BrowserTabLifecycle()
     var observations: [NSKeyValueObservation] = []
     var links = BrowserTabLinks()
+    /// The next load to finish started from the address bar (a typed visit).
+    var typedNavigationPending = false
+    /// `wait-for-load` requests on this tab; they follow it between windows.
+    var loadWaiters: [UUID: BrowserLoadWaiter] = [:]
 
     init(
         id: UUID = UUID(),
@@ -116,6 +120,12 @@ final class BrowserTab {
         observations.forEach { $0.invalidate() }
         observations.removeAll()
     }
+}
+
+/// One `wait-for-load` request: its timeout and who to answer.
+struct BrowserLoadWaiter {
+    let timer: Timer
+    let completion: (Result<String, Error>) -> Void
 }
 
 /// The main window lets the snapshot harness keep it off-screen without AppKit

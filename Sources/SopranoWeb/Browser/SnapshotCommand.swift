@@ -295,7 +295,9 @@ enum SnapshotCommand {
         let defaults = UserDefaults(suiteName: defaultsSuite)!
         defaults.set(options.collapsed, forKey: BrowserWindowController.verticalSidebarCollapsedKey)
 
-        let controller = BrowserWindowController(
+        // Every window the manager makes stays off every display and is
+        // never ordered front or made key.
+        let manager = BrowserWindowManager(
             themeManager: themeManager,
             settingsStore: settingsStore,
             history: history,
@@ -305,17 +307,14 @@ enum SnapshotCommand {
             faviconStore: BrowserFaviconStore(directory: temp.appendingPathComponent("Favicons", isDirectory: true)),
             sessionStore: session,
             persistsSession: false,
-            frame: NSRect(origin: .zero, size: options.size),
+            placement: .offscreen(size: options.size),
             defaults: defaults
         )
-        guard let window = controller.window else {
+        manager.restoreSession()
+        guard var controller = manager.controllers.first, var window = controller.window else {
             FileHandle.standardError.write(Data("Snapshot could not create the window.\n".utf8))
             exit(1)
         }
-        window.setContentSize(options.size)
-        (window as? BrowserWindow)?.allowsOffscreenFrame = true
-        window.setFrameOrigin(NSPoint(x: -20_000, y: -20_000))
-        window.orderBack(nil)
         window.displayIfNeeded()
 
         if options.focusAddress {
@@ -358,8 +357,9 @@ enum SnapshotCommand {
         }
         if let tab = controller.selectedTab {
             if let muteAfter = options.muteAfter {
+                let muting = controller
                 Timer.scheduledTimer(withTimeInterval: muteAfter, repeats: false) { _ in
-                    MainActor.assumeIsolated { controller.toggleMute(tab) }
+                    MainActor.assumeIsolated { muting.toggleMute(tab) }
                 }
             }
             if options.traceAudio {
@@ -394,7 +394,7 @@ enum SnapshotCommand {
                 bookmarks.toggle(url: "https://webkit.org", title: "WebKit")
                 bookmarks.toggle(url: "https://developer.apple.com/documentation/webkit", title: "WebKit Documentation")
             }
-            if downloads.records.isEmpty {
+            if downloads.records.isEmpty, !options.session.startsDownloads {
                 let finished = downloads.begin(
                     url: "https://example.com/files/report.pdf",
                     filename: "report.pdf"
@@ -448,7 +448,23 @@ enum SnapshotCommand {
             pressSheetButton(title, window: window)
             wait(options.wait)
         }
-        options.session.run(controller, wait: options.wait)
+        options.session.run(manager, wait: options.wait)
+        // Everything below works on the captured window: `--capture-window
+        // n`, else the most recently active one.
+        guard let target = options.session.captureController(in: manager),
+              let targetWindow = target.window
+        else {
+            FileHandle.standardError.write(Data("Snapshot has no window to capture.\n".utf8))
+            exit(1)
+        }
+        if target !== controller {
+            controller = target
+            window = targetWindow
+            if let section = options.sidebar {
+                controller.showSidebar(section: section)
+            }
+            wait(0.3)
+        }
 
         if options.focusAddress, let tab = controller.selectedTab {
             let editor = controller.toolbar.addressEditor
@@ -621,7 +637,10 @@ enum SnapshotCommand {
             exit(1)
         }
 
-        window.orderOut(nil)
+        manager.isTerminating = true
+        for open in manager.controllers {
+            open.window?.orderOut(nil)
+        }
         defaults.removePersistentDomain(forName: defaultsSuite)
         try? FileManager.default.removeItem(at: temp)
         exit(0)

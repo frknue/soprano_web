@@ -41,4 +41,17 @@ struct MainMenuTests {
         #expect(stop?.action == NSSelectorFromString("stop"))
         #expect(items.first { $0.title == "Reload" }?.action != stop?.action)
     }
+
+    @Test func newWindowIsCommandNAndHistoryListsRecentlyClosed() {
+        _ = NSApplication.shared
+        let menu = MainMenuController { nil }
+        menu.install()
+        let items = (NSApp.mainMenu?.items ?? []).compactMap(\.submenu).flatMap(\.items)
+        let newWindow = items.filter { $0.keyEquivalent == "n" && $0.keyEquivalentModifierMask == [.command] }
+        #expect(newWindow.map(\.title) == ["New Window"])
+        let reopen = items.filter { $0.keyEquivalent == "t" && $0.keyEquivalentModifierMask == [.command, .shift] }
+        #expect(reopen.count == 1)
+        let history = NSApp.mainMenu?.item(withTitle: "History")?.submenu
+        #expect(history?.item(withTitle: "Recently Closed")?.submenu != nil)
+    }
 }

@@ -234,9 +234,8 @@ extension BrowserWindowController {
                 newTab(url: url.absoluteString, select: false)
             }
         case let .download(url):
-            let webView = command.webView ?? selectedTab?.webView
-            webView?.startDownload(using: URLRequest(url: url)) { [weak self] download in
-                download.delegate = self
+            if let webView = command.webView ?? selectedTab?.webView {
+                downloadManager.start(URLRequest(url: url), in: webView)
             }
         }
     }

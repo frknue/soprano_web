@@ -40,7 +40,8 @@ struct BrowserSettingsStoreTests {
         let url = directory.appendingPathComponent("settings.json")
         let store = BrowserSettingsStore(url: url)
         var notifications = 0
-        store.onChange = { _ in notifications += 1 }
+        let observation = store.changes.observe { _ in notifications += 1 }
+        defer { observation.cancel() }
 
         store.update {
             $0.searchEngine = .google
@@ -60,7 +61,8 @@ struct BrowserSettingsStoreTests {
         defer { try? FileManager.default.removeItem(at: directory) }
         let store = BrowserSettingsStore(url: directory.appendingPathComponent("settings.json"))
         var notifications = 0
-        store.onChange = { _ in notifications += 1 }
+        let observation = store.changes.observe { _ in notifications += 1 }
+        defer { observation.cancel() }
         store.update { $0.searchEngine = .duckDuckGo }
         #expect(notifications == 0)
         #expect(!FileManager.default.fileExists(atPath: store.url.path))
@@ -132,11 +134,13 @@ struct BrowserSessionStoreTests {
         let store = BrowserSessionStore(url: directory.appendingPathComponent("session.json"))
         let savedAt = Date(timeIntervalSince1970: 1_700_000_000)
         let session = BrowserSession(
-            tabs: [
-                BrowserTabState(url: nil, title: "New Tab", zoom: 1),
-                BrowserTabState(url: "https://example.com", title: "Example", zoom: 1.2),
-            ],
-            selectedIndex: 1,
+            windows: [BrowserWindowState(
+                tabs: [
+                    BrowserTabState(url: nil, title: "New Tab", zoom: 1),
+                    BrowserTabState(url: "https://example.com", title: "Example", zoom: 1.2),
+                ],
+                selectedIndex: 1
+            )],
             savedAt: savedAt
         )
         store.save(session)
@@ -163,8 +167,8 @@ struct BrowserSessionStoreTests {
 
         let loaded = try #require(BrowserSessionStore(url: url).load())
         #expect(loaded.version == 1)
-        #expect(loaded.selectedIndex == 1)
-        #expect(loaded.tabs == [
+        #expect(loaded.windows.first?.selectedIndex == 1)
+        #expect(loaded.windows.first?.tabs == [
             BrowserTabState(url: "https://example.com", title: "Example", zoom: 1),
             BrowserTabState(url: nil, title: "New Tab", zoom: 1),
         ])

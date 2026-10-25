@@ -5,7 +5,7 @@ extension BrowserWindowController {
     // MARK: - Zoom and palette
 
     var canReopenClosedTab: Bool {
-        !closedTabs.isEmpty
+        !manager.recentlyClosed.isEmpty
     }
 
     func zoomIn() {

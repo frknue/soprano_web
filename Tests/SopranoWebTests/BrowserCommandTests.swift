@@ -43,6 +43,66 @@ struct BrowserCommandTests {
         }
     }
 
+    @Test func windowsListsWindows() throws {
+        let request = try BrowserCommandRequest.parse(["SopranoWeb", "browser", "windows"])
+        #expect(request?.command == "windows")
+        #expect(request?.arguments == [])
+        #expect(request?.windowIndex == nil)
+    }
+
+    @Test func windowFlagIsRemovedAndParsedNextToTab() throws {
+        let request = try BrowserCommandRequest.parse(
+            ["SopranoWeb", "browser", "--window", "2", "--tab", "3", "goto", "example.com"]
+        )
+        #expect(request?.command == "goto")
+        #expect(request?.arguments == ["example.com"])
+        #expect(request?.windowIndex == 2)
+        #expect(request?.tabIndex == 3)
+
+        let after = try BrowserCommandRequest.parse(["SopranoWeb", "browser", "tabs", "--window", "1"])
+        #expect(after?.command == "tabs")
+        #expect(after?.windowIndex == 1)
+        #expect(after?.arguments == [])
+    }
+
+    @Test func badWindowRejected() {
+        #expect(throws: BrowserAutomationError.self) {
+            _ = try BrowserCommandRequest.parse(["SopranoWeb", "browser", "--window", "0", "tabs"])
+        }
+        #expect(throws: BrowserAutomationError.self) {
+            _ = try BrowserCommandRequest.parse(["SopranoWeb", "browser", "--window", "two", "tabs"])
+        }
+        #expect(throws: BrowserAutomationError.self) {
+            _ = try BrowserCommandRequest.parse(["SopranoWeb", "browser", "tabs", "--window"])
+        }
+    }
+
+    @Test func newWindowTakesAnOptionalURL() throws {
+        let bare = try BrowserCommandRequest.parse(["SopranoWeb", "browser", "new-window"])
+        #expect(bare?.command == "new-window")
+        #expect(bare?.arguments == [])
+
+        let withURL = try BrowserCommandRequest.parse(["SopranoWeb", "browser", "new-window", "https://webkit.org"])
+        #expect(withURL?.arguments == ["https://webkit.org"])
+    }
+
+    @Test func closeWindowTakesTheWindowFlagOrANumber() throws {
+        let flagged = try BrowserCommandRequest.parse(["SopranoWeb", "browser", "--window", "2", "close-window"])
+        #expect(flagged?.command == "close-window")
+        #expect(flagged?.windowIndex == 2)
+        #expect(flagged?.arguments == [])
+
+        let numbered = try BrowserCommandRequest.parse(["SopranoWeb", "browser", "close-window", "3"])
+        #expect(numbered?.arguments == ["3"])
+        #expect(numbered?.windowIndex == nil)
+    }
+
+    @Test func helpDocumentsTheWindowCommands() {
+        for usage in ["browser windows", "browser new-window [url]", "browser [--window n] close-window [n]", "[--window n] [--tab n] goto"] {
+            #expect(BrowserCommand.help.contains(usage), "help is missing \(usage)")
+        }
+    }
+
     @Test func waitForLoadDefaultsToTenSeconds() throws {
         let request = try BrowserCommandRequest.parse(["SopranoWeb", "browser", "wait-for-load"])
         #expect(request?.timeout == 10)
@@ -132,6 +192,7 @@ struct BrowserCommandTests {
             command: "wait-for",
             arguments: ["selector", "#a"],
             tabIndex: 2,
+            windowIndex: 3,
             timeout: 30
         )
         let data = try JSONEncoder().encode(request)
@@ -139,8 +200,16 @@ struct BrowserCommandTests {
         #expect(object["command"] as? String == "wait-for")
         #expect(object["arguments"] as? [String] == ["selector", "#a"])
         #expect(object["tab"] as? Int == 2)
+        #expect(object["window"] as? Int == 3)
         #expect(object["timeout"] as? Double == 30)
         #expect(try JSONDecoder().decode(BrowserCommandRequest.self, from: data) == request)
+
+        // A request from an older CLI has no window.
+        let older = try JSONDecoder().decode(
+            BrowserCommandRequest.self,
+            from: Data(#"{"command":"tabs","arguments":[]}"#.utf8)
+        )
+        #expect(older.windowIndex == nil)
     }
 
     @Test func responseCarriesOutputOrError() throws {

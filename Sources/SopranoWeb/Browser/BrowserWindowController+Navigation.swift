@@ -124,12 +124,7 @@ extension BrowserWindowController {
     }
 
     func startPageHTML() -> String {
-        BrowserStartPage.html(
-            theme: theme,
-            settings: settingsStore.settings,
-            bookmarks: bookmarks.bookmarks,
-            history: history.entries
-        )
+        manager.startPageHTML()
     }
 
     func markStartPagesStale() {
@@ -207,7 +202,8 @@ extension BrowserWindowController: WKNavigationDelegate {
             for: tab,
             result: .success(webView.url?.absoluteString ?? "")
         )
-        let typed = addressBar.consumeTypedNavigation(tabID: tab.id)
+        let typed = tab.typedNavigationPending
+        tab.typedNavigationPending = false
         if tab.suppressNextHistoryRecord {
             tab.suppressNextHistoryRecord = false
         } else if !tab.isStartPage,
@@ -342,7 +338,7 @@ extension BrowserWindowController: WKNavigationDelegate {
         navigationAction: WKNavigationAction,
         didBecome download: WKDownload
     ) {
-        download.delegate = self
+        downloadManager.adopt(download, from: window)
     }
 
     func webView(
@@ -350,13 +346,16 @@ extension BrowserWindowController: WKNavigationDelegate {
         navigationResponse: WKNavigationResponse,
         didBecome download: WKDownload
     ) {
-        download.delegate = self
+        downloadManager.adopt(download, from: window)
     }
 }
 
 extension BrowserWindowController {
     // MARK: - Load waiters
 
+    /// Answers once the tab's navigation finishes (or fails, or `timeout`
+    /// passes). The waiter lives on the tab, so it survives a move to
+    /// another window.
     func waitForLoad(
         _ tab: BrowserTab,
         timeout: TimeInterval = BrowserCommandRequest.defaultWaitTimeout,
@@ -367,33 +366,22 @@ extension BrowserWindowController {
             return
         }
         let id = UUID()
-        let timer = Timer(
-            timeInterval: timeout,
-            target: self,
-            selector: #selector(loadWaiterTimedOut(_:)),
-            userInfo: id.uuidString,
-            repeats: false
-        )
+        let timer = Timer(timeInterval: timeout, repeats: false) { [weak tab] _ in
+            MainActor.assumeIsolated {
+                guard let waiter = tab?.loadWaiters.removeValue(forKey: id) else { return }
+                waiter.completion(.failure(
+                    BrowserAutomationError.unavailable("Timed out waiting for the page to load.")
+                ))
+            }
+        }
         RunLoop.main.add(timer, forMode: .common)
-        loadWaiters[id] = LoadWaiter(tabID: tab.id, timer: timer, completion: completion)
-    }
-
-    @objc private func loadWaiterTimedOut(_ timer: Timer) {
-        guard let raw = timer.userInfo as? String,
-              let id = UUID(uuidString: raw),
-              let waiter = loadWaiters.removeValue(forKey: id)
-        else { return }
-        waiter.completion(.failure(
-            BrowserAutomationError.unavailable("Timed out waiting for the page to load.")
-        ))
+        tab.loadWaiters[id] = BrowserLoadWaiter(timer: timer, completion: completion)
     }
 
     func resolveLoadWaiters(for tab: BrowserTab, result: Result<String, Error>) {
-        let ids = loadWaiters.compactMap { id, waiter in
-            waiter.tabID == tab.id ? id : nil
-        }
-        for id in ids {
-            guard let waiter = loadWaiters.removeValue(forKey: id) else { continue }
+        let waiters = tab.loadWaiters.values
+        tab.loadWaiters.removeAll()
+        for waiter in waiters {
             waiter.timer.invalidate()
             waiter.completion(result)
         }

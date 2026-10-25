@@ -157,8 +157,8 @@ enum BrowserFaviconSelection {
 @MainActor
 final class BrowserFaviconStore {
     let directory: URL
-    /// Called after a new icon lands in the cache.
-    var onChange: (() -> Void)?
+    /// Notified after a new icon lands in the cache.
+    let changes = BrowserObservers<Void>()
 
     private let session: URLSession
     private var images: [String: NSImage] = [:]
@@ -243,7 +243,7 @@ final class BrowserFaviconStore {
             missing.remove(key)
             try? FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
             try? png.write(to: fileURL(forKey: key), options: .atomic)
-            onChange?()
+            changes.notify()
         }
         let icon = result?.0 ?? image(forKey: key)
         for completion in completions {

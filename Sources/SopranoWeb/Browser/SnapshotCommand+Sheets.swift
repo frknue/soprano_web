@@ -7,7 +7,7 @@ import WebKit
 extension SnapshotCommand {
     /// Fills the sign-in sheet with `user:password` and presses Sign In.
     static func submitSignIn(_ credentials: String, controller: BrowserWindowController) {
-        guard let sheet = controller.connectionSecurity.credentialSheet else {
+        guard let sheet = controller.credentialPrompts.sheet else {
             FileHandle.standardError.write(Data("snapshot: no sign-in sheet to fill\n".utf8))
             return
         }
