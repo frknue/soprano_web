@@ -3,10 +3,10 @@ import AppKit
 extension BrowserWindowController {
     // MARK: - Tab context menu
 
-    /// Reload, Duplicate, Mute, Copy Link, Move Tab to New Window, the close
-    /// actions and Reopen Closed Tab for one tab. `closeAfterTitle` names
-    /// the run after it: "Close Tabs Below" in the rail, "… to the Right"
-    /// in the strip.
+    /// Reload, Duplicate, Mute, Copy Link, Keep This Site Awake, Move Tab
+    /// to New Window, the close actions and Reopen Closed Tab for one tab.
+    /// `closeAfterTitle` names the run after it: "Close Tabs Below" in the
+    /// rail, "… to the Right" in the strip.
     func tabContextMenu(for id: UUID, closeAfterTitle: String) -> NSMenu? {
         guard let index = tabs.firstIndex(where: { $0.id == id }) else { return nil }
         let tab = tabs[index]
@@ -26,6 +26,9 @@ extension BrowserWindowController {
         add("Duplicate", #selector(duplicateTabFromMenu(_:)), enabled: tab.isStartPage || tab.webView.url != nil)
         add(tab.isMuted ? "Unmute Tab" : "Mute Tab", #selector(toggleMuteFromMenu(_:)))
         add("Copy Link", #selector(copyTabLinkFromMenu(_:)), enabled: hasPage)
+        let awakeHost = keepAwakeKey(for: tab)
+        add("Keep This Site Awake", #selector(toggleKeepAwakeFromMenu(_:)), enabled: awakeHost != nil)
+        menu.items.last?.state = awakeHost.map(sitePermissions.keepsAwake(host:)) == true ? .on : .off
         menu.addItem(.separator())
         add("Move Tab to New Window", #selector(moveTabToNewWindowFromMenu(_:)))
         menu.addItem(.separator())

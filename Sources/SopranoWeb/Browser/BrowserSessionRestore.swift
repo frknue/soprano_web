@@ -238,31 +238,28 @@ enum BrowserWindowFrames {
 }
 
 extension BrowserTabState {
-    /// What the session saves for a tab. A restored tab that has not loaded
-    /// yet (`pending`) keeps its saved address and back/forward list; title
-    /// and zoom are always the live values. `interactionState` is only read
-    /// for a loaded tab.
+    /// What the session saves for a tab. A tab that is not loaded (restored
+    /// and never selected, or asleep: `pending`) keeps its saved address
+    /// and back/forward list; the title is always the live value.
+    /// `interactionState` is only read for a loaded tab.
     static func snapshot(
         pending: BrowserTabState?,
         isStartPage: Bool,
         failedURL: String?,
         currentURL: String?,
         title: String,
-        zoom: Double,
         interactionState: () -> Data?
     ) -> BrowserTabState {
         if let pending {
             return BrowserTabState(
                 url: pending.url,
                 title: title,
-                zoom: zoom,
                 interactionState: pending.interactionState
             )
         }
         return BrowserTabState(
             url: isStartPage ? nil : (failedURL ?? currentURL),
             title: title,
-            zoom: zoom,
             interactionState: interactionState()
         )
     }
@@ -295,8 +292,23 @@ enum BrowserCrashPolicy {
 /// Per-tab restore and crash bookkeeping, stored on `BrowserTab.lifecycle`.
 @MainActor
 struct BrowserTabLifecycle {
-    /// Set on a restored tab until its first selection loads it.
+    /// Set on a tab that is not loaded: restored and not selected yet, or
+    /// asleep. Its first selection (or a CLI command) loads it.
     var pendingRestore: BrowserTabState?
+    /// Set while the tab sleeps (with `pendingRestore`).
+    var sleep: BrowserTabSleepState?
+    /// Set while a snapshot is taken before the tab sleeps.
+    var sleepAttempt: UUID?
+    /// When the tab was last selected or left; idle time counts from here.
+    var lastActiveAt = Date()
+    /// Dialogs, sheets and prompts the page is waiting on.
+    var openPrompts = 0
+    /// Frames whose page reported `beforeunload` listeners or edited
+    /// fields, and frames capturing the screen (`sleepGuard` messages).
+    var unsavedFrames: Set<String> = []
+    var capturingFrames: Set<String> = []
+    /// The sleeping page's snapshot over the waking web view.
+    var wakeSnapshotView: NSView?
     var lastCrashAt: Date?
     var reloadsWhenSelected = false
     var crashView: BrowserCrashView?

@@ -41,13 +41,20 @@ extension BrowserWindowController {
         }
     }
 
-    /// Loads a restored tab that has not loaded yet, back/forward list
-    /// included, without selecting it. No-op for a loaded tab.
+    /// Loads a tab that is not loaded (restored, or asleep), back/forward
+    /// list included, without selecting it. A sleeping tab that is selected
+    /// shows its snapshot until the page is back. No-op for a loaded tab.
     func loadRestoredTabIfNeeded(_ tab: BrowserTab) {
         guard let state = tab.lifecycle.pendingRestore else { return }
         tab.lifecycle.pendingRestore = nil
+        if let sleep = tab.lifecycle.sleep {
+            tab.lifecycle.sleep = nil
+            if tab.id == selectedTab?.id {
+                showWakeSnapshot(sleep.snapshot, for: tab)
+            }
+            metadataChanged(tab)
+        }
         tab.suppressNextHistoryRecord = true
-        tab.zoom = state.zoom
         if let data = state.interactionState {
             // Restoring the archived list also navigates to its current item.
             tab.webView.interactionState = data
@@ -87,6 +94,7 @@ extension BrowserWindowController {
         tab.vimium?.shutdown()
         tab.invalidateObservations()
         tab.webView.stopLoading()
+        removeWakeSnapshot(tab)
         tab.webView.removeFromSuperview()
     }
 

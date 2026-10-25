@@ -23,8 +23,8 @@ struct BrowserSessionRestoreTests {
         let first = BrowserWindowState(
             frame: BrowserWindowFrame(NSRect(x: 40, y: 60, width: 1280, height: 800)),
             tabs: [
-                BrowserTabState(url: "https://example.com/b", title: "B", zoom: 1.1, interactionState: history),
-                BrowserTabState(url: nil, title: "New Tab", zoom: 1),
+                BrowserTabState(url: "https://example.com/b", title: "B", interactionState: history),
+                BrowserTabState(url: nil, title: "New Tab"),
             ],
             selectedIndex: 1
         )
@@ -125,8 +125,8 @@ struct BrowserSessionRestoreTests {
         #expect(window.frame == nil)
         #expect(window.selectedIndex == 1)
         #expect(window.tabs == [
-            BrowserTabState(url: "https://example.com", title: "Example", zoom: 1),
-            BrowserTabState(url: "https://webkit.org", title: "WebKit", zoom: 1, interactionState: Data("archive".utf8)),
+            BrowserTabState(url: "https://example.com", title: "Example"),
+            BrowserTabState(url: "https://webkit.org", title: "WebKit", interactionState: Data("archive".utf8)),
         ])
         #expect(loaded.activeWindowIndex == 0)
         // The closed tabs keep their order (newest last) and return to the
@@ -190,7 +190,7 @@ struct BrowserSessionRestoreTests {
     @Test func notYetLoadedTabKeepsAddressAndHistoryThroughASave() {
         let (store, directory) = temporaryStore()
         defer { try? FileManager.default.removeItem(at: directory) }
-        let saved = BrowserTabState(url: "https://example.com/b", title: "B", zoom: 1.25, interactionState: history)
+        let saved = BrowserTabState(url: "https://example.com/b", title: "B", interactionState: history)
         // A lazy tab's empty web view has no URL and no history of its own.
         let state = BrowserTabState.snapshot(
             pending: saved,
@@ -198,7 +198,6 @@ struct BrowserSessionRestoreTests {
             failedURL: nil,
             currentURL: nil,
             title: "B",
-            zoom: 1.25,
             interactionState: {
                 Issue.record("A lazy tab must not read its empty web view's history")
                 return nil
@@ -215,9 +214,32 @@ struct BrowserSessionRestoreTests {
             failedURL: nil,
             currentURL: "https://example.com/c",
             title: "C",
-            zoom: 1,
             interactionState: { history }
         )
-        #expect(state == BrowserTabState(url: "https://example.com/c", title: "C", zoom: 1, interactionState: history))
+        #expect(state == BrowserTabState(url: "https://example.com/c", title: "C", interactionState: history))
+    }
+
+    /// Stage 1 saved a zoom per tab; a page now takes its site's zoom, so a
+    /// saved one is read past and never written again.
+    @Test func savedPerTabZoomIsNoLongerUsed() throws {
+        let (store, directory) = temporaryStore()
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let json = """
+        {
+          "version": 2,
+          "windows": [{ "tabs": [
+            { "url": "https://example.com/", "title": "Example", "zoom": 1.5 }
+          ] }],
+          "savedAt": "2026-10-01T10:00:00Z"
+        }
+        """
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        try Data(json.utf8).write(to: store.url)
+        let loaded = try #require(store.load())
+        #expect(loaded.windows.first?.tabs == [BrowserTabState(url: "https://example.com/", title: "Example")])
+
+        store.save(loaded)
+        let written = try String(contentsOf: store.url, encoding: .utf8)
+        #expect(!written.contains("zoom"))
     }
 }

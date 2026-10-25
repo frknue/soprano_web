@@ -86,9 +86,11 @@ struct SnapshotSessionOptions {
         case crash
         case crashPage
         case printWindows
+        /// Tab sleep and zoom flags (`SnapshotSleepAction`).
+        case sleep(SnapshotSleepAction)
     }
 
-    static let flags: Set<String> = [
+    static let flags: Set<String> = Set([
         "--session", "--visit", "--select", "--close-tab", "--reopen-closed", "--duplicate",
         "--go-back", "--reload", "--close-window", "--new-window", "--new-private-window",
         "--activate-window", "--move-tab",
@@ -97,7 +99,7 @@ struct SnapshotSessionOptions {
         "--start-download", "--wait-downloads", "--crash", "--crash-page", "--print-windows",
         "--dump-tabs", "--save-session", "--capture-window",
         "--add-profile", "--profile", "--delete-profile", "--profiles-sheet",
-    ]
+    ]).union(SnapshotSleepAction.flags)
     static let usage = """
                                [--session <file>] [--visit <url>] [--select <n>] [--close-tab]
                                [--reopen-closed] [--duplicate] [--go-back] [--reload]
@@ -201,7 +203,11 @@ struct SnapshotSessionOptions {
         case "--profile": pendingProfile = try value()
         case "--delete-profile": actions.append(.deleteProfile(try value()))
         case "--profiles-sheet": showProfilesSheet = true
-        default: throw SnapshotCommand.OptionError.unknownOption(option)
+        default:
+            guard let action = try SnapshotSleepAction.parse(option, value: value) else {
+                throw SnapshotCommand.OptionError.unknownOption(option)
+            }
+            actions.append(.sleep(action))
         }
     }
 
@@ -218,6 +224,7 @@ struct SnapshotSessionOptions {
                 // Private stores and web views about to close are followed
                 // until they are released.
                 Self.trackPrivateData(in: manager)
+                SnapshotSleepAction.trackWebViews(in: manager)
                 perform(action, in: manager)
             }
             Self.spin(seconds)
@@ -242,6 +249,9 @@ struct SnapshotSessionOptions {
     @MainActor
     private func perform(_ action: Action, in manager: BrowserWindowManager) {
         switch action {
+        case .sleep(let action):
+            action.perform(in: manager)
+            return
         case let .newWindow(value, profileName):
             let start = value == "start" || BrowserAddressResolver.isStartPage(URL(string: value))
             var profileID: UUID?
@@ -390,7 +400,7 @@ struct SnapshotSessionOptions {
                 controller.showCrashPage(tab)
             }
         case .newWindow, .newPrivateWindow, .deleteProfile, .activateWindow, .moveTab, .dropTab, .dropOutside,
-             .mergeWindows, .cli, .waitDownloads, .printWindows, .reopenClosed:
+             .mergeWindows, .cli, .waitDownloads, .printWindows, .reopenClosed, .sleep:
             break
         }
     }
@@ -489,9 +499,10 @@ struct SnapshotSessionOptions {
     }
 
     @MainActor
-    private static func tabInfo(_ tab: BrowserTab, selected: Bool) -> [String: Any] {
+    private static func tabInfo(_ tab: BrowserTab, in controller: BrowserWindowController) -> [String: Any] {
+        let selected = tab.id == controller.selectedTab?.id
         let list = tab.webView.backForwardList
-        return [
+        var info: [String: Any] = [
             "selected": selected,
             "title": tab.displayTitle,
             "url": tab.state.url ?? "about:start",
@@ -507,12 +518,14 @@ struct SnapshotSessionOptions {
             "zoom": tab.zoom,
             "muted": tab.isMuted,
         ]
+        info.merge(SnapshotSleepAction.tabInfo(tab, in: controller)) { _, new in new }
+        return info
     }
 
     @MainActor
     private static func dump(_ controller: BrowserWindowController) -> String {
         let tabs: [[String: Any]] = controller.tabs.enumerated().map { index, tab in
-            var info = tabInfo(tab, selected: tab.id == controller.selectedTab?.id)
+            var info = tabInfo(tab, in: controller)
             info["index"] = index + 1
             return info
         }
@@ -533,6 +546,7 @@ struct SnapshotSessionOptions {
     @MainActor
     private static func windows(_ manager: BrowserWindowManager) -> String {
         trackPrivateData(in: manager)
+        SnapshotSleepAction.trackWebViews(in: manager)
         let active = manager.activeController
         let windows: [[String: Any]] = manager.controllers.enumerated().map { index, controller in
             let frame = manager.sessionFrame(of: controller) ?? .zero
@@ -561,7 +575,7 @@ struct SnapshotSessionOptions {
                 ],
                 "pageSize": ["width": page.width, "height": page.height],
                 "find": controller.findBar.isHidden ? NSNull() as Any : controller.findQuery as Any,
-                "tabs": controller.tabs.map { tabInfo($0, selected: $0.id == controller.selectedTab?.id) },
+                "tabs": controller.tabs.map { tabInfo($0, in: controller) },
                 "closedTabs": controller.closedTabs.newestFirst.map(\.title),
                 "dataStore": storeContents(controller.dataContext.websiteDataStore),
                 "sharesDefaultStore": controller.dataContext.websiteDataStore === WKWebsiteDataStore.default(),
@@ -596,6 +610,8 @@ struct SnapshotSessionOptions {
                 "historyCount": history.visitCount(),
                 "historyURLs": history.visits(limit: 50).map(\.url),
                 "siteDecisions": decisions.map { $0.keys.sorted() } ?? [],
+                // Saved values per host (zoom, keep awake, decisions).
+                "savedSites": decisions ?? [:],
             ]
         }
         let downloads: [[String: Any]] = manager.downloads.records.map { record in
@@ -642,6 +658,9 @@ struct SnapshotSessionOptions {
                 guard let webView = weak.object else { return false }
                 return !openWebViews.contains { $0 === webView }
             }.count,
+            // Tab sleep: the web views every tab ever had, which of the
+            // replaced ones are still alive and their content processes.
+            "webViews": SnapshotSleepAction.webViewReport(in: manager),
         ])
     }
 

@@ -12,6 +12,8 @@ struct BrowserTabItem: Equatable {
     var isLoading: Bool
     var isPlayingAudio: Bool
     var isMuted: Bool
+    /// The tab sleeps: its page was released and reloads when selected.
+    var isAsleep = false
 
     static func == (lhs: BrowserTabItem, rhs: BrowserTabItem) -> Bool {
         lhs.id == rhs.id
@@ -21,14 +23,20 @@ struct BrowserTabItem: Equatable {
             && lhs.isLoading == rhs.isLoading
             && lhs.isPlayingAudio == rhs.isPlayingAudio
             && lhs.isMuted == rhs.isMuted
+            && lhs.isAsleep == rhs.isAsleep
     }
 }
 
 @MainActor
 final class BrowserTab {
     let id: UUID
-    let webView: BrowserWebView
+    /// The tab's page. Sleeping replaces it with a fresh, empty one
+    /// (`BrowserWindowController.replaceWebView`); everything that binds a
+    /// web view to a window follows the swap.
+    private(set) var webView: BrowserWebView
     var title: String
+    /// The zoom applied to the current page: its site's zoom, or the default
+    /// page zoom (a page without a site keeps ⌘+/⌘- until the next page).
     var zoom: Double
     var isStartPage: Bool
     /// Restored tabs load without adding a fresh history visit.
@@ -74,10 +82,21 @@ final class BrowserTab {
         self.suppressNextHistoryRecord = suppressNextHistoryRecord
     }
 
-    /// A restored tab that has not loaded yet: its web view is empty and
-    /// `lifecycle.pendingRestore` holds the saved address and history.
+    /// A tab that is not loaded: restored and never selected, or asleep.
+    /// Its web view is empty and `lifecycle.pendingRestore` holds the saved
+    /// address and history.
     var isRestorePending: Bool {
         lifecycle.pendingRestore != nil
+    }
+
+    var isAsleep: Bool {
+        lifecycle.sleep != nil
+    }
+
+    /// Swaps in `webView` for the current one; the caller unbinds the old
+    /// one first and binds the new one after.
+    func replaceWebView(with webView: BrowserWebView) {
+        self.webView = webView
     }
 
     var state: BrowserTabState {
@@ -87,7 +106,6 @@ final class BrowserTab {
             failedURL: failedURL,
             currentURL: webView.url?.absoluteString,
             title: title,
-            zoom: zoom,
             interactionState: { webView.interactionState as? Data }
         )
     }
@@ -117,7 +135,8 @@ final class BrowserTab {
             favicon: favicon,
             isLoading: webView.isLoading,
             isPlayingAudio: isPlayingAudio,
-            isMuted: isMuted
+            isMuted: isMuted,
+            isAsleep: isAsleep
         )
     }
 

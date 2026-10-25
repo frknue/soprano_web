@@ -136,8 +136,8 @@ struct BrowserSessionStoreTests {
         let session = BrowserSession(
             windows: [BrowserWindowState(
                 tabs: [
-                    BrowserTabState(url: nil, title: "New Tab", zoom: 1),
-                    BrowserTabState(url: "https://example.com", title: "Example", zoom: 1.2),
+                    BrowserTabState(url: nil, title: "New Tab"),
+                    BrowserTabState(url: "https://example.com", title: "Example"),
                 ],
                 selectedIndex: 1
             )],
@@ -148,7 +148,7 @@ struct BrowserSessionStoreTests {
         #expect(loaded == session)
     }
 
-    @Test func sessionWithoutVersionOrZoomLoads() throws {
+    @Test func sessionWithoutVersionLoads() throws {
         let directory = FileManager.default.temporaryDirectory
             .appendingPathComponent("SopranoWebSession-\(UUID().uuidString)", isDirectory: true)
         defer { try? FileManager.default.removeItem(at: directory) }
@@ -169,8 +169,8 @@ struct BrowserSessionStoreTests {
         #expect(loaded.version == 1)
         #expect(loaded.windows.first?.selectedIndex == 1)
         #expect(loaded.windows.first?.tabs == [
-            BrowserTabState(url: "https://example.com", title: "Example", zoom: 1),
-            BrowserTabState(url: nil, title: "New Tab", zoom: 1),
+            BrowserTabState(url: "https://example.com", title: "Example"),
+            BrowserTabState(url: nil, title: "New Tab"),
         ])
     }
 }

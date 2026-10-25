@@ -67,12 +67,14 @@ extension BrowserWindowController {
         )
     }
 
-    /// A remembered decision changed (a prompt answer or Settings ▸
-    /// Websites): new documents read it from the state scripts, open pages
-    /// get their `Notification.permission` updated now.
+    /// A remembered decision changed (a prompt answer, ⌘+/⌘-/⌘0 in any
+    /// window of the profile, Settings ▸ Websites): new documents read it
+    /// from the state scripts, open pages get their
+    /// `Notification.permission` and their site's zoom now.
     func sitePermissionsChanged() {
         refreshPermissionStates()
         refreshPopupPermissions()
+        applySiteZooms()
     }
 
     /// Re-applies remembered decisions and the notification setting to every

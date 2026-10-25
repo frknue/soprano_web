@@ -162,8 +162,8 @@ final class BrowserTabMedia {
 // MARK: - Settings ▸ Websites
 
 /// The rows of Settings ▸ Websites: one per host, its decisions in a fixed
-/// order (camera, microphone, notifications, pop-ups, external apps, then
-/// anything this build does not know by name).
+/// order (camera, microphone, notifications, pop-ups, zoom, keep awake,
+/// external apps, then anything this build does not know by name).
 struct BrowserWebsiteRow: Equatable, Sendable {
     struct Entry: Equatable, Sendable {
         let label: String
@@ -179,10 +179,10 @@ struct BrowserWebsiteRow: Equatable, Sendable {
 
     static func rows(from sites: [String: [String: String]]) -> [BrowserWebsiteRow] {
         sites.keys.sorted().compactMap { host in
-            let decisions = sites[host] ?? [:]
+            let decisions = (sites[host] ?? [:]).filter { $0.value != BrowserSitePermissionStore.forgotten }
             let entries = decisions.keys
                 .sorted { order($0) == order($1) ? $0 < $1 : order($0) < order($1) }
-                .map { Entry(label: label(for: $0), decision: decisionName(decisions[$0] ?? "")) }
+                .map { Entry(label: label(for: $0), decision: valueName(decisions[$0] ?? "", for: $0)) }
             return entries.isEmpty ? nil : BrowserWebsiteRow(host: host, entries: entries)
         }
     }
@@ -192,6 +192,8 @@ struct BrowserWebsiteRow: Equatable, Sendable {
         SitePermission.microphone.rawValue,
         SitePermission.notifications.rawValue,
         SitePermission.popups.rawValue,
+        SitePermission.zoom.rawValue,
+        SitePermission.keepAwake.rawValue,
     ]
     private static let externalPrefix = "externalApp:"
 
@@ -208,6 +210,8 @@ struct BrowserWebsiteRow: Equatable, Sendable {
         case SitePermission.microphone.rawValue: return "Microphone"
         case SitePermission.notifications.rawValue: return "Notifications"
         case SitePermission.popups.rawValue: return "Pop-ups"
+        case SitePermission.zoom.rawValue: return "Zoom"
+        case SitePermission.keepAwake.rawValue: return "Keep awake"
         default:
             if raw.hasPrefix(externalPrefix) {
                 return "Open \(raw.dropFirst(externalPrefix.count)) links"
@@ -216,11 +220,14 @@ struct BrowserWebsiteRow: Equatable, Sendable {
         }
     }
 
-    private static func decisionName(_ raw: String) -> String {
+    private static func valueName(_ raw: String, for key: String) -> String {
+        if key == SitePermission.zoom.rawValue, let zoom = Double(raw).flatMap(BrowserZoom.validated) {
+            return BrowserZoom.percent(zoom)
+        }
         switch SitePermissionDecision(rawValue: raw) {
-        case .allow: "Allow"
-        case .deny: "Block"
-        case nil: raw
+        case .allow: return key == SitePermission.keepAwake.rawValue ? "On" : "Allow"
+        case .deny: return "Block"
+        case nil: return raw
         }
     }
 }

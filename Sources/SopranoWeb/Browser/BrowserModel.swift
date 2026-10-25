@@ -182,6 +182,11 @@ struct BrowserSettings: Codable, Equatable, Sendable {
     var askDownloadLocation: Bool = false
     /// Settings ▸ "Remove history items".
     var historyRetention: BrowserHistoryRetention = .oneYear
+    /// Settings ▸ "Put inactive tabs to sleep".
+    var tabSleep: BrowserTabSleepAfter = .oneHour
+    /// Settings ▸ "Default page zoom", one of `BrowserZoom.steps`; sites
+    /// without a remembered zoom use it.
+    var defaultZoom: Double = 1
 
     static let `default` = BrowserSettings()
 
@@ -221,6 +226,10 @@ extension BrowserSettings {
         askDownloadLocation = (try? c.decodeIfPresent(Bool.self, forKey: .askDownloadLocation)) ?? askDownloadLocation
         historyRetention = (try? c.decodeIfPresent(BrowserHistoryRetention.self, forKey: .historyRetention))
             ?? historyRetention
+        tabSleep = (try? c.decodeIfPresent(BrowserTabSleepAfter.self, forKey: .tabSleep)) ?? tabSleep
+        defaultZoom = ((try? c.decodeIfPresent(Double.self, forKey: .defaultZoom)) ?? nil)
+            .flatMap(BrowserZoom.validated)
+            .map(BrowserZoom.nearestStep) ?? defaultZoom
     }
 }
 
@@ -352,11 +361,12 @@ enum BrowserAddressResolver {
 
 // MARK: - Session
 
+/// One saved tab. Files before the sleep slice also hold a per-tab `zoom`;
+/// it is ignored, since a page takes its site's zoom when it loads.
 struct BrowserTabState: Codable, Equatable, Sendable {
     /// Nil is the start page.
     var url: String?
     var title: String = ""
-    var zoom: Double = 1
     /// WebKit's archived back/forward list (`WKWebView.interactionState`).
     /// Nil in files written before it was saved; the tab then restores its
     /// URL only.
@@ -369,7 +379,6 @@ extension BrowserTabState {
         let c = try decoder.container(keyedBy: CodingKeys.self)
         url = try? c.decodeIfPresent(String.self, forKey: .url)
         title = (try? c.decodeIfPresent(String.self, forKey: .title)) ?? title
-        zoom = (try? c.decodeIfPresent(Double.self, forKey: .zoom)) ?? zoom
         interactionState = try? c.decodeIfPresent(Data.self, forKey: .interactionState)
     }
 }

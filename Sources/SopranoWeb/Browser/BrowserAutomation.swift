@@ -2,27 +2,7 @@ import AppKit
 import WebKit
 
 extension BrowserWindowController {
-    // MARK: - Zoom and palette
-
-    func zoomIn() {
-        setZoom((selectedTab?.zoom ?? 1) + 0.1)
-    }
-
-    func zoomOut() {
-        setZoom((selectedTab?.zoom ?? 1) - 0.1)
-    }
-
-    func resetZoom() {
-        setZoom(1)
-    }
-
-    private func setZoom(_ value: Double) {
-        guard let tab = selectedTab else { return }
-        let rounded = (min(2.5, max(0.5, value)) * 10).rounded() / 10
-        tab.zoom = rounded
-        tab.webView.pageZoom = rounded
-        saveSession()
-    }
+    // MARK: - Palette
 
     func showCommandPalette() {
         guard let window else { return }
@@ -175,6 +155,7 @@ extension BrowserWindowController {
         // A lazily restored tab has no page yet; commands that read or drive
         // the page load it first, without selecting it.
         if let target, !Self.commandsWithoutPage.contains(command) {
+            tabWasUsed(target)
             loadRestoredTabIfNeeded(target)
         }
         let noTab = BrowserAutomationError.unavailable("No tab is open.")

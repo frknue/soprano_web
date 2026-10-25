@@ -42,6 +42,24 @@ final class SettingsWindowController: NSWindowController, NSTextFieldDelegate {
         button.widthAnchor.constraint(equalToConstant: 200).isActive = true
         return button
     }()
+    private lazy var tabSleepButton: ChromeButton = {
+        let button = ChromeButton(title: settingsStore.settings.tabSleep.name, theme: theme, kind: .standard)
+        button.target = self
+        button.action = #selector(tabSleepPressed)
+        button.widthAnchor.constraint(equalToConstant: 200).isActive = true
+        return button
+    }()
+    private lazy var defaultZoomButton: ChromeButton = {
+        let button = ChromeButton(
+            title: BrowserZoom.percent(settingsStore.settings.defaultZoom),
+            theme: theme,
+            kind: .standard
+        )
+        button.target = self
+        button.action = #selector(defaultZoomPressed)
+        button.widthAnchor.constraint(equalToConstant: 200).isActive = true
+        return button
+    }()
     private lazy var notificationsSwitch = ChromeSwitch(
         isOn: settingsStore.settings.allowsNotificationRequests,
         theme: theme,
@@ -137,7 +155,7 @@ final class SettingsWindowController: NSWindowController, NSTextFieldDelegate {
         self.websiteDataButton = ChromeButton(title: "Manage…", theme: theme, kind: .standard)
         self.defaultBrowserButton = ChromeButton(title: "Make Default", theme: theme, kind: .standard)
         let window = NSWindow(
-            contentRect: NSRect(x: 0, y: 0, width: 620, height: 796),
+            contentRect: NSRect(x: 0, y: 0, width: 620, height: 820),
             styleMask: [.titled, .closable, .fullSizeContentView],
             backing: .buffered,
             defer: false
@@ -149,7 +167,7 @@ final class SettingsWindowController: NSWindowController, NSTextFieldDelegate {
         window.titlebarAppearsTransparent = true
         window.isReleasedWhenClosed = false
         window.backgroundColor = theme.colors.bgBase
-        window.minSize = NSSize(width: 620, height: 796)
+        window.minSize = NSSize(width: 620, height: 820)
 
         rootView.wantsLayer = true
         window.contentView = rootView
@@ -221,9 +239,11 @@ final class SettingsWindowController: NSWindowController, NSTextFieldDelegate {
             [rowLabel("Homepage"), homepageFrame],
             [rowLabel("Theme"), themeButton],
             [rowLabel("Appearance"), appearanceButton],
+            [rowLabel("Default page zoom"), defaultZoomButton],
             [rowLabel("Restore session"), restoreSwitch],
             [rowLabel("Remove history items"), historyRetentionButton],
             [rowLabel("Vertical tabs"), verticalTabsSwitch],
+            [rowLabel("Put inactive tabs to sleep"), tabSleepButton],
             [rowLabel("Downloads"), downloadRow()],
             [rowLabel("Ask where to save"), askDownloadSwitch],
             [rowLabel("Autoplay"), autoplayButton],
@@ -235,7 +255,8 @@ final class SettingsWindowController: NSWindowController, NSTextFieldDelegate {
         ]
         let grid = NSGridView(views: rows)
         grid.translatesAutoresizingMaskIntoConstraints = false
-        grid.rowSpacing = 16
+        // 18 rows; the window stays well under 900 pt for small displays.
+        grid.rowSpacing = 12
         grid.columnSpacing = 18
         grid.column(at: 0).xPlacement = .trailing
         grid.column(at: 1).xPlacement = .fill
@@ -354,6 +375,8 @@ final class SettingsWindowController: NSWindowController, NSTextFieldDelegate {
         suggestionsSwitch.apply(theme: theme)
         autoplayButton.apply(theme: theme)
         historyRetentionButton.apply(theme: theme)
+        tabSleepButton.apply(theme: theme)
+        defaultZoomButton.apply(theme: theme)
         notificationsSwitch.apply(theme: theme)
         notificationsLabel.textColor = theme.colors.textPrimary
         websitesButton.apply(theme: theme)
@@ -385,6 +408,8 @@ final class SettingsWindowController: NSWindowController, NSTextFieldDelegate {
         suggestionsSwitch.isOn = settingsStore.settings.includeSearchSuggestions
         autoplayButton.title = settingsStore.settings.autoplay.name
         historyRetentionButton.title = settingsStore.settings.historyRetention.name
+        tabSleepButton.title = settingsStore.settings.tabSleep.name
+        defaultZoomButton.title = BrowserZoom.percent(settingsStore.settings.defaultZoom)
         notificationsSwitch.isOn = settingsStore.settings.allowsNotificationRequests
         askDownloadSwitch.isOn = settingsStore.settings.askDownloadLocation
         refreshDefaultBrowser()
@@ -566,6 +591,32 @@ extension SettingsWindowController {
             items: BrowserHistoryRetention.allCases.map { retention in
                 (retention.name, retention == current, { [weak self] in
                     self?.settingsStore.update { $0.historyRetention = retention }
+                    self?.refresh()
+                })
+            }
+        )
+    }
+
+    @objc private func tabSleepPressed() {
+        let current = settingsStore.settings.tabSleep
+        showMenu(
+            from: tabSleepButton,
+            items: BrowserTabSleepAfter.allCases.map { option in
+                (option.name, option == current, { [weak self] in
+                    self?.settingsStore.update { $0.tabSleep = option }
+                    self?.refresh()
+                })
+            }
+        )
+    }
+
+    @objc private func defaultZoomPressed() {
+        let current = settingsStore.settings.defaultZoom
+        showMenu(
+            from: defaultZoomButton,
+            items: BrowserZoom.steps.map { zoom in
+                (BrowserZoom.percent(zoom), BrowserZoom.isSame(zoom, current), { [weak self] in
+                    self?.settingsStore.update { $0.defaultZoom = zoom }
                     self?.refresh()
                 })
             }

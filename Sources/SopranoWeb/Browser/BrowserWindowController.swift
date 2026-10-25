@@ -73,6 +73,8 @@ final class BrowserWindowController: NSWindowController {
     lazy var bookmarkEditorPanel = BrowserBookmarkEditorPanel()
     var vimiumToastView: NSView?
     var popupBlockedControl: ChromeButton?
+    /// The address field's zoom percentage (`updateZoomChip`).
+    var zoomChip: ChromeButton?
 
     static let verticalSidebarCollapsedKey = "verticalSidebarCollapsed"
 
@@ -453,6 +455,8 @@ final class BrowserWindowController: NSWindowController {
 
     private func applySettings(_ settings: BrowserSettings) {
         refreshPermissionStates()
+        // Settings ▸ Default page zoom: sites without their own zoom follow.
+        applySiteZooms()
         let searchChanged = lastSearchEngine != settings.searchEngine
         lastSearchEngine = settings.searchEngine
         if searchChanged {
@@ -491,7 +495,8 @@ final class BrowserWindowController: NSWindowController {
         findBar.apply(theme: theme)
         sidebar.apply(theme: theme)
         linkStatus.apply(theme: theme)
-        for tab in tabs where tab.isStartPage {
+        // A sleeping start page builds with the new theme when it wakes.
+        for tab in tabs where tab.isStartPage && !tab.isRestorePending {
             loadStartPage(tab)
         }
         updateChrome()

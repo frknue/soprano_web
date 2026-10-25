@@ -13,8 +13,13 @@ extension BrowserWindowController {
         let space = challenge.protectionSpace
         switch BrowserChallengeRoute(authenticationMethod: space.authenticationMethod) {
         case .credentials:
+            // The tab stays awake while its sign-in sheet waits.
+            let ended = promptBegan(for: webView)
             credentialPrompts.requests.append(
-                BrowserConnectionSecurity.CredentialRequest(challenge: challenge, completion: completionHandler)
+                BrowserConnectionSecurity.CredentialRequest(challenge: challenge) { disposition, credential in
+                    ended()
+                    completionHandler(disposition, credential)
+                }
             )
             if credentialPrompts.requests.count == 1 {
                 presentNextCredentialSheet()

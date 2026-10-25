@@ -42,6 +42,21 @@ extension BrowserWindowController {
     /// window. Nothing here refers to this window, so the tab can later
     /// move between the windows of its data context.
     func makeTab(configuration: WKWebViewConfiguration? = nil) -> BrowserTab {
+        let tab = BrowserTab(
+            webView: makeWebView(configuration: configuration),
+            zoom: settingsStore.settings.defaultZoom
+        )
+        tab.vimium = VimiumController(tab: tab)
+        connectKeyHandler(tab)
+        refreshStateScripts(tab)
+        tab.lifecycle.lastActiveAt = manager.tabSleeper.now()
+        return tab
+    }
+
+    /// An empty web view of this window's data context (or of
+    /// `configuration`, a pop-up's) with every page script. It starts no
+    /// web content process until it loads.
+    private func makeWebView(configuration: WKWebViewConfiguration?) -> BrowserWebView {
         let configuration = configuration ?? manager.makeTabConfiguration(for: dataContext)
         if configuration.urlSchemeHandler(forURLScheme: BrowserStartPageSchemeHandler.scheme) == nil {
             configuration.setURLSchemeHandler(
@@ -71,15 +86,39 @@ extension BrowserWindowController {
         webView.isInspectable = true
         webView.translatesAutoresizingMaskIntoConstraints = false
         webView.isHidden = true
+        return webView
+    }
 
-        let tab = BrowserTab(webView: webView)
-        let vimium = VimiumController(tab: tab)
-        tab.vimium = vimium
-        webView.keyHandler = { [weak vimium] event in
+    private func connectKeyHandler(_ tab: BrowserTab) {
+        tab.webView.keyHandler = { [weak vimium = tab.vimium] event in
             vimium?.handle(event) ?? false
         }
+    }
+
+    /// Swaps the tab's web view for a fresh, empty one of this window's data
+    /// context, so the old one and its web content process go away (a tab
+    /// falling asleep). The tab keeps its place, selection and bindings;
+    /// the caller has saved what the page needs to come back
+    /// (`lifecycle.pendingRestore`).
+    func replaceWebView(of tab: BrowserTab) {
+        let attached = tabs.contains { $0 === tab }
+        let previousSelection = previousSelectedTabID
+        if attached {
+            unbindTab(tab)
+        }
+        let old = tab.webView
+        old.stopLoading()
+        old.removeFromSuperview()
+        tab.replaceWebView(with: makeWebView(configuration: nil))
+        tab.media.frames.removeAll()
+        tab.media.audio.reset()
+        connectKeyHandler(tab)
         refreshStateScripts(tab)
-        return tab
+        guard attached else { return }
+        bindTab(tab)
+        installWebView(tab.webView)
+        tab.webView.isHidden = tab.id != selectedTab?.id
+        previousSelectedTabID = previousSelection
     }
 
     /// Adds a tab for a saved state without loading it; it loads, history
@@ -88,7 +127,7 @@ extension BrowserWindowController {
     func addRestoredTab(_ state: BrowserTabState, at index: Int? = nil) -> BrowserTab {
         let tab = makeTab()
         tab.title = state.url == nil && state.title.isEmpty ? "New Tab" : state.title
-        tab.zoom = state.zoom
+        tab.zoom = settingsStore.settings.defaultZoom
         tab.favicon = state.url.flatMap { faviconStore.image(forAddress: $0) }
         tab.isStartPage = false
         tab.lifecycle.pendingRestore = state
@@ -109,7 +148,33 @@ extension BrowserWindowController {
     func attachTab(_ tab: BrowserTab, at index: Int? = nil, select: Bool) {
         guard !tabs.contains(where: { $0 === tab }) else { return }
         bindTab(tab)
-        let webView = tab.webView
+        installWebView(tab.webView)
+
+        let selectedID = selectedTab?.id
+        let position = min(max(0, index ?? tabs.count), tabs.count)
+        tabs.insert(tab, at: position)
+        if let selectedID, let selected = tabs.firstIndex(where: { $0.id == selectedID }) {
+            // The selection stays on its tab (and is the one `select` leaves).
+            selectedIndex = selected
+        } else {
+            // The window's first tab; the caller selects it (a restored tab
+            // loads on selection).
+            selectedIndex = position
+        }
+        if select {
+            selectTab(index: position, focus: true)
+        } else if selectedID != nil {
+            updateTabStrip()
+        }
+        if tab.isAsleep {
+            // A sleeping tab wakes when it moves to another window.
+            loadRestoredTabIfNeeded(tab)
+        }
+        saveSession()
+    }
+
+    /// Puts a web view in the page area, hidden, under the find bar.
+    private func installWebView(_ webView: BrowserWebView) {
         webView.isHidden = true
         webArea.addSubview(webView)
         webArea.addSubview(findBar, positioned: .above, relativeTo: nil)
@@ -119,21 +184,6 @@ extension BrowserWindowController {
             webView.trailingAnchor.constraint(equalTo: webArea.trailingAnchor),
             webView.bottomAnchor.constraint(equalTo: webArea.bottomAnchor),
         ])
-
-        let selectedID = selectedTab?.id
-        let position = min(max(0, index ?? tabs.count), tabs.count)
-        tabs.insert(tab, at: position)
-        if select {
-            selectTab(index: position, focus: true)
-        } else if let selectedID, let selected = tabs.firstIndex(where: { $0.id == selectedID }) {
-            selectedIndex = selected
-            updateTabStrip()
-        } else {
-            // The window's first tab; the caller selects it (a restored tab
-            // loads on selection).
-            selectedIndex = position
-        }
-        saveSession()
     }
 
     /// Unbinds `tab` from this window and takes it out of the tab list and
@@ -150,6 +200,7 @@ extension BrowserWindowController {
         if wasSelected, !findBar.isHidden {
             tab.webView.find("", configuration: WKFindConfiguration()) { _ in }
         }
+        removeWakeSnapshot(tab)
         tab.webView.removeFromSuperview()
         tabs.remove(at: index)
 
@@ -298,8 +349,11 @@ extension BrowserWindowController {
             tab.webView.isHidden = tab.id != tabs[index].id
         }
         let tab = tabs[index]
+        tabWasUsed(tab)
         if let previous, previous.id != tab.id {
             previousSelectedTabID = previous.id
+            previous.lifecycle.lastActiveAt = tab.lifecycle.lastActiveAt
+            removeWakeSnapshot(previous)
         }
         if tab.isStartPage, staleStartTabs.remove(tab.id) != nil {
             loadStartPage(tab)

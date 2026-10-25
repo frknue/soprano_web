@@ -46,6 +46,8 @@ extension BrowserWindowController {
             printPageRequested(by: tab, frame: frame)
         case ("contextMenu", .isolated):
             tab.webView.contextMenuTarget = BrowserContextMenuTarget(body: body)
+        case ("sleepGuard", .page):
+            receiveSleepGuard(body, tab: tab)
         default:
             return
         }

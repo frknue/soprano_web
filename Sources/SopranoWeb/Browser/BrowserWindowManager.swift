@@ -76,6 +76,9 @@ final class BrowserWindowManager {
     let bookmarkUIState: BrowserBookmarkUIState
     /// Theme changes for every window (`ThemeManager` has one callback).
     let themeChanges = BrowserObservers<AppTheme>()
+    /// Puts idle tabs to sleep (Settings ▸ "Put inactive tabs to sleep",
+    /// memory pressure).
+    let tabSleeper = BrowserTabSleeper()
 
     /// Open windows in the order they opened; the CLI numbers them 1…n.
     private(set) var controllers: [BrowserWindowController] = []
@@ -157,6 +160,7 @@ final class BrowserWindowManager {
         downloadManager.fallbackWindow = { [weak self] in self?.activeController?.window }
         BrowserNotificationCenter.shared.onClick = { [weak self] click in self?.openNotification(click) }
         startHistoryMaintenance()
+        tabSleeper.start(manager: self)
     }
 
     // MARK: - History retention

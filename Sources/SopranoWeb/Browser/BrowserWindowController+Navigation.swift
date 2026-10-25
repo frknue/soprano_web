@@ -22,6 +22,10 @@ extension BrowserWindowController {
     }
 
     func navigate(_ tab: BrowserTab, to url: URL) {
+        if tab.isAsleep {
+            // Wake with the history first; the new page goes after it.
+            loadRestoredTabIfNeeded(tab)
+        }
         if BrowserAddressResolver.isStartPage(url) {
             loadStartPage(tab)
             return
@@ -112,13 +116,18 @@ extension BrowserWindowController {
     }
 
     func loadStartPage(_ tab: BrowserTab) {
+        if tab.isAsleep {
+            // A sleeping start page comes back with its history.
+            loadRestoredTabIfNeeded(tab)
+            if tab.isStartPage { return }
+        }
         tab.lifecycle.pendingRestore = nil
         tab.isStartPage = true
         tab.errorMessage = nil
         tab.failedURL = nil
         tab.pendingURL = BrowserStartPageSchemeHandler.url.absoluteString
         tab.isShowingErrorPage = false
-        tab.zoom = tab.zoom == 0 ? 1 : tab.zoom
+        tab.zoom = settingsStore.settings.defaultZoom
         tab.webView.pageZoom = tab.zoom
         tab.webView.load(URLRequest(url: BrowserStartPageSchemeHandler.url))
     }
@@ -176,6 +185,7 @@ extension BrowserWindowController {
         window?.title = kind.windowTitle(tab.isStartPage ? "New Tab" : tab.displayTitle)
         window?.representedURL = tab.isStartPage ? nil : url
         updatePopupBlockedControl()
+        updateZoomChip()
     }
 }
 
@@ -206,7 +216,12 @@ extension BrowserWindowController: WKNavigationDelegate {
     func webView(_ webView: WKWebView, didCommit navigation: WKNavigation!) {
         guard let tab = tab(for: webView) else { return }
         clearCrashState(tab)
+        // A new document: its site's zoom, no unsaved input or capture yet.
+        tab.zoom = siteZoom(for: webView.url)
         webView.pageZoom = tab.zoom
+        tab.lifecycle.unsavedFrames.removeAll()
+        tab.lifecycle.capturingFrames.removeAll()
+        wakeSnapshotPageCommitted(tab)
         linksDidCommit(tab)
         tab.isStartPage = webView.url?.scheme?.lowercased() == BrowserStartPageSchemeHandler.scheme
         if !tab.isStartPage, tab.errorMessage == nil, tab.certificateInterstitial == nil {
@@ -228,6 +243,7 @@ extension BrowserWindowController: WKNavigationDelegate {
             tab.title = title
         }
         tab.pendingURL = nil
+        removeWakeSnapshot(tab)
         tab.vimium?.pageDidFinish()
         resolveLoadWaiters(
             for: tab,
@@ -294,6 +310,7 @@ extension BrowserWindowController: WKNavigationDelegate {
             return
         }
         guard let tab = tab(for: webView) else { return }
+        removeWakeSnapshot(tab)
         let failedURL = (nsError.userInfo[NSURLErrorFailingURLErrorKey] as? URL)?.absoluteString
             ?? nsError.userInfo[NSURLErrorFailingURLStringErrorKey] as? String
             ?? tab.pendingURL

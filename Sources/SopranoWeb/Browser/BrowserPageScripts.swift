@@ -39,6 +39,7 @@ enum BrowserPageScripts {
         BrowserPermissionScripts.notifications,
         BrowserPageToolsScripts.printOverride,
         BrowserPageToolsScripts.contextMenuCapture,
+        BrowserTabSleepScripts.sleepGuard,
     ]
 
     /// The message handler name, registered once per world.

@@ -154,6 +154,12 @@ extension BrowserWindowManager {
         return controller
     }
 
+    /// Whether a pop-up window `tab` opened is still open (its `opener`
+    /// would break if the tab slept).
+    func hasPopupWindow(openedBy tab: BrowserTab) -> Bool {
+        controllers.contains { $0.isPopup && $0.tabs.contains { $0.links.openerID == tab.id } }
+    }
+
     private func closeIfEmptied(_ controller: BrowserWindowController) {
         if controller.tabs.isEmpty {
             closeWindow(controller)

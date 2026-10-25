@@ -49,6 +49,7 @@ enum SnapshotCommand {
         var pageTools = SnapshotPageTools.Options()
         var privacy = PrivacyOptions()
         var bookmarks = BookmarkOptions()
+        var sleep = SnapshotSleepOptions()
     }
 
     enum OptionError: Error, CustomStringConvertible {
@@ -86,6 +87,7 @@ enum SnapshotCommand {
     \(SnapshotPageTools.usage)
     \(privacyUsage)
     \(bookmarksUsage)
+    \(SnapshotSleepOptions.usage)
     """
 
     nonisolated static func parse(_ arguments: [String]) throws -> Options {
@@ -224,6 +226,7 @@ enum SnapshotCommand {
             default:
                 guard try parseBookmarks(option, value: { try value(option) }, into: &options.bookmarks)
                     || parsePrivacy(option, value: { try value(option) }, into: &options.privacy)
+                    || SnapshotSleepOptions.parse(option, value: { try value(option) }, into: &options.sleep)
                 else {
                     throw OptionError.unknownOption(option)
                 }
@@ -238,10 +241,14 @@ enum SnapshotCommand {
     private static func wait(_ seconds: Double) {
         let deadline = Date().addingTimeInterval(seconds)
         while Date() < deadline {
-            _ = RunLoop.current.run(
-                mode: .default,
-                before: min(deadline, Date().addingTimeInterval(0.05))
-            )
+            // Each turn drains its pool, as the app's event loop does, so a
+            // released web view (a tab falling asleep) really goes away.
+            autoreleasepool {
+                _ = RunLoop.current.run(
+                    mode: .default,
+                    before: min(deadline, Date().addingTimeInterval(0.05))
+                )
+            }
         }
     }
 
@@ -257,7 +264,9 @@ enum SnapshotCommand {
         let app = NSApplication.shared
         app.setActivationPolicy(.accessory)
 
-        let temp = FileManager.default.temporaryDirectory
+        // `--support-dir` keeps the folder for a second run; otherwise a
+        // temporary one goes away at the end.
+        let temp = options.sleep.supportDirectory ?? FileManager.default.temporaryDirectory
             .appendingPathComponent("soprano-web-snapshot-\(UUID().uuidString)", isDirectory: true)
         try? FileManager.default.createDirectory(at: temp, withIntermediateDirectories: true)
         let settings = BrowserSettings(
@@ -279,6 +288,7 @@ enum SnapshotCommand {
         if let autoplay = options.autoplay {
             settingsStore.update { $0.autoplay = autoplay }
         }
+        options.sleep.apply(to: settingsStore)
         let themeManager = ThemeManager(themeId: options.theme, appearance: .system)
         let bookmarksURL = temp.appendingPathComponent("bookmarks.json")
         prepareBookmarksFile(options.bookmarks, at: bookmarksURL)
@@ -316,6 +326,7 @@ enum SnapshotCommand {
             placement: .offscreen(size: options.size),
             defaults: defaults
         )
+        options.sleep.apply(to: manager)
         let history = manager.defaultContext.history
         let sitePermissions = manager.defaultContext.sitePermissions
         if let host = options.allowPopups {
@@ -429,10 +440,12 @@ enum SnapshotCommand {
         }
         let deadline = Date().addingTimeInterval(options.wait)
         while Date() < deadline {
-            _ = RunLoop.current.run(
-                mode: .default,
-                before: min(deadline, Date().addingTimeInterval(0.05))
-            )
+            autoreleasepool {
+                _ = RunLoop.current.run(
+                    mode: .default,
+                    before: min(deadline, Date().addingTimeInterval(0.05))
+                )
+            }
         }
         if let credentials = options.signIn {
             submitSignIn(credentials, controller: controller)
@@ -694,7 +707,9 @@ enum SnapshotCommand {
             open.window?.orderOut(nil)
         }
         defaults.removePersistentDomain(forName: defaultsSuite)
-        try? FileManager.default.removeItem(at: temp)
+        if options.sleep.supportDirectory == nil {
+            try? FileManager.default.removeItem(at: temp)
+        }
         exit(0)
     }
 }
