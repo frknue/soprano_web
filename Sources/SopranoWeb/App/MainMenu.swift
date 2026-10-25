@@ -2,9 +2,16 @@ import AppKit
 
 @MainActor
 final class MainMenuController: NSObject, NSMenuItemValidation {
+    static let newWindowWithProfileTitle = "New Window With Profile"
+
     private let windowManager: () -> BrowserWindowManager?
     private var shareUpdater: ShareMenuUpdater?
     private var recentlyClosedUpdater: RecentlyClosedMenuUpdater?
+    private var profileWindowUpdater: ProfileWindowMenuUpdater?
+    /// File ▸ New Window With Profile, shown while more than one profile
+    /// exists.
+    private var profileWindowItem: NSMenuItem?
+    private var profilesObservation: BrowserObservation?
 
     init(windowManager: @escaping () -> BrowserWindowManager?) {
         self.windowManager = windowManager
@@ -13,6 +20,14 @@ final class MainMenuController: NSObject, NSMenuItemValidation {
 
     func install() {
         NSApp.mainMenu = buildMenu()
+        profilesObservation = windowManager()?.profiles.changes.observe { [weak self] in
+            self?.refreshProfileWindowItem()
+        }
+        refreshProfileWindowItem()
+    }
+
+    private func refreshProfileWindowItem() {
+        profileWindowItem?.isHidden = !(windowManager()?.profiles.hasSeveral ?? false)
     }
 
     private func buildMenu() -> NSMenu {
@@ -57,6 +72,14 @@ final class MainMenuController: NSObject, NSMenuItemValidation {
         fileMenu.addItem(item("New Tab", #selector(newTab), "t"))
         fileMenu.addItem(item("New Window", #selector(newWindow), "n"))
         fileMenu.addItem(item("New Private Window", #selector(newPrivateWindow), "n", [.command, .shift]))
+        let profileMenu = NSMenu(title: Self.newWindowWithProfileTitle)
+        let profileWindowUpdater = ProfileWindowMenuUpdater(windowManager: windowManager)
+        profileMenu.delegate = profileWindowUpdater
+        self.profileWindowUpdater = profileWindowUpdater
+        let profileWindowItem = NSMenuItem(title: profileMenu.title, action: nil, keyEquivalent: "")
+        profileWindowItem.submenu = profileMenu
+        self.profileWindowItem = profileWindowItem
+        fileMenu.addItem(profileWindowItem)
         fileMenu.addItem(item("Reopen Closed Tab", #selector(reopenClosedTab), "t", [.command, .shift]))
         fileMenu.addItem(item("Open Location…", #selector(openLocation), "l"))
         fileMenu.addItem(.separator())
@@ -478,5 +501,31 @@ private final class RecentlyClosedMenuUpdater: NSObject, NSMenuDelegate {
     @objc private func reopen(_ sender: NSMenuItem) {
         guard let id = sender.representedObject as? UUID else { return }
         windowManager()?.reopen(entryID: id)
+    }
+}
+
+/// Fills File ▸ New Window With Profile each time it opens: one item per
+/// profile.
+@MainActor
+private final class ProfileWindowMenuUpdater: NSObject, NSMenuDelegate {
+    private let windowManager: () -> BrowserWindowManager?
+
+    init(windowManager: @escaping () -> BrowserWindowManager?) {
+        self.windowManager = windowManager
+    }
+
+    func menuNeedsUpdate(_ menu: NSMenu) {
+        menu.removeAllItems()
+        for profile in windowManager()?.profiles.profiles ?? [] {
+            let item = NSMenuItem(title: profile.name, action: #selector(newWindow(_:)), keyEquivalent: "")
+            item.target = self
+            item.representedObject = profile.id
+            menu.addItem(item)
+        }
+    }
+
+    @objc private func newWindow(_ sender: NSMenuItem) {
+        guard let id = sender.representedObject as? UUID else { return }
+        windowManager()?.newWindow(profileID: id)
     }
 }

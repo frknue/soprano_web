@@ -45,7 +45,7 @@ extension BrowserWindowController {
         let configuration = configuration ?? manager.makeTabConfiguration(for: dataContext)
         if configuration.urlSchemeHandler(forURLScheme: BrowserStartPageSchemeHandler.scheme) == nil {
             configuration.setURLSchemeHandler(
-                manager.makeStartPageSchemeHandler(for: kind),
+                manager.makeStartPageSchemeHandler(for: dataContext),
                 forURLScheme: BrowserStartPageSchemeHandler.scheme
             )
         }
@@ -345,7 +345,7 @@ extension BrowserWindowController {
             return
         }
         let tab = tabs[index]
-        let entry = BrowserClosedEntry(.tab(tab.state, windowID: self.id, index: index))
+        let entry = BrowserClosedEntry(.tab(tab.state, windowID: self.id, index: index), profileID: profileID)
         if kind.usesAppRecentlyClosed {
             manager.recentlyClosed.push(entry)
         } else {

@@ -2,9 +2,9 @@ import AppKit
 import WebKit
 
 /// One browser window and its tabs. App-wide pieces (stores, downloads,
-/// Settings, the recently-closed stack) live on `manager`; the window's data
-/// store, site decisions, favicons and connection decisions on `dataContext`;
-/// this keeps per-window state only.
+/// Settings, the recently-closed stack) live on `manager`; the window's
+/// profile data (data store, History, site decisions) and its favicons and
+/// connection decisions on `dataContext`; this keeps per-window state only.
 @MainActor
 final class BrowserWindowController: NSWindowController {
     unowned let manager: BrowserWindowManager
@@ -103,7 +103,7 @@ final class BrowserWindowController: NSWindowController {
         self.findBar = BrowserFindBar(theme: theme)
         self.sidebar = BrowserSidebarView(
             theme: theme,
-            history: manager.history,
+            history: dataContext.history,
             bookmarks: manager.bookmarks,
             downloads: manager.downloads
         )
@@ -141,7 +141,7 @@ final class BrowserWindowController: NSWindowController {
         installTabChrome()
         installAddressBar()
         sidebar.privateDownloadContextID = dataContext.downloadContextID
-        verticalTabsView.setPrivate(kind.isPrivate)
+        applyWindowMark()
         applyTheme(theme)
         applyTabsLayout()
     }
@@ -154,13 +154,16 @@ final class BrowserWindowController: NSWindowController {
     // App-wide stores, owned by the manager.
     var themeManager: ThemeManager { manager.themeManager }
     var settingsStore: BrowserSettingsStore { manager.settingsStore }
-    var history: BrowserHistoryStore { manager.history }
     var bookmarks: BrowserBookmarkStore { manager.bookmarks }
     var downloads: BrowserDownloadStore { manager.downloads }
     private var defaults: UserDefaults { manager.defaults }
 
     // This window's data, owned by its data context.
     var kind: BrowserWindowKind { dataContext.kind }
+    /// The profile the window belongs to (a private window's: the one it
+    /// was opened over).
+    var profileID: UUID { dataContext.profileID }
+    var history: BrowserHistoryStore { dataContext.history }
     var sitePermissions: BrowserSitePermissionStore { dataContext.sitePermissions }
     var faviconStore: BrowserFaviconStore { dataContext.faviconStore }
     var connectionSecurity: BrowserConnectionSecurity { dataContext.connectionSecurity }
@@ -298,9 +301,9 @@ final class BrowserWindowController: NSWindowController {
 
         toolbar.setVerticalTabsToggle(railShown)
         toolbar.setCompact(compact)
-        // A private window's mark sits in the rail header, or next to the
-        // address field when there is no rail.
-        toolbar.setPrivateMark(kind.isPrivate && !railShown)
+        // The window's mark ("Private", its profile, or both) sits in the
+        // rail header, or next to the address field when there is no rail.
+        toolbar.setWindowMarkShown(!railShown)
         updateTabStrip()
         updateWindowMinSize()
         viewNeedsLayout()
@@ -383,6 +386,7 @@ final class BrowserWindowController: NSWindowController {
                 self.sidebar.redisplayRows()
             },
             sitePermissions.changes.observe { [weak self] in self?.sitePermissionsChanged() },
+            manager.profiles.changes.observe { [weak self] in self?.applyWindowMark() },
             manager.themeChanges.observe { [weak self] theme in
                 // A private window keeps Folio Ink.
                 guard let self, !self.kind.isPrivate else { return }
@@ -397,6 +401,15 @@ final class BrowserWindowController: NSWindowController {
     func cancelStoreObservations() {
         storeObservations.forEach { $0.cancel() }
         storeObservations.removeAll()
+    }
+
+    /// Shows "Private", the window's profile (when there are several) or
+    /// both in the rail header and next to the address field.
+    func applyWindowMark() {
+        let mark = manager.windowMark(for: self)
+        verticalTabsView.setMark(mark)
+        toolbar.setWindowMark(mark)
+        viewNeedsLayout()
     }
 
     func viewNeedsLayout() {

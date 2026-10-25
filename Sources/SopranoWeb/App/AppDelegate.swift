@@ -23,12 +23,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         let manager = BrowserWindowManager(
             themeManager: themeManager,
             settingsStore: settingsStore,
-            history: BrowserHistoryStore(directory: support),
+            profiles: BrowserProfileStore(url: support.appendingPathComponent("profiles.json")),
+            supportDirectory: support,
             bookmarks: BrowserBookmarkStore(url: support.appendingPathComponent("bookmarks.json")),
             downloads: BrowserDownloadStore(url: support.appendingPathComponent("downloads.json")),
-            sitePermissions: BrowserSitePermissionStore(
-                url: support.appendingPathComponent("site-permissions.json")
-            ),
             faviconStore: BrowserFaviconStore(),
             sessionStore: BrowserSessionStore(url: support.appendingPathComponent("session.json"))
         )
@@ -93,6 +91,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         return true
     }
 
+    /// New Window, New Private Window and, with more than one profile,
+    /// New Window With Profile ▸ <name>.
     func applicationDockMenu(_ sender: NSApplication) -> NSMenu? {
         let menu = NSMenu()
         let item = NSMenuItem(title: "New Window", action: #selector(newWindowFromDock), keyEquivalent: "")
@@ -105,6 +105,18 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         )
         privateItem.target = self
         menu.addItem(privateItem)
+        if let profiles = windowManager?.profiles, profiles.hasSeveral {
+            let submenu = NSMenu(title: MainMenuController.newWindowWithProfileTitle)
+            for profile in profiles.profiles {
+                let entry = NSMenuItem(title: profile.name, action: #selector(newProfileWindowFromDock(_:)), keyEquivalent: "")
+                entry.target = self
+                entry.representedObject = profile.id
+                submenu.addItem(entry)
+            }
+            let parent = NSMenuItem(title: submenu.title, action: nil, keyEquivalent: "")
+            parent.submenu = submenu
+            menu.addItem(parent)
+        }
         return menu
     }
 
@@ -115,6 +127,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     @objc private func newPrivateWindowFromDock() {
         windowManager?.newPrivateWindow()
+        NSApp.activate(ignoringOtherApps: true)
+    }
+
+    @objc private func newProfileWindowFromDock(_ sender: NSMenuItem) {
+        guard let id = sender.representedObject as? UUID else { return }
+        windowManager?.newWindow(profileID: id)
         NSApp.activate(ignoringOtherApps: true)
     }
 

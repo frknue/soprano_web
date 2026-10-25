@@ -42,48 +42,58 @@ enum BrowserWindowKind: String, Sendable {
     }
 }
 
-/// The data one window's tabs read and write: the WebKit data store, site
-/// decisions, favicons and connection decisions (certificate exceptions,
-/// client certificates). Windows share a context exactly when tabs may move
-/// between them: every normal window uses the manager's `defaultContext`; a
-/// private window has its own, shared with its pop-up windows and the windows
-/// its tabs moved into, and released with the last of them. App-wide stores
-/// (history, bookmarks, downloads, settings) stay on the manager and consult
-/// `kind` before writing.
-///
-/// The profiles slice adds one normal context per profile here (its own
-/// `WKWebsiteDataStore(forIdentifier:)`, site decisions and history).
+/// The data one window's tabs read and write: the profile's WebKit data
+/// store, History, site decisions, favicons and connection decisions
+/// (certificate exceptions, client certificates). Windows share a context
+/// exactly when tabs may move between them: the normal windows of one
+/// profile share the manager's context for it (`context(for:)`, made on
+/// first use); a private window has its own, shared with its pop-up windows
+/// and the windows its tabs moved into, and released with the last of them.
+/// App-wide stores (bookmarks, downloads, favicons, settings) stay on the
+/// manager; everything consults `kind` before writing.
 @MainActor
 final class BrowserDataContext {
     let id = UUID()
     let kind: BrowserWindowKind
+    /// The profile the window belongs to; a private window's is the profile
+    /// it was opened over.
+    let profileID: UUID
     let websiteDataStore: WKWebsiteDataStore
+    /// The profile's History. A private window keeps the one it layers over
+    /// but never records into it (`kind.recordsHistory`).
+    let history: BrowserHistoryStore
     let sitePermissions: BrowserSitePermissionStore
     let faviconStore: BrowserFaviconStore
     let connectionSecurity: BrowserConnectionSecurity
 
     init(
         kind: BrowserWindowKind,
+        profileID: UUID,
         websiteDataStore: WKWebsiteDataStore,
+        history: BrowserHistoryStore,
         sitePermissions: BrowserSitePermissionStore,
         faviconStore: BrowserFaviconStore,
         connectionSecurity: BrowserConnectionSecurity
     ) {
         self.kind = kind
+        self.profileID = profileID
         self.websiteDataStore = websiteDataStore
+        self.history = history
         self.sitePermissions = sitePermissions
         self.faviconStore = faviconStore
         self.connectionSecurity = connectionSecurity
     }
 
-    /// A private window's context: a fresh non-persistent data store, site
-    /// decisions and favicons that read `base`'s saved ones and keep new ones
-    /// in memory, and its own certificate exceptions and client-certificate
-    /// choices.
+    /// A private window's context over `base`'s profile: a fresh
+    /// non-persistent data store, site decisions and favicons that read
+    /// `base`'s saved ones and keep new ones in memory, and its own
+    /// certificate exceptions and client-certificate choices.
     static func makePrivate(over base: BrowserDataContext) -> BrowserDataContext {
         BrowserDataContext(
             kind: .private,
+            profileID: base.profileID,
             websiteDataStore: .nonPersistent(),
+            history: base.history,
             sitePermissions: BrowserSitePermissionStore(overlaying: base.sitePermissions),
             faviconStore: BrowserFaviconStore(inMemoryOver: base.faviconStore),
             connectionSecurity: BrowserConnectionSecurity()

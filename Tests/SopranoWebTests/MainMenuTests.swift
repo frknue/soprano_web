@@ -72,4 +72,14 @@ struct MainMenuTests {
         #expect(window?.item(withTitle: "Move Tab to New Window") != nil)
         #expect(window?.item(withTitle: "Merge All Windows") != nil)
     }
+
+    @Test func newWindowWithProfileIsHiddenWithOneProfile() {
+        _ = NSApplication.shared
+        let menu = MainMenuController { nil }
+        menu.install()
+        let file = NSApp.mainMenu?.item(withTitle: "File")?.submenu
+        let item = file?.item(withTitle: "New Window With Profile")
+        #expect(item?.submenu != nil)
+        #expect(item?.isHidden == true)
+    }
 }

@@ -393,7 +393,8 @@ struct BrowserWindowFrame: Codable, Equatable, Sendable {
     }
 }
 
-/// One saved window: its tabs, the selected one and where it was.
+/// One saved window: its tabs, the selected one, where it was and its
+/// profile.
 struct BrowserWindowState: Codable, Equatable, Sendable {
     /// Stable across relaunches, so a closed tab finds its window again.
     var id = UUID()
@@ -401,6 +402,9 @@ struct BrowserWindowState: Codable, Equatable, Sendable {
     var frame: BrowserWindowFrame?
     var tabs: [BrowserTabState]
     var selectedIndex = 0
+    /// Missing in files written before profiles: Default. A profile that no
+    /// longer exists opens in Default too.
+    var profileID = BrowserProfile.defaultID
 }
 
 extension BrowserWindowState {
@@ -410,6 +414,7 @@ extension BrowserWindowState {
         frame = try? c.decodeIfPresent(BrowserWindowFrame.self, forKey: .frame)
         tabs = (try? c.decodeIfPresent(LossyArray<BrowserTabState>.self, forKey: .tabs))?.elements ?? []
         selectedIndex = (try? c.decodeIfPresent(Int.self, forKey: .selectedIndex)) ?? 0
+        profileID = ((try? c.decodeIfPresent(UUID.self, forKey: .profileID)) ?? nil) ?? BrowserProfile.defaultID
     }
 
     /// The selected tab's title, as the Window menu showed it.

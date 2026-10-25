@@ -10,7 +10,8 @@ extension BrowserWindowController {
             id: id,
             frame: manager.sessionFrame(of: self).map(BrowserWindowFrame.init),
             tabs: tabs.map(\.state),
-            selectedIndex: selectedIndex
+            selectedIndex: selectedIndex,
+            profileID: profileID
         )
     }
 

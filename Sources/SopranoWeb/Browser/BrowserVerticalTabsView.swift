@@ -24,15 +24,14 @@ final class BrowserVerticalTabsView: NSView {
     }
 
     private var theme: AppTheme
-    /// A private window's rail: its header reads "Private".
-    private var isPrivate = false
     private var buttons: [UUID: BrowserTabButton] = [:]
     private var order: [UUID] = []
     private var rowWidthConstraints: [UUID: NSLayoutConstraint] = [:]
     private var selectedID: UUID?
     /// The dragged tab and the rail's live order while a row is dragged.
     private var drag: (id: UUID, order: [UUID])?
-    private let headerLabel = NSTextField(labelWithString: "")
+    /// "Tabs", or the window's mark: "Private", its profile, or both.
+    private let headerLabel: BrowserWindowMarkView
     private let newTabButton: ChromeIconButton
     private let scrollView = NSScrollView()
     private let documentView = FlippedDocumentView()
@@ -50,6 +49,7 @@ final class BrowserVerticalTabsView: NSView {
 
     init(theme: AppTheme) {
         self.theme = theme
+        self.headerLabel = BrowserWindowMarkView(theme: theme, fallback: "Tabs")
         self.newTabButton = ChromeIconButton(
             symbolName: "plus",
             accessibilityLabel: "New Tab",
@@ -63,9 +63,7 @@ final class BrowserVerticalTabsView: NSView {
         translatesAutoresizingMaskIntoConstraints = false
         wantsLayer = true
 
-        headerLabel.translatesAutoresizingMaskIntoConstraints = false
-        headerLabel.lineBreakMode = .byClipping
-        headerLabel.usesSingleLineMode = true
+        headerLabel.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
         addSubview(headerLabel)
 
         newTabButton.target = self
@@ -175,7 +173,7 @@ final class BrowserVerticalTabsView: NSView {
     func apply(theme: AppTheme) {
         self.theme = theme
         layer?.backgroundColor = theme.colors.bgPanel.cgColor
-        applyHeader()
+        headerLabel.apply(theme: theme)
         newTabButton.apply(theme: theme)
         divider.color = theme.colors.borderSubtle
         for button in buttons.values {
@@ -185,20 +183,14 @@ final class BrowserVerticalTabsView: NSView {
         needsDisplay = true
     }
 
-    /// Marks the rail as a private window's: the header reads "Private".
-    func setPrivate(_ isPrivate: Bool) {
-        self.isPrivate = isPrivate
-        applyHeader()
+    /// The header shows the window's mark ("Private", its profile, or
+    /// both), or "Tabs" when there is none.
+    func setMark(_ mark: BrowserWindowMark) {
+        headerLabel.set(mark)
     }
 
-    private func applyHeader() {
-        headerLabel.attributedStringValue = isPrivate
-            ? ChromeText.eyebrow("Private", color: theme.colors.textPrimary)
-            : ChromeText.eyebrow("Tabs", color: theme.colors.textMuted)
-        headerLabel.toolTip = isPrivate
-            ? "Private window: no history, and cookies and site data go when it closes"
-            : nil
-    }
+    /// The header's words (the harness prints them).
+    var headerText: String { headerLabel.text }
 
     private func rebuild(tabs: [BrowserTabItem]) {
         for constraint in rowWidthConstraints.values {

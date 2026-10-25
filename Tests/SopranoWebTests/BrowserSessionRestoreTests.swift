@@ -66,6 +66,38 @@ struct BrowserSessionRestoreTests {
         #expect(!FileManager.default.fileExists(atPath: store.migratedURL.path))
     }
 
+    @Test func windowsKeepTheirProfileAndADeletedOneFallsBackToDefault() throws {
+        let (store, directory) = temporaryStore()
+        defer { try? FileManager.default.removeItem(at: directory) }
+        var profiles = BrowserProfileList()
+        let work = profiles.add(name: "Work")
+        let gone = profiles.add(name: "Gone")
+        let workWindow = BrowserWindowState(tabs: [BrowserTabState(url: "https://work.example", title: "W")], profileID: work.id)
+        let goneWindow = BrowserWindowState(tabs: [BrowserTabState(url: "https://gone.example", title: "G")], profileID: gone.id)
+        let defaultWindow = BrowserWindowState(tabs: [BrowserTabState(url: nil)])
+        store.save(BrowserSession(windows: [defaultWindow, workWindow, goneWindow], savedAt: Date()))
+        profiles.remove(id: gone.id)
+
+        let loaded = try #require(store.load())
+        #expect(loaded.windows.map(\.profileID) == [BrowserProfile.defaultID, work.id, gone.id])
+        // Restoring opens each window in its profile; Gone's in Default.
+        #expect(loaded.windows.map { profiles.resolvedID($0.profileID) } == [
+            BrowserProfile.defaultID, work.id, BrowserProfile.defaultID,
+        ])
+    }
+
+    @Test func windowsWithoutAProfileIdBelongToDefault() throws {
+        let (store, directory) = temporaryStore()
+        defer { try? FileManager.default.removeItem(at: directory) }
+        try write(
+            #"{"version": 2, "windows": [{"tabs": [{"url": "https://example.com"}]}, {"tabs": [{"url": "https://webkit.org"}], "profileID": "not-a-uuid"}], "savedAt": "2026-10-01T10:00:00Z"}"#,
+            to: store,
+            in: directory
+        )
+        let loaded = try #require(store.load())
+        #expect(loaded.windows.map(\.profileID) == [BrowserProfile.defaultID, BrowserProfile.defaultID])
+    }
+
     @Test func versionOneMigratesToOneWindowAndKeepsTheOldFile() throws {
         let (store, directory) = temporaryStore()
         defer { try? FileManager.default.removeItem(at: directory) }

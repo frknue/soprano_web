@@ -33,9 +33,10 @@ final class BrowserToolbarView: NSView, NSTextFieldDelegate {
     private let bookmarkButton: ChromeIconButton
     private let downloadsButton: ChromeIconButton
     private let sidebarButton: ChromeIconButton
-    /// "Private" before the address field of a private window without a
-    /// tab rail.
-    let privateMark = NSTextField(labelWithString: "")
+    /// The window's mark ("Private", its profile, or both) before the
+    /// address field of a window without a tab rail.
+    let windowMark: BrowserWindowMarkView
+    private var showsWindowMark = false
 
     private var theme: AppTheme
     private var security: BrowserSecurityState = .local
@@ -65,8 +66,8 @@ final class BrowserToolbarView: NSView, NSTextFieldDelegate {
         equalTo: navigationControls.trailingAnchor,
         constant: 8
     )
-    private lazy var addressLeadingToPrivateMark = addressFrame.leadingAnchor.constraint(
-        equalTo: privateMark.trailingAnchor,
+    private lazy var addressLeadingToWindowMark = addressFrame.leadingAnchor.constraint(
+        equalTo: windowMark.trailingAnchor,
         constant: 8
     )
 
@@ -75,6 +76,7 @@ final class BrowserToolbarView: NSView, NSTextFieldDelegate {
     init(theme: AppTheme) {
         self.theme = theme
         self.addressFrame = ChromeFieldView(theme: theme)
+        self.windowMark = BrowserWindowMarkView(theme: theme)
         self.navigationControls = BrowserNavigationControls(theme: theme)
         self.verticalTabsButton = ChromeIconButton(
             symbolName: "sidebar.left",
@@ -166,12 +168,9 @@ final class BrowserToolbarView: NSView, NSTextFieldDelegate {
         addSubview(progressBar)
         progressBar.translatesAutoresizingMaskIntoConstraints = false
         addSubview(captureIndicator)
-        privateMark.translatesAutoresizingMaskIntoConstraints = false
-        privateMark.isHidden = true
-        privateMark.setContentHuggingPriority(.required, for: .horizontal)
-        privateMark.setContentCompressionResistancePriority(.required, for: .horizontal)
-        privateMark.toolTip = "Private window: no history, and cookies and site data go when it closes"
-        addSubview(privateMark)
+        windowMark.isHidden = true
+        windowMark.setContentCompressionResistancePriority(.required, for: .horizontal)
+        addSubview(windowMark)
 
         NSLayoutConstraint.activate([
             verticalTabsButton.leadingAnchor.constraint(equalTo: leadingAnchor, constant: 10),
@@ -187,8 +186,8 @@ final class BrowserToolbarView: NSView, NSTextFieldDelegate {
             navigationLeadingToToggle,
             navigationControls.centerYAnchor.constraint(equalTo: verticalTabsButton.centerYAnchor),
             addressLeadingToNavigation,
-            privateMark.leadingAnchor.constraint(equalTo: navigationControls.trailingAnchor, constant: 10),
-            privateMark.centerYAnchor.constraint(equalTo: addressFrame.centerYAnchor),
+            windowMark.leadingAnchor.constraint(equalTo: navigationControls.trailingAnchor, constant: 10),
+            windowMark.centerYAnchor.constraint(equalTo: addressFrame.centerYAnchor),
             addressFrame.trailingAnchor.constraint(equalTo: captureIndicator.leadingAnchor, constant: -6),
             addressFrame.centerYAnchor.constraint(equalTo: verticalTabsButton.centerYAnchor),
             addressFrame.heightAnchor.constraint(equalToConstant: Chrome.fieldHeight),
@@ -241,7 +240,7 @@ final class BrowserToolbarView: NSView, NSTextFieldDelegate {
             ]
         )
         progressBar.color = theme.colors.blue
-        privateMark.attributedStringValue = ChromeText.eyebrow("Private", color: theme.colors.textPrimary)
+        windowMark.apply(theme: theme)
         captureIndicator.apply(theme: theme)
         refreshSecurityIcon()
         needsDisplay = true
@@ -318,12 +317,31 @@ final class BrowserToolbarView: NSView, NSTextFieldDelegate {
         downloadsButton.isToggledOn = on
     }
 
-    /// Shows the "Private" mark before the address field.
-    func setPrivateMark(_ shown: Bool) {
-        guard privateMark.isHidden == shown else { return }
-        privateMark.isHidden = !shown
-        addressLeadingToNavigation.isActive = !shown
-        addressLeadingToPrivateMark.isActive = shown
+    /// Sets the window's mark; it shows before the address field while
+    /// `setWindowMarkShown(true)` and the mark has words.
+    func setWindowMark(_ mark: BrowserWindowMark) {
+        windowMark.set(mark)
+        updateWindowMark()
+    }
+
+    /// Whether the window's mark may sit before the address field (there
+    /// is no tab rail).
+    func setWindowMarkShown(_ shown: Bool) {
+        showsWindowMark = shown
+        updateWindowMark()
+    }
+
+    private func updateWindowMark() {
+        let shown = showsWindowMark && windowMark.hasMark
+        guard windowMark.isHidden == shown else { return }
+        windowMark.isHidden = !shown
+        if shown {
+            addressLeadingToNavigation.isActive = false
+            addressLeadingToWindowMark.isActive = true
+        } else {
+            addressLeadingToWindowMark.isActive = false
+            addressLeadingToNavigation.isActive = true
+        }
     }
 
     /// Pop-up windows: back/forward/reload and the address, which can be

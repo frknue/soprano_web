@@ -39,10 +39,11 @@ struct BrowserWindowPlacement {
 }
 
 /// Owns every browser window and the app-wide pieces they share: the stores,
-/// downloads, Settings, the recently-closed stack, Vimium's global marks,
-/// notification clicks and the session file. Every normal window uses
-/// `defaultContext`; each private window gets its own `BrowserDataContext`.
-/// `AppDelegate` (or the snapshot harness) owns the one manager.
+/// profiles, downloads, Settings, the recently-closed stack, Vimium's global
+/// marks, notification clicks and the session file. The normal windows of
+/// one profile share its `BrowserDataContext` (`context(for:)`); each
+/// private window gets its own. `AppDelegate` (or the snapshot harness) owns
+/// the one manager.
 @MainActor
 final class BrowserWindowManager {
     static let windowMinSize = NSSize(width: 760, height: 520)
@@ -55,15 +56,17 @@ final class BrowserWindowManager {
 
     let themeManager: ThemeManager
     let settingsStore: BrowserSettingsStore
-    let history: BrowserHistoryStore
+    let profiles: BrowserProfileStore
+    /// The support folder: the Default profile's files, and `Profiles/<id>/`
+    /// for the others.
+    let supportDirectory: URL
     let bookmarks: BrowserBookmarkStore
     let downloads: BrowserDownloadStore
     let downloadManager: BrowserDownloadManager
-    let sitePermissions: BrowserSitePermissionStore
     let faviconStore: BrowserFaviconStore
     let sessionStore: BrowserSessionStore
-    /// The data every normal window uses: `WKWebsiteDataStore.default()`
-    /// and the saved site decisions and favicons.
+    /// The Default profile's data: `WKWebsiteDataStore.default()`,
+    /// `History.sqlite` and `site-permissions.json` in the support folder.
     let defaultContext: BrowserDataContext
     /// False in the harness: it may restore a session file but never writes.
     let persistsSession: Bool
@@ -82,9 +85,17 @@ final class BrowserWindowManager {
     /// Set once quitting starts: windows stay in the session and stay off
     /// the recently-closed stack.
     var isTerminating = false
+    /// The normal context of every profile but Default, made on first use.
+    var profileContexts: [UUID: BrowserDataContext] = [:]
+    /// Every profile's History, opened on first use (a window, the daily
+    /// retention pass).
+    var historyStores: [UUID: BrowserHistoryStore] = [:]
+    /// Settings sheets: Websites, Website Data and Profiles.
+    var websitesSheet: BrowserWebsitesSheet?
+    var websiteDataSheet: BrowserWebsiteDataSheet?
+    var profilesSheet: BrowserProfilesSheet?
 
     private var settingsWindowController: SettingsWindowController?
-    private var websitesSheet: BrowserWebsitesSheet?
     private var saveTimer: Timer?
     private var observations: [BrowserObservation] = []
     private var historyMaintenanceTimer: Timer?
@@ -93,10 +104,10 @@ final class BrowserWindowManager {
     init(
         themeManager: ThemeManager,
         settingsStore: BrowserSettingsStore,
-        history: BrowserHistoryStore,
+        profiles: BrowserProfileStore,
+        supportDirectory: URL,
         bookmarks: BrowserBookmarkStore,
         downloads: BrowserDownloadStore,
-        sitePermissions: BrowserSitePermissionStore,
         faviconStore: BrowserFaviconStore,
         sessionStore: BrowserSessionStore,
         persistsSession: Bool = true,
@@ -105,25 +116,33 @@ final class BrowserWindowManager {
     ) {
         self.themeManager = themeManager
         self.settingsStore = settingsStore
-        self.history = history
+        self.profiles = profiles
+        self.supportDirectory = supportDirectory
         self.bookmarks = bookmarks
         self.downloads = downloads
         self.downloadManager = BrowserDownloadManager(store: downloads, settingsStore: settingsStore)
-        self.sitePermissions = sitePermissions
         self.faviconStore = faviconStore
         self.sessionStore = sessionStore
         self.persistsSession = persistsSession
         self.placement = placement
         self.defaults = defaults
+        let defaultHistory = BrowserHistoryStore(directory: supportDirectory)
         self.defaultContext = BrowserDataContext(
             kind: .normal,
+            profileID: BrowserProfile.defaultID,
             websiteDataStore: .default(),
-            sitePermissions: sitePermissions,
+            history: defaultHistory,
+            sitePermissions: BrowserSitePermissionStore(
+                url: supportDirectory.appendingPathComponent("site-permissions.json")
+            ),
             faviconStore: faviconStore,
             connectionSecurity: BrowserConnectionSecurity()
         )
+        historyStores[BrowserProfile.defaultID] = defaultHistory
         themeManager.onThemeChanged = { [weak self] theme in
             self?.websitesSheet?.apply(theme: theme)
+            self?.websiteDataSheet?.apply(theme: theme)
+            self?.profilesSheet?.apply(theme: theme)
             self?.themeChanges.notify(theme)
         }
         observations = [
@@ -131,7 +150,6 @@ final class BrowserWindowManager {
                 self?.applyTheme(of: settings)
                 self?.applyHistoryRetention(settings.historyRetention)
             },
-            sitePermissions.changes.observe { [weak self] in self?.websitesSheet?.reload() },
         ]
         downloadManager.fallbackWindow = { [weak self] in self?.activeController?.window }
         BrowserNotificationCenter.shared.onClick = { [weak self] click in self?.openNotification(click) }
@@ -140,18 +158,18 @@ final class BrowserWindowManager {
 
     // MARK: - History retention
 
-    /// Prunes History to Settings ▸ "Remove history items" and refreshes
-    /// frecency now (off the main thread) and once a day.
+    /// Prunes every profile's History to Settings ▸ "Remove history items"
+    /// and refreshes frecency now (off the main thread) and once a day.
     private func startHistoryMaintenance() {
         appliedHistoryRetention = settingsStore.settings.historyRetention
-        history.runMaintenance(retention: settingsStore.settings.historyRetention)
+        runHistoryMaintenance(retention: settingsStore.settings.historyRetention)
         historyMaintenanceTimer = Timer.scheduledTimer(
             withTimeInterval: Self.historyMaintenanceInterval,
             repeats: true
         ) { [weak self] _ in
             MainActor.assumeIsolated {
                 guard let self else { return }
-                self.history.runMaintenance(retention: self.settingsStore.settings.historyRetention)
+                self.runHistoryMaintenance(retention: self.settingsStore.settings.historyRetention)
             }
         }
     }
@@ -159,7 +177,13 @@ final class BrowserWindowManager {
     private func applyHistoryRetention(_ retention: BrowserHistoryRetention) {
         guard retention != appliedHistoryRetention else { return }
         appliedHistoryRetention = retention
-        history.runMaintenance(retention: retention)
+        runHistoryMaintenance(retention: retention)
+    }
+
+    private func runHistoryMaintenance(retention: BrowserHistoryRetention) {
+        for profile in profiles.profiles {
+            history(for: profile).runMaintenance(retention: retention)
+        }
     }
 
     // MARK: - Windows
@@ -255,11 +279,18 @@ final class BrowserWindowManager {
         }
     }
 
+    /// The profile new windows open in: the key (else most recently active)
+    /// window's, Default when none is open.
+    var activeProfileID: UUID {
+        activeController?.profileID ?? BrowserProfile.defaultID
+    }
+
     /// File ▸ New Window (⌘N): a start tab (or `url`), one step down and
-    /// right of the key window.
+    /// right of the key window, in `profileID` (nil: the key window's
+    /// profile, File ▸ New Window With Profile names one).
     @discardableResult
-    func newWindow(url: String? = nil) -> BrowserWindowController {
-        let controller = makeWindow(frame: frameForNewWindow())
+    func newWindow(url: String? = nil, profileID: UUID? = nil) -> BrowserWindowController {
+        let controller = makeWindow(frame: frameForNewWindow(), context: context(for: profileID ?? activeProfileID))
         controller.newTab(url: url, focusAddress: url == nil)
         present(controller)
         scheduleSessionSave()
@@ -267,10 +298,12 @@ final class BrowserWindowManager {
     }
 
     /// File ▸ New Private Window (⇧⌘N): a window with its own
-    /// non-persistent data store and a start tab (or `url`).
+    /// non-persistent data store and a start tab (or `url`), over the
+    /// profile of the window it was opened from (Default when none).
     @discardableResult
     func newPrivateWindow(url: String? = nil) -> BrowserWindowController {
-        let controller = makeWindow(frame: frameForNewWindow(), context: .makePrivate(over: defaultContext))
+        let base = context(for: activeProfileID)
+        let controller = makeWindow(frame: frameForNewWindow(), context: .makePrivate(over: base))
         controller.newTab(url: url, focusAddress: url == nil)
         present(controller)
         return controller
@@ -278,19 +311,20 @@ final class BrowserWindowManager {
 
     /// Closes a window the way its close button does: its tabs go onto the
     /// recently-closed stack as one entry (an emptied window, a pop-up
-    /// window and a private window go nowhere).
-    func closeWindow(_ controller: BrowserWindowController) {
-        windowClosing(controller)
+    /// window and a private window go nowhere; `remember: false`, a deleted
+    /// profile's window, neither).
+    func closeWindow(_ controller: BrowserWindowController, remember: Bool = true) {
+        windowClosing(controller, remember: remember)
         controller.window?.close()
     }
 
     /// The window is closing (close button, ⇧⌘W, its last tab,
-    /// `close-window`, its tabs moved away). Runs once per window; quitting
-    /// keeps it in the session instead. The last window of a private data
-    /// context takes the context's download rows with it.
-    func windowClosing(_ controller: BrowserWindowController) {
+    /// `close-window`, its tabs moved away, its profile deleted). Runs once
+    /// per window; quitting keeps it in the session instead. The last window
+    /// of a private data context takes the context's download rows with it.
+    func windowClosing(_ controller: BrowserWindowController, remember: Bool = true) {
         guard !isTerminating, let index = controllers.firstIndex(where: { $0 === controller }) else { return }
-        if !controller.isPopup, controller.kind.usesAppRecentlyClosed, !controller.tabs.isEmpty {
+        if remember, !controller.isPopup, controller.kind.usesAppRecentlyClosed, !controller.tabs.isEmpty {
             recentlyClosed.push(BrowserClosedEntry(.window(controller.windowState)))
         }
         controllers.remove(at: index)
@@ -315,8 +349,8 @@ final class BrowserWindowManager {
     }
 
     /// A new, empty window at `frame` (session coordinates) whose tabs use
-    /// `context` (nil: `defaultContext`). `activate` makes it the window
-    /// commands go to by default.
+    /// `context` (nil: the Default profile's). `activate` makes it the
+    /// window commands go to by default.
     func makeWindow(
         id: UUID = UUID(),
         frame: NSRect,
@@ -349,13 +383,15 @@ final class BrowserWindowManager {
         return BrowserWindowFrames.clamped(placement.defaultFrame(), to: screens, minSize: Self.windowMinSize)
     }
 
-    /// Opens a saved window (restore or reopen) with its tabs, lazily.
+    /// Opens a saved window (restore or reopen) with its tabs, lazily, in
+    /// its profile (Default when that profile is gone).
     @discardableResult
     private func openWindow(_ state: BrowserWindowState, fallbackFrame: NSRect? = nil) -> BrowserWindowController {
         let frame = state.frame?.rect ?? fallbackFrame ?? frameForNewWindow()
         let controller = makeWindow(
             id: state.id,
-            frame: BrowserWindowFrames.clamped(frame, to: placement.screens(), minSize: Self.windowMinSize)
+            frame: BrowserWindowFrames.clamped(frame, to: placement.screens(), minSize: Self.windowMinSize),
+            context: context(for: state.profileID)
         )
         controller.restoreTabs(state)
         if controller.tabs.isEmpty {
@@ -438,12 +474,14 @@ final class BrowserWindowManager {
         reopen(entry)
     }
 
-    /// Entries only ever go back into normal windows with tabs.
+    /// Entries only ever go back into normal windows with tabs of their
+    /// profile (Default when it is gone).
     private func reopen(_ entry: BrowserClosedEntry) {
-        let candidates = controllers.filter { !$0.isPopup && $0.kind.usesAppRecentlyClosed }
+        var entry = entry
+        entry.profileID = profiles.resolvedID(entry.profileID)
+        let candidates = mostRecentlyActiveFirst { !$0.isPopup && $0.kind.usesAppRecentlyClosed }
         let target = entry.reopenTarget(
-            openWindowIDs: candidates.map(\.id),
-            keyWindowID: mostRecentlyActive { !$0.isPopup && $0.kind.usesAppRecentlyClosed }?.id
+            openWindows: candidates.map { BrowserReopenWindow(id: $0.id, profileID: $0.profileID) }
         )
         switch (target, entry.content) {
         case let (.window(id, index), .tab(state, _, _)):
@@ -454,12 +492,32 @@ final class BrowserWindowManager {
             let controller = openWindow(state)
             present(controller)
         case let (.newWindow, .tab(state, _, _)):
-            let controller = openWindow(BrowserWindowState(tabs: [state]))
+            let controller = openWindow(BrowserWindowState(tabs: [state], profileID: entry.profileID))
             present(controller)
         case (.window, .window):
             return
         }
         scheduleSessionSave()
+    }
+
+    /// The windows that `match`: the key one first, then by most recent
+    /// activation.
+    func mostRecentlyActiveFirst(where matches: (BrowserWindowController) -> Bool) -> [BrowserWindowController] {
+        var ordered: [BrowserWindowController] = []
+        if let keyController, matches(keyController) {
+            ordered.append(keyController)
+        }
+        for id in activationOrder.reversed() {
+            if let controller = controllers.first(where: { $0.id == id }), matches(controller),
+               !ordered.contains(where: { $0 === controller })
+            {
+                ordered.append(controller)
+            }
+        }
+        for controller in controllers.reversed() where matches(controller) && !ordered.contains(where: { $0 === controller }) {
+            ordered.append(controller)
+        }
+        return ordered
     }
 
     // MARK: - App-wide pieces
@@ -475,24 +533,28 @@ final class BrowserWindowManager {
         configuration.preferences = BrowserWindowController.makePreferences()
         configuration.applicationNameForUserAgent = BrowserUserAgent.applicationName
         configuration.setURLSchemeHandler(
-            makeStartPageSchemeHandler(for: context.kind),
+            makeStartPageSchemeHandler(for: context),
             forURLScheme: BrowserStartPageSchemeHandler.scheme
         )
         return configuration
     }
 
-    func makeStartPageSchemeHandler(for kind: BrowserWindowKind) -> BrowserStartPageSchemeHandler {
-        BrowserStartPageSchemeHandler { [weak self] in self?.startPageHTML(for: kind) ?? "" }
+    func makeStartPageSchemeHandler(for context: BrowserDataContext) -> BrowserStartPageSchemeHandler {
+        BrowserStartPageSchemeHandler { [weak self, weak context] in
+            guard let self, let context else { return "" }
+            return self.startPageHTML(for: context)
+        }
     }
 
-    /// The start page: the app theme, bookmarks and recent pages; a private
-    /// window's in Folio Ink without recent pages.
-    func startPageHTML(for kind: BrowserWindowKind) -> String {
-        BrowserStartPage.html(
+    /// The start page: the app theme, bookmarks and the profile's recent
+    /// pages; a private window's in Folio Ink without recent pages.
+    func startPageHTML(for context: BrowserDataContext) -> String {
+        let kind = context.kind
+        return BrowserStartPage.html(
             theme: kind.isPrivate ? .folioInk : themeManager.currentTheme,
             settings: settingsStore.settings,
             bookmarks: bookmarks.bookmarks,
-            history: kind.suggestsHistory ? history.recentPages(limit: BrowserStartPage.recentLimit) : [],
+            history: kind.suggestsHistory ? context.history.recentPages(limit: BrowserStartPage.recentLimit) : [],
             kind: kind
         )
     }
@@ -501,6 +563,8 @@ final class BrowserWindowManager {
         let controller = settingsWindowController ?? {
             let controller = SettingsWindowController(settingsStore: settingsStore, themeManager: themeManager)
             controller.onShowWebsites = { [weak self] parent in self?.showWebsites(on: parent) }
+            controller.onShowWebsiteData = { [weak self] parent in self?.showWebsiteData(on: parent) }
+            controller.onShowProfiles = { [weak self] parent in self?.showProfiles(on: parent) }
             settingsWindowController = controller
             return controller
         }()
@@ -509,9 +573,10 @@ final class BrowserWindowManager {
         controller.window?.makeKeyAndOrderFront(nil)
     }
 
-    /// Settings ▸ Websites, as a sheet on Settings.
+    /// Settings ▸ Websites, as a sheet on Settings, showing the active
+    /// window's profile (a picker switches when there are several).
     func showWebsites(on parent: NSWindow) {
-        let sheet = websitesSheet ?? BrowserWebsitesSheet(store: sitePermissions, theme: themeManager.currentTheme)
+        let sheet = websitesSheet ?? makeWebsitesSheet()
         websitesSheet = sheet
         sheet.apply(theme: themeManager.currentTheme)
         sheet.reload()
@@ -519,6 +584,62 @@ final class BrowserWindowManager {
         parent.beginSheet(window) { [weak self] _ in
             self?.websitesSheet = nil
         }
+    }
+
+    func makeWebsitesSheet(selected: UUID? = nil) -> BrowserWebsitesSheet {
+        BrowserWebsitesSheet(
+            picker: BrowserProfilePicker(
+                profiles: profiles,
+                selected: selected ?? activeProfileID,
+                theme: themeManager.currentTheme
+            ),
+            theme: themeManager.currentTheme
+        ) { [weak self] id in
+            self?.context(for: id).sitePermissions
+        }
+    }
+
+    /// Settings ▸ Website Data, as a sheet on Settings, showing the active
+    /// window's profile (a picker switches when there are several).
+    func showWebsiteData(on parent: NSWindow) {
+        guard websiteDataSheet == nil else { return }
+        let sheet = makeWebsiteDataSheet()
+        websiteDataSheet = sheet
+        sheet.present(on: parent) { [weak self] in
+            self?.websiteDataSheet = nil
+        }
+    }
+
+    func makeWebsiteDataSheet(selected: UUID? = nil) -> BrowserWebsiteDataSheet {
+        BrowserWebsiteDataSheet(
+            theme: themeManager.currentTheme,
+            picker: BrowserProfilePicker(
+                profiles: profiles,
+                selected: selected ?? activeProfileID,
+                theme: themeManager.currentTheme
+            )
+        ) { [weak self] id in
+            self?.context(for: id).websiteDataStore
+        }
+    }
+
+    /// Settings ▸ Profiles, as a sheet on Settings.
+    func showProfiles(on parent: NSWindow) {
+        let sheet = profilesSheet ?? makeProfilesSheet()
+        profilesSheet = sheet
+        guard let window = sheet.window, window.sheetParent == nil else { return }
+        parent.beginSheet(window) { [weak self] _ in
+            self?.profilesSheet = nil
+        }
+    }
+
+    func makeProfilesSheet() -> BrowserProfilesSheet {
+        let sheet = BrowserProfilesSheet(profiles: profiles, theme: themeManager.currentTheme)
+        sheet.windowCount = { [weak self] id in
+            self?.controllers.filter { $0.profileID == id }.count ?? 0
+        }
+        sheet.onDelete = { [weak self] id in self?.deleteProfile(id) }
+        return sheet
     }
 
     /// Links from other apps: the most recently active normal window, or a

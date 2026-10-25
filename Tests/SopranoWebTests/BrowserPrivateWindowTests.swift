@@ -94,9 +94,12 @@ struct BrowserPrivateWindowTests {
             .appendingPathComponent("soprano-web-private-\(UUID().uuidString)", isDirectory: true)
         try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
         defer { try? FileManager.default.removeItem(at: directory) }
+        let workID = UUID()
         let base = BrowserDataContext(
             kind: .normal,
+            profileID: workID,
             websiteDataStore: .nonPersistent(),
+            history: BrowserHistoryStore(directory: directory),
             sitePermissions: BrowserSitePermissionStore(url: directory.appendingPathComponent("site-permissions.json")),
             faviconStore: BrowserFaviconStore(directory: directory.appendingPathComponent("Favicons")),
             connectionSecurity: BrowserConnectionSecurity()
@@ -111,6 +114,9 @@ struct BrowserPrivateWindowTests {
         #expect(first.sitePermissions.url == nil)
         #expect(first.faviconStore.directory == nil)
         #expect(first.connectionSecurity !== base.connectionSecurity)
+        // A private window opened from a Work window layers over Work.
+        #expect(first.profileID == workID)
+        #expect(first.history === base.history)
         #expect(first.downloadContextID == first.id)
         #expect(base.downloadContextID == nil)
     }

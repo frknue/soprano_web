@@ -31,9 +31,11 @@ struct BrowserCommandRequest: Codable, Equatable, Sendable {
     let windowIndex: Int?
     /// Seconds a `wait-for-load` or `wait-for` request may wait; nil otherwise.
     let timeout: TimeInterval?
+    /// `new-window --profile <name>`: the profile the window opens in.
+    let profile: String?
 
     enum CodingKeys: String, CodingKey {
-        case command, arguments, timeout
+        case command, arguments, timeout, profile
         case tabIndex = "tab"
         case windowIndex = "window"
     }
@@ -43,13 +45,15 @@ struct BrowserCommandRequest: Codable, Equatable, Sendable {
         arguments: [String],
         tabIndex: Int?,
         windowIndex: Int? = nil,
-        timeout: TimeInterval? = nil
+        timeout: TimeInterval? = nil,
+        profile: String? = nil
     ) {
         self.command = command
         self.arguments = arguments
         self.tabIndex = tabIndex
         self.windowIndex = windowIndex
         self.timeout = timeout
+        self.profile = profile
     }
 
     /// The app answers with a timeout error after this long; a wait gets a
@@ -138,14 +142,36 @@ struct BrowserCommandRequest: Codable, Equatable, Sendable {
                 throw BrowserAutomationError.invalidArguments(moveToWindowUsage)
             }
         }
+        var profile: String?
+        if command == "new-window" {
+            profile = try extractProfile(from: &arguments)
+            guard arguments.count <= 1 else {
+                throw BrowserAutomationError.invalidArguments(newWindowUsage)
+            }
+        }
 
         return BrowserCommandRequest(
             command: command,
             arguments: arguments,
             tabIndex: tabIndex,
             windowIndex: windowIndex,
-            timeout: timeout
+            timeout: timeout,
+            profile: profile
         )
+    }
+
+    /// `--profile <name>` (the name may contain spaces when quoted).
+    private static func extractProfile(from arguments: inout [String]) throws -> String? {
+        guard let index = arguments.firstIndex(of: "--profile") else { return nil }
+        guard index + 1 < arguments.count else {
+            throw BrowserAutomationError.invalidArguments("--profile requires a profile name")
+        }
+        let name = arguments[index + 1].trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !name.isEmpty else {
+            throw BrowserAutomationError.invalidArguments("--profile requires a profile name")
+        }
+        arguments.removeSubrange(index...(index + 1))
+        return name
     }
 
     private static func extractTimeout(from arguments: inout [String]) throws -> TimeInterval? {
@@ -163,6 +189,7 @@ struct BrowserCommandRequest: Codable, Equatable, Sendable {
     }
 
     static let moveToWindowUsage = "Usage: soprano-web browser [--window n] [--tab m] move-to-window <k|new>"
+    static let newWindowUsage = "Usage: soprano-web browser new-window [url] [--profile <name>]"
 }
 
 struct BrowserAutomationResponse: Codable, Equatable, Sendable {
@@ -212,21 +239,24 @@ enum BrowserCommand {
       soprano-web browser [--window n] select-tab <n>
       soprano-web browser [--window n] [--tab n] close-tab [n]
       soprano-web browser windows
-      soprano-web browser new-window [url]
+      soprano-web browser new-window [url] [--profile <name>]
       soprano-web browser [--window n] close-window [n]
       soprano-web browser [--window n] [--tab m] move-to-window <k|new>
 
-    `windows` lists the open windows (1-based) with their tab count and the
-    selected tab's title; `*` marks the window commands use by default: the
-    key window, else the most recently active one. `--window n` targets
-    window n and `--tab n` tab n of that window (1-based, see `windows` and
-    `tabs`); neither selects a tab or brings a window forward. Private
-    windows are never listed, numbered or targeted.
+    `windows` lists the open windows (1-based) with their tab count, profile
+    and the selected tab's title; `*` marks the window commands use by
+    default: the key window, else the most recently active one. `--window n`
+    targets window n and `--tab n` tab n of that window (1-based, see
+    `windows` and `tabs`); neither selects a tab or brings a window forward.
+    Private windows are never listed, numbered or targeted.
+    `new-window` opens in the profile named by `--profile` (any case), else
+    in the profile of the window commands use by default (Default when none
+    is open); an unknown name is an error.
     `close-window` puts the window on History ▸ Recently Closed, like ⇧⌘W.
     `move-to-window` moves the selected tab (or tab m) of the window into
-    window k, after its tabs, or into a new window (`new`); the tab keeps
-    its page and history. It selects nothing and brings no window forward;
-    a window left without tabs closes.
+    window k of the same profile, after its tabs, or into a new window of
+    its profile (`new`); the tab keeps its page and history. It selects
+    nothing and brings no window forward; a window left without tabs closes.
     `snapshot` assigns ephemeral refs such as `e1`; pass them back as `@e1`.
     `eval` runs an expression, or an async function body that uses `return`;
     Promises are awaited and the result prints as JSON. A thrown error or a
@@ -373,7 +403,20 @@ enum BrowserAutomationRouter {
             completion(.success(windowList(manager)))
             return
         case "new-window":
-            let controller = manager.newWindow(url: url)
+            let profileID: UUID
+            if let name = request.profile {
+                guard let profile = manager.profiles.profile(named: name) else {
+                    let known = manager.profiles.profiles.map(\.name).joined(separator: ", ")
+                    completion(.failure(BrowserAutomationError.invalidArguments(
+                        "No profile named \(name). Profiles: \(known)."
+                    )))
+                    return
+                }
+                profileID = profile.id
+            } else {
+                profileID = manager.automationActiveController?.profileID ?? BrowserProfile.defaultID
+            }
+            let controller = manager.newWindow(url: url, profileID: profileID)
             completion(.success("window \(manager.number(of: controller) ?? manager.automationControllers.count)"))
             return
         default:
@@ -393,7 +436,7 @@ enum BrowserAutomationRouter {
         } else if let active = manager.automationActiveController {
             target = active
         } else if request.command == "open" || request.command == "new-tab" {
-            let controller = manager.newWindow(url: url)
+            let controller = manager.newWindow(url: url, profileID: BrowserProfile.defaultID)
             completion(.success(url ?? controller.selectedTab?.state.url ?? "about:start"))
             return
         } else {
@@ -467,6 +510,12 @@ enum BrowserAutomationRouter {
                 return .failure(BrowserAutomationError.invalidArguments("The tab is already in window \(number)."))
             }
             guard manager.canMoveTab(from: source, to: target) else {
+                guard target.profileID == source.profileID else {
+                    let name = manager.profile(of: target).name
+                    return .failure(BrowserAutomationError.invalidArguments(
+                        "Window \(number) is in the \(name) profile; tabs move only between windows of one profile."
+                    ))
+                }
                 return .failure(BrowserAutomationError.invalidArguments("Window \(number) can't take tabs."))
             }
             manager.moveTab(tab, from: source, to: target, at: nil, select: false)
@@ -476,14 +525,15 @@ enum BrowserAutomationRouter {
         return .success("window \(window) tab \(index)")
     }
 
-    /// `* 1\t3 tabs\tExample Domain`, one line per normal window.
+    /// `* 1\t3 tabs\tWork\tExample Domain`, one line per normal window.
     static func windowList(_ manager: BrowserWindowManager) -> String {
         let active = manager.automationActiveController
         return manager.automationControllers.enumerated().map { index, controller in
             let mark = controller === active ? "*" : " "
             let count = controller.tabs.count
+            let profile = manager.profile(of: controller).name
             let title = controller.selectedTab?.displayTitle ?? "New Tab"
-            return "\(mark) \(index + 1)\t\(count) \(count == 1 ? "tab" : "tabs")\t\(title)"
+            return "\(mark) \(index + 1)\t\(count) \(count == 1 ? "tab" : "tabs")\t\(profile)\t\(title)"
         }.joined(separator: "\n")
     }
 }

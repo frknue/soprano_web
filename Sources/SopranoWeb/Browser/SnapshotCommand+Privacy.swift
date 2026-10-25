@@ -100,7 +100,11 @@ extension SnapshotCommand {
     /// becomes visible) and returns it for capture.
     static func makePrivacySheet(_ options: PrivacyOptions, controller: BrowserWindowController) -> NSWindow? {
         if options.showClearData {
-            let (alert, accessory) = BrowserClearBrowsingDataSheet.makeAlert(theme: controller.theme)
+            let (alert, accessory) = BrowserClearBrowsingDataSheet.makeAlert(
+                theme: controller.theme,
+                profileName: controller.clearDataProfileName
+            )
+            print("privacy: clear-data sheet: \(alert.messageText) | \(alert.informativeText)")
             privacySheetOwner = accessory
             // cacheDisplay draws the accessory (our controls); NSAlert's own
             // title, icon and buttons are system glass and stay blank.
@@ -115,7 +119,8 @@ extension SnapshotCommand {
             return settings.window
         }
         if options.showWebsiteData {
-            let sheet = BrowserWebsiteDataSheet(theme: controller.theme, dataStore: controller.websiteDataStore)
+            let sheet = controller.manager.makeWebsiteDataSheet(selected: controller.profileID)
+            print("privacy: website-data sheet shows profile \(sheet.profileName)")
             privacySheetOwner = sheet
             sheet.reload()
             spin(seconds: 1.5)

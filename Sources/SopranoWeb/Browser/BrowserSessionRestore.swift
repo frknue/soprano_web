@@ -1,20 +1,30 @@
 import AppKit
 
-/// One History ▸ Recently Closed entry: a tab or a whole window.
+/// One History ▸ Recently Closed entry: a tab or a whole window, and the
+/// profile it reopens in.
 struct BrowserClosedEntry: Codable, Equatable, Sendable, Identifiable {
     enum Content: Equatable, Sendable {
         /// A tab, the window it was in and its index there (nil: the end).
         case tab(BrowserTabState, windowID: UUID?, index: Int?)
-        /// A window with its tabs, selection and frame.
+        /// A window with its tabs, selection, frame and profile.
         case window(BrowserWindowState)
     }
 
     var id: UUID
     var content: Content
+    /// The profile a closed tab reopens in; a closed window's own
+    /// `profileID`.
+    var profileID: UUID
 
-    init(_ content: Content, id: UUID = UUID()) {
+    /// `profileID` is a tab's profile; a window entry takes its state's.
+    init(_ content: Content, profileID: UUID = BrowserProfile.defaultID, id: UUID = UUID()) {
         self.id = id
         self.content = content
+        if case .window(let state) = content {
+            self.profileID = state.profileID
+        } else {
+            self.profileID = profileID
+        }
     }
 
     /// The menu title: the tab's title, or the window's selected tab and its
@@ -34,27 +44,30 @@ struct BrowserClosedEntry: Codable, Equatable, Sendable, Identifiable {
         return false
     }
 
-    /// Where reopening puts this entry: a tab returns to its window at its
-    /// old index while that window is open, otherwise to the key window (at
-    /// the end); a window, or a tab with no window to go to, opens a new
-    /// window.
-    func reopenTarget(openWindowIDs: [UUID], keyWindowID: UUID?) -> BrowserReopenTarget {
+    /// Where reopening puts this entry, given the open windows that take
+    /// reopened tabs, most recently active first: a tab returns to its
+    /// window at its old index while that window is open, otherwise to the
+    /// most recently active window of its profile (at the end); a window, or
+    /// a tab with no window of its profile open, opens a new window in its
+    /// profile.
+    func reopenTarget(openWindows: [BrowserReopenWindow]) -> BrowserReopenTarget {
         switch content {
         case .window:
             return .newWindow
         case .tab(_, let windowID, let index):
-            if let windowID, openWindowIDs.contains(windowID) {
+            let ownProfile = openWindows.filter { $0.profileID == profileID }
+            if let windowID, ownProfile.contains(where: { $0.id == windowID }) {
                 return .window(windowID, index: index)
             }
-            if let keyWindowID {
-                return .window(keyWindowID, index: nil)
+            if let window = ownProfile.first {
+                return .window(window.id, index: nil)
             }
             return .newWindow
         }
     }
 
     private enum CodingKeys: String, CodingKey {
-        case id, kind, tab, windowID, index, window
+        case id, kind, tab, windowID, index, window, profileID
     }
 
     init(from decoder: Decoder) throws {
@@ -67,8 +80,11 @@ struct BrowserClosedEntry: Codable, Equatable, Sendable, Identifiable {
                 windowID: try? c.decodeIfPresent(UUID.self, forKey: .windowID),
                 index: try? c.decodeIfPresent(Int.self, forKey: .index)
             )
+            profileID = ((try? c.decodeIfPresent(UUID.self, forKey: .profileID)) ?? nil) ?? BrowserProfile.defaultID
         case "window":
-            content = .window(try c.decode(BrowserWindowState.self, forKey: .window))
+            let window = try c.decode(BrowserWindowState.self, forKey: .window)
+            content = .window(window)
+            profileID = window.profileID
         case let kind:
             throw DecodingError.dataCorruptedError(
                 forKey: .kind,
@@ -87,6 +103,7 @@ struct BrowserClosedEntry: Codable, Equatable, Sendable, Identifiable {
             try c.encode(state, forKey: .tab)
             try c.encodeIfPresent(windowID, forKey: .windowID)
             try c.encodeIfPresent(index, forKey: .index)
+            try c.encode(profileID, forKey: .profileID)
         case .window(let window):
             try c.encode("window", forKey: .kind)
             try c.encode(window, forKey: .window)
@@ -94,9 +111,16 @@ struct BrowserClosedEntry: Codable, Equatable, Sendable, Identifiable {
     }
 }
 
+/// An open window a reopened tab may go into.
+struct BrowserReopenWindow: Equatable, Sendable {
+    var id: UUID
+    var profileID: UUID
+}
+
 enum BrowserReopenTarget: Equatable, Sendable {
     /// Into this open window, at `index` (nil or past the end: the end).
     case window(UUID, index: Int?)
+    /// A new window in the entry's profile.
     case newWindow
 }
 
@@ -137,6 +161,12 @@ struct BrowserRecentlyClosedStack: Equatable, Sendable {
 
     mutating func removeAll() {
         entries.removeAll()
+    }
+
+    /// Drops the entries `matching` (a deleted profile's, or one profile's
+    /// on Clear Browsing Data).
+    mutating func removeAll(where matching: (BrowserClosedEntry) -> Bool) {
+        entries.removeAll(where: matching)
     }
 }
 

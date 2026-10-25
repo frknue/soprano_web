@@ -14,8 +14,17 @@ import WebKit
 ///   `--reload` (⌘R).
 /// - `--close-window`: ⇧⌘W on the active window.
 /// - `--new-window <url>`: File ▸ New Window, then load `url` (`start` for
-///   the start page). The window stays off every display.
-/// - `--new-private-window <url>`: File ▸ New Private Window, likewise.
+///   the start page). The window stays off every display. A `--profile
+///   <name>` before it opens it in that profile (File ▸ New Window With
+///   Profile); otherwise it opens in the active window's profile.
+/// - `--new-private-window <url>`: File ▸ New Private Window, likewise, over
+///   the active window's profile.
+/// - `--add-profile <name>` (repeatable): create a profile before any
+///   window opens.
+/// - `--delete-profile <name>`: Settings ▸ Profiles ▸ Delete (confirmed):
+///   close its windows, remove its data store and folder; prints the
+///   result once the data store removal finished.
+/// - `--profiles-sheet`: capture Settings ▸ Profiles instead of a window.
 /// - `--activate-window <n>`: make window n the active one.
 /// - `--move-tab <w>:<t>:<w2>`: detach tab t of window w and attach it to
 ///   window w2 (selected), the path moving a live tab takes.
@@ -38,11 +47,14 @@ import WebKit
 ///   download to stop.
 /// - `--crash`: kill the selected tab's web content process.
 /// - `--crash-page`: show the crash page on the selected tab.
-/// - `--print-windows`: print every window (kind, frame, tabs, the cookies
-///   and website data records of its data store), the default store's
-///   cookies and records, the history count, the favicon files, how many
-///   private data stores and web views of closed private windows are still
-///   alive, the recently-closed stack and the downloads as one JSON line.
+/// - `--print-windows`: print every window (kind, profile and the mark its
+///   chrome shows, frame, tabs, the cookies and website data records of its
+///   data store), the default store's cookies and records, the history
+///   count, every profile (folder, History, site decisions), the
+///   `WKWebsiteDataStore.allDataStoreIdentifiers`, the favicon files, how
+///   many private data stores and web views of closed private windows are
+///   still alive, the recently-closed stack and the downloads as one JSON
+///   line.
 /// - `--dump-tabs`: print the active window's tabs as one JSON line after
 ///   the actions.
 /// - `--save-session <file>`: write the session after the actions.
@@ -57,8 +69,9 @@ struct SnapshotSessionOptions {
         case goBack
         case reload
         case closeWindow
-        case newWindow(String)
+        case newWindow(String, profile: String?)
         case newPrivateWindow(String)
+        case deleteProfile(String)
         case activateWindow(Int)
         case moveTab(from: Int, tab: Int, to: Int)
         case moveToNewWindow
@@ -83,6 +96,7 @@ struct SnapshotSessionOptions {
         "--find-text", "--cli",
         "--start-download", "--wait-downloads", "--crash", "--crash-page", "--print-windows",
         "--dump-tabs", "--save-session", "--capture-window",
+        "--add-profile", "--profile", "--delete-profile", "--profiles-sheet",
     ]
     static let usage = """
                                [--session <file>] [--visit <url>] [--select <n>] [--close-tab]
@@ -96,6 +110,8 @@ struct SnapshotSessionOptions {
                                [--start-download <url>]
                                [--wait-downloads] [--crash] [--crash-page] [--print-windows]
                                [--dump-tabs] [--save-session <file>] [--capture-window <n>]
+                               [--add-profile <name>]... [--profile <name>] [--delete-profile <name>]
+                               [--profiles-sheet]
     """
 
     var restoreFrom: URL?
@@ -103,6 +119,11 @@ struct SnapshotSessionOptions {
     var dumpTabs = false
     var saveTo: URL?
     var captureWindow: Int?
+    /// `--add-profile`: made before the first window.
+    var profilesToAdd: [String] = []
+    /// `--profile`: the profile the next `--new-window` opens in.
+    private var pendingProfile: String?
+    var showProfilesSheet = false
 
     var restoresSession: Bool { restoreFrom != nil }
 
@@ -129,7 +150,9 @@ struct SnapshotSessionOptions {
         case "--go-back": actions.append(.goBack)
         case "--reload": actions.append(.reload)
         case "--close-window": actions.append(.closeWindow)
-        case "--new-window": actions.append(.newWindow(try value()))
+        case "--new-window":
+            actions.append(.newWindow(try value(), profile: pendingProfile))
+            pendingProfile = nil
         case "--new-private-window": actions.append(.newPrivateWindow(try value()))
         case "--activate-window": actions.append(.activateWindow(try number()))
         case "--move-tab":
@@ -174,6 +197,10 @@ struct SnapshotSessionOptions {
         case "--dump-tabs": dumpTabs = true
         case "--save-session": saveTo = URL(fileURLWithPath: try value())
         case "--capture-window": captureWindow = try number()
+        case "--add-profile": profilesToAdd.append(try value())
+        case "--profile": pendingProfile = try value()
+        case "--delete-profile": actions.append(.deleteProfile(try value()))
+        case "--profiles-sheet": showProfilesSheet = true
         default: throw SnapshotCommand.OptionError.unknownOption(option)
         }
     }
@@ -215,9 +242,20 @@ struct SnapshotSessionOptions {
     @MainActor
     private func perform(_ action: Action, in manager: BrowserWindowManager) {
         switch action {
-        case .newWindow(let value):
+        case let .newWindow(value, profileName):
             let start = value == "start" || BrowserAddressResolver.isStartPage(URL(string: value))
-            manager.newWindow(url: start ? nil : value)
+            var profileID: UUID?
+            if let profileName {
+                guard let profile = manager.profiles.profile(named: profileName) else {
+                    print("snapshot: no profile named \(profileName)")
+                    return
+                }
+                profileID = profile.id
+            }
+            manager.newWindow(url: start ? nil : value, profileID: profileID)
+            return
+        case .deleteProfile(let name):
+            deleteProfile(named: name, in: manager)
             return
         case .newPrivateWindow(let value):
             let start = value == "start" || BrowserAddressResolver.isStartPage(URL(string: value))
@@ -351,10 +389,67 @@ struct SnapshotSessionOptions {
             if let tab = controller.selectedTab {
                 controller.showCrashPage(tab)
             }
-        case .newWindow, .newPrivateWindow, .activateWindow, .moveTab, .dropTab, .dropOutside, .mergeWindows,
-             .cli, .waitDownloads, .printWindows, .reopenClosed:
+        case .newWindow, .newPrivateWindow, .deleteProfile, .activateWindow, .moveTab, .dropTab, .dropOutside,
+             .mergeWindows, .cli, .waitDownloads, .printWindows, .reopenClosed:
             break
         }
+    }
+
+    /// `--delete-profile`: what Settings ▸ Profiles ▸ Delete runs once
+    /// confirmed; waits for the data store removal.
+    @MainActor
+    private func deleteProfile(named name: String, in manager: BrowserWindowManager) {
+        guard let profile = manager.profiles.profile(named: name) else {
+            print("snapshot: no profile named \(name)")
+            return
+        }
+        let confirmation = BrowserProfilesSheet.deleteConfirmation(
+            name: profile.name,
+            windowCount: manager.controllers.filter { $0.profileID == profile.id }.count
+        )
+        print("delete-profile: \(confirmation.title) \(confirmation.message)")
+        let folder = profile.directory(in: manager.supportDirectory)
+        // The deleted profile's web views and data store must be released
+        // before WebKit lets its data store go; follow them weakly.
+        var windows: [WeakController] = []
+        var webViews: [WeakObject] = []
+        var store = WeakObject(object: nil)
+        var finished = false
+        var failure: Error?
+        // Its own pool, as one turn of the app's event loop: AppKit
+        // autoreleases a closing window, and an outer pool (this action's)
+        // would keep it, its tabs and their web views until the action ends.
+        autoreleasepool {
+            let closing = manager.controllers.filter { $0.profileID == profile.id }
+            windows = closing.map { WeakController(controller: $0) }
+            webViews = closing.filter { !$0.kind.isPrivate }.flatMap(\.tabs).map { WeakObject(object: $0.webView) }
+            store = WeakObject(object: manager.profileContexts[profile.id]?.websiteDataStore)
+            manager.deleteProfile(profile.id) { error in
+                failure = error
+                finished = true
+            }
+        }
+        Self.closedWindows += windows
+        Self.spin(15) { finished }
+        let identifiers = Self.dataStoreIdentifiers()
+        print(
+            "delete-profile: \(profile.name) data store removal \(failure.map { "failed: \($0.localizedDescription)" } ?? (finished ? "succeeded" : "timed out")),"
+                + " identifier still listed: \(identifiers.contains(profile.id)),"
+                + " folder still exists: \(FileManager.default.fileExists(atPath: folder.path)),"
+                + " windows still alive: \(windows.filter { $0.controller != nil }.count) of \(windows.count),"
+                + " web views still alive: \(webViews.filter { $0.object != nil }.count) of \(webViews.count),"
+                + " data store object still alive: \(store.object != nil)"
+        )
+    }
+
+    /// `WKWebsiteDataStore.allDataStoreIdentifiers`: the data stores made
+    /// with `WKWebsiteDataStore(forIdentifier:)` that exist on disk.
+    @MainActor
+    static func dataStoreIdentifiers() -> [UUID] {
+        var identifiers: [UUID]?
+        WKWebsiteDataStore.fetchAllDataStoreIdentifiers { identifiers = $0 }
+        spin(5) { identifiers != nil }
+        return identifiers ?? []
     }
 
     /// `--move-tab`: the move a dragged tab makes, selected in the target.
@@ -449,6 +544,13 @@ struct SnapshotSessionOptions {
                 "active": controller === active,
                 "popup": controller.isPopup,
                 "title": controller.window?.title ?? "",
+                "profile": manager.profile(of: controller).name,
+                "profileID": controller.profileID.uuidString,
+                // The mark the chrome shows: before the address field
+                // (horizontal tabs, nil when hidden) and in the rail header.
+                "toolbarMark": controller.toolbar.windowMark.isHidden
+                    ? NSNull() as Any : controller.toolbar.windowMark.text as Any,
+                "railHeader": controller.verticalTabsView.headerText,
                 "onScreen": controller.window.map { window in
                     NSScreen.screens.contains { $0.frame.intersects(window.frame) }
                 } ?? false,
@@ -463,15 +565,38 @@ struct SnapshotSessionOptions {
                 "closedTabs": controller.closedTabs.newestFirst.map(\.title),
                 "dataStore": storeContents(controller.dataContext.websiteDataStore),
                 "sharesDefaultStore": controller.dataContext.websiteDataStore === WKWebsiteDataStore.default(),
+                "dataStoreIdentifier": controller.dataContext.websiteDataStore.identifier?.uuidString ?? NSNull(),
             ]
         }
         let closed: [[String: Any]] = manager.recentlyClosed.newestFirst.map { entry in
+            let profile = manager.profiles.profile(id: entry.profileID)?.name ?? "(deleted)"
             switch entry.content {
             case .tab(let state, _, let index):
-                return ["kind": "tab", "title": entry.title, "url": state.url ?? "about:start", "index": index ?? NSNull()]
+                return ["kind": "tab", "title": entry.title, "url": state.url ?? "about:start", "index": index ?? NSNull(),
+                        "profile": profile]
             case .window(let state):
-                return ["kind": "window", "title": entry.title, "tabs": state.tabs.map { $0.url ?? "about:start" }]
+                return ["kind": "window", "title": entry.title, "tabs": state.tabs.map { $0.url ?? "about:start" },
+                        "profile": profile]
             }
+        }
+        let profiles: [[String: Any]] = manager.profiles.profiles.map { profile in
+            let folder = profile.directory(in: manager.supportDirectory)
+            let history = manager.history(for: profile)
+            // The hosts in the profile's saved `site-permissions.json`.
+            let decisions = (try? Data(contentsOf: folder.appendingPathComponent("site-permissions.json")))
+                .flatMap { try? JSONSerialization.jsonObject(with: $0) as? [String: Any] }
+                .flatMap { $0["sites"] as? [String: Any] }
+            return [
+                "name": profile.name,
+                "id": profile.id.uuidString,
+                "color": profile.color.rawValue,
+                "folder": folder.path,
+                "folderExists": FileManager.default.fileExists(atPath: folder.path),
+                "historyDatabase": history.databaseURL.path,
+                "historyCount": history.visitCount(),
+                "historyURLs": history.visits(limit: 50).map(\.url),
+                "siteDecisions": decisions.map { $0.keys.sorted() } ?? [],
+            ]
         }
         let downloads: [[String: Any]] = manager.downloads.records.map { record in
             [
@@ -497,8 +622,13 @@ struct SnapshotSessionOptions {
             "recentlyClosed": closed,
             "downloads": downloads,
             "closedWindowsStillAlive": alive,
-            "historyCount": manager.history.visitCount(),
-            "historyURLs": manager.history.visits(limit: 50).map(\.url),
+            "historyCount": manager.defaultContext.history.visitCount(),
+            "historyURLs": manager.defaultContext.history.visits(limit: 50).map(\.url),
+            "profiles": profiles,
+            "dataStoreIdentifiers": dataStoreIdentifiers().map(\.uuidString).sorted(),
+            "profileFolders": (try? FileManager.default.contentsOfDirectory(
+                atPath: manager.supportDirectory.appendingPathComponent(BrowserProfile.folderName).path
+            ))?.sorted() ?? [],
             "defaultStore": storeContents(.default()),
             "faviconFiles": faviconFiles.sorted(),
             "sessionWindows": session.windows.map { $0.tabs.map { $0.url ?? "about:start" } },

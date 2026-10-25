@@ -43,4 +43,32 @@ struct BrowserTabMoveRuleTests {
         #expect(!BrowserTabMoveRule.allows(from: normal, to: popup))
         #expect(BrowserTabMoveRule.allows(from: popup, to: normal))
     }
+
+    @Test func tabsMoveOnlyBetweenWindowsOfOneProfile() {
+        // Every profile's normal windows share that profile's context.
+        let defaultProfile = normalContext
+        let workProfile = UUID()
+        let defaultWindow = window(context: defaultProfile)
+        let workWindow = window(context: workProfile)
+        let otherWorkWindow = window(context: workProfile)
+        let workPopup = window(context: workProfile, popup: true)
+        #expect(!BrowserTabMoveRule.allows(from: defaultWindow, to: workWindow))
+        #expect(!BrowserTabMoveRule.allows(from: workWindow, to: defaultWindow))
+        #expect(BrowserTabMoveRule.allows(from: workWindow, to: otherWorkWindow))
+        // A Work pop-up's tab goes to a Work window, never a Default one.
+        #expect(BrowserTabMoveRule.allows(from: workPopup, to: workWindow))
+        #expect(!BrowserTabMoveRule.allows(from: workPopup, to: defaultWindow))
+        // A private window over Work keeps its own context.
+        let privateOverWork = window(context: UUID())
+        #expect(!BrowserTabMoveRule.allows(from: privateOverWork, to: workWindow))
+        #expect(!BrowserTabMoveRule.allows(from: workWindow, to: privateOverWork))
+    }
+
+    @Test func mergeTakesOnlyTheTargetProfilesWindows() {
+        let workProfile = UUID()
+        let target = window(context: workProfile)
+        let others = [window(context: normalContext), window(context: workProfile), window(context: UUID())]
+        let merged = others.filter { BrowserTabMoveRule.allows(from: $0, to: target) }
+        #expect(merged == [others[1]])
+    }
 }

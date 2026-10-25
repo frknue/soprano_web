@@ -24,6 +24,10 @@ final class SettingsWindowController: NSWindowController, NSTextFieldDelegate {
     private var rowLabels: [NSTextField] = []
     /// Presents Settings ▸ Websites as a sheet on the given window.
     var onShowWebsites: ((NSWindow) -> Void)?
+    /// Presents Settings ▸ Website Data as a sheet on the given window.
+    var onShowWebsiteData: ((NSWindow) -> Void)?
+    /// Presents Settings ▸ Profiles as a sheet on the given window.
+    var onShowProfiles: ((NSWindow) -> Void)?
     private lazy var autoplayButton: ChromeButton = {
         let button = ChromeButton(title: settingsStore.settings.autoplay.name, theme: theme, kind: .standard)
         button.target = self
@@ -54,11 +58,17 @@ final class SettingsWindowController: NSWindowController, NSTextFieldDelegate {
         button.widthAnchor.constraint(equalToConstant: 200).isActive = true
         return button
     }()
+    private lazy var profilesButton: ChromeButton = {
+        let button = ChromeButton(title: "Manage…", theme: theme, kind: .standard)
+        button.target = self
+        button.action = #selector(profilesPressed)
+        button.widthAnchor.constraint(equalToConstant: 200).isActive = true
+        return button
+    }()
     private let askDownloadSwitch: ChromeSwitch
     private let websiteDataButton: ChromeButton
     private let defaultBrowserLabel = NSTextField(labelWithString: "")
     private let defaultBrowserButton: ChromeButton
-    private var websiteDataSheet: BrowserWebsiteDataSheet?
 
     init(settingsStore: BrowserSettingsStore, themeManager: ThemeManager) {
         self.settingsStore = settingsStore
@@ -127,7 +137,7 @@ final class SettingsWindowController: NSWindowController, NSTextFieldDelegate {
         self.websiteDataButton = ChromeButton(title: "Manage…", theme: theme, kind: .standard)
         self.defaultBrowserButton = ChromeButton(title: "Make Default", theme: theme, kind: .standard)
         let window = NSWindow(
-            contentRect: NSRect(x: 0, y: 0, width: 620, height: 756),
+            contentRect: NSRect(x: 0, y: 0, width: 620, height: 796),
             styleMask: [.titled, .closable, .fullSizeContentView],
             backing: .buffered,
             defer: false
@@ -139,7 +149,7 @@ final class SettingsWindowController: NSWindowController, NSTextFieldDelegate {
         window.titlebarAppearsTransparent = true
         window.isReleasedWhenClosed = false
         window.backgroundColor = theme.colors.bgBase
-        window.minSize = NSSize(width: 620, height: 756)
+        window.minSize = NSSize(width: 620, height: 796)
 
         rootView.wantsLayer = true
         window.contentView = rootView
@@ -218,6 +228,7 @@ final class SettingsWindowController: NSWindowController, NSTextFieldDelegate {
             [rowLabel("Ask where to save"), askDownloadSwitch],
             [rowLabel("Autoplay"), autoplayButton],
             [rowLabel("Notifications"), notificationsRow()],
+            [rowLabel("Profiles"), profilesButton],
             [rowLabel("Websites"), websitesButton],
             [rowLabel("Website data"), websiteDataButton],
             [rowLabel("Default browser"), defaultBrowserRow()],
@@ -346,11 +357,11 @@ final class SettingsWindowController: NSWindowController, NSTextFieldDelegate {
         notificationsSwitch.apply(theme: theme)
         notificationsLabel.textColor = theme.colors.textPrimary
         websitesButton.apply(theme: theme)
+        profilesButton.apply(theme: theme)
         askDownloadSwitch.apply(theme: theme)
         websiteDataButton.apply(theme: theme)
         defaultBrowserButton.apply(theme: theme)
         defaultBrowserLabel.textColor = theme.colors.textPrimary
-        websiteDataSheet?.apply(theme: theme)
         downloadLabel.textColor = theme.colors.textPrimary
         pathLabel.textColor = theme.colors.textMuted
         pathLabel.stringValue = "Settings: \(settingsStore.displayPath)"
@@ -451,12 +462,8 @@ final class SettingsWindowController: NSWindowController, NSTextFieldDelegate {
 
     /// Opens the Website Data list as a sheet on Settings.
     @objc func websiteDataPressed() {
-        guard let window, websiteDataSheet == nil else { return }
-        let sheet = BrowserWebsiteDataSheet(theme: theme)
-        websiteDataSheet = sheet
-        sheet.present(on: window) { [weak self] in
-            self?.websiteDataSheet = nil
-        }
+        guard let window else { return }
+        onShowWebsiteData?(window)
     }
 
     @objc private func makeDefaultPressed() {
@@ -573,6 +580,11 @@ extension SettingsWindowController {
     @objc private func websitesPressed() {
         guard let window else { return }
         onShowWebsites?(window)
+    }
+
+    @objc private func profilesPressed() {
+        guard let window else { return }
+        onShowProfiles?(window)
     }
 }
 

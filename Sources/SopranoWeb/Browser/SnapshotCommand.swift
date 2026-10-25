@@ -276,17 +276,13 @@ enum SnapshotCommand {
             settingsStore.update { $0.autoplay = autoplay }
         }
         let themeManager = ThemeManager(themeId: options.theme, appearance: .system)
-        let history = BrowserHistoryStore(directory: temp)
         let bookmarks = BrowserBookmarkStore(url: temp.appendingPathComponent("bookmarks.json"))
         let downloads = BrowserDownloadStore(url: temp.appendingPathComponent("downloads.json"))
-        let sitePermissions = BrowserSitePermissionStore(
-            url: temp.appendingPathComponent("site-permissions.json")
-        )
-        if let host = options.allowPopups {
-            sitePermissions.set(.popups, .allow, host: host)
-        }
-        for seed in options.sitePermissions {
-            sitePermissions.set(seed.permission, seed.decision, host: seed.host)
+        let profiles = BrowserProfileStore(url: temp.appendingPathComponent("profiles.json"))
+        // `--add-profile`: the profiles exist before any window opens.
+        for name in options.session.profilesToAdd {
+            let profile = profiles.add(name: name)
+            print("profile: added \(profile.name) \(profile.id.uuidString) (\(profile.color.rawValue))")
         }
         let session = BrowserSessionStore(url: temp.appendingPathComponent("session.json"))
         options.session.prepare(sessionURL: session.url)
@@ -296,20 +292,29 @@ enum SnapshotCommand {
         defaults.set(options.collapsed, forKey: BrowserWindowController.verticalSidebarCollapsedKey)
 
         // Every window the manager makes stays off every display and is
-        // never ordered front or made key.
+        // never ordered front or made key. The temporary folder is the
+        // support folder: Default's files, and `Profiles/<id>/`.
         let manager = BrowserWindowManager(
             themeManager: themeManager,
             settingsStore: settingsStore,
-            history: history,
+            profiles: profiles,
+            supportDirectory: temp,
             bookmarks: bookmarks,
             downloads: downloads,
-            sitePermissions: sitePermissions,
             faviconStore: BrowserFaviconStore(directory: temp.appendingPathComponent("Favicons", isDirectory: true)),
             sessionStore: session,
             persistsSession: false,
             placement: .offscreen(size: options.size),
             defaults: defaults
         )
+        let history = manager.defaultContext.history
+        let sitePermissions = manager.defaultContext.sitePermissions
+        if let host = options.allowPopups {
+            sitePermissions.set(.popups, .allow, host: host)
+        }
+        for seed in options.sitePermissions {
+            sitePermissions.set(seed.permission, seed.decision, host: seed.host)
+        }
         manager.restoreSession()
         guard var controller = manager.controllers.first, var window = controller.window else {
             FileHandle.standardError.write(Data("Snapshot could not create the window.\n".utf8))
@@ -414,15 +419,6 @@ enum SnapshotCommand {
         if options.showFind {
             controller.showFindBar()
         }
-        // Settings and Websites are built but never ordered in, so the
-        // harness puts nothing on screen.
-        let settingsPreview = options.showSettings
-            ? SettingsWindowController(settingsStore: settingsStore, themeManager: themeManager)
-            : nil
-        let websitesSheet = options.showWebsites
-            ? BrowserWebsitesSheet(store: sitePermissions, theme: themeManager.currentTheme)
-            : nil
-
         let deadline = Date().addingTimeInterval(options.wait)
         while Date() < deadline {
             _ = RunLoop.current.run(
@@ -448,19 +444,35 @@ enum SnapshotCommand {
         }
         options.session.run(manager, wait: options.wait)
         // Everything below works on the captured window: `--capture-window
-        // n`, else the most recently active one.
-        guard let target = options.session.captureController(in: manager),
-              let targetWindow = target.window
-        else {
+        // n`, else the most recently active one. (Bound in a block, so only
+        // `controller` and `window` keep it.)
+        if let target = options.session.captureController(in: manager), let targetWindow = target.window {
+            if target !== controller {
+                controller = target
+                window = targetWindow
+                if let section = options.sidebar {
+                    controller.showSidebar(section: section)
+                }
+                wait(0.3)
+            }
+        } else {
             FileHandle.standardError.write(Data("Snapshot has no window to capture.\n".utf8))
             exit(1)
         }
-        if target !== controller {
-            controller = target
-            window = targetWindow
-            if let section = options.sidebar {
-                controller.showSidebar(section: section)
-            }
+        // Settings, Websites and Profiles are built but never ordered in, so
+        // the harness puts nothing on screen. Websites shows the captured
+        // window's profile.
+        let settingsPreview = options.showSettings
+            ? SettingsWindowController(settingsStore: settingsStore, themeManager: themeManager)
+            : nil
+        let websitesSheet = options.showWebsites
+            ? manager.makeWebsitesSheet(selected: controller.profileID)
+            : nil
+        if let websitesSheet {
+            print("websites: profile picker \(websitesSheet.pickerTitle ?? "hidden")")
+        }
+        let profilesSheet = options.session.showProfilesSheet ? manager.makeProfilesSheet() : nil
+        if settingsPreview != nil || websitesSheet != nil || profilesSheet != nil {
             wait(0.3)
         }
 
@@ -549,7 +561,7 @@ enum SnapshotCommand {
             }
             print("sheet: " + texts.joined(separator: " | "))
         }
-        let captured = websitesSheet?.window ?? captureWindow
+        let captured = websitesSheet?.window ?? profilesSheet?.window ?? captureWindow
         guard let captureContent = captured.contentView else {
             FileHandle.standardError.write(Data("Snapshot could not find the window to capture.\n".utf8))
             exit(1)
@@ -567,7 +579,7 @@ enum SnapshotCommand {
 
         var pageImage: NSImage?
         if privacySheet == nil, !options.showSettings, !options.showHelp, !options.showPrompt,
-           websitesSheet == nil, !options.showFind, captureWindow === window,
+           websitesSheet == nil, profilesSheet == nil, !options.showFind, captureWindow === window,
            controller.selectedTab?.lifecycle.crashView == nil,
            let webView = controller.selectedTab?.webView {
             var finished = false
@@ -635,6 +647,30 @@ enum SnapshotCommand {
             exit(1)
         }
 
+        // The profiles' data stores live outside the temporary folder
+        // (WebKit's own); delete every profile so none is left behind. A
+        // window kept here would keep its profile's data store in use, so
+        // the captured one is swapped for a Default window first.
+        if controller.profileID != BrowserProfile.defaultID || controller.kind.isPrivate {
+            controller = manager.controllers.first { $0.profileID == BrowserProfile.defaultID && !$0.kind.isPrivate }
+                ?? manager.newWindow(profileID: BrowserProfile.defaultID)
+            window = controller.window ?? window
+        }
+        for profile in manager.profiles.profiles where !profile.isDefault {
+            var finished = false
+            autoreleasepool {
+                manager.deleteProfile(profile.id) { error in
+                    if let error {
+                        FileHandle.standardError.write(Data("Snapshot could not remove \(profile.name)'s data store: \(error)\n".utf8))
+                    }
+                    finished = true
+                }
+            }
+            let removalDeadline = Date().addingTimeInterval(15)
+            while !finished, Date() < removalDeadline {
+                _ = RunLoop.current.run(mode: .default, before: Date().addingTimeInterval(0.05))
+            }
+        }
         manager.isTerminating = true
         for open in manager.controllers {
             open.window?.orderOut(nil)
