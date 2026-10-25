@@ -54,22 +54,30 @@ no linter or formatter; match surrounding style.
   downloads. Window flags run in order on the active window:
   `--session <file>` restores a version 1 or 2 session (every window),
   `--new-window <url|start>` (repeatable) opens another window, cascaded,
-  `--activate-window n`, `--close-window` (⇧⌘W), `--reopen-closed` (⇧⌘T),
+  `--new-private-window <url|start>` (repeatable) a private one,
+  `--activate-window n`, `--close-window` (⇧⌘W), `--reopen-closed` (⇧⌘T: the
+  active private window's own stack, else the app-wide one),
   `--move-tab w:t:w2` (the move a dragged tab makes, selected in w2),
   `--move-to-new-window` (Window ▸ Move Tab to New Window), `--drop-tab
   w:t:w2:gap` (the tab list's drop handler; gap 0 is before the first tab),
   `--drop-outside w:t:x,y` (the drag source's handler for a drop no window
   takes, x,y on the harness screen as printed frames), `--merge-windows`,
-  `--click-page X,Y` (a real click into the active window's page, e.g. to open
-  a pop-up window), `--find-text <text>`, `--cli "<browser arguments>"` (one
-  CLI request through the router), `--start-download <url>` /
-  `--wait-downloads`, and `--print-windows` prints every window (frame, page
-  size, pop-up flag, find query, tabs with back/forward lists and zoom), the
-  recently-closed stack and the downloads as one JSON line with a
-  `printedAt` time to match a test server's log; `--capture-window n` picks
-  the window for the PNG (default: the active one). Layer backgrounds on views
-  unhidden after first display may not appear in the cached AppKit pass; that
-  is a harness limitation, not the app.
+  `--click-page [cmd-|shift-cmd-|middle-]X,Y` (a real click into the active
+  window's page, e.g. to open a pop-up window or a background tab),
+  `--find-text <text>`, `--cli "<browser arguments>"` (one CLI request
+  through the router), `--start-download <url>` / `--wait-downloads`, and
+  `--print-windows` prints every window (kind `normal`/`private`, CLI
+  number, frame, page size, pop-up flag, find query, tabs with back/forward
+  lists and zoom, its own closed tabs, the cookies and website data records
+  of its data store), the default store's cookies and records, the history
+  count and URLs, the favicon files, the windows the session would save,
+  how many data stores and web views of closed private windows are still
+  alive, the recently-closed stack and the downloads (with a `private` flag)
+  as one JSON line with a `printedAt` time to match a test server's log;
+  `--capture-window n` picks the window for the PNG (default: the active
+  one; numbers count private windows, unlike the CLI's). Layer backgrounds
+  on views unhidden after first display may not appear in the cached AppKit
+  pass; that is a harness limitation, not the app.
 - Verify real navigation and the agent surface against a running dev app:
 
   ```bash
@@ -95,24 +103,35 @@ no linter or formatter; match surrounding style.
 
 - `Browser/BrowserWindowManager.swift` — owned by `AppDelegate` (or the
   harness): creates and tracks every `BrowserWindowController` (key and most
-  recently active window, ⌘N with cascade, close onto the stack), owns the
-  app-wide stores, `BrowserDownloadManager`, Settings and Websites, the
-  recently-closed stack, Vimium's global marks, notification-click routing,
-  links from other apps and the debounced `session.json` (restore every window,
-  frames clamped to today's screens). `BrowserWindowPlacement` keeps harness
-  windows off-screen. `BrowserAutomationRouter` (in
-  `BrowserAutomationCommand.swift`) picks the CLI's window and runs
+  recently active window, ⌘N with cascade, ⇧⌘N private windows, close onto
+  the stack), owns the app-wide stores, `BrowserDownloadManager`, Settings and
+  Websites, the recently-closed stack, Vimium's global marks,
+  notification-click routing, links from other apps (`outsideTabbedController`:
+  never a private window) and the debounced `session.json` (restore every
+  normal window, frames clamped to today's screens). `BrowserWindowPlacement`
+  keeps harness windows off-screen. `BrowserAutomationRouter` (in
+  `BrowserAutomationCommand.swift`) picks the CLI's window from
+  `automationControllers` (private windows excluded) and runs
   `move-to-window`. `BrowserWindowManager+TabMove.swift` moves live tabs:
   `moveTab(_:from:to:at:select:)`, `moveTabToNewWindow`, `mergeAllWindows`,
-  `openPopupWindow`; `canMoveTab(from:to:)` is the one rule for which windows
-  may exchange tabs. `tabbedController` is the window new tabs and links from
-  other apps go to (never a pop-up window).
-- `Browser/BrowserObservers.swift` — multicast change observers: every store's
-  `changes.observe { }` returns a token; windows subscribe on creation and
-  cancel on close. `BrowserDownloadManager.swift` — the app's
-  `WKDownloadDelegate`; windows hand it new downloads, which outlive them.
-- `Browser/BrowserWindowController.swift` — one window: per-window stored state,
-  init, layout, wiring, settings and theme. Its behavior lives in extension files
+  `openPopupWindow`; `canMoveTab(from:to:)` (`BrowserTabMoveRule`) is the one
+  rule for which windows may exchange tabs: the same data context, never into
+  a pop-up. `tabbedController` is the window menu commands' new tabs go to
+  (never a pop-up window); `windowForNewTabs(from:)` the window a pop-up's
+  tabs go to (same data context).
+- `Browser/BrowserDataContext.swift` — `BrowserWindowKind` (normal or
+  private: every place a private window must not write asks it) and
+  `BrowserDataContext`, what a window's tabs read and write: the
+  `WKWebsiteDataStore`, site decisions, favicons and connection decisions.
+  Every normal window shares the manager's `defaultContext`; a private window
+  gets `makePrivate(over:)` (non-persistent store, in-memory site-decision
+  overlay and favicon store, its own certificate exceptions), shared with its
+  pop-ups and the windows its tabs move into and released with the last of
+  them. Profiles add one context per profile here.
+- `Browser/BrowserWindowController.swift` — one window: per-window stored state
+  (its `dataContext` and `kind`, a private window's own `closedTabs`), init,
+  layout, wiring, settings and theme (Folio Ink always for a private window).
+  Its behavior lives in extension files
   by concern: `+Tabs` (`attachTab`/`detachTab`: everything that binds a tab to a
   window), `+TabMove` (Move Tab to New Window, the drop and drag-out handlers
   the tab lists call, the find query a moved tab carries), `+Navigation`
@@ -132,12 +151,15 @@ no linter or formatter; match surrounding style.
   session (`windows[]` with frames, `recentlyClosed`; a version 1 file migrates
   to one window and is kept as `session.json.migrated`), the recently-closed
   stack of tabs and windows, and window frame clamping/cascading (and where a
-  dragged-out tab's window opens). `BrowserTabMove.swift` — Merge All Windows
-  ordering and pop-up window frames from `WKWindowFeatures`.
+  dragged-out tab's window opens). `BrowserTabMove.swift` — the tab-move rule,
+  Merge All Windows ordering and pop-up window frames from `WKWindowFeatures`.
 - `Browser/BrowserDataStores.swift` — history, bookmarks and downloads JSON
-  (`{version, entries}` envelopes, lossy decoding); `BrowserSitePermissionStore.swift`
-  — per-host allow/deny decisions (`site-permissions.json`); `BrowserFavicon.swift`
-  — favicon selection, fetch and cache.
+  (`{version, entries}` envelopes, lossy decoding; a private window's download
+  rows carry `privateContextID` and stay in memory);
+  `BrowserSitePermissionStore.swift` — per-host allow/deny decisions
+  (`site-permissions.json`; `init(overlaying:)` is a private window's
+  in-memory layer); `BrowserFavicon.swift` — favicon selection, fetch and
+  cache (`init(inMemoryOver:)` writes no files).
 - `Browser/BrowserPageScripts.swift` — every injected page script and the
   `sopranoWeb` message channel; messages are accepted only from the world (page or
   isolated) their type was written for.

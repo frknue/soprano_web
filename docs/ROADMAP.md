@@ -50,7 +50,16 @@ decision).
 - Split `BrowserWindowController` (1,696 lines, every delegate) into per-feature tab
   responders as these features land, the way DuckDuckGo's tab extensions do.
 - Private windows: one `WKWebsiteDataStore.nonPersistent()` per window, kept out of history,
-  favicons, session, closed tabs, snapshots, suggestions and the `browser` CLI.
+  favicons, session, closed tabs, snapshots, suggestions and the `browser` CLI. **Built on
+  `feat/stage-2` (private slice):** File ▸ New Private Window (`⇧⌘N`, Dock menu) with one
+  non-persistent store shared by the window, its pop-ups and the windows its tabs move into
+  (`BrowserDataContext`); no history, typed flags, session entry, favicon files, saved site
+  decisions (an in-memory overlay over the saved ones) or saved download records; its own
+  closed-tab stack and in-memory certificate exceptions; suggestions from bookmarks, its tabs
+  and search only; tabs never move between private and normal windows; links from other apps
+  and the CLI never reach it; Folio Ink with a "Private" mark in both tab layouts. "Snapshots"
+  (tab-sleep images) arrive with the sleep slice, which must keep a private tab's snapshot in
+  memory.
 - Profiles: `WKWebsiteDataStore(forIdentifier:)` (macOS 14) per profile, each with its own
   history, permissions and (later) extension controller.
 - Tab suspension: after idle time or memory pressure, keep a snapshot and `interactionState`

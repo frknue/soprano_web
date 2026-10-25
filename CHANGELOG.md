@@ -123,6 +123,20 @@ app.
   open as tabs next to the page.
 - `browser [--window n] [--tab m] move-to-window <k|new>` moves a tab to window
   k or a new window without selecting it or bringing anything forward.
+- File ▸ New Private Window (`⇧⌘N`, also in the Dock menu). A private window
+  and every tab and pop-up it opens share one cookie and site-data store that
+  is never written to disk and goes away with the window; each private window
+  has its own. It records no history, no session and no favicon files; new
+  camera, microphone, notification, pop-up and external-app answers last only
+  for the window; its downloads are listed there while it is open but not
+  saved; certificate exceptions and client certificates chosen there stay in
+  it. Files you download are kept.
+- A private window always uses Folio Ink, whatever the theme, and shows
+  **Private** in the tab rail header (or before the address field with
+  horizontal tabs); its title starts with "Private — ".
+- In a private window, `⇧⌘T` reopens that window's own closed tabs, and
+  closing the window is final: nothing goes onto History ▸ Recently Closed.
+  Its address bar suggests bookmarks, its tabs and searches, never history.
 
 ### Changed
 - Closing the last tab now closes the window, like Safari and Chrome. The app
@@ -134,8 +148,13 @@ app.
   window for the next launch instead.
 - Downloads belong to the app, not a window: they keep going when the window
   that started them closes, and every window's Downloads sidebar lists them.
-- Links from other apps open in the most recently used window, or in a new
-  window when none is open.
+- Links from other apps open in the most recently used normal window, or in a
+  new window when none is open; never in a private window.
+- Tabs move only between windows of the same kind: dragging, Merge All
+  Windows and `move-to-window` never mix private and normal tabs, and Move Tab
+  to New Window keeps a private tab private.
+- The `browser` CLI no longer sees private windows: `windows`, `--window`,
+  `tabs`, `move-to-window`, `open` and `new-tab` work on normal windows only.
 - `session.json` now holds every window; a session from an earlier version
   opens as one window and is kept as `session.json.migrated`.
 - Duplicating a tab keeps its history and places the copy next to the original.

@@ -64,6 +64,17 @@ family, not notarized.
    Duplicate, Mute, Copy Link, Move Tab to New Window and the close commands;
    **Window ▸ Merge All Windows** gathers every tab into the current window.
    A moved tab keeps its page, history, audio and zoom; nothing reloads.
+   `⇧⌘N` (or **New Private Window** in the Dock menu) opens a private window:
+   it always wears Folio Ink and says **Private** in the tab rail header (or
+   before the address field with horizontal tabs). Its tabs and the pop-ups
+   they open share one cookie and site-data store that lives only as long as
+   the window, separate from your normal windows and from every other private
+   window. Nothing it does is recorded: no history, no saved session, no
+   favicon files, no saved site decisions or download list entries. `⇧⌘T`
+   inside it reopens its own closed tabs; closing the window is final. The
+   address bar there suggests bookmarks, the window's tabs and searches, never
+   history. Tabs never move between private and normal windows, and links from
+   other apps always open in a normal window.
 3. `⌘`-click or middle-click a link to open it in a background tab, `⇧⌘`-click
    for a front tab. Pop-ups a page opens without a click are blocked; the
    **Pop-up blocked** button in the address bar opens them or allows the site.
@@ -107,7 +118,8 @@ the rest of Vimium's default map is implemented.
 | `⌘L` | Focus the address bar |
 | `⌘T` / `⌘W` | New / close tab |
 | `⌘N` / `⇧⌘W` | New / close window |
-| `⇧⌘T` | Reopen the last closed tab or window (History ▸ Recently Closed lists them all) |
+| `⇧⌘N` | New private window |
+| `⇧⌘T` | Reopen the last closed tab or window (History ▸ Recently Closed lists them all); in a private window, its own last closed tab |
 | `` ⌘` `` | Next window |
 | `⌃Tab` / `⌃⇧Tab` | Next / previous tab |
 | `⌘1`…`⌘8` / `⌘9` | Select tab 1–8 / last tab |
@@ -165,6 +177,9 @@ puts the window on History ▸ Recently Closed, like `⇧⌘W`. `move-to-window 
 moves the selected tab (or `--tab n`) to the end of window k, `move-to-window
 new` into a new window behind it; the tab keeps its page and history, nothing
 is selected or brought forward, and a window left without tabs closes.
+Private windows are invisible to the CLI: `windows` doesn't list them, window
+numbers skip them, and `--window`, `move-to-window`, `open` and `new-tab` never
+reach them.
 `snapshot` assigns ephemeral refs (`@e1`, `@e2`, …) to interactive elements for
 the next commands.
 `eval` runs an expression, or an async function body that uses `return`;
@@ -181,10 +196,16 @@ automation model, matching Soprano's browser pane.
 
 - Settings: `~/.config/soprano-web/settings.json` (written on first change).
 - Session (every window with its frame and tabs, and the recently-closed tabs
-  and windows; pop-up windows are not saved), history, bookmarks, downloads,
-  per-site decisions (`site-permissions.json`) and favicons:
+  and windows; pop-up and private windows are not saved), history, bookmarks,
+  downloads, per-site decisions (`site-permissions.json`) and favicons:
   `~/Library/Application Support/Soprano Web/`. A stage 1 `session.json` is
   kept as `session.json.migrated` when it upgrades.
+- A private window writes none of these files: its cookies and site data live
+  in a WebKit store that is never written to disk and goes with the window,
+  its new site decisions, favicons, closed tabs and download list entries stay
+  in memory, and certificate exceptions and client certificates chosen there
+  stay in that window. Files you download from it are the exception, and so
+  are bookmarks you add and settings you change there.
 - Downloads default to `~/Downloads`; Settings can choose another folder or ask
   each time.
 
@@ -197,8 +218,8 @@ you type to the search engine without cookies.
 
 ## Scope
 
-Soprano Web saves and restores every window and moves tabs between them.
-Deliberately not built yet: private windows, named profiles, Chrome/Safari
+Soprano Web saves and restores every window, moves tabs between them and has
+private windows. Deliberately not built yet: named profiles, Chrome/Safari
 extension installation, a password manager, and tab groups/sync. Web
 notifications work while their tab is open (no Web Push), and tab mute doesn't
 reach WebAudio. `docs/ROADMAP.md` lists what comes next and in which order;
@@ -219,9 +240,11 @@ engine.
 `swift test` covers address resolution, stores, settings, the session file and
 its version 1 migration, the recently-closed stack, window frames, tab drop
 positions, Merge All Windows ordering, pop-up window frames, store
-observers, start-page escaping and every WebKit delegate selector (a nearly
-matching Swift signature is accepted by the compiler but never called by
-WebKit, so the selectors are checked directly).
+observers, start-page escaping, what a private window keeps (site-decision
+overlay, in-memory favicons and downloads, suggestion sources, the tab-move
+rule) and every WebKit delegate selector (a nearly matching Swift signature is
+accepted by the compiler but never called by WebKit, so the selectors are
+checked directly).
 
 The window is fully programmatic AppKit, like the rest of the family: no
 storyboards, no xibs, no SwiftUI, no Electron.
