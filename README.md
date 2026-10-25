@@ -75,6 +75,15 @@ family, not notarized.
    address bar there suggests bookmarks, the window's tabs and searches, never
    history. Tabs never move between private and normal windows, and links from
    other apps always open in a normal window.
+   **Settings ▸ Profiles** adds profiles (Safari's model): each keeps its own
+   cookies and website data, History and per-site decisions, while bookmarks,
+   downloads, favicons, settings and Recently Closed are shared. `⌘N` opens a
+   window in the current window's profile; **File ▸ New Window With Profile**
+   (and the Dock menu) picks one. With more than one profile, every window
+   shows its profile's color and name in the tab rail header (or before the
+   address field); a private window opened from a profile's window says
+   **Private · Work** and keeps its own cookies apart from Work's and
+   Default's. Tabs move only between windows of one profile.
 3. `⌘`-click or middle-click a link to open it in a background tab, `⇧⌘`-click
    for a front tab. Pop-ups a page opens without a click are blocked; the
    **Pop-up blocked** button in the address bar opens them or allows the site.
@@ -93,8 +102,11 @@ family, not notarized.
 6. `⌘,` opens Settings: search engine and suggestions, homepage, theme,
    appearance, session restore, how long History keeps visits (**Remove history
    items**: after one day, one week, two weeks, one month, one year — the
-   default — or manually), downloads, autoplay, notifications, per-site
-   decisions (**Websites**), stored site data and the default browser.
+   default — or manually), downloads, autoplay, notifications, profiles
+   (**Profiles**: add, rename, color, delete), per-site decisions
+   (**Websites**), stored site data and the default browser. Websites and
+   Website Data show the current window's profile and switch profiles with a
+   picker; Clear Browsing Data clears the current window's profile and names it.
 
 The start page shows bookmarks and recent pages. `⌘=` / `⌘-` / `⌘0` zoom the
 page. `⇧⌘B` toggles the sidebar. Click the lock in the address bar for the
@@ -163,7 +175,7 @@ APP="/Applications/Soprano Web.app/Contents/MacOS/SopranoWeb"
 "$APP" browser --tab 2 url
 "$APP" browser windows                  # 1-based window list
 "$APP" browser --window 2 --tab 1 title # tab 1 of window 2
-"$APP" browser new-window https://webkit.org
+"$APP" browser new-window https://webkit.org [--profile Work]
 "$APP" browser --window 2 close-window
 "$APP" browser --window 1 --tab 3 move-to-window 2   # or: move-to-window new
 "$APP" browser vimium "gg"              # drive the normal-mode key layer
@@ -178,13 +190,17 @@ call `browser wait-for-load` before `snapshot`, `title` or `get` when the page
 must be loaded. `wait-for selector|url|text` waits for a CSS match, a URL
 substring or visible text, surviving navigations. Waits default to 10 seconds;
 `--timeout` takes up to 120. `--window n` picks a window by its 1-based number
-(`windows` lists them, `*` marking the default: the key window, else the most
-recently active one) and `--tab n` a tab of that window, without switching to
-either; otherwise the default window's selected tab is used. `close-window`
+(`windows` lists them with their tab count, profile and title, `*` marking the
+default: the key window, else the most recently active one) and `--tab n` a tab
+of that window, without switching to either; otherwise the default window's
+selected tab is used. `new-window --profile <name>` opens the window in that
+profile (an unknown name is an error); without it the window opens in the
+default window's profile. `close-window`
 puts the window on History ▸ Recently Closed, like `⇧⌘W`. `move-to-window k`
-moves the selected tab (or `--tab n`) to the end of window k, `move-to-window
-new` into a new window behind it; the tab keeps its page and history, nothing
-is selected or brought forward, and a window left without tabs closes.
+moves the selected tab (or `--tab n`) to the end of window k of the same
+profile, `move-to-window new` into a new window of its profile behind it; the
+tab keeps its page and history, nothing is selected or brought forward, and a
+window left without tabs closes.
 Private windows are invisible to the CLI: `windows` doesn't list them, window
 numbers skip them, and `--window`, `move-to-window`, `open` and `new-tab` never
 reach them.
@@ -203,17 +219,26 @@ automation model, matching Soprano's browser pane.
 ## Files
 
 - Settings: `~/.config/soprano-web/settings.json` (written on first change).
-- Session (every window with its frame and tabs, and the recently-closed tabs
-  and windows; pop-up and private windows are not saved), history, bookmarks,
-  downloads, per-site decisions (`site-permissions.json`) and favicons:
+- Session (every window with its frame, tabs and profile, and the
+  recently-closed tabs and windows; pop-up and private windows are not saved),
+  profiles (`profiles.json`), bookmarks, downloads and favicons:
   `~/Library/Application Support/Soprano Web/`. A stage 1 `session.json` is
-  kept as `session.json.migrated` when it upgrades.
+  kept as `session.json.migrated` when it upgrades; a window whose profile was
+  deleted reopens in Default.
+- The Default profile's History and per-site decisions
+  (`site-permissions.json`) sit in that folder too, and its cookies and website
+  data in WebKit's default store. Every other profile has its own folder,
+  `Profiles/<profile id>/`, with its `History.sqlite` and
+  `site-permissions.json`, and its own WebKit data store
+  (`WKWebsiteDataStore(forIdentifier:)` with the profile's id). Deleting a
+  profile removes its folder and its WebKit data store.
 - History: `History.sqlite` (SQLite in WAL mode, so `History.sqlite-wal` and
-  `-shm` sit next to it while the app runs) in the same folder, with one row per
-  address and one per visit. The stage 1 `history.json` moves into it once and
-  stays as `history.json.migrated`. Visits older than **Settings ▸ Remove
-  history items** are removed at launch and once a day; a damaged database is
-  kept as `History.sqlite.corrupt` and History starts over.
+  `-shm` sit next to it while the app runs) in the profile's folder, with one
+  row per address and one per visit. The stage 1 `history.json` moves into
+  Default's once and stays as `history.json.migrated`. Visits older than
+  **Settings ▸ Remove history items** are removed from every profile at launch
+  and once a day; a damaged database is kept as `History.sqlite.corrupt` and
+  History starts over.
 - A private window writes none of these files: its cookies and site data live
   in a WebKit store that is never written to disk and goes with the window,
   its new site decisions, favicons, closed tabs and download list entries stay
@@ -233,7 +258,8 @@ you type to the search engine without cookies.
 ## Scope
 
 Soprano Web saves and restores every window, moves tabs between them and has
-private windows. Deliberately not built yet: named profiles, Chrome/Safari
+private windows and profiles. Deliberately not built yet: Arc's Spaces (which
+will pick a profile), per-profile extensions, Chrome/Safari
 extension installation, a password manager, and tab groups/sync. Web
 notifications work while their tab is open (no Web Push, and never in private
 windows), and tab mute doesn't reach WebAudio. `docs/ROADMAP.md` lists what
@@ -257,9 +283,11 @@ its version 1 migration, the recently-closed stack, window frames, tab drop
 positions, Merge All Windows ordering, pop-up window frames, store
 observers, start-page escaping, what a private window keeps (site-decision
 overlay, in-memory favicons and downloads, suggestion sources, the tab-move
-rule) and every WebKit delegate selector (a nearly matching Swift signature is
-accepted by the compiler but never called by WebKit, so the selectors are
-checked directly).
+rule), profiles (`profiles.json`, each profile's folder and data store, windows
+and closed tabs reopening in their profile, the move rule across profiles,
+`new-window --profile`) and every WebKit delegate selector (a nearly matching
+Swift signature is accepted by the compiler but never called by WebKit, so the
+selectors are checked directly).
 
 The window is fully programmatic AppKit, like the rest of the family: no
 storyboards, no xibs, no SwiftUI, no Electron.

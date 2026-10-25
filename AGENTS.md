@@ -58,8 +58,14 @@ no linter or formatter; match surrounding style.
   site permissions, print/PDF/save and context menus, Clear Browsing Data and
   downloads. Window flags run in order on the active window:
   `--session <file>` restores a version 1 or 2 session (every window),
-  `--new-window <url|start>` (repeatable) opens another window, cascaded,
-  `--new-private-window <url|start>` (repeatable) a private one,
+  `--add-profile <name>` (repeatable) creates a profile before any window
+  opens, `--new-window <url|start>` (repeatable) opens another window,
+  cascaded, in the active window's profile or, after `--profile <name>`, in
+  that one, `--new-private-window <url|start>` (repeatable) a private one
+  over the active window's profile, `--delete-profile <name>` (Settings ▸
+  Profiles ▸ Delete, confirmed; prints the confirmation and whether the
+  data store left `WKWebsiteDataStore.allDataStoreIdentifiers` and the
+  folder is gone), `--profiles-sheet` (captures Settings ▸ Profiles),
   `--activate-window n`, `--close-window` (⇧⌘W), `--reopen-closed` (⇧⌘T: the
   active private window's own stack, else the app-wide one),
   `--move-tab w:t:w2` (the move a dragged tab makes, selected in w2),
@@ -71,16 +77,23 @@ no linter or formatter; match surrounding style.
   window's page, e.g. to open a pop-up window or a background tab),
   `--find-text <text>`, `--cli "<browser arguments>"` (one CLI request
   through the router), `--start-download <url>` / `--wait-downloads`, and
-  `--print-windows` prints every window (kind `normal`/`private`, CLI
-  number, frame, page size, pop-up flag, find query, tabs with back/forward
-  lists and zoom, its own closed tabs, the cookies and website data records
-  of its data store), the default store's cookies and records, the history
-  visit count and the newest 50 visits' URLs, the favicon files, the windows the session would save,
+  `--print-windows` prints every window (kind `normal`/`private`, profile
+  and the mark its chrome shows, CLI number, frame, page size, pop-up flag,
+  find query, tabs with back/forward lists and zoom, its own closed tabs, the
+  cookies and website data records of its data store and the store's
+  identifier), the default store's cookies and records, Default's history
+  visit count and newest 50 visits' URLs, every profile (folder, History
+  database, visits, saved site decisions), `allDataStoreIdentifiers`, the
+  `Profiles/` folders, the favicon files, the windows the session would save,
   how many data stores and web views of closed private windows are still
-  alive, the recently-closed stack and the downloads (with a `private` flag)
-  as one JSON line with a `printedAt` time to match a test server's log;
+  alive, the recently-closed stack (with each entry's profile) and the
+  downloads (with a `private` flag) as one JSON line with a `printedAt` time
+  to match a test server's log;
   `--capture-window n` picks the window for the PNG (default: the active
-  one; numbers count private windows, unlike the CLI's). Layer backgrounds
+  one; numbers count private windows, unlike the CLI's). The harness's
+  support folder is a temporary one, so profile folders go with it; it
+  deletes every profile it made before exiting, so no WebKit data store is
+  left behind. Layer backgrounds
   on views unhidden after first display may not appear in the cached AppKit
   pass; that is a harness limitation, not the app.
 - Verify real navigation and the agent surface against a running dev app:
@@ -108,33 +121,54 @@ no linter or formatter; match surrounding style.
 
 - `Browser/BrowserWindowManager.swift` — owned by `AppDelegate` (or the
   harness): creates and tracks every `BrowserWindowController` (key and most
-  recently active window, ⌘N with cascade, ⇧⌘N private windows, close onto
-  the stack), owns the app-wide stores, `BrowserDownloadManager`, Settings and
-  Websites, the recently-closed stack, Vimium's global marks,
-  notification-click routing, links from other apps (`outsideTabbedController`:
-  never a private window) and the debounced `session.json` (restore every
-  normal window, frames clamped to today's screens). It runs History's
-  retention pass (Settings ▸ Remove history items) at launch, once a day and
-  when the setting changes. `BrowserWindowPlacement`
+  recently active window, ⌘N with cascade in the active window's profile,
+  ⇧⌘N private windows over it, close onto the stack), owns the app-wide
+  stores, profiles, `BrowserDownloadManager`, Settings and its Websites,
+  Website Data and Profiles sheets, the recently-closed stack (entries reopen
+  in their profile's windows), Vimium's global marks, notification-click
+  routing, links from other apps (`outsideTabbedController`: never a private
+  window) and the debounced `session.json` (restore every normal window in
+  its profile, frames clamped to today's screens). It runs every profile's
+  History retention pass (Settings ▸ Remove history items) at launch, once a
+  day and when the setting changes. `BrowserWindowPlacement`
   keeps harness windows off-screen. `BrowserAutomationRouter` (in
   `BrowserAutomationCommand.swift`) picks the CLI's window from
-  `automationControllers` (private windows excluded) and runs
-  `move-to-window`. `BrowserWindowManager+TabMove.swift` moves live tabs:
-  `moveTab(_:from:to:at:select:)`, `moveTabToNewWindow`, `mergeAllWindows`,
-  `openPopupWindow`; `canMoveTab(from:to:)` (`BrowserTabMoveRule`) is the one
-  rule for which windows may exchange tabs: the same data context, never into
-  a pop-up. `tabbedController` is the window menu commands' new tabs go to
-  (never a pop-up window); `windowForNewTabs(from:)` the window a pop-up's
-  tabs go to (same data context).
+  `automationControllers` (private windows excluded), opens `new-window
+  --profile` and runs `move-to-window`. `BrowserWindowManager+TabMove.swift`
+  moves live tabs: `moveTab(_:from:to:at:select:)`, `moveTabToNewWindow`,
+  `mergeAllWindows`, `openPopupWindow`; `canMoveTab(from:to:)`
+  (`BrowserTabMoveRule`) is the one rule for which windows may exchange tabs:
+  the same data context (so the same profile), never into a pop-up.
+  `tabbedController` is the window menu commands' new tabs go to (never a
+  pop-up window); `windowForNewTabs(from:)` the window a pop-up's tabs go to
+  (same data context). `BrowserWindowManager+Profiles.swift` —
+  `context(for:)` (a profile's data context, made on first use; Default's or
+  a deleted profile's is `defaultContext`), `history(for:)`,
+  `windowMark(for:)` and `deleteProfile(_:completion:)` (closes the
+  profile's windows without Recently Closed, drops its closed entries,
+  removes it from `profiles.json`, then retries
+  `WKWebsiteDataStore.remove(forIdentifier:)` until its web views are
+  released and deletes its folder).
+- `Browser/BrowserProfiles.swift` — `BrowserProfile` (fixed Default id; its
+  folder, `<support>/Profiles/<id>/` for the others, and data-store
+  identifier), `BrowserProfileColor` (Folio tokens), `BrowserProfileList`
+  (`profiles.json`, tolerant decoding, unique names, next color),
+  `BrowserProfileStore` and `BrowserWindowMark` ("Private", the profile
+  when there are several, or "Private · Work"). `BrowserWindowMarkView` draws
+  the mark (color dot and eyebrow) in the rail header and before the address
+  field; `BrowserProfilePicker` is the Websites and Website Data sheets'
+  profile picker; `App/BrowserProfilesSheet.swift` is Settings ▸ Profiles.
 - `Browser/BrowserDataContext.swift` — `BrowserWindowKind` (normal or
   private: every place a private window must not write asks it) and
-  `BrowserDataContext`, what a window's tabs read and write: the
-  `WKWebsiteDataStore`, site decisions, favicons and connection decisions.
-  Every normal window shares the manager's `defaultContext`; a private window
-  gets `makePrivate(over:)` (non-persistent store, in-memory site-decision
-  overlay and favicon store, its own certificate exceptions), shared with its
-  pop-ups and the windows its tabs move into and released with the last of
-  them. Profiles add one context per profile here.
+  `BrowserDataContext`, what a window's tabs read and write: its
+  `profileID`, the profile's `WKWebsiteDataStore`, History and site
+  decisions, favicons and connection decisions. The normal windows of a
+  profile share the manager's context for it (`defaultContext` for
+  Default); a private window gets `makePrivate(over:)` the context of the
+  window it was opened from (non-persistent store, in-memory site-decision
+  overlay and favicon store, its own certificate exceptions; the profile's
+  History is never written), shared with its pop-ups and the windows its
+  tabs move into and released with the last of them.
 - `Browser/BrowserWindowController.swift` — one window: per-window stored state
   (its `dataContext` and `kind`, a private window's own `closedTabs`), init,
   layout, wiring, settings and theme (Folio Ink always for a private window).
@@ -180,9 +214,9 @@ no linter or formatter; match surrounding style.
   (`{version, entries}` envelopes, lossy decoding; a private window's download
   rows carry `privateContextID` and stay in memory);
   `BrowserSitePermissionStore.swift` — per-host allow/deny decisions
-  (`site-permissions.json`; `init(overlaying:)` is a private window's
-  in-memory layer); `BrowserFavicon.swift` — favicon selection, fetch and
-  cache (`init(inMemoryOver:)` writes no files).
+  (`site-permissions.json` in each profile's folder; `init(overlaying:)` is a
+  private window's in-memory layer); `BrowserFavicon.swift` — favicon
+  selection, fetch and shared cache (`init(inMemoryOver:)` writes no files).
 - `Browser/BrowserPageScripts.swift` — every injected page script and the
   `sopranoWeb` message channel; messages are accepted only from the world (page or
   isolated) their type was written for.

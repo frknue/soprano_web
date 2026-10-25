@@ -61,7 +61,24 @@ decision).
   (tab-sleep images) arrive with the sleep slice, which must keep a private tab's snapshot in
   memory.
 - Profiles: `WKWebsiteDataStore(forIdentifier:)` (macOS 14) per profile, each with its own
-  history, permissions and (later) extension controller.
+  history, permissions and (later) extension controller. **Built on `feat/stage-2`
+  (profiles slice):** `profiles.json` (Default always first, renamable, never deletable);
+  Default keeps `WKWebsiteDataStore.default()`, `History.sqlite` and
+  `site-permissions.json` in the support folder, every other profile gets
+  `WKWebsiteDataStore(forIdentifier: <id>)` and `Profiles/<id>/` with its own History and
+  site decisions; one data context per profile shared by its windows; bookmarks,
+  downloads, favicons, settings and Recently Closed shared (entries reopen in their
+  profile); ⌘N in the current window's profile, File ▸ New Window With Profile and the
+  Dock menu; private windows layer over the profile they were opened from ("Private ·
+  Work"); session v2 stores each window's profile (a deleted one restores in Default);
+  History sidebar, suggestions, start page, Settings ▸ Websites and Website Data (with a
+  picker), Clear Browsing Data and the daily retention pass follow the profile; Settings ▸
+  Profiles adds, renames, recolors and deletes (closing its windows, dropping its closed
+  entries, `WKWebsiteDataStore.remove(forIdentifier:)` once its web views are gone, and
+  its folder); the color mark and name in the rail header or before the address field;
+  tabs move and merge only within a profile; `browser windows` shows profiles and
+  `new-window --profile <name>`. Left: Arc's Space→profile mapping (stage 3) and
+  per-profile extension controllers (stage 4).
 - Tab suspension: after idle time or memory pressure, keep a snapshot and `interactionState`
   and release the web view; skip tabs playing audio, capturing, or on a keep-alive list.
 - History in SQLite with frecency for suggestions; Arc and Chrome history imports exceed the

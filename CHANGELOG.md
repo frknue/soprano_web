@@ -143,6 +143,25 @@ app.
 - The History sidebar (`⌘Y`) groups visits under Today, Yesterday, the weekday
   for the rest of the week, then the date, shows each visit's time, and loads
   older days as you scroll.
+- Profiles: Settings ▸ Profiles lists your profiles with their color and
+  name, and adds, renames, recolors and deletes them (Default can be renamed
+  but not deleted). Each profile keeps its own cookies and website data,
+  History and per-site decisions; bookmarks, downloads, favicons, settings and
+  Recently Closed are shared, and a closed tab or window reopens in its
+  profile. File ▸ New Window (`⌘N`) opens in the current window's profile;
+  File ▸ New Window With Profile and the Dock menu pick one. Deleting a
+  profile asks first, closes its windows (they don't go onto Recently
+  Closed) and removes its history, cookies, website data and site decisions
+  from this Mac.
+- With more than one profile, every window shows its profile's color and name
+  in the tab rail header, or before the address field with horizontal tabs. A
+  private window opened from a profile's window layers over that profile and
+  says "Private · Work"; its cookies stay apart from every profile's.
+- Settings ▸ Websites and Settings ▸ Website Data show the current window's
+  profile and have a profile picker when there are several. History ▸ Clear
+  Browsing Data… (`⇧⌘⌫`) clears the current window's profile and says which.
+- `browser new-window [url] --profile <name>` opens a window in that profile;
+  an unknown name is an error.
 
 ### Changed
 - History lives in a SQLite database (`History.sqlite`) instead of
@@ -172,6 +191,12 @@ app.
   to New Window keeps a private tab private.
 - The `browser` CLI no longer sees private windows: `windows`, `--window`,
   `tabs`, `move-to-window`, `open` and `new-tab` work on normal windows only.
+- Tabs move only between windows of the same profile: dragging, Merge All
+  Windows (which gathers the current profile's windows) and `move-to-window`
+  never mix profiles, and Move Tab to New Window keeps the tab's profile.
+- `browser windows` lists each window's profile between its tab count and
+  title.
+- Settings ▸ Remove history items applies to every profile's History.
 - `session.json` now holds every window; a session from an earlier version
   opens as one window and is kept as `session.json.migrated`.
 - Duplicating a tab keeps its history and places the copy next to the original.
