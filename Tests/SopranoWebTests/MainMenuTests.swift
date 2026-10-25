@@ -41,4 +41,54 @@ struct MainMenuTests {
         #expect(stop?.action == NSSelectorFromString("stop"))
         #expect(items.first { $0.title == "Reload" }?.action != stop?.action)
     }
+
+    @Test func newWindowIsCommandNAndHistoryListsRecentlyClosed() {
+        _ = NSApplication.shared
+        let menu = MainMenuController { nil }
+        menu.install()
+        let items = (NSApp.mainMenu?.items ?? []).compactMap(\.submenu).flatMap(\.items)
+        let newWindow = items.filter { $0.keyEquivalent == "n" && $0.keyEquivalentModifierMask == [.command] }
+        #expect(newWindow.map(\.title) == ["New Window"])
+        let reopen = items.filter { $0.keyEquivalent == "t" && $0.keyEquivalentModifierMask == [.command, .shift] }
+        #expect(reopen.count == 1)
+        let history = NSApp.mainMenu?.item(withTitle: "History")?.submenu
+        #expect(history?.item(withTitle: "Recently Closed")?.submenu != nil)
+    }
+
+    @Test func newPrivateWindowIsShiftCommandN() {
+        _ = NSApplication.shared
+        let menu = MainMenuController { nil }
+        menu.install()
+        let items = (NSApp.mainMenu?.items ?? []).compactMap(\.submenu).flatMap(\.items)
+        let matches = items.filter { $0.keyEquivalent == "n" && $0.keyEquivalentModifierMask == [.command, .shift] }
+        #expect(matches.map(\.title) == ["New Private Window"])
+    }
+
+    @Test func windowMenuMovesAndMergesTabs() {
+        _ = NSApplication.shared
+        let menu = MainMenuController { nil }
+        menu.install()
+        let window = NSApp.mainMenu?.item(withTitle: "Window")?.submenu
+        #expect(window?.item(withTitle: "Move Tab to New Window") != nil)
+        #expect(window?.item(withTitle: "Merge All Windows") != nil)
+    }
+
+    @Test func newWindowWithProfileIsHiddenWithOneProfile() {
+        _ = NSApplication.shared
+        let menu = MainMenuController { nil }
+        menu.install()
+        let file = NSApp.mainMenu?.item(withTitle: "File")?.submenu
+        let item = file?.item(withTitle: "New Window With Profile")
+        #expect(item?.submenu != nil)
+        #expect(item?.isHidden == true)
+    }
+
+    @Test func bookmarksMenuStartsWithItsCommands() {
+        _ = NSApplication.shared
+        let menu = MainMenuController { nil }
+        let bookmarks = menu.buildMenu().item(withTitle: "Bookmarks")?.submenu
+        #expect(bookmarks?.items.map(\.title) == ["Bookmark This Page", "Show Bookmarks"])
+        #expect(bookmarks?.items.first?.keyEquivalent == "d")
+        #expect(bookmarks?.items.last?.keyEquivalentModifierMask == [.command, .option])
+    }
 }

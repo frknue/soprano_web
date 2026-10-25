@@ -92,13 +92,160 @@ app.
   selected.
 - `browser wait-for selector|url|text <value>` and `--timeout` (up to 120 s) on
   `wait-for` and `wait-for-load`.
+- Multiple windows: File ▸ New Window (`⌘N`) opens a window with a start tab,
+  one step down and right of the current one; the Dock icon's menu has New
+  Window, and clicking the Dock icon with no window open opens one. Every
+  window is restored at launch where it was (moved onto a screen that is still
+  connected), each loading only its selected tab. Window titles follow the
+  selected tab, so Window, Mission Control and `` ⌘` `` show them.
+- History ▸ Recently Closed lists the last 20 closed tabs and windows, newest
+  first, and reopens any of them. `⇧⌘T` reopens the most recent one: a tab goes
+  back into its window at its old place (or into the current window when that
+  one is closed), a window comes back with all its tabs and their history.
+- `browser windows` lists the open windows; `--window n` works on window n
+  (with `--tab n` counting inside it) without bringing it forward;
+  `browser new-window [url]` and `browser close-window [n]`.
+- Window ▸ Move Tab to New Window, also in the tab's context menu and on
+  Vimium `W`: the tab moves as it is (page, back/forward history, playing
+  audio, zoom and an open find query) into a new window one step down and
+  right; the old window closes when it was its last tab.
+- Drag a tab out of the tab strip or the vertical rail: drop it on another
+  window's tabs to move it there at that spot, or anywhere else to open it in
+  a new window under the pointer. Dragging a window's only tab out leaves no
+  empty window behind.
+- Window ▸ Merge All Windows moves every tab of the other windows into the
+  current window, after its own tabs, and closes the emptied windows.
+- Sign-in and payment pop-ups a page opens with a size (`window.open` with
+  `width`/`height`) open in a small window of that size, at the requested
+  position, with back/forward/reload and the address; the page that opened it
+  can talk to it, and it closes itself when done. Pop-up windows are not
+  restored at launch or listed in Recently Closed. Links without a size still
+  open as tabs next to the page.
+- `browser [--window n] [--tab m] move-to-window <k|new>` moves a tab to window
+  k or a new window without selecting it or bringing anything forward.
+- File ▸ New Private Window (`⇧⌘N`, also in the Dock menu). A private window
+  and every tab and pop-up it opens share one cookie and site-data store that
+  is never written to disk and goes away with the window; each private window
+  has its own. It records no history, no session and no favicon files; sites
+  in it can't send notifications; new camera, microphone, pop-up and
+  external-app answers last only for the window; its downloads are listed there
+  while it is open but not saved; certificate exceptions and client
+  certificates chosen there stay in it. Files you download are kept.
+- A private window always uses Folio Ink, whatever the theme, and shows
+  **Private** in the tab rail header (or before the address field with
+  horizontal tabs); its title starts with "Private — ".
+- In a private window, `⇧⌘T` reopens that window's own closed tabs, and
+  closing the window is final: nothing goes onto History ▸ Recently Closed.
+  Its address bar suggests bookmarks, its tabs and searches, never history.
+- Settings ▸ Remove history items: after one day, one week, two weeks, one
+  month, one year (the default) or manually. Older visits are removed at launch
+  and once a day.
+- The History sidebar (`⌘Y`) groups visits under Today, Yesterday, the weekday
+  for the rest of the week, then the date, shows each visit's time, and loads
+  older days as you scroll.
+- Profiles: Settings ▸ Profiles lists your profiles with their color and
+  name, and adds, renames, recolors and deletes them (Default can be renamed
+  but not deleted). Each profile keeps its own cookies and website data,
+  History and per-site decisions; bookmarks, downloads, favicons, settings and
+  Recently Closed are shared, and a closed tab or window reopens in its
+  profile. File ▸ New Window (`⌘N`) opens in the current window's profile;
+  File ▸ New Window With Profile and the Dock menu pick one. Deleting a
+  profile asks first, closes its windows (they don't go onto Recently
+  Closed) and removes its history, cookies, website data and site decisions
+  from this Mac.
+- With more than one profile, every window shows its profile's color and name
+  in the tab rail header, or before the address field with horizontal tabs. A
+  private window opened from a profile's window layers over that profile and
+  says "Private · Work"; its cookies stay apart from every profile's.
+- Settings ▸ Websites and Settings ▸ Website Data show the current window's
+  profile and have a profile picker when there are several. History ▸ Clear
+  Browsing Data… (`⇧⌘⌫`) clears the current window's profile and says which.
+- `browser new-window [url] --profile <name>` opens a window in that profile;
+  an unknown name is an error.
+- Bookmark folders. Sidebar ▸ Bookmarks (`⌥⌘B`) is an outline: click the
+  triangle (or double-click a folder) to open it, and drag bookmarks and
+  folders to reorder them or move them into and out of folders. Folders
+  stay open as you left them. Right-click for Open, Open in New Tab, Open All
+  in Tabs, Copy Link, Edit Bookmark… (name and address), Rename…, New Folder
+  and Delete (a folder with bookmarks asks first); New Folder also sits at
+  the bottom of the sidebar. Searching lists matching bookmarks with the
+  folder they're in.
+- `⌘D` and the star open a small popover: a new bookmark goes into the folder
+  you used last, and the popover lets you rename it, pick another folder or
+  remove it (Return or Done saves, Esc closes). On a bookmarked page the
+  same popover edits the bookmark.
+- The Bookmarks menu lists your bookmarks, with a submenu per folder that
+  ends in Open All in Tabs; Show Bookmarks (`⌥⌘B`) moved there from History.
+- The start page shows top-level folders as cards that open in place to
+  list their bookmarks.
+- Tab sleep: Settings ▸ Put inactive tabs to sleep (never, after 15 minutes,
+  after 1 hour — the default — or after 4 hours). A sleeping tab keeps its
+  title, favicon, address and back/forward history, shows dimmed in the strip
+  and the rail, and reloads when you select it (showing its last picture while
+  it loads), when a `browser` command targets it or when it moves to another
+  window. Under memory pressure, tabs idle 30 minutes (warning) or 5 minutes
+  (critical) sleep early. The selected tab of each window, tabs playing audio,
+  using the camera, microphone or screen, loading, showing a dialog, sheet or
+  sign-in prompt, pages with unsaved input, pop-up windows and sites you keep
+  awake never sleep.
+- Right-click a tab ▸ Keep This Site Awake; Settings ▸ Websites lists the
+  sites you keep awake, with Remove.
+- Zoom is remembered per site: `⌘+` / `⌘-` change the current site's zoom and
+  every open tab of that site in the same profile follows; `⌘0` resets the
+  site. Settings ▸ Default page zoom (50–300%). A percentage in the address
+  field shows a site's zoom when it differs from the default; click it to
+  reset. Settings ▸ Websites lists each site's zoom with Remove. Private
+  windows keep zoom changes until they close.
+- A built-in ad and tracker blocker: Settings ▸ Block ads and trackers (on by
+  default) downloads EasyList and EasyPrivacy, keeps them up to date (checked
+  at launch and daily, downloaded again when a week old) and blocks their ads
+  and trackers in every tab of every window, private windows and pop-ups
+  included. The row shows the rule count and when the lists were last
+  updated, and Update Now checks right away. Turning it off or on applies to
+  new page loads; open pages don't reload.
+- Click the lock in the address bar ▸ Block ads on this site turns the blocker
+  off (or back on) for that site and reloads its open tabs. Settings ▸ Websites
+  lists those sites ("Ad blocking: Off") with Remove; private windows keep the
+  switch until they close, and each profile has its own.
 
 ### Changed
+- History lives in a SQLite database (`History.sqlite`) instead of
+  `history.json` and keeps every visit, not just the last 5,000. Your existing
+  history moves over on first launch; the old file stays as
+  `history.json.migrated`.
+- Zoom steps follow Safari (50, 75, 85, 100, 115, 125, 150, 175, 200, 250,
+  300%); the per-tab zoom stored in the session is no longer used.
+- Address-bar suggestions rank pages by frecency: how often and how recently
+  you visited, with visits you typed counting three times and how you reached
+  the page (link, typed, reload, back/forward, form) weighed in. Suggestions
+  stay instant with a large history.
+- Remove from History (right-click a visit in the History sidebar) removes
+  every visit to that address; the sidebar search matches every word in titles
+  and addresses.
 - Closing the last tab now closes the window, like Safari and Chrome. The app
   keeps running in the Dock; reopening it creates a fresh start tab.
 - The command palette moved from `⌘P` to `⇧⌘P`; `⌘9` selects the last tab.
-- Close Window (`⇧⌘W`) and the window's close button close all of its tabs
-  (reopen them with `⇧⌘T`) instead of hiding the window with the pages loaded.
+- Close Window (`⇧⌘W`), the window's close button and closing a window's last
+  tab put the whole window on History ▸ Recently Closed as one entry; `⇧⌘T`
+  reopens it with its tabs, selection and frame. Quitting (`⌘Q`) keeps every
+  window for the next launch instead.
+- Downloads belong to the app, not a window: they keep going when the window
+  that started them closes, and every window's Downloads sidebar lists them.
+- Links from other apps open in the most recently used normal window, or in a
+  new window when none is open; never in a private window.
+- Tabs move only between windows of the same kind: dragging, Merge All
+  Windows and `move-to-window` never mix private and normal tabs, and Move Tab
+  to New Window keeps a private tab private.
+- The `browser` CLI no longer sees private windows: `windows`, `--window`,
+  `tabs`, `move-to-window`, `open` and `new-tab` work on normal windows only.
+- Tabs move only between windows of the same profile: dragging, Merge All
+  Windows (which gathers the current profile's windows) and `move-to-window`
+  never mix profiles, and Move Tab to New Window keeps the tab's profile.
+- `browser windows` lists each window's profile between its tab count and
+  title.
+- Settings ▸ Remove history items applies to every profile's History.
+- `session.json` now holds every window; a session from an earlier version
+  opens as one window and is kept as `session.json.migrated`.
 - Duplicating a tab keeps its history and places the copy next to the original.
 - `Esc` in the address bar first restores the page's address, then returns to
   the page.
@@ -109,6 +256,10 @@ app.
   your user can open; `--tab n` works on tab n without switching to it; `eval`
   awaits Promises, accepts `return`, prints JSON and fails with the JavaScript
   error.
+- Address-bar suggestions and Vimium's `b` / `B` include bookmarks in every
+  folder; Vimium shows each bookmark's folder. Your bookmarks move into the
+  new folder format on first launch; the old file stays as
+  `bookmarks.json.migrated`.
 
 ### Fixed
 - `⌘L` (File → Open Location…) now focuses and selects the address bar; the
@@ -122,5 +273,9 @@ app.
 - Closing a background tab keeps the selected tab selected.
 - A page opened right after the start page is recorded in history, and a page
   without a title no longer keeps the "New Tab" title.
+- Single-page apps (pages that change the address with `history.pushState` or a
+  `#/` route) now add a History visit for each address they stay on for a
+  second; jumping to an anchor on the page does not.
 - Muting a tab also mutes media that starts later and stays muted after
   navigating.
+- Typing in the sidebar's search field filters the list as you type.

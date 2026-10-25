@@ -48,6 +48,9 @@ enum SnapshotCommand {
         var captureStatus: BrowserCaptureStatus?
         var pageTools = SnapshotPageTools.Options()
         var privacy = PrivacyOptions()
+        var bookmarks = BookmarkOptions()
+        var sleep = SnapshotSleepOptions()
+        var blocker = SnapshotBlockerOptions()
     }
 
     enum OptionError: Error, CustomStringConvertible {
@@ -84,6 +87,9 @@ enum SnapshotCommand {
                                [--capture camera|microphone|camera-muted-mic|microphone-muted]
     \(SnapshotPageTools.usage)
     \(privacyUsage)
+    \(bookmarksUsage)
+    \(SnapshotSleepOptions.usage)
+    \(SnapshotBlockerOptions.usage)
     """
 
     nonisolated static func parse(_ arguments: [String]) throws -> Options {
@@ -220,7 +226,11 @@ enum SnapshotCommand {
             case _ where SnapshotPageTools.flags.contains(option):
                 SnapshotPageTools.parse(option, try value(option), into: &options.pageTools)
             default:
-                guard try parsePrivacy(option, value: { try value(option) }, into: &options.privacy) else {
+                guard try parseBookmarks(option, value: { try value(option) }, into: &options.bookmarks)
+                    || parsePrivacy(option, value: { try value(option) }, into: &options.privacy)
+                    || SnapshotSleepOptions.parse(option, value: { try value(option) }, into: &options.sleep)
+                    || SnapshotBlockerOptions.parse(option, value: { try value(option) }, into: &options.blocker)
+                else {
                     throw OptionError.unknownOption(option)
                 }
             }
@@ -234,10 +244,14 @@ enum SnapshotCommand {
     private static func wait(_ seconds: Double) {
         let deadline = Date().addingTimeInterval(seconds)
         while Date() < deadline {
-            _ = RunLoop.current.run(
-                mode: .default,
-                before: min(deadline, Date().addingTimeInterval(0.05))
-            )
+            // Each turn drains its pool, as the app's event loop does, so a
+            // released web view (a tab falling asleep) really goes away.
+            autoreleasepool {
+                _ = RunLoop.current.run(
+                    mode: .default,
+                    before: min(deadline, Date().addingTimeInterval(0.05))
+                )
+            }
         }
     }
 
@@ -253,7 +267,9 @@ enum SnapshotCommand {
         let app = NSApplication.shared
         app.setActivationPolicy(.accessory)
 
-        let temp = FileManager.default.temporaryDirectory
+        // `--support-dir` keeps the folder for a second run; otherwise a
+        // temporary one goes away at the end.
+        let temp = options.sleep.supportDirectory ?? FileManager.default.temporaryDirectory
             .appendingPathComponent("soprano-web-snapshot-\(UUID().uuidString)", isDirectory: true)
         try? FileManager.default.createDirectory(at: temp, withIntermediateDirectories: true)
         let settings = BrowserSettings(
@@ -275,18 +291,20 @@ enum SnapshotCommand {
         if let autoplay = options.autoplay {
             settingsStore.update { $0.autoplay = autoplay }
         }
+        options.sleep.apply(to: settingsStore)
         let themeManager = ThemeManager(themeId: options.theme, appearance: .system)
-        let history = BrowserHistoryStore(url: temp.appendingPathComponent("history.json"))
-        let bookmarks = BrowserBookmarkStore(url: temp.appendingPathComponent("bookmarks.json"))
-        let downloads = BrowserDownloadStore(url: temp.appendingPathComponent("downloads.json"))
-        let sitePermissions = BrowserSitePermissionStore(
-            url: temp.appendingPathComponent("site-permissions.json")
-        )
-        if let host = options.allowPopups {
-            sitePermissions.set(.popups, .allow, host: host)
+        let bookmarksURL = temp.appendingPathComponent("bookmarks.json")
+        prepareBookmarksFile(options.bookmarks, at: bookmarksURL)
+        let bookmarks = BrowserBookmarkStore(url: bookmarksURL)
+        if options.bookmarks.seedTree {
+            seedBookmarkTree(bookmarks)
         }
-        for seed in options.sitePermissions {
-            sitePermissions.set(seed.permission, seed.decision, host: seed.host)
+        let downloads = BrowserDownloadStore(url: temp.appendingPathComponent("downloads.json"))
+        let profiles = BrowserProfileStore(url: temp.appendingPathComponent("profiles.json"))
+        // `--add-profile`: the profiles exist before any window opens.
+        for name in options.session.profilesToAdd {
+            let profile = profiles.add(name: name)
+            print("profile: added \(profile.name) \(profile.id.uuidString) (\(profile.color.rawValue))")
         }
         let session = BrowserSessionStore(url: temp.appendingPathComponent("session.json"))
         options.session.prepare(sessionURL: session.url)
@@ -295,27 +313,37 @@ enum SnapshotCommand {
         let defaults = UserDefaults(suiteName: defaultsSuite)!
         defaults.set(options.collapsed, forKey: BrowserWindowController.verticalSidebarCollapsedKey)
 
-        let controller = BrowserWindowController(
+        // Every window the manager makes stays off every display and is
+        // never ordered front or made key. The temporary folder is the
+        // support folder: Default's files, and `Profiles/<id>/`.
+        let manager = BrowserWindowManager(
             themeManager: themeManager,
             settingsStore: settingsStore,
-            history: history,
+            profiles: profiles,
+            supportDirectory: temp,
             bookmarks: bookmarks,
             downloads: downloads,
-            sitePermissions: sitePermissions,
             faviconStore: BrowserFaviconStore(directory: temp.appendingPathComponent("Favicons", isDirectory: true)),
             sessionStore: session,
             persistsSession: false,
-            frame: NSRect(origin: .zero, size: options.size),
-            defaults: defaults
+            placement: .offscreen(size: options.size),
+            defaults: defaults,
+            filterLists: options.blocker.sources
         )
-        guard let window = controller.window else {
+        options.sleep.apply(to: manager)
+        let history = manager.defaultContext.history
+        let sitePermissions = manager.defaultContext.sitePermissions
+        if let host = options.allowPopups {
+            sitePermissions.set(.popups, .allow, host: host)
+        }
+        for seed in options.sitePermissions {
+            sitePermissions.set(seed.permission, seed.decision, host: seed.host)
+        }
+        manager.restoreSession()
+        guard var controller = manager.controllers.first, var window = controller.window else {
             FileHandle.standardError.write(Data("Snapshot could not create the window.\n".utf8))
             exit(1)
         }
-        window.setContentSize(options.size)
-        (window as? BrowserWindow)?.allowsOffscreenFrame = true
-        window.setFrameOrigin(NSPoint(x: -20_000, y: -20_000))
-        window.orderBack(nil)
         window.displayIfNeeded()
 
         if options.focusAddress {
@@ -358,8 +386,9 @@ enum SnapshotCommand {
         }
         if let tab = controller.selectedTab {
             if let muteAfter = options.muteAfter {
+                let muting = controller
                 Timer.scheduledTimer(withTimeInterval: muteAfter, repeats: false) { _ in
-                    MainActor.assumeIsolated { controller.toggleMute(tab) }
+                    MainActor.assumeIsolated { muting.toggleMute(tab) }
                 }
             }
             if options.traceAudio {
@@ -384,17 +413,11 @@ enum SnapshotCommand {
         runPrivacyScenario(options.privacy, controller: controller, wait: options.wait)
 
         if let section = options.sidebar {
-            if history.entries.isEmpty {
-                history.record(url: "https://example.com", title: "Example Domain")
-                history.record(url: "https://www.iana.org/domains/reserved", title: "IANA-managed Reserved Domains")
-                history.record(url: "https://webkit.org", title: "WebKit")
+            if history.visitCount() == 0 {
+                history.importVisits(Self.seededHistory(now: Date()))
             }
-            if bookmarks.bookmarks.isEmpty {
-                bookmarks.toggle(url: "https://example.com", title: "Example Domain")
-                bookmarks.toggle(url: "https://webkit.org", title: "WebKit")
-                bookmarks.toggle(url: "https://developer.apple.com/documentation/webkit", title: "WebKit Documentation")
-            }
-            if downloads.records.isEmpty {
+            seedBookmarkTree(bookmarks)
+            if downloads.records.isEmpty, !options.session.startsDownloads {
                 let finished = downloads.begin(
                     url: "https://example.com/files/report.pdf",
                     filename: "report.pdf"
@@ -413,24 +436,20 @@ enum SnapshotCommand {
             }
             controller.showSidebar(section: section)
         }
+        if options.bookmarks.isActive {
+            runBookmarkScenario(options.bookmarks, controller: controller)
+        }
         if options.showFind {
             controller.showFindBar()
         }
-        // Settings and Websites are built but never ordered in, so the
-        // harness puts nothing on screen.
-        let settingsPreview = options.showSettings
-            ? SettingsWindowController(settingsStore: settingsStore, themeManager: themeManager)
-            : nil
-        let websitesSheet = options.showWebsites
-            ? BrowserWebsitesSheet(store: sitePermissions, theme: themeManager.currentTheme)
-            : nil
-
         let deadline = Date().addingTimeInterval(options.wait)
         while Date() < deadline {
-            _ = RunLoop.current.run(
-                mode: .default,
-                before: min(deadline, Date().addingTimeInterval(0.05))
-            )
+            autoreleasepool {
+                _ = RunLoop.current.run(
+                    mode: .default,
+                    before: min(deadline, Date().addingTimeInterval(0.05))
+                )
+            }
         }
         if let credentials = options.signIn {
             submitSignIn(credentials, controller: controller)
@@ -448,7 +467,43 @@ enum SnapshotCommand {
             pressSheetButton(title, window: window)
             wait(options.wait)
         }
-        options.session.run(controller, wait: options.wait)
+        options.session.run(manager, wait: options.wait)
+        // Everything below works on the captured window: `--capture-window
+        // n`, else the most recently active one. (Bound in a block, so only
+        // `controller` and `window` keep it.)
+        if let target = options.session.captureController(in: manager), let targetWindow = target.window {
+            if target !== controller {
+                controller = target
+                window = targetWindow
+                if let section = options.sidebar {
+                    controller.showSidebar(section: section)
+                }
+                wait(0.3)
+            }
+        } else {
+            FileHandle.standardError.write(Data("Snapshot has no window to capture.\n".utf8))
+            exit(1)
+        }
+        // Settings, Websites and Profiles are built but never ordered in, so
+        // the harness puts nothing on screen. Websites shows the captured
+        // window's profile.
+        let settingsPreview = options.showSettings
+            ? SettingsWindowController(
+                settingsStore: settingsStore,
+                themeManager: themeManager,
+                contentBlocker: manager.contentBlocker
+            )
+            : nil
+        let websitesSheet = options.showWebsites
+            ? manager.makeWebsitesSheet(selected: controller.profileID)
+            : nil
+        if let websitesSheet {
+            print("websites: profile picker \(websitesSheet.pickerTitle ?? "hidden")")
+        }
+        let profilesSheet = options.session.showProfilesSheet ? manager.makeProfilesSheet() : nil
+        if settingsPreview != nil || websitesSheet != nil || profilesSheet != nil {
+            wait(0.3)
+        }
 
         if options.focusAddress, let tab = controller.selectedTab {
             let editor = controller.toolbar.addressEditor
@@ -505,6 +560,7 @@ enum SnapshotCommand {
         if options.printTabs {
             printTabs(controller)
         }
+        let bookmarkPopover = makeBookmarkPopover(options.bookmarks, controller: controller)
 
         let captureWindow: NSWindow
         let privacySheet = makePrivacySheet(options.privacy, controller: controller)
@@ -535,7 +591,7 @@ enum SnapshotCommand {
             }
             print("sheet: " + texts.joined(separator: " | "))
         }
-        let captured = websitesSheet?.window ?? captureWindow
+        let captured = websitesSheet?.window ?? profilesSheet?.window ?? captureWindow
         guard let captureContent = captured.contentView else {
             FileHandle.standardError.write(Data("Snapshot could not find the window to capture.\n".utf8))
             exit(1)
@@ -553,7 +609,7 @@ enum SnapshotCommand {
 
         var pageImage: NSImage?
         if privacySheet == nil, !options.showSettings, !options.showHelp, !options.showPrompt,
-           websitesSheet == nil, !options.showFind, captureWindow === window,
+           websitesSheet == nil, profilesSheet == nil, !options.showFind, captureWindow === window,
            controller.selectedTab?.lifecycle.crashView == nil,
            let webView = controller.selectedTab?.webView {
             var finished = false
@@ -597,6 +653,15 @@ enum SnapshotCommand {
             image.addRepresentation(rep)
             image.draw(in: dropdown.convert(dropdown.bounds, to: captureContent))
         }
+        if let bookmarkPopover, bookmarkPopover.window === captureWindow,
+           let rep = bookmarkPopover.bitmapImageRepForCachingDisplay(in: bookmarkPopover.bounds)
+        {
+            // The popover hangs over the page, which is drawn after the chrome.
+            bookmarkPopover.cacheDisplay(in: bookmarkPopover.bounds, to: rep)
+            let image = NSImage(size: bookmarkPopover.bounds.size)
+            image.addRepresentation(rep)
+            image.draw(in: bookmarkPopover.convert(bookmarkPopover.bounds, to: captureContent))
+        }
         if options.showSheet {
             drawAttachedSheet(of: window, in: captureContent)
         }
@@ -621,9 +686,61 @@ enum SnapshotCommand {
             exit(1)
         }
 
-        window.orderOut(nil)
+        // The profiles' data stores live outside the temporary folder
+        // (WebKit's own); delete every profile so none is left behind. A
+        // window kept here would keep its profile's data store in use, so
+        // the captured one is swapped for a Default window first.
+        if controller.profileID != BrowserProfile.defaultID || controller.kind.isPrivate {
+            controller = manager.controllers.first { $0.profileID == BrowserProfile.defaultID && !$0.kind.isPrivate }
+                ?? manager.newWindow(profileID: BrowserProfile.defaultID)
+            window = controller.window ?? window
+        }
+        for profile in manager.profiles.profiles where !profile.isDefault {
+            var finished = false
+            autoreleasepool {
+                manager.deleteProfile(profile.id) { error in
+                    if let error {
+                        FileHandle.standardError.write(Data("Snapshot could not remove \(profile.name)'s data store: \(error)\n".utf8))
+                    }
+                    finished = true
+                }
+            }
+            let removalDeadline = Date().addingTimeInterval(15)
+            while !finished, Date() < removalDeadline {
+                _ = RunLoop.current.run(mode: .default, before: Date().addingTimeInterval(0.05))
+            }
+        }
+        manager.isTerminating = true
+        for open in manager.controllers {
+            open.window?.orderOut(nil)
+        }
         defaults.removePersistentDomain(forName: defaultsSuite)
-        try? FileManager.default.removeItem(at: temp)
+        if options.sleep.supportDirectory == nil {
+            try? FileManager.default.removeItem(at: temp)
+        }
         exit(0)
+    }
+}
+
+extension SnapshotCommand {
+    /// `--sidebar` History: visits spread over today, yesterday, earlier
+    /// this week and older days, so the list shows its day headers.
+    static func seededHistory(now: Date, calendar: Calendar = .current) -> [BrowserHistoryImport] {
+        let today = calendar.startOfDay(for: now)
+        func day(_ offset: Int, hour: Int, minute: Int = 0) -> Date {
+            let start = calendar.date(byAdding: .day, value: -offset, to: today) ?? today
+            return calendar.date(byAdding: .minute, value: hour * 60 + minute, to: start) ?? start
+        }
+        let visits: [(String, String, Date)] = [
+            ("https://example.com/", "Example Domain", min(now.addingTimeInterval(-300), day(0, hour: 23))),
+            ("https://webkit.org/", "WebKit", min(now.addingTimeInterval(-1_800), day(0, hour: 22))),
+            ("https://developer.apple.com/documentation/webkit", "WebKit | Apple Developer Documentation", day(1, hour: 17, minute: 40)),
+            ("https://www.iana.org/domains/reserved", "IANA-managed Reserved Domains", day(1, hour: 9, minute: 15)),
+            ("https://www.swift.org/documentation/", "Documentation | Swift.org", day(3, hour: 11, minute: 5)),
+            ("https://github.com/frknue/soprano_web", "frknue/soprano_web: Soprano Web", day(5, hour: 16, minute: 30)),
+            ("https://news.ycombinator.com/", "Hacker News", day(12, hour: 8, minute: 50)),
+            ("https://en.wikipedia.org/wiki/WebKit", "WebKit - Wikipedia", day(40, hour: 20, minute: 10)),
+        ]
+        return visits.map { BrowserHistoryImport(url: $0.0, title: $0.1, visitedAt: $0.2, kind: .link) }
     }
 }

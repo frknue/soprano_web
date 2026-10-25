@@ -3,9 +3,10 @@ import AppKit
 extension BrowserWindowController {
     // MARK: - Tab context menu
 
-    /// Reload, Duplicate, Mute, Copy Link, the close actions and Reopen
-    /// Closed Tab for one tab. `closeAfterTitle` names the run after it:
-    /// "Close Tabs Below" in the rail, "… to the Right" in the strip.
+    /// Reload, Duplicate, Mute, Copy Link, Keep This Site Awake, Move Tab
+    /// to New Window, the close actions and Reopen Closed Tab for one tab.
+    /// `closeAfterTitle` names the run after it: "Close Tabs Below" in the
+    /// rail, "… to the Right" in the strip.
     func tabContextMenu(for id: UUID, closeAfterTitle: String) -> NSMenu? {
         guard let index = tabs.firstIndex(where: { $0.id == id }) else { return nil }
         let tab = tabs[index]
@@ -25,12 +26,17 @@ extension BrowserWindowController {
         add("Duplicate", #selector(duplicateTabFromMenu(_:)), enabled: tab.isStartPage || tab.webView.url != nil)
         add(tab.isMuted ? "Unmute Tab" : "Mute Tab", #selector(toggleMuteFromMenu(_:)))
         add("Copy Link", #selector(copyTabLinkFromMenu(_:)), enabled: hasPage)
+        let awakeHost = keepAwakeKey(for: tab)
+        add("Keep This Site Awake", #selector(toggleKeepAwakeFromMenu(_:)), enabled: awakeHost != nil)
+        menu.items.last?.state = awakeHost.map(sitePermissions.keepsAwake(host:)) == true ? .on : .off
+        menu.addItem(.separator())
+        add("Move Tab to New Window", #selector(moveTabToNewWindowFromMenu(_:)))
         menu.addItem(.separator())
         add("Close Tab", #selector(closeTabFromMenu(_:)))
         add("Close Other Tabs", #selector(closeOtherTabsFromMenu(_:)), enabled: tabs.count > 1)
         add(closeAfterTitle, #selector(closeTabsAfterFromMenu(_:)), enabled: index < tabs.count - 1)
         menu.addItem(.separator())
-        add("Reopen Closed Tab", #selector(reopenClosedTabFromMenu(_:)), enabled: !closedTabs.isEmpty)
+        add("Reopen Closed Tab", #selector(reopenClosedTabFromMenu(_:)), enabled: canReopenClosedTab)
         return menu
     }
 

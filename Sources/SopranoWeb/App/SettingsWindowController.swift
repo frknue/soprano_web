@@ -4,6 +4,8 @@ import AppKit
 final class SettingsWindowController: NSWindowController, NSTextFieldDelegate {
     private let settingsStore: BrowserSettingsStore
     private let themeManager: ThemeManager
+    private let contentBlocker: BrowserContentBlocker
+    private var contentBlockerObservation: BrowserObservation?
     private var theme: AppTheme
 
     private let rootView = NSView()
@@ -24,10 +26,39 @@ final class SettingsWindowController: NSWindowController, NSTextFieldDelegate {
     private var rowLabels: [NSTextField] = []
     /// Presents Settings ▸ Websites as a sheet on the given window.
     var onShowWebsites: ((NSWindow) -> Void)?
+    /// Presents Settings ▸ Website Data as a sheet on the given window.
+    var onShowWebsiteData: ((NSWindow) -> Void)?
+    /// Presents Settings ▸ Profiles as a sheet on the given window.
+    var onShowProfiles: ((NSWindow) -> Void)?
     private lazy var autoplayButton: ChromeButton = {
         let button = ChromeButton(title: settingsStore.settings.autoplay.name, theme: theme, kind: .standard)
         button.target = self
         button.action = #selector(autoplayPressed)
+        button.widthAnchor.constraint(equalToConstant: 200).isActive = true
+        return button
+    }()
+    private lazy var historyRetentionButton: ChromeButton = {
+        let button = ChromeButton(title: settingsStore.settings.historyRetention.name, theme: theme, kind: .standard)
+        button.target = self
+        button.action = #selector(historyRetentionPressed)
+        button.widthAnchor.constraint(equalToConstant: 200).isActive = true
+        return button
+    }()
+    private lazy var tabSleepButton: ChromeButton = {
+        let button = ChromeButton(title: settingsStore.settings.tabSleep.name, theme: theme, kind: .standard)
+        button.target = self
+        button.action = #selector(tabSleepPressed)
+        button.widthAnchor.constraint(equalToConstant: 200).isActive = true
+        return button
+    }()
+    private lazy var defaultZoomButton: ChromeButton = {
+        let button = ChromeButton(
+            title: BrowserZoom.percent(settingsStore.settings.defaultZoom),
+            theme: theme,
+            kind: .standard
+        )
+        button.target = self
+        button.action = #selector(defaultZoomPressed)
         button.widthAnchor.constraint(equalToConstant: 200).isActive = true
         return button
     }()
@@ -47,15 +78,36 @@ final class SettingsWindowController: NSWindowController, NSTextFieldDelegate {
         button.widthAnchor.constraint(equalToConstant: 200).isActive = true
         return button
     }()
+    private lazy var profilesButton: ChromeButton = {
+        let button = ChromeButton(title: "Manage…", theme: theme, kind: .standard)
+        button.target = self
+        button.action = #selector(profilesPressed)
+        button.widthAnchor.constraint(equalToConstant: 200).isActive = true
+        return button
+    }()
+    private lazy var blockAdsSwitch = ChromeSwitch(
+        isOn: settingsStore.settings.blockAdsAndTrackers,
+        theme: theme,
+        target: self,
+        action: #selector(blockAdsChanged)
+    )
+    private lazy var updateListsButton: ChromeButton = {
+        let button = ChromeButton(title: "Update Now", theme: theme, kind: .standard)
+        button.target = self
+        button.action = #selector(updateListsPressed)
+        return button
+    }()
+    /// "61,234 rules · updated 25 Oct 2026 at 14:02", "Updating lists…".
+    private let blockerStatusLabel = NSTextField(labelWithString: "")
     private let askDownloadSwitch: ChromeSwitch
     private let websiteDataButton: ChromeButton
     private let defaultBrowserLabel = NSTextField(labelWithString: "")
     private let defaultBrowserButton: ChromeButton
-    private var websiteDataSheet: BrowserWebsiteDataSheet?
 
-    init(settingsStore: BrowserSettingsStore, themeManager: ThemeManager) {
+    init(settingsStore: BrowserSettingsStore, themeManager: ThemeManager, contentBlocker: BrowserContentBlocker) {
         self.settingsStore = settingsStore
         self.themeManager = themeManager
+        self.contentBlocker = contentBlocker
         self.theme = themeManager.currentTheme
         self.engineButton = ChromeButton(
             title: settingsStore.settings.searchEngine.name,
@@ -120,7 +172,7 @@ final class SettingsWindowController: NSWindowController, NSTextFieldDelegate {
         self.websiteDataButton = ChromeButton(title: "Manage…", theme: theme, kind: .standard)
         self.defaultBrowserButton = ChromeButton(title: "Make Default", theme: theme, kind: .standard)
         let window = NSWindow(
-            contentRect: NSRect(x: 0, y: 0, width: 620, height: 712),
+            contentRect: NSRect(x: 0, y: 0, width: 620, height: 860),
             styleMask: [.titled, .closable, .fullSizeContentView],
             backing: .buffered,
             defer: false
@@ -132,7 +184,7 @@ final class SettingsWindowController: NSWindowController, NSTextFieldDelegate {
         window.titlebarAppearsTransparent = true
         window.isReleasedWhenClosed = false
         window.backgroundColor = theme.colors.bgBase
-        window.minSize = NSSize(width: 620, height: 712)
+        window.minSize = NSSize(width: 620, height: 860)
 
         rootView.wantsLayer = true
         window.contentView = rootView
@@ -204,19 +256,25 @@ final class SettingsWindowController: NSWindowController, NSTextFieldDelegate {
             [rowLabel("Homepage"), homepageFrame],
             [rowLabel("Theme"), themeButton],
             [rowLabel("Appearance"), appearanceButton],
+            [rowLabel("Default page zoom"), defaultZoomButton],
             [rowLabel("Restore session"), restoreSwitch],
+            [rowLabel("Remove history items"), historyRetentionButton],
             [rowLabel("Vertical tabs"), verticalTabsSwitch],
+            [rowLabel("Put inactive tabs to sleep"), tabSleepButton],
             [rowLabel("Downloads"), downloadRow()],
             [rowLabel("Ask where to save"), askDownloadSwitch],
             [rowLabel("Autoplay"), autoplayButton],
             [rowLabel("Notifications"), notificationsRow()],
+            [rowLabel("Block ads and trackers"), contentBlockingRow()],
+            [rowLabel("Profiles"), profilesButton],
             [rowLabel("Websites"), websitesButton],
             [rowLabel("Website data"), websiteDataButton],
             [rowLabel("Default browser"), defaultBrowserRow()],
         ]
         let grid = NSGridView(views: rows)
         grid.translatesAutoresizingMaskIntoConstraints = false
-        grid.rowSpacing = 16
+        // 19 rows; the window stays under 900 pt for small displays.
+        grid.rowSpacing = 12
         grid.columnSpacing = 18
         grid.column(at: 0).xPlacement = .trailing
         grid.column(at: 1).xPlacement = .fill
@@ -226,6 +284,10 @@ final class SettingsWindowController: NSWindowController, NSTextFieldDelegate {
         rootView.addSubview(doneButton)
         refreshDownloadLabel()
         refreshDefaultBrowser()
+        refreshContentBlocking()
+        contentBlockerObservation = contentBlocker.changes.observe { [weak self] in
+            self?.refreshContentBlocking()
+        }
 
         NSLayoutConstraint.activate([
             header.topAnchor.constraint(equalTo: rootView.topAnchor, constant: 42),
@@ -334,14 +396,20 @@ final class SettingsWindowController: NSWindowController, NSTextFieldDelegate {
         verticalTabsSwitch.apply(theme: theme)
         suggestionsSwitch.apply(theme: theme)
         autoplayButton.apply(theme: theme)
+        historyRetentionButton.apply(theme: theme)
+        tabSleepButton.apply(theme: theme)
+        defaultZoomButton.apply(theme: theme)
         notificationsSwitch.apply(theme: theme)
         notificationsLabel.textColor = theme.colors.textPrimary
         websitesButton.apply(theme: theme)
+        profilesButton.apply(theme: theme)
         askDownloadSwitch.apply(theme: theme)
+        blockAdsSwitch.apply(theme: theme)
+        updateListsButton.apply(theme: theme)
+        blockerStatusLabel.textColor = theme.colors.textMuted
         websiteDataButton.apply(theme: theme)
         defaultBrowserButton.apply(theme: theme)
         defaultBrowserLabel.textColor = theme.colors.textPrimary
-        websiteDataSheet?.apply(theme: theme)
         downloadLabel.textColor = theme.colors.textPrimary
         pathLabel.textColor = theme.colors.textMuted
         pathLabel.stringValue = "Settings: \(settingsStore.displayPath)"
@@ -364,8 +432,13 @@ final class SettingsWindowController: NSWindowController, NSTextFieldDelegate {
         verticalTabsSwitch.isOn = settingsStore.settings.usesVerticalTabs
         suggestionsSwitch.isOn = settingsStore.settings.includeSearchSuggestions
         autoplayButton.title = settingsStore.settings.autoplay.name
+        historyRetentionButton.title = settingsStore.settings.historyRetention.name
+        tabSleepButton.title = settingsStore.settings.tabSleep.name
+        defaultZoomButton.title = BrowserZoom.percent(settingsStore.settings.defaultZoom)
         notificationsSwitch.isOn = settingsStore.settings.allowsNotificationRequests
         askDownloadSwitch.isOn = settingsStore.settings.askDownloadLocation
+        blockAdsSwitch.isOn = settingsStore.settings.blockAdsAndTrackers
+        refreshContentBlocking()
         refreshDefaultBrowser()
         refreshDownloadLabel()
         needsLayout()
@@ -441,12 +514,8 @@ final class SettingsWindowController: NSWindowController, NSTextFieldDelegate {
 
     /// Opens the Website Data list as a sheet on Settings.
     @objc func websiteDataPressed() {
-        guard let window, websiteDataSheet == nil else { return }
-        let sheet = BrowserWebsiteDataSheet(theme: theme)
-        websiteDataSheet = sheet
-        sheet.present(on: window) { [weak self] in
-            self?.websiteDataSheet = nil
-        }
+        guard let window else { return }
+        onShowWebsiteData?(window)
     }
 
     @objc private func makeDefaultPressed() {
@@ -529,6 +598,51 @@ extension SettingsWindowController {
         return stack
     }
 
+    /// The switch and Update Now, with the lists' status under them.
+    private func contentBlockingRow() -> NSView {
+        blockAdsSwitch.translatesAutoresizingMaskIntoConstraints = false
+        NSLayoutConstraint.activate([
+            blockAdsSwitch.widthAnchor.constraint(equalToConstant: Chrome.switchSize.width),
+            blockAdsSwitch.heightAnchor.constraint(equalToConstant: Chrome.switchSize.height),
+            updateListsButton.widthAnchor.constraint(equalToConstant: 104),
+            blockerStatusLabel.widthAnchor.constraint(lessThanOrEqualToConstant: 200),
+        ])
+        blockerStatusLabel.font = ChromeFont.meta
+        // Two lines in the 200 pt control column; a longer status
+        // truncates (the tooltip has it all).
+        blockerStatusLabel.lineBreakMode = .byWordWrapping
+        blockerStatusLabel.maximumNumberOfLines = 2
+        blockerStatusLabel.preferredMaxLayoutWidth = 200
+        blockerStatusLabel.cell?.wraps = true
+        blockerStatusLabel.cell?.truncatesLastVisibleLine = true
+        let controls = NSStackView(views: [blockAdsSwitch, updateListsButton])
+        controls.orientation = .horizontal
+        controls.spacing = 10
+        controls.alignment = .centerY
+        let stack = NSStackView(views: [controls, blockerStatusLabel])
+        stack.orientation = .vertical
+        stack.spacing = 4
+        stack.alignment = .leading
+        return stack
+    }
+
+    private func refreshContentBlocking() {
+        blockerStatusLabel.stringValue = contentBlocker.statusText
+        blockerStatusLabel.toolTip = contentBlocker.statusText
+        updateListsButton.isEnabled = contentBlocker.isEnabled && !contentBlocker.isUpdating
+    }
+
+    @objc private func blockAdsChanged() {
+        let value = blockAdsSwitch.isOn
+        settingsStore.update { $0.blockAdsAndTrackers = value }
+    }
+
+    /// Downloads both lists now (conditionally) and recompiles what changed.
+    @objc func updateListsPressed() {
+        let blocker = contentBlocker
+        Task { await blocker.update() }
+    }
+
     @objc private func autoplayPressed() {
         let current = settingsStore.settings.autoplay
         showMenu(
@@ -536,6 +650,45 @@ extension SettingsWindowController {
             items: AutoplayPolicy.allCases.map { policy in
                 (policy.name, policy == current, { [weak self] in
                     self?.settingsStore.update { $0.autoplay = policy }
+                    self?.refresh()
+                })
+            }
+        )
+    }
+
+    @objc private func historyRetentionPressed() {
+        let current = settingsStore.settings.historyRetention
+        showMenu(
+            from: historyRetentionButton,
+            items: BrowserHistoryRetention.allCases.map { retention in
+                (retention.name, retention == current, { [weak self] in
+                    self?.settingsStore.update { $0.historyRetention = retention }
+                    self?.refresh()
+                })
+            }
+        )
+    }
+
+    @objc private func tabSleepPressed() {
+        let current = settingsStore.settings.tabSleep
+        showMenu(
+            from: tabSleepButton,
+            items: BrowserTabSleepAfter.allCases.map { option in
+                (option.name, option == current, { [weak self] in
+                    self?.settingsStore.update { $0.tabSleep = option }
+                    self?.refresh()
+                })
+            }
+        )
+    }
+
+    @objc private func defaultZoomPressed() {
+        let current = settingsStore.settings.defaultZoom
+        showMenu(
+            from: defaultZoomButton,
+            items: BrowserZoom.steps.map { zoom in
+                (BrowserZoom.percent(zoom), BrowserZoom.isSame(zoom, current), { [weak self] in
+                    self?.settingsStore.update { $0.defaultZoom = zoom }
                     self?.refresh()
                 })
             }
@@ -550,6 +703,11 @@ extension SettingsWindowController {
     @objc private func websitesPressed() {
         guard let window else { return }
         onShowWebsites?(window)
+    }
+
+    @objc private func profilesPressed() {
+        guard let window else { return }
+        onShowProfiles?(window)
     }
 }
 

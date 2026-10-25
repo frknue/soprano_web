@@ -3,7 +3,8 @@ import QuartzCore
 
 /// One tab in the strip or the rail: favicon (a spinner while loading), title,
 /// an audio glyph while the tab plays sound or is muted, and the close button
-/// on the active tab and under the pointer. Selection is a raised surface.
+/// on the active tab and under the pointer. Selection is a raised surface; a
+/// sleeping tab's favicon and title are dimmed.
 @MainActor
 final class BrowserTabButton: NSView {
     enum DragPhase {
@@ -201,6 +202,23 @@ final class BrowserTabButton: NSView {
         contextMenuProvider?(tabID)
     }
 
+    /// The pointer drag became a system drag session, which owns the rest
+    /// of the gesture: forget it here.
+    func cancelPointerDrag() {
+        dragOrigin = nil
+        isDragging = false
+    }
+
+    /// The tab as it looks now, for the drag session's image.
+    func dragImage() -> NSImage {
+        let image = NSImage(size: bounds.size)
+        if let rep = bitmapImageRepForCachingDisplay(in: bounds) {
+            cacheDisplay(in: bounds, to: rep)
+            image.addRepresentation(rep)
+        }
+        return image
+    }
+
     @objc private func closePressed() {
         onClose?(tabID)
     }
@@ -240,6 +258,12 @@ final class BrowserTabButton: NSView {
         } else {
             toolTip = item.title
         }
+        if item.isAsleep {
+            toolTip = (toolTip ?? item.title) + "\nAsleep to save memory; reloads when you open it"
+        }
+        // Asleep: the page was released; the tab reads as inactive.
+        iconView.alphaValue = item.isAsleep ? 0.4 : 1
+        label.alphaValue = item.isAsleep ? 0.55 : 1
         refresh()
     }
 
@@ -252,7 +276,7 @@ final class BrowserTabButton: NSView {
         label.textColor = isSelected || isHovered ? colors.textPrimary : colors.textMuted
         closeButton.isHidden = !(isSelected || isHovered)
         closeButton.apply(theme: theme)
-        setAccessibilityLabel(item.title)
+        setAccessibilityLabel(item.isAsleep ? "\(item.title), asleep" : item.title)
     }
 }
 

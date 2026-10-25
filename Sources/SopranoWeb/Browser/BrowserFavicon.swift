@@ -153,14 +153,20 @@ enum BrowserFaviconSelection {
 /// to, and the last icon per host is kept as a fallback (in memory and as
 /// 32 px PNGs in `<support>/Favicons/`) for rows and tabs that have not
 /// reported yet. Icons are fetched with an ephemeral, cookie-less session,
-/// so a favicon request never carries or sets site cookies.
+/// so a favicon request never carries or sets site cookies. A private
+/// window uses an in-memory store (`init(inMemoryOver:)`) that reads the
+/// cached icons and writes no files.
 @MainActor
 final class BrowserFaviconStore {
-    let directory: URL
-    /// Called after a new icon lands in the cache.
-    var onChange: (() -> Void)?
+    /// Where icons are cached as files; nil for an in-memory store.
+    let directory: URL?
+    /// Notified after a new icon lands in the cache.
+    let changes = BrowserObservers<Void>()
 
     private let session: URLSession
+    /// The cache an in-memory store falls back to for hosts it has no icon
+    /// of its own for.
+    private let base: BrowserFaviconStore?
     private var images: [String: NSImage] = [:]
     private var missing: Set<String> = []
     /// The icon each reported source list resolved to this launch (nil when
@@ -175,6 +181,7 @@ final class BrowserFaviconStore {
         directory: URL = BrowserFiles.supportDirectory().appendingPathComponent("Favicons", isDirectory: true)
     ) {
         self.directory = directory
+        self.base = nil
         let configuration = URLSessionConfiguration.ephemeral
         configuration.httpCookieStorage = nil
         configuration.httpShouldSetCookies = false
@@ -186,6 +193,15 @@ final class BrowserFaviconStore {
         configuration.timeoutIntervalForResource = 15
         configuration.httpMaximumConnectionsPerHost = 2
         session = URLSession(configuration: configuration)
+    }
+
+    /// A store whose new icons stay in memory, over `base`'s cache: lookups
+    /// fall back to `base`, nothing is written to disk and `base` never sees
+    /// the icons resolved here. Fetches use `base`'s cookie-less session.
+    init(inMemoryOver base: BrowserFaviconStore) {
+        self.directory = nil
+        self.base = base
+        self.session = base.session
     }
 
     /// The cached icon for the URL's host, from memory or disk.
@@ -241,9 +257,11 @@ final class BrowserFaviconStore {
         if let (image, png) = result {
             images[key] = image
             missing.remove(key)
-            try? FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
-            try? png.write(to: fileURL(forKey: key), options: .atomic)
-            onChange?()
+            if let directory {
+                try? FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+                try? png.write(to: directory.appendingPathComponent(BrowserFaviconSelection.fileName(for: key)), options: .atomic)
+            }
+            changes.notify()
         }
         let icon = result?.0 ?? image(forKey: key)
         for completion in completions {
@@ -255,18 +273,16 @@ final class BrowserFaviconStore {
         if let image = images[key] {
             return image
         }
+        guard let directory else { return base?.image(forKey: key) }
         guard !missing.contains(key) else { return nil }
-        guard let image = NSImage(contentsOf: fileURL(forKey: key)), image.isValid else {
+        let file = directory.appendingPathComponent(BrowserFaviconSelection.fileName(for: key))
+        guard let image = NSImage(contentsOf: file), image.isValid else {
             missing.insert(key)
             return nil
         }
         image.size = Self.pointSize
         images[key] = image
         return image
-    }
-
-    private func fileURL(forKey key: String) -> URL {
-        directory.appendingPathComponent(BrowserFaviconSelection.fileName(for: key))
     }
 
     private static let pointSize = NSSize(width: 16, height: 16)

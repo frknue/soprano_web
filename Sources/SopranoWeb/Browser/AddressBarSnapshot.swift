@@ -43,11 +43,18 @@ enum AddressBarSnapshot {
                 stamp += 1
                 // Spaced apart so the store does not merge repeat visits.
                 let date = now.addingTimeInterval(-hours * 3_600 - Double(visit) * 900 - stamp)
-                history.record(url: address, title: title, at: date, typed: visit < typed)
+                history.record(url: address, title: title, at: date, kind: visit < typed ? .typed : .link)
             }
         }
-        bookmarks.toggle(url: "https://github.com/frknue/soprano_web", title: "Soprano Web")
-        bookmarks.toggle(url: "https://developer.apple.com/documentation/webkit", title: "WebKit Documentation")
+        if !bookmarks.isBookmarked("https://github.com/frknue/soprano_web") {
+            bookmarks.addBookmark(url: "https://github.com/frknue/soprano_web", title: "Soprano Web")
+        }
+        print("address-history: \(history.pageCount()) pages, \(history.visitCount()) visits in \(history.databaseURL.lastPathComponent)")
+        // Inside a folder: suggestions see every bookmark in every folder.
+        if !bookmarks.isBookmarked("https://developer.apple.com/documentation/webkit") {
+            let docs = bookmarks.addFolder(name: "Docs")
+            bookmarks.addBookmark(url: "https://developer.apple.com/documentation/webkit", title: "WebKit Documentation", to: docs.id)
+        }
 
         controller.focusAddressBar()
         settle(0.1)
@@ -65,6 +72,8 @@ enum AddressBarSnapshot {
         ])
         print("address-field: \(editor.string)")
         print("address-rows: \(controller.addressBar.rows.map(\.title).joined(separator: " | "))")
+        let candidates = history.suggestionCandidates(for: text)
+        print("address-history-candidates: \(candidates.map { "\($0.displayTitle) (\(Int($0.frecency)))" }.joined(separator: " | "))")
     }
 
     private static func settle(_ seconds: Double) {

@@ -147,6 +147,12 @@ final class BrowserFindBar: NSView, NSTextFieldDelegate {
         field.currentEditor()?.selectAll(nil)
     }
 
+    /// The field's text, set without reporting a change.
+    var query: String {
+        get { field.stringValue }
+        set { field.stringValue = newValue }
+    }
+
     func setResult(found: Bool, hasQuery: Bool) {
         if !hasQuery {
             resultLabel.stringValue = ""

@@ -8,7 +8,12 @@ extension BrowserWindowController: WKUIDelegate {
         for navigationAction: WKNavigationAction,
         windowFeatures: WKWindowFeatures
     ) -> WKWebView? {
-        createLinkWebView(from: webView, configuration: configuration, navigationAction: navigationAction)
+        createLinkWebView(
+            from: webView,
+            configuration: configuration,
+            navigationAction: navigationAction,
+            windowFeatures: BrowserPopupFeatures(windowFeatures)
+        )
     }
 
     func webView(
@@ -16,6 +21,8 @@ extension BrowserWindowController: WKUIDelegate {
         runJavaScriptAlertPanelWithMessage message: String,
         initiatedByFrame frame: WKFrameInfo
     ) async {
+        let ended = promptBegan(for: webView)
+        defer { ended() }
         await withCheckedContinuation { (continuation: CheckedContinuation<Void, Never>) in
             presentDialog(
                 title: frame.request.url?.host ?? "Page",
@@ -32,7 +39,9 @@ extension BrowserWindowController: WKUIDelegate {
         runJavaScriptConfirmPanelWithMessage message: String,
         initiatedByFrame frame: WKFrameInfo
     ) async -> Bool {
-        await withCheckedContinuation { continuation in
+        let ended = promptBegan(for: webView)
+        defer { ended() }
+        return await withCheckedContinuation { continuation in
             presentDialog(
                 title: frame.request.url?.host ?? "Page",
                 message: message,
@@ -50,6 +59,8 @@ extension BrowserWindowController: WKUIDelegate {
         initiatedByFrame frame: WKFrameInfo
     ) async -> String? {
         guard let window else { return nil }
+        let ended = promptBegan(for: webView)
+        defer { ended() }
         return await withCheckedContinuation { (continuation: CheckedContinuation<String?, Never>) in
             let alert = NSAlert()
             alert.messageText = frame.request.url?.host ?? "Page"
@@ -74,6 +85,8 @@ extension BrowserWindowController: WKUIDelegate {
         initiatedByFrame frame: WKFrameInfo
     ) async -> [URL]? {
         guard let window else { return nil }
+        let ended = promptBegan(for: webView)
+        defer { ended() }
         return await withCheckedContinuation { (continuation: CheckedContinuation<[URL]?, Never>) in
             let panel = NSOpenPanel()
             panel.canChooseFiles = !parameters.allowsDirectories
@@ -91,7 +104,9 @@ extension BrowserWindowController: WKUIDelegate {
         initiatedBy frame: WKFrameInfo,
         type: WKMediaCaptureType
     ) async -> WKPermissionDecision {
-        await decideMediaCapture(origin: origin, type: type)
+        let ended = promptBegan(for: webView)
+        defer { ended() }
+        return await decideMediaCapture(origin: origin, type: type)
     }
 
     private func presentDialog(

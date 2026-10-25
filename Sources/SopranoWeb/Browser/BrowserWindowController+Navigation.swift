@@ -22,6 +22,10 @@ extension BrowserWindowController {
     }
 
     func navigate(_ tab: BrowserTab, to url: URL) {
+        if tab.isAsleep {
+            // Wake with the history first; the new page goes after it.
+            loadRestoredTabIfNeeded(tab)
+        }
         if BrowserAddressResolver.isStartPage(url) {
             loadStartPage(tab)
             return
@@ -112,24 +116,52 @@ extension BrowserWindowController {
     }
 
     func loadStartPage(_ tab: BrowserTab) {
+        if tab.isAsleep {
+            // A sleeping start page comes back with its history.
+            loadRestoredTabIfNeeded(tab)
+            if tab.isStartPage { return }
+        }
         tab.lifecycle.pendingRestore = nil
         tab.isStartPage = true
         tab.errorMessage = nil
         tab.failedURL = nil
         tab.pendingURL = BrowserStartPageSchemeHandler.url.absoluteString
         tab.isShowingErrorPage = false
-        tab.zoom = tab.zoom == 0 ? 1 : tab.zoom
+        tab.zoom = settingsStore.settings.defaultZoom
         tab.webView.pageZoom = tab.zoom
         tab.webView.load(URLRequest(url: BrowserStartPageSchemeHandler.url))
     }
 
-    func startPageHTML() -> String {
-        BrowserStartPage.html(
-            theme: theme,
-            settings: settingsStore.settings,
-            bookmarks: bookmarks.bookmarks,
-            history: history.entries
-        )
+    /// A URL change without a page load (`history.pushState`, a hash route)
+    /// becomes a visit once it has stayed for a second; see
+    /// `BrowserSameDocumentVisits`.
+    func sameDocumentURLChanged(_ tab: BrowserTab) {
+        tab.sameDocumentTimer?.invalidate()
+        tab.sameDocumentTimer = nil
+        guard kind.recordsHistory, !tab.isStartPage,
+              tab.sameDocumentVisits.urlChanged(
+                  to: tab.webView.url?.absoluteString,
+                  isLoading: tab.webView.isLoading,
+                  now: Date()
+              )
+        else { return }
+        tab.sameDocumentTimer = Timer.scheduledTimer(
+            withTimeInterval: BrowserSameDocumentVisits.debounce,
+            repeats: false
+        ) { [weak self, weak tab] _ in
+            MainActor.assumeIsolated {
+                guard let self, let tab, self.tabs.contains(where: { $0 === tab }) else { return }
+                tab.sameDocumentTimer = nil
+                guard self.kind.recordsHistory,
+                      let url = tab.sameDocumentVisits.takeDueVisit(
+                          currentURL: tab.webView.url?.absoluteString,
+                          isLoading: tab.webView.isLoading,
+                          now: Date()
+                      )
+                else { return }
+                self.history.record(url: url, title: tab.displayTitle, kind: .sameDocument)
+            }
+        }
     }
 
     func markStartPagesStale() {
@@ -150,9 +182,10 @@ extension BrowserWindowController {
         toolbar.setBookmarkEnabled(!tab.isStartPage && !shownURL.isEmpty)
         toolbar.setSidebarToggle(isSidebarVisible)
         toolbar.setDownloadsToggle(isSidebarVisible && sidebarSection == .downloads)
-        window?.title = tab.isStartPage ? "New Tab" : tab.displayTitle
+        window?.title = kind.windowTitle(tab.isStartPage ? "New Tab" : tab.displayTitle)
         window?.representedURL = tab.isStartPage ? nil : url
         updatePopupBlockedControl()
+        updateZoomChip()
     }
 }
 
@@ -162,6 +195,9 @@ extension BrowserWindowController: WKNavigationDelegate {
     func webView(_ webView: WKWebView, didStartProvisionalNavigation navigation: WKNavigation!) {
         guard let tab = tab(for: webView) else { return }
         tab.vimium?.pageDidStart()
+        tab.sameDocumentVisits.navigationStarted()
+        tab.sameDocumentTimer?.invalidate()
+        tab.sameDocumentTimer = nil
         if tab.isShowingErrorPage {
             tab.isShowingErrorPage = false
         } else {
@@ -180,7 +216,14 @@ extension BrowserWindowController: WKNavigationDelegate {
     func webView(_ webView: WKWebView, didCommit navigation: WKNavigation!) {
         guard let tab = tab(for: webView) else { return }
         clearCrashState(tab)
+        // The committed page's site decides (a redirect can change it).
+        applyContentBlocking(to: tab.webView, pageURL: webView.url)
+        // A new document: its site's zoom, no unsaved input or capture yet.
+        tab.zoom = siteZoom(for: webView.url)
         webView.pageZoom = tab.zoom
+        tab.lifecycle.unsavedFrames.removeAll()
+        tab.lifecycle.capturingFrames.removeAll()
+        wakeSnapshotPageCommitted(tab)
         linksDidCommit(tab)
         tab.isStartPage = webView.url?.scheme?.lowercased() == BrowserStartPageSchemeHandler.scheme
         if !tab.isStartPage, tab.errorMessage == nil, tab.certificateInterstitial == nil {
@@ -202,19 +245,26 @@ extension BrowserWindowController: WKNavigationDelegate {
             tab.title = title
         }
         tab.pendingURL = nil
+        removeWakeSnapshot(tab)
         tab.vimium?.pageDidFinish()
         resolveLoadWaiters(
             for: tab,
             result: .success(webView.url?.absoluteString ?? "")
         )
-        let typed = addressBar.consumeTypedNavigation(tabID: tab.id)
+        let visitKind: BrowserVisitKind = tab.typedNavigationPending ? .typed : tab.pendingVisitKind ?? .link
+        tab.typedNavigationPending = false
+        tab.pendingVisitKind = nil
+        tab.sameDocumentVisits.pageLoaded(webView.url?.absoluteString)
+        tab.sameDocumentTimer?.invalidate()
+        tab.sameDocumentTimer = nil
         if tab.suppressNextHistoryRecord {
             tab.suppressNextHistoryRecord = false
-        } else if !tab.isStartPage,
+        } else if kind.recordsHistory,
+                  !tab.isStartPage,
                   let address = webView.url?.absoluteString,
                   ["http", "https", "file"].contains(webView.url?.scheme?.lowercased() ?? "")
         {
-            history.record(url: address, title: tab.displayTitle, typed: typed)
+            history.record(url: address, title: tab.displayTitle, kind: visitKind)
         }
         if tab.id == selectedTab?.id {
             updateChrome()
@@ -243,7 +293,10 @@ extension BrowserWindowController: WKNavigationDelegate {
         _ webView: WKWebView,
         didReceiveServerRedirectForProvisionalNavigation navigation: WKNavigation!
     ) {
-        guard let tab = tab(for: webView), tab.id == selectedTab?.id else { return }
+        guard let tab = tab(for: webView) else { return }
+        // The page's site may have changed; its subresources load next.
+        applyContentBlocking(to: tab.webView, pageURL: webView.url)
+        guard tab.id == selectedTab?.id else { return }
         updateChrome()
     }
 
@@ -262,6 +315,7 @@ extension BrowserWindowController: WKNavigationDelegate {
             return
         }
         guard let tab = tab(for: webView) else { return }
+        removeWakeSnapshot(tab)
         let failedURL = (nsError.userInfo[NSURLErrorFailingURLErrorKey] as? URL)?.absoluteString
             ?? nsError.userInfo[NSURLErrorFailingURLStringErrorKey] as? String
             ?? tab.pendingURL
@@ -319,6 +373,11 @@ extension BrowserWindowController: WKNavigationDelegate {
            ["http", "https", "file"].contains(scheme)
         {
             tab.pendingURL = url.absoluteString
+            tab.pendingVisitKind = BrowserVisitKind(navigationAction.navigationType)
+        }
+        if navigationAction.targetFrame?.isMainFrame == true, let tab = tab(for: webView) {
+            // The new page's lists are in place before it starts loading.
+            applyContentBlocking(to: tab.webView, pageURL: url)
         }
         decisionHandler(.allow)
     }
@@ -342,7 +401,7 @@ extension BrowserWindowController: WKNavigationDelegate {
         navigationAction: WKNavigationAction,
         didBecome download: WKDownload
     ) {
-        download.delegate = self
+        adoptDownload(download)
     }
 
     func webView(
@@ -350,13 +409,16 @@ extension BrowserWindowController: WKNavigationDelegate {
         navigationResponse: WKNavigationResponse,
         didBecome download: WKDownload
     ) {
-        download.delegate = self
+        adoptDownload(download)
     }
 }
 
 extension BrowserWindowController {
     // MARK: - Load waiters
 
+    /// Answers once the tab's navigation finishes (or fails, or `timeout`
+    /// passes). The waiter lives on the tab, so it survives a move to
+    /// another window.
     func waitForLoad(
         _ tab: BrowserTab,
         timeout: TimeInterval = BrowserCommandRequest.defaultWaitTimeout,
@@ -367,33 +429,22 @@ extension BrowserWindowController {
             return
         }
         let id = UUID()
-        let timer = Timer(
-            timeInterval: timeout,
-            target: self,
-            selector: #selector(loadWaiterTimedOut(_:)),
-            userInfo: id.uuidString,
-            repeats: false
-        )
+        let timer = Timer(timeInterval: timeout, repeats: false) { [weak tab] _ in
+            MainActor.assumeIsolated {
+                guard let waiter = tab?.loadWaiters.removeValue(forKey: id) else { return }
+                waiter.completion(.failure(
+                    BrowserAutomationError.unavailable("Timed out waiting for the page to load.")
+                ))
+            }
+        }
         RunLoop.main.add(timer, forMode: .common)
-        loadWaiters[id] = LoadWaiter(tabID: tab.id, timer: timer, completion: completion)
-    }
-
-    @objc private func loadWaiterTimedOut(_ timer: Timer) {
-        guard let raw = timer.userInfo as? String,
-              let id = UUID(uuidString: raw),
-              let waiter = loadWaiters.removeValue(forKey: id)
-        else { return }
-        waiter.completion(.failure(
-            BrowserAutomationError.unavailable("Timed out waiting for the page to load.")
-        ))
+        tab.loadWaiters[id] = BrowserLoadWaiter(timer: timer, completion: completion)
     }
 
     func resolveLoadWaiters(for tab: BrowserTab, result: Result<String, Error>) {
-        let ids = loadWaiters.compactMap { id, waiter in
-            waiter.tabID == tab.id ? id : nil
-        }
-        for id in ids {
-            guard let waiter = loadWaiters.removeValue(forKey: id) else { continue }
+        let waiters = tab.loadWaiters.values
+        tab.loadWaiters.removeAll()
+        for waiter in waiters {
             waiter.timer.invalidate()
             waiter.completion(result)
         }

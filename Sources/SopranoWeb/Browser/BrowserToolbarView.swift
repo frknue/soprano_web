@@ -33,6 +33,10 @@ final class BrowserToolbarView: NSView, NSTextFieldDelegate {
     private let bookmarkButton: ChromeIconButton
     private let downloadsButton: ChromeIconButton
     private let sidebarButton: ChromeIconButton
+    /// The window's mark ("Private", its profile, or both) before the
+    /// address field of a window without a tab rail.
+    let windowMark: BrowserWindowMarkView
+    private var showsWindowMark = false
 
     private var theme: AppTheme
     private var security: BrowserSecurityState = .local
@@ -40,12 +44,39 @@ final class BrowserToolbarView: NSView, NSTextFieldDelegate {
     private(set) var pageAddress = ""
     /// The user changed the text since the field was last focused.
     private(set) var isAddressEdited = false
+    /// A pop-up window's toolbar: navigation and a read-only address only.
+    private(set) var isCompact = false
+    private lazy var navigationLeadingToToggle = navigationControls.leadingAnchor.constraint(
+        equalTo: verticalTabsButton.trailingAnchor,
+        constant: 4
+    )
+    private lazy var navigationLeadingToEdge = navigationControls.leadingAnchor.constraint(
+        equalTo: leadingAnchor,
+        constant: 6
+    )
+    private lazy var captureTrailingToButtons = captureIndicator.trailingAnchor.constraint(
+        equalTo: bookmarkButton.leadingAnchor,
+        constant: -2
+    )
+    private lazy var captureTrailingToEdge = captureIndicator.trailingAnchor.constraint(
+        equalTo: trailingAnchor,
+        constant: -10
+    )
+    private lazy var addressLeadingToNavigation = addressFrame.leadingAnchor.constraint(
+        equalTo: navigationControls.trailingAnchor,
+        constant: 8
+    )
+    private lazy var addressLeadingToWindowMark = addressFrame.leadingAnchor.constraint(
+        equalTo: windowMark.trailingAnchor,
+        constant: 8
+    )
 
     static let preferredHeight: CGFloat = 46
 
     init(theme: AppTheme) {
         self.theme = theme
         self.addressFrame = ChromeFieldView(theme: theme)
+        self.windowMark = BrowserWindowMarkView(theme: theme)
         self.navigationControls = BrowserNavigationControls(theme: theme)
         self.verticalTabsButton = ChromeIconButton(
             symbolName: "sidebar.left",
@@ -114,6 +145,10 @@ final class BrowserToolbarView: NSView, NSTextFieldDelegate {
         addressField.action = #selector(addressSubmitted)
         addressField.onFocus = { [weak self] in self?.isAddressEdited = false }
         addressField.translatesAutoresizingMaskIntoConstraints = false
+        // The field takes the toolbar's spare width and gives way first in
+        // a narrow (pop-up) window; the navigation buttons keep their size.
+        addressField.setContentHuggingPriority(.init(1), for: .horizontal)
+        addressField.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
         addressFrame.addSubview(addressField)
         addressAccessories.orientation = .horizontal
         addressAccessories.spacing = 4
@@ -133,6 +168,9 @@ final class BrowserToolbarView: NSView, NSTextFieldDelegate {
         addSubview(progressBar)
         progressBar.translatesAutoresizingMaskIntoConstraints = false
         addSubview(captureIndicator)
+        windowMark.isHidden = true
+        windowMark.setContentCompressionResistancePriority(.required, for: .horizontal)
+        addSubview(windowMark)
 
         NSLayoutConstraint.activate([
             verticalTabsButton.leadingAnchor.constraint(equalTo: leadingAnchor, constant: 10),
@@ -145,9 +183,11 @@ final class BrowserToolbarView: NSView, NSTextFieldDelegate {
             bookmarkButton.trailingAnchor.constraint(equalTo: downloadsButton.leadingAnchor, constant: -2),
             bookmarkButton.centerYAnchor.constraint(equalTo: sidebarButton.centerYAnchor),
 
-            navigationControls.leadingAnchor.constraint(equalTo: verticalTabsButton.trailingAnchor, constant: 4),
+            navigationLeadingToToggle,
             navigationControls.centerYAnchor.constraint(equalTo: verticalTabsButton.centerYAnchor),
-            addressFrame.leadingAnchor.constraint(equalTo: navigationControls.trailingAnchor, constant: 8),
+            addressLeadingToNavigation,
+            windowMark.leadingAnchor.constraint(equalTo: navigationControls.trailingAnchor, constant: 10),
+            windowMark.centerYAnchor.constraint(equalTo: addressFrame.centerYAnchor),
             addressFrame.trailingAnchor.constraint(equalTo: captureIndicator.leadingAnchor, constant: -6),
             addressFrame.centerYAnchor.constraint(equalTo: verticalTabsButton.centerYAnchor),
             addressFrame.heightAnchor.constraint(equalToConstant: Chrome.fieldHeight),
@@ -168,7 +208,7 @@ final class BrowserToolbarView: NSView, NSTextFieldDelegate {
             progressBar.bottomAnchor.constraint(equalTo: bottomAnchor),
             progressBar.heightAnchor.constraint(equalToConstant: 2),
 
-            captureIndicator.trailingAnchor.constraint(equalTo: bookmarkButton.leadingAnchor, constant: -2),
+            captureTrailingToButtons,
             captureIndicator.centerYAnchor.constraint(equalTo: sidebarButton.centerYAnchor),
         ])
 
@@ -200,6 +240,7 @@ final class BrowserToolbarView: NSView, NSTextFieldDelegate {
             ]
         )
         progressBar.color = theme.colors.blue
+        windowMark.apply(theme: theme)
         captureIndicator.apply(theme: theme)
         refreshSecurityIcon()
         needsDisplay = true
@@ -218,16 +259,19 @@ final class BrowserToolbarView: NSView, NSTextFieldDelegate {
     func setBookmarked(_ bookmarked: Bool) {
         bookmarkButton.setSymbol(
             bookmarked ? "star.fill" : "star",
-            accessibilityLabel: bookmarked ? "Remove Bookmark" : "Bookmark This Page",
+            accessibilityLabel: bookmarked ? "Edit Bookmark" : "Bookmark This Page",
             pointSize: 12
         )
         bookmarkButton.isToggledOn = bookmarked
-        bookmarkButton.toolTip = bookmarked ? "Remove bookmark (⌘D)" : "Bookmark this page (⌘D)"
+        bookmarkButton.toolTip = bookmarked ? "Edit bookmark (⌘D)" : "Bookmark this page (⌘D)"
     }
 
     func setBookmarkEnabled(_ enabled: Bool) {
         bookmarkButton.isEnabled = enabled
     }
+
+    /// The star, which the bookmark popover hangs from.
+    var bookmarkAnchor: NSView { bookmarkButton }
 
     func setProgress(_ progress: Double, isLoading: Bool) {
         progressBar.progress = max(0, min(1, progress))
@@ -274,6 +318,49 @@ final class BrowserToolbarView: NSView, NSTextFieldDelegate {
 
     func setDownloadsToggle(_ on: Bool) {
         downloadsButton.isToggledOn = on
+    }
+
+    /// Sets the window's mark; it shows before the address field while
+    /// `setWindowMarkShown(true)` and the mark has words.
+    func setWindowMark(_ mark: BrowserWindowMark) {
+        windowMark.set(mark)
+        updateWindowMark()
+    }
+
+    /// Whether the window's mark may sit before the address field (there
+    /// is no tab rail).
+    func setWindowMarkShown(_ shown: Bool) {
+        showsWindowMark = shown
+        updateWindowMark()
+    }
+
+    private func updateWindowMark() {
+        let shown = showsWindowMark && windowMark.hasMark
+        guard windowMark.isHidden == shown else { return }
+        windowMark.isHidden = !shown
+        if shown {
+            addressLeadingToNavigation.isActive = false
+            addressLeadingToWindowMark.isActive = true
+        } else {
+            addressLeadingToWindowMark.isActive = false
+            addressLeadingToNavigation.isActive = true
+        }
+    }
+
+    /// Pop-up windows: back/forward/reload and the address, which can be
+    /// read and copied but not edited; no tab, bookmark or sidebar buttons.
+    func setCompact(_ compact: Bool) {
+        guard compact != isCompact else { return }
+        isCompact = compact
+        for button in [verticalTabsButton, bookmarkButton, downloadsButton, sidebarButton] {
+            button.isHidden = compact
+        }
+        navigationLeadingToToggle.isActive = !compact
+        navigationLeadingToEdge.isActive = compact
+        captureTrailingToButtons.isActive = !compact
+        captureTrailingToEdge.isActive = compact
+        addressField.isEditable = !compact
+        addressField.isSelectable = true
     }
 
     func controlTextDidBeginEditing(_ notification: Notification) {

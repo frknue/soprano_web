@@ -50,7 +50,8 @@ struct AddressSuggestionTab: Equatable, Sendable {
 
 struct AddressSuggestionInput: Sendable {
     var query: String
-    var history: [BrowserHistoryEntry] = []
+    /// History's candidates for the query (`BrowserHistoryStore.suggestionCandidates`).
+    var history: [BrowserHistoryPage] = []
     var bookmarks: [BrowserBookmark] = []
     /// Open tabs other than the selected one.
     var tabs: [AddressSuggestionTab] = []
@@ -58,20 +59,29 @@ struct AddressSuggestionInput: Sendable {
     var remoteSuggestions: [String] = []
     /// False after a deletion, so backspace never re-completes.
     var allowsInlineCompletion = true
-    var now = Date()
     var limit = 8
 }
 
-// MARK: - Visits
-
-/// History aggregated per URL: how often it was visited, how often the visit
-/// started from the address bar, and when it was last seen.
-struct AddressVisitStats: Equatable, Sendable {
-    var url: String
-    var title: String
-    var visits: Int
-    var typedVisits: Int
-    var lastVisit: Date
+extension AddressSuggestionInput {
+    /// A window's suggestion sources: bookmarks, its own open tabs and the
+    /// search engine, plus History unless the window keeps History out (a
+    /// private window).
+    init(
+        query: String,
+        kind: BrowserWindowKind,
+        history: [BrowserHistoryPage],
+        bookmarks: [BrowserBookmark],
+        tabs: [AddressSuggestionTab],
+        searchEngine: SearchEngine
+    ) {
+        self.init(
+            query: query,
+            history: kind.suggestsHistory ? history : [],
+            bookmarks: bookmarks,
+            tabs: tabs,
+            searchEngine: searchEngine
+        )
+    }
 }
 
 // MARK: - Engine
@@ -99,38 +109,36 @@ enum AddressSuggestionEngine {
                 title: tab.title,
                 kind: .switchToTab,
                 tabID: tab.id,
-                visits: 0,
-                typedVisits: 0,
+                frecency: 0,
                 lastVisit: nil,
                 isBookmarked: false
             ))
         }
 
         var pages: [String: Candidate] = [:]
-        for stats in visitStats(input.history) {
-            let key = AddressURLText.key(stats.url)
+        for page in input.history {
+            let key = AddressURLText.key(page.url)
             guard !key.isEmpty else { continue }
+            let title = page.title.trimmingCharacters(in: .whitespacesAndNewlines)
             if var existing = pages[key] {
-                existing.visits += stats.visits
-                existing.typedVisits += stats.typedVisits
-                if let last = existing.lastVisit, last >= stats.lastVisit {
-                    if existing.title.isEmpty { existing.title = stats.title }
+                existing.frecency += page.frecency
+                if let last = existing.lastVisit, last >= page.lastVisit {
+                    if existing.title.isEmpty { existing.title = title }
                 } else {
-                    existing.lastVisit = stats.lastVisit
-                    existing.url = stats.url
-                    if !stats.title.isEmpty { existing.title = stats.title }
+                    existing.lastVisit = page.lastVisit
+                    existing.url = page.url
+                    if !title.isEmpty { existing.title = title }
                 }
                 pages[key] = existing
             } else {
                 pages[key] = Candidate(
                     key: key,
-                    url: stats.url,
-                    title: stats.title,
+                    url: page.url,
+                    title: title,
                     kind: .history,
                     tabID: nil,
-                    visits: stats.visits,
-                    typedVisits: stats.typedVisits,
-                    lastVisit: stats.lastVisit,
+                    frecency: page.frecency,
+                    lastVisit: page.lastVisit,
                     isBookmarked: false
                 )
             }
@@ -151,8 +159,7 @@ enum AddressSuggestionEngine {
                     title: bookmark.title.trimmingCharacters(in: .whitespacesAndNewlines),
                     kind: .bookmark,
                     tabID: nil,
-                    visits: 0,
-                    typedVisits: 0,
+                    frecency: 0,
                     lastVisit: bookmark.addedAt,
                     isBookmarked: true
                 )
@@ -160,8 +167,8 @@ enum AddressSuggestionEngine {
         }
         let pageCandidates = pages.values.filter { !tabKeys.contains($0.key) }
 
-        let rankedTabs = rank(tabCandidates, matcher: matcher, now: input.now)
-        var rankedPages = rank(pageCandidates, matcher: matcher, now: input.now)
+        let rankedTabs = rank(tabCandidates, matcher: matcher)
+        var rankedPages = rank(pageCandidates, matcher: matcher)
 
         // The first row is what Return opens without touching the arrows.
         let searchRow = AddressSuggestion(
@@ -231,45 +238,15 @@ enum AddressSuggestionEngine {
         return AddressSuggestionResult(rows: Array(rows.prefix(input.limit)), inlineCompletion: completionText)
     }
 
-    /// Visit counts per exact URL, newest first; typed counts from entries the
-    /// address bar started. Older entries without the flag count as not typed.
-    static func visitStats(_ history: [BrowserHistoryEntry]) -> [AddressVisitStats] {
-        var byURL: [String: AddressVisitStats] = [:]
-        var order: [String] = []
-        for entry in history {
-            let typed = entry.typed == true ? 1 : 0
-            let title = entry.title.trimmingCharacters(in: .whitespacesAndNewlines)
-            if var stats = byURL[entry.url] {
-                stats.visits += 1
-                stats.typedVisits += typed
-                if entry.visitedAt > stats.lastVisit {
-                    stats.lastVisit = entry.visitedAt
-                    if !title.isEmpty { stats.title = title }
-                } else if stats.title.isEmpty {
-                    stats.title = title
-                }
-                byURL[entry.url] = stats
-            } else {
-                order.append(entry.url)
-                byURL[entry.url] = AddressVisitStats(
-                    url: entry.url,
-                    title: title,
-                    visits: 1,
-                    typedVisits: typed,
-                    lastVisit: entry.visitedAt
-                )
-            }
-        }
-        return order.compactMap { byURL[$0] }.sorted { $0.lastVisit > $1.lastVisit }
-    }
+    /// What a bookmark adds to a page's frecency (Firefox's points for an
+    /// unvisited bookmark).
+    static let bookmarkBonus: Double = 140
 
-    /// Frequency and recency boost within a match tier: typed visits weigh
-    /// three visits, a bookmark two, and the total halves after a week.
-    static func boost(visits: Int, typedVisits: Int, isBookmarked: Bool, lastVisit: Date?, now: Date) -> Double {
-        let frequency = Double(visits) + Double(typedVisits) * 2 + (isBookmarked ? 2 : 0)
-        let ageDays = lastVisit.map { max(0, now.timeIntervalSince($0)) / 86_400 } ?? 365
-        let recency = 1 / (1 + ageDays / 7)
-        return log2(1 + frequency) * (0.5 + recency) + recency
+    /// The order within a match tier: History's frecency
+    /// (`BrowserFrecency`, typed visits weighing three) plus the bookmark
+    /// bonus. Open tabs have none and sort by address length.
+    static func rankScore(frecency: Double, isBookmarked: Bool) -> Double {
+        frecency + (isBookmarked ? bookmarkBonus : 0)
     }
 
     // MARK: Private
@@ -280,8 +257,7 @@ enum AddressSuggestionEngine {
         var title: String
         var kind: AddressSuggestion.Kind
         var tabID: UUID?
-        var visits: Int
-        var typedVisits: Int
+        var frecency: Double
         var lastVisit: Date?
         var isBookmarked: Bool
     }
@@ -292,16 +268,10 @@ enum AddressSuggestionEngine {
         var score: Double
     }
 
-    private static func rank(_ candidates: [Candidate], matcher: AddressQueryMatcher, now: Date) -> [Ranked] {
+    private static func rank(_ candidates: [Candidate], matcher: AddressQueryMatcher) -> [Ranked] {
         candidates.compactMap { candidate -> Ranked? in
             guard let tier = matcher.tier(url: candidate.url, title: candidate.title) else { return nil }
-            let score = boost(
-                visits: candidate.visits,
-                typedVisits: candidate.typedVisits,
-                isBookmarked: candidate.isBookmarked,
-                lastVisit: candidate.lastVisit,
-                now: now
-            )
+            let score = rankScore(frecency: candidate.frecency, isBookmarked: candidate.isBookmarked)
             return Ranked(candidate: candidate, tier: tier, score: score)
         }
         .sorted { lhs, rhs in

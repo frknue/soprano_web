@@ -1,39 +1,43 @@
 import AppKit
 import WebKit
 
+/// One browser window and its tabs. App-wide pieces (stores, downloads,
+/// Settings, the recently-closed stack) live on `manager`; the window's
+/// profile data (data store, History, site decisions) and its favicons and
+/// connection decisions on `dataContext`; this keeps per-window state only.
 @MainActor
 final class BrowserWindowController: NSWindowController {
-    let themeManager: ThemeManager
-    let settingsStore: BrowserSettingsStore
-    let history: BrowserHistoryStore
-    let bookmarks: BrowserBookmarkStore
-    let downloads: BrowserDownloadStore
-    let sitePermissions: BrowserSitePermissionStore
-    let faviconStore: BrowserFaviconStore
-    let sessionStore: BrowserSessionStore
-    let persistsSession: Bool
+    unowned let manager: BrowserWindowManager
+    /// Stable for the window's life and across relaunches (session `id`).
+    let id: UUID
+    /// A page's `window.open` with a size: one tab, compact chrome (no tab
+    /// list, read-only address), never saved in the session.
+    let isPopup: Bool
+    /// What this window's tabs read and write; shared with every window a
+    /// tab may move to. A private window's own context dies with the last
+    /// window that uses it.
+    let dataContext: BrowserDataContext
 
     var tabs: [BrowserTab] = []
     var selectedIndex = 0
-    var closedTabs = BrowserClosedTabStack()
-    var downloadsByRecord: [UUID: WKDownload] = [:]
-    var progressTimer: Timer?
-    var loadWaiters: [UUID: LoadWaiter] = [:]
-    var recordsByDownload: [ObjectIdentifier: UUID] = [:]
-    var destinationsByDownload: [ObjectIdentifier: URL] = [:]
     var isSidebarVisible = false
     var sidebarSection: BrowserSidebarSection = .history
     var findQuery = ""
     var staleStartTabs: Set<UUID> = []
-    let connectionSecurity = BrowserConnectionSecurity()
-    private var settingsWindowController: SettingsWindowController?
+    /// A private window's closed tabs, in memory only (⇧⌘T in the window
+    /// reopens them). Normal windows use the manager's stack.
+    var closedTabs = BrowserRecentlyClosedStack()
+    /// HTTP sign-in sheets waiting on this window.
+    let credentialPrompts = BrowserCredentialPrompts()
     let permissionsState = BrowserPermissionsState()
+    /// Store, theme and settings subscriptions; cancelled when the window
+    /// closes.
+    private var storeObservations: [BrowserObservation] = []
 
     private(set) var theme: AppTheme
     private var usesVerticalTabs: Bool
     private var isVerticalSidebarCollapsed: Bool
     private var lastSearchEngine: SearchEngine
-    private let defaults: UserDefaults
     let verticalTabsView: BrowserVerticalTabsView
     let rootView = NSView()
     private let topBar = NSView()
@@ -59,80 +63,66 @@ final class BrowserWindowController: NSWindowController {
 
     lazy var palette = CommandPalettePanel(themeManager: themeManager)
     lazy var addressBar = BrowserAddressBarController(toolbar: toolbar, theme: theme)
-    var globalVimiumMarks: [String: VimiumMark] = [:]
 
     var previousSelectedTabID: UUID?
     var lastFindQuery = ""
     var vimiumFindActive = false
     lazy var vimiumPromptPanel = VimiumPromptPanel(theme: theme)
     lazy var vimiumTextPanel = VimiumTextPanel(theme: theme)
+    /// ⌘D's popover and the sidebar's bookmark editor.
+    lazy var bookmarkEditorPanel = BrowserBookmarkEditorPanel()
     var vimiumToastView: NSView?
     var popupBlockedControl: ChromeButton?
+    /// The address field's zoom percentage (`updateZoomChip`).
+    var zoomChip: ChromeButton?
 
     static let verticalSidebarCollapsedKey = "verticalSidebarCollapsed"
 
-    struct LoadWaiter {
-        let tabID: UUID
-        let timer: Timer
-        let completion: (Result<String, Error>) -> Void
-    }
-
+    /// An empty window at `frame` (screen coordinates the window really
+    /// uses) whose tabs use `dataContext`; the manager adds its tabs. Create
+    /// windows through `BrowserWindowManager`.
     init(
-        themeManager: ThemeManager,
-        settingsStore: BrowserSettingsStore,
-        history: BrowserHistoryStore,
-        bookmarks: BrowserBookmarkStore,
-        downloads: BrowserDownloadStore,
-        sitePermissions: BrowserSitePermissionStore,
-        faviconStore: BrowserFaviconStore = BrowserFaviconStore(),
-        sessionStore: BrowserSessionStore = BrowserSessionStore(),
-        persistsSession: Bool = true,
-        frame: NSRect? = nil,
-        defaults: UserDefaults = .standard
+        manager: BrowserWindowManager,
+        id: UUID = UUID(),
+        frame: NSRect,
+        isPopup: Bool = false,
+        dataContext: BrowserDataContext
     ) {
-        self.themeManager = themeManager
-        self.settingsStore = settingsStore
-        self.history = history
-        self.bookmarks = bookmarks
-        self.downloads = downloads
-        self.sitePermissions = sitePermissions
-        self.faviconStore = faviconStore
-        self.sessionStore = sessionStore
-        self.persistsSession = persistsSession
-        self.theme = themeManager.currentTheme
-        self.usesVerticalTabs = settingsStore.settings.usesVerticalTabs
-        self.isVerticalSidebarCollapsed = defaults.bool(
+        self.manager = manager
+        self.id = id
+        self.isPopup = isPopup
+        self.dataContext = dataContext
+        let themeManager = manager.themeManager
+        let settings = manager.settingsStore.settings
+        let theme = Self.theme(for: dataContext.kind, appTheme: themeManager.currentTheme)
+        self.theme = theme
+        self.usesVerticalTabs = settings.usesVerticalTabs
+        self.isVerticalSidebarCollapsed = manager.defaults.bool(
             forKey: Self.verticalSidebarCollapsedKey
         )
-        self.lastSearchEngine = settingsStore.settings.searchEngine
-        self.defaults = defaults
-        self.verticalTabsView = BrowserVerticalTabsView(theme: themeManager.currentTheme)
+        self.lastSearchEngine = settings.searchEngine
+        self.verticalTabsView = BrowserVerticalTabsView(theme: theme)
         self.toolbar = BrowserToolbarView(theme: theme)
         self.tabStrip = BrowserTabStripView(theme: theme)
         self.findBar = BrowserFindBar(theme: theme)
         self.sidebar = BrowserSidebarView(
             theme: theme,
-            history: history,
-            bookmarks: bookmarks,
-            downloads: downloads
+            history: dataContext.history,
+            bookmarks: manager.bookmarks,
+            bookmarkState: manager.bookmarkUIState,
+            downloads: manager.downloads
         )
         self.hairline = ChromeRuleView(axis: .horizontal, color: theme.colors.borderSubtle)
         self.sidebarDivider = ChromeRuleView(axis: .vertical, color: theme.colors.borderSubtle)
-
-        let initialFrame = frame ?? MainWindowSizing.initialFrame(
-            in: NSScreen.main?.visibleFrame ?? MainWindowSizing.fallbackVisibleFrame
-        )
         let window = BrowserWindow(
-            contentRect: initialFrame,
+            contentRect: frame,
             styleMask: [.titled, .closable, .miniaturizable, .resizable, .fullSizeContentView],
             backing: .buffered,
             defer: false
         )
+        window.allowsOffscreenFrame = manager.placement.isOffscreen
         super.init(window: window)
 
-        guard self.window != nil else {
-            fatalError("BrowserWindowController requires a window")
-        }
         window.delegate = self
         window.titlebarAppearsTransparent = true
         window.titleVisibility = .hidden
@@ -141,9 +131,13 @@ final class BrowserWindowController: NSWindowController {
         window.tabbingMode = .disallowed
         window.minSize = NSSize(width: 760, height: 520)
         window.backgroundColor = theme.colors.bgBase
-        if persistsSession {
-            window.setFrameAutosaveName("SopranoWebMainWindow")
+        window.title = kind.windowTitle("New Tab")
+        if kind.isPrivate {
+            // Sheets, menus and the title bar follow Ink too, whatever the
+            // app's appearance.
+            window.appearance = theme.appearance.nsAppearance
         }
+        window.setFrame(frame, display: false)
 
         rootView.wantsLayer = true
         window.contentView = rootView
@@ -151,14 +145,43 @@ final class BrowserWindowController: NSWindowController {
         wireCallbacks()
         installTabChrome()
         installAddressBar()
+        sidebar.privateDownloadContextID = dataContext.downloadContextID
+        applyWindowMark()
         applyTheme(theme)
-        restoreOrCreateTab()
         applyTabsLayout()
     }
 
     @available(*, unavailable)
     required init?(coder: NSCoder) {
         fatalError("init(coder:) is not supported")
+    }
+
+    // App-wide stores, owned by the manager.
+    var themeManager: ThemeManager { manager.themeManager }
+    var settingsStore: BrowserSettingsStore { manager.settingsStore }
+    var bookmarks: BrowserBookmarkStore { manager.bookmarks }
+    var downloads: BrowserDownloadStore { manager.downloads }
+    private var defaults: UserDefaults { manager.defaults }
+
+    // This window's data, owned by its data context.
+    var kind: BrowserWindowKind { dataContext.kind }
+    /// The profile the window belongs to (a private window's: the one it
+    /// was opened over).
+    var profileID: UUID { dataContext.profileID }
+    var history: BrowserHistoryStore { dataContext.history }
+    var sitePermissions: BrowserSitePermissionStore { dataContext.sitePermissions }
+    var faviconStore: BrowserFaviconStore { dataContext.faviconStore }
+    var connectionSecurity: BrowserConnectionSecurity { dataContext.connectionSecurity }
+
+    /// This window as `BrowserTabMoveRule` sees it.
+    var moveRuleWindow: BrowserTabMoveRule.Window {
+        BrowserTabMoveRule.Window(id: id, context: dataContext.id, isPopup: isPopup)
+    }
+
+    /// A private window always uses Folio Ink; a normal window the app's
+    /// theme.
+    static func theme(for kind: BrowserWindowKind, appTheme: AppTheme) -> AppTheme {
+        kind.isPrivate ? .folioInk : appTheme
     }
 
     var selectedTab: BrowserTab? {
@@ -260,30 +283,42 @@ final class BrowserWindowController: NSWindowController {
     }
 
     private func applyTabsLayout() {
-        let vertical = usesVerticalTabs
+        let compact = isPopup
+        let vertical = usesVerticalTabs && !compact
         let collapsed = vertical && isVerticalSidebarCollapsed
-        verticalTabsView.isHidden = !vertical || collapsed
-        tabStrip.isHidden = vertical
-        tabStripHeight.constant = vertical ? 0 : BrowserTabStripView.preferredHeight
-        topBarHeight.constant = vertical
-            ? BrowserToolbarView.preferredHeight
-            : BrowserToolbarView.preferredHeight + BrowserTabStripView.preferredHeight
+        let railShown = vertical && !collapsed
+        let stripShown = !vertical && !compact
+        verticalTabsView.isHidden = !railShown
+        tabStrip.isHidden = !stripShown
+        tabStripHeight.constant = stripShown ? BrowserTabStripView.preferredHeight : 0
+        topBarHeight.constant = stripShown
+            ? BrowserToolbarView.preferredHeight + BrowserTabStripView.preferredHeight
+            : BrowserToolbarView.preferredHeight
 
-        topBarLeadingToRoot.isActive = !vertical || collapsed
-        topBarLeadingToSidebar.isActive = vertical && !collapsed
-        webLeadingToRoot.isActive = !vertical || collapsed
-        webLeadingToSidebar.isActive = vertical && !collapsed
-        // The traffic lights own the top-left corner; when the rail is hidden
-        // they sit over a 76 pt strip and the toolbar starts after it.
-        toolbarLeading.constant = collapsed ? 76 : 0
+        topBarLeadingToRoot.isActive = !railShown
+        topBarLeadingToSidebar.isActive = railShown
+        webLeadingToRoot.isActive = !railShown
+        webLeadingToSidebar.isActive = railShown
+        // The traffic lights own the top-left corner; without a rail or a
+        // strip above it they sit over a 76 pt strip and the toolbar starts
+        // after it.
+        toolbarLeading.constant = collapsed || compact ? 76 : 0
 
-        toolbar.setVerticalTabsToggle(vertical && !collapsed)
+        toolbar.setVerticalTabsToggle(railShown)
+        toolbar.setCompact(compact)
+        // The window's mark ("Private", its profile, or both) sits in the
+        // rail header, or next to the address field when there is no rail.
+        toolbar.setWindowMarkShown(!railShown)
         updateTabStrip()
         updateWindowMinSize()
         viewNeedsLayout()
     }
 
     func updateWindowMinSize() {
+        if isPopup {
+            window?.minSize = BrowserPopupWindowFrame.minimumWindowSize(chromeHeight: BrowserToolbarView.preferredHeight)
+            return
+        }
         let rail = usesVerticalTabs && !isVerticalSidebarCollapsed
             ? BrowserVerticalTabsView.preferredWidth
             : 0
@@ -307,7 +342,7 @@ final class BrowserWindowController: NSWindowController {
         toolbar.onToggleVerticalSidebar = { [weak self] in self?.toggleVerticalSidebar() }
 
         toolbar.onSubmit = { [weak self] value in self?.submitAddress(value) }
-        toolbar.onBookmark = { [weak self] in self?.toggleBookmark() }
+        toolbar.onBookmark = { [weak self] in self?.starPressed() }
         toolbar.onDownloads = { [weak self] in self?.toggleSidebar(section: .downloads) }
         toolbar.onSecurityInfo = { [weak self] in self?.showConnectionInfo() }
         toolbar.onSidebar = { [weak self] in
@@ -327,8 +362,15 @@ final class BrowserWindowController: NSWindowController {
         sidebar.onOpenURL = { [weak self] url in self?.navigateCurrent(to: url) }
         sidebar.onOpenFile = { [weak self] path in self?.openFile(path) }
         sidebar.onRevealFile = { [weak self] path in self?.revealFile(path) }
-        sidebar.onRemoveHistory = { [weak self] id in self?.history.remove(id: id) }
-        sidebar.onRemoveBookmark = { [weak self] id in self?.bookmarks.remove(id: id) }
+        sidebar.onRemoveHistory = { [weak self] url in self?.history.removePage(url: url) }
+        sidebar.onOpenURLInNewTab = { [weak self] url in self?.newTab(url: url) }
+        sidebar.onOpenFolderInTabs = { [weak self] id in self?.openBookmarkFolderInTabs(id) }
+        sidebar.onNewBookmarkFolder = { [weak self] parent, index in self?.newBookmarkFolder(in: parent, at: index) }
+        sidebar.onEditBookmarkNode = { [weak self] id in self?.editBookmarkNodeFromSidebar(id) }
+        sidebar.onDeleteBookmarkNode = { [weak self] id in self?.deleteBookmarkNode(id) }
+        sidebar.onMoveBookmarkNode = { [weak self] id, folder, index in
+            self?.bookmarks.move(id, to: folder, at: index)
+        }
         sidebar.onRemoveDownload = { [weak self] id in self?.downloads.remove(id: id) }
         sidebar.onCancelDownload = { [weak self] id in self?.cancelDownload(id: id) }
         sidebar.onResumeDownload = { [weak self] id in self?.resumeDownload(id: id) }
@@ -336,24 +378,55 @@ final class BrowserWindowController: NSWindowController {
         sidebar.onClear = { [weak self] section in self?.clear(section) }
         sidebar.onClose = { [weak self] in self?.hideSidebar() }
 
-        history.onChange = { [weak self] in
-            self?.sidebar.refresh()
-            self?.markStartPagesStale()
-        }
-        bookmarks.onChange = { [weak self] in
-            self?.sidebar.refresh()
-            self?.markStartPagesStale()
-            self?.updateChrome()
-        }
-        downloads.onChange = { [weak self] in self?.sidebar.refresh() }
-
-        themeManager.onThemeChanged = { [weak self] theme in
-            self?.applyTheme(theme)
-        }
-        settingsStore.onChange = { [weak self] settings in
-            self?.applySettings(settings)
-        }
+        storeObservations = [
+            history.changes.observe { [weak self] in
+                guard let self else { return }
+                // The list queries the database; a hidden one reloads when shown.
+                if self.isSidebarVisible, self.sidebar.section == .history {
+                    self.sidebar.refresh()
+                }
+                self.markStartPagesStale()
+            },
+            bookmarks.changes.observe { [weak self] in
+                self?.sidebar.refresh()
+                self?.markStartPagesStale()
+                self?.updateChrome()
+            },
+            downloads.changes.observe { [weak self] in self?.sidebar.refresh() },
+            faviconStore.changes.observe { [weak self] in
+                guard let self, self.isSidebarVisible else { return }
+                self.sidebar.redisplayRows()
+            },
+            sitePermissions.changes.observe { [weak self] in self?.sitePermissionsChanged() },
+            manager.profiles.changes.observe { [weak self] in self?.applyWindowMark() },
+            manager.themeChanges.observe { [weak self] theme in
+                // A private window keeps Folio Ink.
+                guard let self, !self.kind.isPrivate else { return }
+                self.applyTheme(theme)
+            },
+            settingsStore.changes.observe { [weak self] settings in self?.applySettings(settings) },
+            // Settings ▸ Block ads and trackers, or new lists: new loads
+            // follow; nothing reloads.
+            manager.contentBlocker.changes.observe { [weak self] in
+                self?.applyContentBlockingToTabs(reloadingChanged: false)
+            },
+        ]
         setUpPermissions()
+    }
+
+    /// Stops the store, theme and settings subscriptions (window closed).
+    func cancelStoreObservations() {
+        storeObservations.forEach { $0.cancel() }
+        storeObservations.removeAll()
+    }
+
+    /// Shows "Private", the window's profile (when there are several) or
+    /// both in the rail header and next to the address field.
+    func applyWindowMark() {
+        let mark = manager.windowMark(for: self)
+        verticalTabsView.setMark(mark)
+        toolbar.setWindowMark(mark)
+        viewNeedsLayout()
     }
 
     func viewNeedsLayout() {
@@ -363,18 +436,10 @@ final class BrowserWindowController: NSWindowController {
 
     // MARK: - Settings and theme
 
+    /// Shows the window when it is minimized or hidden; never in the harness.
     func revealWindowIfNeeded() {
         guard let window, !window.isVisible else { return }
-        showWindow(nil)
-        window.makeKeyAndOrderFront(nil)
-    }
-
-    func showWindowAndEnsureTab() {
-        if tabs.isEmpty {
-            newTab(focusAddress: true)
-        }
-        showWindow(nil)
-        window?.makeKeyAndOrderFront(nil)
+        manager.present(self)
     }
 
     func toggleVerticalSidebar() {
@@ -390,28 +455,13 @@ final class BrowserWindowController: NSWindowController {
     }
 
     func showSettings() {
-        if let settingsWindowController {
-            settingsWindowController.showWindow(nil)
-            settingsWindowController.window?.makeKeyAndOrderFront(nil)
-            return
-        }
-        let controller = SettingsWindowController(
-            settingsStore: settingsStore,
-            themeManager: themeManager
-        )
-        controller.onShowWebsites = { [weak self] parent in self?.showWebsites(on: parent) }
-        settingsWindowController = controller
-        controller.showWindow(nil)
-        controller.window?.makeKeyAndOrderFront(nil)
+        manager.showSettings()
     }
 
     private func applySettings(_ settings: BrowserSettings) {
         refreshPermissionStates()
-        let themeChanged = themeManager.themeId != settings.themeID
-            || themeManager.appearance != settings.appearance
-        if themeChanged {
-            themeManager.update(themeId: settings.themeID, appearance: settings.appearance)
-        }
+        // Settings ▸ Default page zoom: sites without their own zoom follow.
+        applySiteZooms()
         let searchChanged = lastSearchEngine != settings.searchEngine
         lastSearchEngine = settings.searchEngine
         if searchChanged {
@@ -450,7 +500,8 @@ final class BrowserWindowController: NSWindowController {
         findBar.apply(theme: theme)
         sidebar.apply(theme: theme)
         linkStatus.apply(theme: theme)
-        for tab in tabs where tab.isStartPage {
+        // A sleeping start page builds with the new theme when it wakes.
+        for tab in tabs where tab.isStartPage && !tab.isRestorePending {
             loadStartPage(tab)
         }
         updateChrome()

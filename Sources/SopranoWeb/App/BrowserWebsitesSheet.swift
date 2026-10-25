@@ -1,11 +1,16 @@
 import AppKit
 
 /// Settings ▸ Websites: every host with remembered decisions (camera,
-/// microphone, notifications, pop-ups, external apps), each removable, and
-/// Remove All. Presented as a sheet on the Settings window.
+/// microphone, notifications, pop-ups, external apps) of one profile, each
+/// removable, and Remove All. A picker switches profiles when there are
+/// several. Presented as a sheet on the Settings window.
 @MainActor
 final class BrowserWebsitesSheet: NSWindowController {
-    private let store: BrowserSitePermissionStore
+    private let picker: BrowserProfilePicker
+    /// The site decisions of a profile (nil once the manager is gone).
+    private let storeFor: (UUID) -> BrowserSitePermissionStore?
+    private var store: BrowserSitePermissionStore?
+    private var storeObservation: BrowserObservation?
     private var theme: AppTheme
 
     private let rootView = NSView()
@@ -21,8 +26,13 @@ final class BrowserWebsitesSheet: NSWindowController {
     private let doneButton: ChromeButton
     private var rowViews: [RowView] = []
 
-    init(store: BrowserSitePermissionStore, theme: AppTheme) {
-        self.store = store
+    init(
+        picker: BrowserProfilePicker,
+        theme: AppTheme,
+        storeFor: @escaping (UUID) -> BrowserSitePermissionStore?
+    ) {
+        self.picker = picker
+        self.storeFor = storeFor
         self.theme = theme
         self.topRule = ChromeRuleView(axis: .horizontal, color: theme.colors.borderSubtle)
         self.bottomRule = ChromeRuleView(axis: .horizontal, color: theme.colors.borderSubtle)
@@ -44,7 +54,8 @@ final class BrowserWebsitesSheet: NSWindowController {
         subtitle.font = ChromeFont.meta
         emptyLabel.font = ChromeFont.empty
         emptyLabel.alignment = .center
-        for view in [header, subtitle, topRule, scrollView, emptyLabel, bottomRule, removeAllButton, doneButton] as [NSView] {
+        let pickerButton = picker.button
+        for view in [header, subtitle, pickerButton, topRule, scrollView, emptyLabel, bottomRule, removeAllButton, doneButton] as [NSView] {
             view.translatesAutoresizingMaskIntoConstraints = false
             rootView.addSubview(view)
         }
@@ -73,6 +84,9 @@ final class BrowserWebsitesSheet: NSWindowController {
             subtitle.topAnchor.constraint(equalTo: header.bottomAnchor, constant: 4),
             subtitle.leadingAnchor.constraint(equalTo: header.leadingAnchor),
 
+            pickerButton.centerYAnchor.constraint(equalTo: header.centerYAnchor),
+            pickerButton.trailingAnchor.constraint(equalTo: rootView.trailingAnchor, constant: -24),
+            pickerButton.leadingAnchor.constraint(greaterThanOrEqualTo: header.trailingAnchor, constant: 12),
             topRule.topAnchor.constraint(equalTo: subtitle.bottomAnchor, constant: 16),
             topRule.leadingAnchor.constraint(equalTo: rootView.leadingAnchor),
             topRule.trailingAnchor.constraint(equalTo: rootView.trailingAnchor),
@@ -104,8 +118,21 @@ final class BrowserWebsitesSheet: NSWindowController {
             doneButton.widthAnchor.constraint(greaterThanOrEqualToConstant: 92),
         ])
 
+        picker.onChange = { [weak self] _ in self?.showSelectedProfile() }
         apply(theme: theme)
+        showSelectedProfile()
+    }
+
+    /// Follows the picked profile's site decisions.
+    private func showSelectedProfile() {
+        store = storeFor(picker.selectedID)
+        storeObservation = store?.changes.observe { [weak self] in self?.reload() }
         reload()
+    }
+
+    /// The picker's title, nil while it is hidden (the harness prints it).
+    var pickerTitle: String? {
+        picker.button.isHidden ? nil : picker.button.title
     }
 
     @available(*, unavailable)
@@ -123,6 +150,7 @@ final class BrowserWebsitesSheet: NSWindowController {
         topRule.color = theme.colors.borderSubtle
         bottomRule.color = theme.colors.borderSubtle
         removeAllButton.apply(theme: theme)
+        picker.apply(theme: theme)
         doneButton.apply(theme: theme)
         rowViews.forEach { $0.apply(theme: theme) }
     }
@@ -130,9 +158,9 @@ final class BrowserWebsitesSheet: NSWindowController {
     /// Rebuilds the list from the store; called on every store change.
     func reload() {
         rowViews.forEach { $0.removeFromSuperview() }
-        rowViews = BrowserWebsiteRow.rows(from: store.sites).map { row in
+        rowViews = BrowserWebsiteRow.rows(from: store?.sites ?? [:]).map { row in
             let view = RowView(row: row, theme: theme)
-            view.onRemove = { [weak self] host in self?.store.removeAll(host: host) }
+            view.onRemove = { [weak self] host in self?.store?.removeAll(host: host) }
             return view
         }
         for view in rowViews {
@@ -145,7 +173,7 @@ final class BrowserWebsitesSheet: NSWindowController {
     }
 
     @objc private func removeAllPressed() {
-        store.removeAll()
+        store?.removeAll()
     }
 
     @objc private func donePressed() {

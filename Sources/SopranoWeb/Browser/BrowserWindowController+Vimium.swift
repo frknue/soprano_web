@@ -66,18 +66,21 @@ extension BrowserWindowController {
         }
     }
 
+    /// `b` / `B`: every bookmark in every folder; the description names the
+    /// folder ("Work › Docs · https://…") so the palette matches it too.
     func showVimiumBookmarks(newTab: Bool) {
         guard let window else { return }
-        guard !bookmarks.bookmarks.isEmpty else {
+        guard !bookmarks.entries.isEmpty else {
             showVimiumToast("No bookmarks yet.")
             return
         }
-        let items = bookmarks.bookmarks.map { bookmark in
-            CommandItem(
+        let items = bookmarks.entries.map { entry in
+            let bookmark = entry.bookmark
+            return CommandItem(
                 id: "vimium-bookmark-\(bookmark.id)",
                 icon: "bookmark",
                 label: bookmark.displayTitle,
-                description: bookmark.url
+                description: entry.detail
             ) { [weak self] in
                 guard let self else { return }
                 if newTab {

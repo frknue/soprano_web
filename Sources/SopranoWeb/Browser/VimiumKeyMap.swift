@@ -35,6 +35,7 @@ enum VimiumCommand: Equatable, Sendable {
     case previousVisitedTab
     case moveTabLeft
     case moveTabRight
+    case moveTabToNewWindow
     case createTab
     case duplicateTab
     case closeTab
@@ -193,7 +194,7 @@ struct VimiumKeyMap {
         ">>": .moveTabRight,
         "g0": .firstTab,
         "g$": .lastTab,
-        "W": .unsupported("Move to a new window is not available in this single-window browser."),
+        "W": .moveTabToNewWindow,
         "t": .createTab,
         "yt": .duplicateTab,
         "x": .closeTab,
@@ -246,7 +247,7 @@ struct VimiumKeyMap {
             ("<< / >>", "move tab left / right"),
             ("t / yt", "new / duplicated tab"),
             ("x / X", "close / restore tab"),
-            ("W", "not available"),
+            ("W", "move tab to a new window"),
             ("⌥P", "not available"),
             ("⌥M", "mute / unmute tab"),
         ]),

@@ -24,7 +24,9 @@ final class VimiumController: NSObject {
         let action: VimiumHintMode
     }
 
-    private weak var windowController: BrowserWindowController?
+    /// The window the tab is attached to; set and cleared by
+    /// `attachTab`/`detachTab`.
+    weak var windowController: BrowserWindowController?
     private weak var tab: BrowserTab?
     private var mode: Mode = .normal
     private var keyMap = VimiumKeyMap()
@@ -36,8 +38,7 @@ final class VimiumController: NSObject {
     private var lastFocusEditable = false
     private var hintGeneration = 0
 
-    init(windowController: BrowserWindowController, tab: BrowserTab) {
-        self.windowController = windowController
+    init(tab: BrowserTab) {
         self.tab = tab
         super.init()
     }
@@ -368,6 +369,14 @@ final class VimiumController: NSObject {
             moveTab(by: -1)
         case .moveTabRight:
             moveTab(by: 1)
+        case .moveTabToNewWindow:
+            // The move rebinds this controller to the new window; leave
+            // the key event first.
+            if let id = tab?.id {
+                DispatchQueue.main.async { [weak self] in
+                    self?.windowController?.moveTabToNewWindow(id: id)
+                }
+            }
 
         case .createTab:
             for _ in 0..<count {
@@ -750,7 +759,7 @@ final class VimiumController: NSObject {
             else { return }
             let mark = VimiumMark(url: url, x: x, y: y)
             if letter == letter.uppercased(), letter != letter.lowercased() {
-                self.windowController?.globalVimiumMarks[letter] = mark
+                self.windowController?.manager.globalVimiumMarks[letter] = mark
             } else {
                 self.localMarks[letter] = mark
             }
@@ -761,7 +770,7 @@ final class VimiumController: NSObject {
     private func jumpToMark(_ letter: String) {
         let mark: VimiumMark?
         if letter == letter.uppercased(), letter != letter.lowercased() {
-            mark = windowController?.globalVimiumMarks[letter]
+            mark = windowController?.manager.globalVimiumMarks[letter]
         } else {
             mark = localMarks[letter]
         }

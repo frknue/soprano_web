@@ -2,19 +2,7 @@ import AppKit
 import WebKit
 
 extension BrowserWindowController {
-    // MARK: - Bookmarks, find, sidebar
-
-    func toggleBookmark() {
-        guard let tab = selectedTab,
-              !tab.isStartPage,
-              let address = tab.webView.url?.absoluteString
-        else {
-            NSSound.beep()
-            return
-        }
-        bookmarks.toggle(url: address, title: tab.displayTitle)
-        updateChrome()
-    }
+    // MARK: - Find, sidebar
 
     func showFindBar() {
         findBar.isHidden = false

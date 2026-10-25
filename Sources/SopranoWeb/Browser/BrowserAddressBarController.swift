@@ -22,8 +22,10 @@ final class BrowserAddressBarController {
     private var allowsCompletion = false
     private var remote: (query: String, phrases: [String])?
     private var result = AddressSuggestionResult.empty
+    /// The engine of the last input, so a search-suggestion request does
+    /// not build (and query History for) another one.
+    private var searchEngine: SearchEngine?
     private var lastEditWasDeletion = false
-    private var typedNavigationTabs: Set<UUID> = []
 
     init(toolbar: BrowserToolbarView, theme: AppTheme) {
         self.toolbar = toolbar
@@ -115,18 +117,6 @@ final class BrowserAddressBarController {
         dropdown.isHidden = true
     }
 
-    // MARK: Typed visits
-
-    /// The next finished load in this tab started from the address bar.
-    func markTypedNavigation(tabID: UUID) {
-        typedNavigationTabs.insert(tabID)
-    }
-
-    /// Whether the load that just finished in this tab was typed; clears it.
-    func consumeTypedNavigation(tabID: UUID) -> Bool {
-        typedNavigationTabs.remove(tabID) != nil
-    }
-
     // MARK: Snapshot harness
 
     /// Shows `phrases` as if the search engine had answered for the current
@@ -147,6 +137,7 @@ final class BrowserAddressBarController {
             close()
             return
         }
+        searchEngine = input.searchEngine
         input.allowsInlineCompletion = allowsCompletion
         input.remoteSuggestions = remote?.query == query ? remote?.phrases ?? [] : []
         let previousTarget = keepingSelection && dropdown.selectedIndex > 0
@@ -181,7 +172,7 @@ final class BrowserAddressBarController {
         let query = query
         guard includesSearchSuggestions?() == true,
               !query.isEmpty,
-              let engine = makeInput?(query).searchEngine,
+              let engine = searchEngine,
               !AddressQueryMatcher.looksLikeAddress(query, engine: engine)
         else {
             fetcher.cancel()

@@ -42,7 +42,8 @@ extension BrowserWindowController {
         }
         return AddressSuggestionInput(
             query: query,
-            history: history.entries,
+            kind: kind,
+            history: kind.suggestsHistory ? history.suggestionCandidates(for: query) : [],
             bookmarks: bookmarks.bookmarks,
             tabs: openTabs,
             searchEngine: settingsStore.settings.searchEngine
@@ -51,9 +52,7 @@ extension BrowserWindowController {
 
     /// The field's own Return (empty field): a typed navigation.
     func submitAddress(_ value: String) {
-        if let tab = selectedTab {
-            addressBar.markTypedNavigation(tabID: tab.id)
-        }
+        selectedTab?.typedNavigationPending = true
         navigateCurrent(to: value)
     }
 
@@ -72,11 +71,11 @@ extension BrowserWindowController {
     private func openAddress(_ address: String, typed: Bool, newTab: Bool) {
         if newTab {
             let tab = self.newTab(url: address)
-            if typed { addressBar.markTypedNavigation(tabID: tab.id) }
+            if typed { tab.typedNavigationPending = true }
             return
         }
         guard let tab = selectedTab, let url = URL(string: address) else { return }
-        if typed { addressBar.markTypedNavigation(tabID: tab.id) }
+        if typed { tab.typedNavigationPending = true }
         navigate(tab, to: url)
         window?.makeFirstResponder(tab.webView)
     }

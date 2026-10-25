@@ -33,23 +33,40 @@ decision).
 
 ## 2. Windows, private browsing, profiles, memory
 
-- App-level window manager: ⌘N, drag a tab out, Move Tab to New Window, Merge All Windows,
-  popup windows, a closed-window stack. Prerequisites: stores notify many observers (each
-  has one `onChange` closure today), downloads move to an app-level manager, the session
-  file holds `windows[]`.
-- Split `BrowserWindowController` (1,696 lines, every delegate) into per-feature tab
-  responders as these features land, the way DuckDuckGo's tab extensions do.
-- Private windows: one `WKWebsiteDataStore.nonPersistent()` per window, kept out of history,
-  favicons, session, closed tabs, snapshots, suggestions and the `browser` CLI.
-- Profiles: `WKWebsiteDataStore(forIdentifier:)` (macOS 14) per profile, each with its own
-  history, permissions and (later) extension controller.
-- Tab suspension: after idle time or memory pressure, keep a snapshot and `interactionState`
-  and release the web view; skip tabs playing audio, capturing, or on a keep-alive list.
-- History in SQLite with frecency for suggestions; Arc and Chrome history imports exceed the
-  5,000-entry JSON cap by an order of magnitude. Bookmark folders.
-- Content blocking: uBlock Origin Lite through `WKWebExtension` (loads and blocks on
-  macOS 27), or `WKContentRuleList`s built from EasyList (150,000 rules per list).
-- Zoom remembered per site (eTLD+1), plus a default zoom.
+Built on `feat/stage-2` (see `CHANGELOG.md`): an app-level window manager (⌘N, every window
+saved and restored, one recently-closed stack of tabs and windows, `browser windows` /
+`--window`); moving tabs between windows (menu, drag, Vimium `W`, Merge All Windows) and
+sized pop-up windows; private windows (⇧⌘N) on one in-memory data store each; profiles
+with their own data store, history and site decisions; history in SQLite with frecency
+suggestions, retention and a day-grouped sidebar; bookmark folders; tab sleep and
+per-site zoom; a built-in ad and tracker blocker compiling EasyList and EasyPrivacy into
+`WKContentRuleList`s.
+
+Decided along the way:
+- Content blocking is built in on `WKContentRuleList`s (macOS 14, no extension runtime);
+  uBlock Origin Lite stays a stage 4 option. Switching a site off removes the lists from
+  its tabs instead of compiling an exceptions list, which would recompile every list
+  (5–7 s each) per switch.
+- Zoom is per host, as in Safari and Chrome. Bookmarks are shared by all profiles.
+- Background tabs stay in the window: a hidden web view already runs timers at 1/s with no
+  animation frames and ~0.1% CPU, the same as a detached one.
+- "Never" in Put inactive tabs to sleep also holds under memory pressure.
+- Private windows deny web notifications (Notification Center keeps its own copies);
+  bookmarks and settings changed in them are saved, as in Safari and Chrome.
+
+Measured: suggestions under 20 ms per keystroke with 100,000 visits; EasyList (85,952
+filters → 66,956 rules) and EasyPrivacy (56,408 → 56,330) download, convert and compile in
+6.7 s and 5.2 s, 72.9 MB on disk.
+
+Left:
+- Try a real-mouse drag between two on-screen windows (the harness drives the same drop
+  handlers, not a system drag session).
+- Prove generic element hiding with the real EasyList: a selector WebKit rejects drops its
+  whole batch of 250 without a compile error.
+- A blocked-request count (WebKit has no public callback) and the filter types WebKit
+  can't express (`$csp`, `$redirect`, `$removeparam`, `$rewrite`, scriptlets, procedural
+  CSS) — uBlock Origin Lite in stage 4.
+- Arc's Space→profile mapping (stage 3) and per-profile extensions (stage 4).
 
 ## 3. Arc's organization model and import
 

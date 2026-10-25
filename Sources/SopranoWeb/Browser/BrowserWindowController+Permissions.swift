@@ -1,9 +1,8 @@
 import AppKit
 import WebKit
 
-/// Controller state for site permissions: notification prompts in flight
-/// (one per host, every request from that host waits on it) and the open
-/// Settings ▸ Websites sheet.
+/// Window state for site permissions: notification prompts in flight (one
+/// per host, every request from that host waits on it).
 @MainActor
 final class BrowserPermissionsState {
     struct NotificationWaiter {
@@ -13,21 +12,19 @@ final class BrowserPermissionsState {
     }
 
     var notificationPrompts: [String: [NotificationWaiter]] = [:]
-    var websitesSheet: BrowserWebsitesSheet?
 }
 
 extension BrowserWindowController {
     // MARK: - Setup
 
-    /// Wires the permission callbacks; called once from `wireCallbacks`.
+    /// Wires the window's permission callbacks; called once from
+    /// `wireCallbacks`.
     func setUpPermissions() {
-        sitePermissions.onChange = { [weak self] in self?.sitePermissionsChanged() }
         toolbar.captureIndicator.onAction = { [weak self] action in self?.performCaptureAction(action) }
-        BrowserNotificationCenter.shared.onClick = { [weak self] click in self?.openNotification(click) }
     }
 
-    /// Per-tab hooks; called from `makeTab` after the tab's observations.
-    func installPermissions(on tab: BrowserTab) {
+    /// The tab's camera and microphone observations; part of `attachTab`.
+    func observeCapture(_ tab: BrowserTab) {
         let webView = tab.webView
         tab.observations.append(webView.observe(\.cameraCaptureState, options: [.new]) { [weak self, weak tab] _, _ in
             MainActor.assumeIsolated {
@@ -41,7 +38,6 @@ extension BrowserWindowController {
                 self.updateCaptureIndicator()
             }
         })
-        refreshStateScripts(tab)
     }
 
     /// Replaces the tab's state scripts (mute flag, remembered notification
@@ -54,35 +50,44 @@ extension BrowserWindowController {
         }
         contentController.removeAllUserScripts()
         kept.forEach(contentController.addUserScript)
+        let notifications = kind.allowsWebNotifications
         BrowserPermissionScripts.stateScripts(
             muted: tab.isMuted,
-            notificationStates: NotificationPermissionState.states(in: sitePermissions),
-            askingAllowed: settingsStore.settings.allowsNotificationRequests
+            notificationStates: notifications ? NotificationPermissionState.states(in: sitePermissions) : [:],
+            askingAllowed: notifications && settingsStore.settings.allowsNotificationRequests
         ).forEach(contentController.addUserScript)
     }
 
-    /// A remembered decision changed (a prompt answer or Settings ▸
-    /// Websites): new documents read it from the state scripts, open pages
-    /// get their `Notification.permission` updated now.
+    /// The shim's `Notification.permission` for `host` in this window.
+    func notificationState(for host: String?) -> NotificationPermissionState {
+        guard kind.allowsWebNotifications, let host else { return .denied }
+        return NotificationPermissionState(
+            decision: sitePermissions.decision(.notifications, host: host),
+            askingAllowed: settingsStore.settings.allowsNotificationRequests
+        )
+    }
+
+    /// A remembered decision changed (a prompt answer, ⌘+/⌘-/⌘0 in any
+    /// window of the profile, the "Block ads on this site" switch,
+    /// Settings ▸ Websites): new documents read it from the state scripts,
+    /// open pages get their `Notification.permission` and their site's
+    /// zoom now, and tabs of a site whose ad blocking changed reload.
     func sitePermissionsChanged() {
         refreshPermissionStates()
         refreshPopupPermissions()
-        permissionsState.websitesSheet?.reload()
+        applySiteZooms()
+        applyContentBlockingToTabs(reloadingChanged: true)
     }
 
     /// Re-applies remembered decisions and the notification setting to every
     /// tab; also called when settings change.
     func refreshPermissionStates() {
-        let asking = settingsStore.settings.allowsNotificationRequests
         for tab in tabs {
             refreshStateScripts(tab)
             guard !tab.isStartPage,
                   let host = BrowserSitePermissionStore.key(for: tab.webView.url)
             else { continue }
-            let state = NotificationPermissionState(
-                decision: sitePermissions.decision(.notifications, host: host),
-                askingAllowed: asking
-            )
+            let state = notificationState(for: host)
             tab.webView.evaluateJavaScript(
                 BrowserPermissionScripts.notificationCall("setPermission", [state.rawValue]),
                 in: nil,
@@ -239,16 +244,9 @@ extension BrowserWindowController {
     func handleNotificationRequest(body: [String: Any], tab: BrowserTab, frame: WKFrameInfo) {
         guard frame.isMainFrame, let id = body["id"] as? Int, id > 0 else { return }
         let waiter = BrowserPermissionsState.NotificationWaiter(tabID: tab.id, frame: frame, id: id)
-        guard let host = BrowserSitePermissionStore.key(for: frame.securityOrigin) else {
-            resolveNotificationRequests([waiter], state: .denied)
-            return
-        }
-        let asking = settingsStore.settings.allowsNotificationRequests
-        let state = NotificationPermissionState(
-            decision: sitePermissions.decision(.notifications, host: host),
-            askingAllowed: asking
-        )
-        guard state == .default else {
+        let host = BrowserSitePermissionStore.key(for: frame.securityOrigin)
+        let state = notificationState(for: host)
+        guard state == .default, let host else {
             resolveNotificationRequests([waiter], state: state)
             return
         }
@@ -281,7 +279,8 @@ extension BrowserWindowController {
         state: NotificationPermissionState
     ) {
         for waiter in waiters {
-            guard let tab = tabs.first(where: { $0.id == waiter.tabID }) else { continue }
+            // The tab may have moved to another window since it asked.
+            guard let tab = manager.tab(id: waiter.tabID)?.tab else { continue }
             tab.webView.evaluateJavaScript(
                 BrowserPermissionScripts.notificationCall("resolve", [waiter.id, state.rawValue]),
                 in: waiter.frame,
@@ -304,14 +303,15 @@ extension BrowserWindowController {
         let silent = body["silent"] as? Bool ?? false
         let tabID = tab.id
         let acknowledge = { [weak self] (ok: Bool) in
-            guard let self, let tab = self.tabs.first(where: { $0.id == tabID }) else { return }
+            guard let tab = self?.manager.tab(id: tabID)?.tab else { return }
             tab.webView.evaluateJavaScript(
                 BrowserPermissionScripts.notificationCall("shown", [document, id, ok]),
                 in: frame,
                 in: .page
             )
         }
-        guard let host = BrowserSitePermissionStore.key(for: frame.securityOrigin),
+        guard kind.allowsWebNotifications,
+              let host = BrowserSitePermissionStore.key(for: frame.securityOrigin),
               sitePermissions.decision(.notifications, host: host) == .allow
         else {
             acknowledge(false)
@@ -350,32 +350,15 @@ extension BrowserWindowController {
         )
     }
 
-    /// A click on a posted notification: bring the window forward, select
-    /// the tab and fire the page's `click` handler.
-    func openNotification(_ click: BrowserNotificationCenter.Click) {
-        NSApp.activate()
-        showWindow(nil)
-        window?.makeKeyAndOrderFront(nil)
-        guard let tab = tabs.first(where: { $0.id == click.tabID }) else { return }
+    /// A click on a posted notification (routed here by the manager, which
+    /// found the tab and brought this window forward): select the tab and
+    /// fire the page's `click` handler.
+    func openNotification(_ click: BrowserNotificationCenter.Click, tab: BrowserTab) {
         selectTab(id: tab.id, focus: true)
         tab.webView.evaluateJavaScript(
             BrowserPermissionScripts.notificationCall("click", [click.document, click.notificationID]),
             in: nil,
             in: .page
         )
-    }
-
-    // MARK: - Settings ▸ Websites
-
-    func showWebsites(on parent: NSWindow) {
-        let sheet = permissionsState.websitesSheet
-            ?? BrowserWebsitesSheet(store: sitePermissions, theme: theme)
-        permissionsState.websitesSheet = sheet
-        sheet.apply(theme: theme)
-        sheet.reload()
-        guard let window = sheet.window, window.sheetParent == nil else { return }
-        parent.beginSheet(window) { [weak self] _ in
-            self?.permissionsState.websitesSheet = nil
-        }
     }
 }

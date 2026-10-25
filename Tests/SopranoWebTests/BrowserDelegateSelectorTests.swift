@@ -28,16 +28,27 @@ struct BrowserDelegateSelectorTests {
             "webViewWebContentProcessDidTerminate:",
             "webView:navigationAction:didBecomeDownload:",
             "webView:navigationResponse:didBecomeDownload:",
-            "download:decideDestinationUsingResponse:suggestedFilename:completionHandler:",
-            "downloadDidFinish:",
-            "download:didFailWithError:resumeData:",
-            "download:willPerformHTTPRedirection:newRequest:decisionHandler:",
         ]
 
         for selector in selectors {
             #expect(
                 class_getInstanceMethod(BrowserWindowController.self, NSSelectorFromString(selector)) != nil,
                 "Missing WebKit delegate selector: \(selector)"
+            )
+        }
+    }
+
+    /// Downloads report to the app-level manager, not to a window.
+    @Test func downloadManagerExposesEveryDownloadDelegateSelector() {
+        for selector in [
+            "download:decideDestinationUsingResponse:suggestedFilename:completionHandler:",
+            "downloadDidFinish:",
+            "download:didFailWithError:resumeData:",
+            "download:willPerformHTTPRedirection:newRequest:decisionHandler:",
+        ] {
+            #expect(
+                class_getInstanceMethod(BrowserDownloadManager.self, NSSelectorFromString(selector)) != nil,
+                "Missing WKDownloadDelegate selector: \(selector)"
             )
         }
     }

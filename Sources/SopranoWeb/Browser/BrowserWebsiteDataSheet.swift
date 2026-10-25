@@ -2,13 +2,17 @@ import AppKit
 import WebKit
 
 /// Settings ▸ Website Data…: every site with stored data
-/// (`WKWebsiteDataStore.fetchDataRecords`), searchable, with Remove and
-/// Remove All.
+/// (`WKWebsiteDataStore.fetchDataRecords`) of one profile, searchable, with
+/// Remove and Remove All. A picker switches profiles when there are
+/// several.
 @MainActor
 final class BrowserWebsiteDataSheet: NSWindowController, NSTableViewDataSource, NSTableViewDelegate,
     NSTextFieldDelegate
 {
-    private let dataStore: WKWebsiteDataStore
+    private let picker: BrowserProfilePicker
+    /// The data store of a profile (nil once the manager is gone).
+    private let dataStoreFor: (UUID) -> WKWebsiteDataStore?
+    private var dataStore: WKWebsiteDataStore?
     private var theme: AppTheme
     private var records: [WKWebsiteDataRecord] = []
     private var rows: [WKWebsiteDataRecord] = []
@@ -32,9 +36,15 @@ final class BrowserWebsiteDataSheet: NSWindowController, NSTableViewDataSource, 
     private let removeAllButton: ChromeButton
     private let doneButton: ChromeButton
 
-    init(theme: AppTheme, dataStore: WKWebsiteDataStore = .default()) {
+    init(
+        theme: AppTheme,
+        picker: BrowserProfilePicker,
+        dataStoreFor: @escaping (UUID) -> WKWebsiteDataStore?
+    ) {
         self.theme = theme
-        self.dataStore = dataStore
+        self.picker = picker
+        self.dataStoreFor = dataStoreFor
+        self.dataStore = dataStoreFor(picker.selectedID)
         self.searchFrame = ChromeFieldView(theme: theme)
         self.topRule = ChromeRuleView(axis: .horizontal, color: theme.colors.borderSubtle)
         self.bottomRule = ChromeRuleView(axis: .horizontal, color: theme.colors.borderSubtle)
@@ -57,7 +67,16 @@ final class BrowserWebsiteDataSheet: NSWindowController, NSTableViewDataSource, 
         buildLayout()
         apply(theme: theme)
         refreshRows()
+        picker.onChange = { [weak self] id in
+            guard let self else { return }
+            self.dataStore = self.dataStoreFor(id)
+            self.records = []
+            self.reload()
+        }
     }
+
+    /// The profile shown (the harness prints it).
+    var profileName: String { picker.selectedProfile.name }
 
     @available(*, unavailable)
     required init?(coder: NSCoder) {
@@ -81,6 +100,9 @@ final class BrowserWebsiteDataSheet: NSWindowController, NSTableViewDataSource, 
         subtitle.translatesAutoresizingMaskIntoConstraints = false
         subtitle.font = ChromeFont.meta
         rootView.addSubview(subtitle)
+
+        picker.button.translatesAutoresizingMaskIntoConstraints = false
+        rootView.addSubview(picker.button)
 
         searchFrame.translatesAutoresizingMaskIntoConstraints = false
         rootView.addSubview(searchFrame)
@@ -146,6 +168,10 @@ final class BrowserWebsiteDataSheet: NSWindowController, NSTableViewDataSource, 
             subtitle.leadingAnchor.constraint(equalTo: header.leadingAnchor),
             subtitle.trailingAnchor.constraint(lessThanOrEqualTo: rootView.trailingAnchor, constant: -24),
 
+            picker.button.centerYAnchor.constraint(equalTo: header.centerYAnchor),
+            picker.button.trailingAnchor.constraint(equalTo: rootView.trailingAnchor, constant: -24),
+            picker.button.leadingAnchor.constraint(greaterThanOrEqualTo: header.trailingAnchor, constant: 12),
+
             searchFrame.topAnchor.constraint(equalTo: subtitle.bottomAnchor, constant: 16),
             searchFrame.leadingAnchor.constraint(equalTo: rootView.leadingAnchor, constant: 24),
             searchFrame.widthAnchor.constraint(equalToConstant: 260),
@@ -208,6 +234,7 @@ final class BrowserWebsiteDataSheet: NSWindowController, NSTableViewDataSource, 
         for button in [removeButton, removeAllButton, doneButton] {
             button.apply(theme: theme)
         }
+        picker.apply(theme: theme)
         tableView.reloadData()
     }
 
@@ -218,8 +245,14 @@ final class BrowserWebsiteDataSheet: NSWindowController, NSTableViewDataSource, 
     func reload() {
         isLoading = true
         refreshRows()
+        guard let dataStore else {
+            records = []
+            isLoading = false
+            refreshRows()
+            return
+        }
         dataStore.fetchDataRecords(ofTypes: WKWebsiteDataStore.allWebsiteDataTypes()) { [weak self] records in
-            guard let self else { return }
+            guard let self, dataStore === self.dataStore else { return }
             self.records = records.sorted {
                 $0.displayName.localizedCaseInsensitiveCompare($1.displayName) == .orderedAscending
             }
@@ -248,7 +281,7 @@ final class BrowserWebsiteDataSheet: NSWindowController, NSTableViewDataSource, 
     }
 
     private func remove(_ targets: [WKWebsiteDataRecord]) {
-        guard !targets.isEmpty else { return }
+        guard let dataStore, !targets.isEmpty else { return }
         let types = targets.reduce(into: Set<String>()) { $0.formUnion($1.dataTypes) }
         dataStore.removeData(ofTypes: types, for: targets) { [weak self] in
             self?.reload()

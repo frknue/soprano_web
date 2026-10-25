@@ -13,10 +13,15 @@ extension BrowserWindowController {
         let space = challenge.protectionSpace
         switch BrowserChallengeRoute(authenticationMethod: space.authenticationMethod) {
         case .credentials:
-            connectionSecurity.credentialRequests.append(
-                BrowserConnectionSecurity.CredentialRequest(challenge: challenge, completion: completionHandler)
+            // The tab stays awake while its sign-in sheet waits.
+            let ended = promptBegan(for: webView)
+            credentialPrompts.requests.append(
+                BrowserConnectionSecurity.CredentialRequest(challenge: challenge) { disposition, credential in
+                    ended()
+                    completionHandler(disposition, credential)
+                }
             )
-            if connectionSecurity.credentialRequests.count == 1 {
+            if credentialPrompts.requests.count == 1 {
                 presentNextCredentialSheet()
             }
         case .clientCertificate:
@@ -40,7 +45,7 @@ extension BrowserWindowController {
     /// challenge for the same protection space gets the same answer, so a
     /// page and its subresources ask once.
     private func presentNextCredentialSheet() {
-        guard let request = connectionSecurity.credentialRequests.first else { return }
+        guard let request = credentialPrompts.requests.first else { return }
         let challenge = request.challenge
         let space = challenge.protectionSpace
         guard let window else {
@@ -83,7 +88,7 @@ extension BrowserWindowController {
         grid.frame.size = grid.fittingSize
         alert.accessoryView = grid
         alert.window.initialFirstResponder = userField.stringValue.isEmpty ? userField : passwordField
-        connectionSecurity.credentialSheet = BrowserCredentialSheet(
+        credentialPrompts.sheet = BrowserCredentialSheet(
             alert: alert,
             userField: userField,
             passwordField: passwordField
@@ -91,7 +96,7 @@ extension BrowserWindowController {
 
         alert.beginSheetModal(for: window) { [weak self] response in
             guard let self else { return }
-            self.connectionSecurity.credentialSheet = nil
+            self.credentialPrompts.sheet = nil
             if response == .alertFirstButtonReturn {
                 self.finishCredentialRequests(
                     for: space,
@@ -116,8 +121,8 @@ extension BrowserWindowController {
         disposition: URLSession.AuthChallengeDisposition,
         credential: URLCredential?
     ) {
-        let matching = connectionSecurity.credentialRequests.filter { $0.challenge.protectionSpace == space }
-        connectionSecurity.credentialRequests.removeAll { $0.challenge.protectionSpace == space }
+        let matching = credentialPrompts.requests.filter { $0.challenge.protectionSpace == space }
+        credentialPrompts.requests.removeAll { $0.challenge.protectionSpace == space }
         for request in matching {
             request.completion(disposition, credential)
         }
@@ -351,7 +356,8 @@ extension BrowserWindowController {
     }
 
     /// The security indicator's click: the connection state in a sheet, with
-    /// Show Certificate when the page has a server trust.
+    /// Show Certificate when the page has a server trust and the "Block ads
+    /// on this site" switch while ad blocking is on.
     func showConnectionInfo() {
         guard let tab = selectedTab, let window else { return }
         let state = securityState(for: tab)
@@ -362,6 +368,7 @@ extension BrowserWindowController {
         alert.messageText = state.title(host: host)
         alert.informativeText = interstitial?.problem.explanation(host: host) ?? state.detail
         alert.addButton(withTitle: "Done")
+        alert.accessoryView = siteBlockingAccessory(for: tab)
         if trust != nil {
             alert.addButton(withTitle: "Show Certificate")
         }

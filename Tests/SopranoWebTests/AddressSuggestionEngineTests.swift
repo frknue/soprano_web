@@ -5,23 +5,45 @@ import Testing
 struct AddressSuggestionEngineTests {
     private let now = Date(timeIntervalSince1970: 1_800_000_000)
 
+    private struct Visit {
+        var url: String
+        var title: String
+        var date: Date
+        var typed: Bool
+    }
+
     private func visit(
         _ url: String,
         _ title: String,
         hoursAgo: Double = 1,
         typed: Bool = false
-    ) -> BrowserHistoryEntry {
-        BrowserHistoryEntry(
-            url: url,
-            title: title,
-            visitedAt: now.addingTimeInterval(-hoursAgo * 3_600),
-            typed: typed ? true : nil
-        )
+    ) -> Visit {
+        Visit(url: url, title: title, date: now.addingTimeInterval(-hoursAgo * 3_600), typed: typed)
+    }
+
+    /// The pages History would hand the engine: one per URL with its
+    /// counts, newest title and frecency.
+    private func pages(_ visits: [Visit]) -> [BrowserHistoryPage] {
+        Dictionary(grouping: visits, by: \.url).map { url, group in
+            let newestFirst = group.sorted { $0.date > $1.date }
+            return BrowserHistoryPage(
+                url: url,
+                title: newestFirst.first { !$0.title.isEmpty }?.title ?? "",
+                visits: group.count,
+                typedVisits: group.filter(\.typed).count,
+                lastVisit: newestFirst[0].date,
+                frecency: BrowserFrecency.score(
+                    visitCount: group.count,
+                    samples: group.map { ($0.date, $0.typed ? .typed : .link) },
+                    now: now
+                )
+            )
+        }
     }
 
     private func suggest(
         _ query: String,
-        history: [BrowserHistoryEntry] = [],
+        history: [Visit] = [],
         bookmarks: [BrowserBookmark] = [],
         tabs: [AddressSuggestionTab] = [],
         remote: [String] = [],
@@ -29,13 +51,12 @@ struct AddressSuggestionEngineTests {
     ) -> AddressSuggestionResult {
         AddressSuggestionEngine.suggestions(for: AddressSuggestionInput(
             query: query,
-            history: history,
+            history: pages(history),
             bookmarks: bookmarks,
             tabs: tabs,
             searchEngine: .duckDuckGo,
             remoteSuggestions: remote,
-            allowsInlineCompletion: completes,
-            now: now
+            allowsInlineCompletion: completes
         ))
     }
 
@@ -77,32 +98,17 @@ struct AddressSuggestionEngineTests {
             .map(\.title)
         // Typed weighs more than a second visit; a two-month-old visit last.
         #expect(titles == ["Alpine", "Alps", "Alpha", "Alpaca"])
-        #expect(
-            AddressSuggestionEngine.boost(visits: 1, typedVisits: 0, isBookmarked: false, lastVisit: now, now: now)
-                > AddressSuggestionEngine.boost(
-                    visits: 1, typedVisits: 0, isBookmarked: false,
-                    lastVisit: now.addingTimeInterval(-30 * 86_400), now: now
-                )
-        )
     }
 
-    @Test func visitStatsAggregateCountsTypedAndLastVisit() {
-        let history = [
-            visit("https://a.example/", "A new", hoursAgo: 1, typed: true),
-            visit("https://b.example/", "B", hoursAgo: 2),
-            visit("https://a.example/", "A old", hoursAgo: 5),
-            visit("https://a.example/", "", hoursAgo: 9, typed: true),
-        ]
-        let stats = AddressSuggestionEngine.visitStats(history)
-        #expect(stats.count == 2)
-        let a = stats[0]
-        #expect(a.url == "https://a.example/")
-        #expect(a.visits == 3)
-        #expect(a.typedVisits == 2)
-        #expect(a.title == "A new")
-        #expect(a.lastVisit == now.addingTimeInterval(-3_600))
-        #expect(stats[1].visits == 1)
-        #expect(stats[1].typedVisits == 0)
+    @Test func aBookmarkRanksAboveAnEqualHistoryPage() {
+        let result = suggest(
+            "doc",
+            history: [visit("https://docs-a.example/", "Docs A"), visit("https://docs-b.example/", "Docs B")],
+            bookmarks: [BrowserBookmark(url: "https://docs-b.example/", title: "Docs B")],
+            completes: false
+        )
+        let local = result.rows.filter { [.history, .bookmark].contains($0.kind) }.map(\.title)
+        #expect(local == ["Docs B", "Docs A"])
     }
 
     // MARK: Dedupe

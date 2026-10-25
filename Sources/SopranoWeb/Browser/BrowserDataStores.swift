@@ -1,184 +1,5 @@
 import Foundation
 
-// MARK: - History
-
-struct BrowserHistoryEntry: Codable, Identifiable, Equatable, Sendable {
-    var id: UUID
-    var url: String
-    var title: String
-    var visitedAt: Date
-    /// True when the visit started from the address bar. Nil in entries
-    /// written before the flag existed; read as not typed.
-    var typed: Bool?
-
-    init(id: UUID = UUID(), url: String, title: String, visitedAt: Date = Date(), typed: Bool? = nil) {
-        self.id = id
-        self.url = url
-        self.title = title
-        self.visitedAt = visitedAt
-        self.typed = typed
-    }
-
-    var displayTitle: String {
-        let trimmed = title.trimmingCharacters(in: .whitespacesAndNewlines)
-        return trimmed.isEmpty ? url : trimmed
-    }
-}
-
-extension BrowserHistoryEntry {
-    /// `typed` is optional and lossy: a missing or malformed flag keeps the
-    /// visit and reads as not typed.
-    init(from decoder: Decoder) throws {
-        let c = try decoder.container(keyedBy: CodingKeys.self)
-        id = try c.decode(UUID.self, forKey: .id)
-        url = try c.decode(String.self, forKey: .url)
-        title = try c.decode(String.self, forKey: .title)
-        visitedAt = try c.decode(Date.self, forKey: .visitedAt)
-        typed = (try? c.decodeIfPresent(Bool.self, forKey: .typed)) ?? nil
-    }
-}
-
-@MainActor
-final class BrowserHistoryStore {
-    private(set) var entries: [BrowserHistoryEntry]
-    let url: URL
-    let limit: Int
-    var onChange: (() -> Void)?
-
-    init(
-        url: URL = BrowserFiles.supportDirectory().appendingPathComponent("history.json"),
-        limit: Int = 5_000
-    ) {
-        self.url = url
-        self.limit = limit
-        self.entries = JSONFile.read(JSONList<BrowserHistoryEntry>.self, at: url)?.entries ?? []
-        entries.sort { $0.visitedAt > $1.visitedAt }
-    }
-
-    func record(url address: String, title: String, at date: Date = Date(), typed: Bool = false) {
-        guard let parsed = URL(string: address),
-              ["http", "https", "file"].contains(parsed.scheme?.lowercased() ?? "")
-        else { return }
-
-        if let first = entries.first,
-           first.url == address,
-           date.timeIntervalSince(first.visitedAt) < 300
-        {
-            entries[0].title = title
-            entries[0].visitedAt = date
-            if typed { entries[0].typed = true }
-            onChange?()
-            persist()
-            return
-        }
-
-        entries.insert(
-            BrowserHistoryEntry(url: address, title: title, visitedAt: date, typed: typed ? true : nil),
-            at: 0
-        )
-        if entries.count > limit {
-            entries.removeLast(entries.count - limit)
-        }
-        onChange?()
-        persist()
-    }
-
-    func remove(id: UUID) {
-        entries.removeAll { $0.id == id }
-        onChange?()
-        persist()
-    }
-
-    /// Removes the visits at or after `date` (Clear Browsing Data).
-    func removeEntries(since date: Date) {
-        let count = entries.count
-        entries.removeAll { $0.visitedAt >= date }
-        guard entries.count != count else { return }
-        onChange?()
-        persist()
-    }
-
-    func matching(_ query: String) -> [BrowserHistoryEntry] {
-        let needle = query.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
-        guard !needle.isEmpty else { return entries }
-        return entries.filter {
-            $0.title.lowercased().contains(needle) || $0.url.lowercased().contains(needle)
-        }
-    }
-
-    private func persist() {
-        try? JSONFile.write(JSONList(entries), to: url)
-    }
-}
-
-// MARK: - Bookmarks
-
-struct BrowserBookmark: Codable, Identifiable, Equatable, Sendable {
-    var id: UUID
-    var url: String
-    var title: String
-    var addedAt: Date
-
-    init(id: UUID = UUID(), url: String, title: String, addedAt: Date = Date()) {
-        self.id = id
-        self.url = url
-        self.title = title
-        self.addedAt = addedAt
-    }
-
-    var displayTitle: String {
-        let trimmed = title.trimmingCharacters(in: .whitespacesAndNewlines)
-        return trimmed.isEmpty ? url : trimmed
-    }
-}
-
-@MainActor
-final class BrowserBookmarkStore {
-    private(set) var bookmarks: [BrowserBookmark]
-    let url: URL
-    var onChange: (() -> Void)?
-
-    init(url: URL = BrowserFiles.supportDirectory().appendingPathComponent("bookmarks.json")) {
-        self.url = url
-        self.bookmarks = JSONFile.read(JSONList<BrowserBookmark>.self, at: url)?.entries ?? []
-        bookmarks.sort { $0.addedAt > $1.addedAt }
-    }
-
-    func isBookmarked(_ address: String) -> Bool {
-        bookmarks.contains { $0.url == address }
-    }
-
-    @discardableResult
-    func toggle(url address: String, title: String) -> Bool {
-        if let existing = bookmarks.first(where: { $0.url == address }) {
-            bookmarks.removeAll { $0.id == existing.id }
-            persist()
-            return false
-        }
-        bookmarks.insert(BrowserBookmark(url: address, title: title), at: 0)
-        persist()
-        return true
-    }
-
-    func remove(id: UUID) {
-        bookmarks.removeAll { $0.id == id }
-        persist()
-    }
-
-    func matching(_ query: String) -> [BrowserBookmark] {
-        let needle = query.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
-        guard !needle.isEmpty else { return bookmarks }
-        return bookmarks.filter {
-            $0.title.lowercased().contains(needle) || $0.url.lowercased().contains(needle)
-        }
-    }
-
-    private func persist() {
-        try? JSONFile.write(JSONList(bookmarks), to: url)
-        onChange?()
-    }
-}
-
 // MARK: - Downloads
 
 enum BrowserDownloadState: String, Codable, Equatable, Sendable {
@@ -219,8 +40,12 @@ struct BrowserDownloadRecord: Codable, Identifiable, Equatable, Sendable {
     /// recorded as 1 on finish.
     var fractionCompleted: Double
     /// File name of the saved `WKDownload` resume data in the store's
-    /// resume-data directory; nil when the download cannot be resumed.
+    /// resume-data directory (in memory for a private record); nil when the
+    /// download cannot be resumed.
     var resumeDataFile: String?
+    /// The private window's data context the download started in. Such a
+    /// record is listed while that window is open and never saved.
+    var privateContextID: UUID?
 
     init(
         id: UUID = UUID(),
@@ -232,7 +57,8 @@ struct BrowserDownloadRecord: Codable, Identifiable, Equatable, Sendable {
         state: BrowserDownloadState = .inProgress,
         errorMessage: String? = nil,
         fractionCompleted: Double = 0,
-        resumeDataFile: String? = nil
+        resumeDataFile: String? = nil,
+        privateContextID: UUID? = nil
     ) {
         self.id = id
         self.url = url
@@ -244,6 +70,11 @@ struct BrowserDownloadRecord: Codable, Identifiable, Equatable, Sendable {
         self.errorMessage = errorMessage
         self.fractionCompleted = fractionCompleted
         self.resumeDataFile = resumeDataFile
+        self.privateContextID = privateContextID
+    }
+
+    private enum CodingKeys: String, CodingKey {
+        case id, url, filename, path, startedAt, finishedAt, state, errorMessage, fractionCompleted, resumeDataFile
     }
 
     var canResume: Bool {
@@ -256,13 +87,19 @@ struct BrowserDownloadRecord: Codable, Identifiable, Equatable, Sendable {
     }
 }
 
+/// The Downloads list, saved to `downloads.json` with resume data in
+/// `DownloadResumeData/`. Records from a private window
+/// (`privateContextID`) are listed in that window and kept in memory, resume
+/// data included, until `forgetPrivateContext` drops them.
 @MainActor
 final class BrowserDownloadStore {
     private(set) var records: [BrowserDownloadRecord]
     let url: URL
     /// Holds one `<record id>.resume` file per resumable download.
     let resumeDataDirectory: URL
-    var onChange: (() -> Void)?
+    let changes = BrowserObservers<Void>()
+    /// Private records' resume data, by `resumeDataFile` name.
+    private var privateResumeData: [String: Data] = [:]
 
     init(url: URL = BrowserFiles.supportDirectory().appendingPathComponent("downloads.json")) {
         self.url = url
@@ -286,11 +123,18 @@ final class BrowserDownloadStore {
         .sorted { $0.startedAt > $1.startedAt }
     }
 
-    func begin(url address: String, filename: String, path: String? = nil) -> BrowserDownloadRecord {
-        let record = BrowserDownloadRecord(url: address, filename: filename, path: path)
+    /// A new row for a download that just got its destination; a private
+    /// window passes its context id and the row is never saved.
+    func begin(
+        url address: String,
+        filename: String,
+        path: String? = nil,
+        privateContextID: UUID? = nil
+    ) -> BrowserDownloadRecord {
+        let record = BrowserDownloadRecord(url: address, filename: filename, path: path, privateContextID: privateContextID)
         records.insert(record, at: 0)
-        onChange?()
-        persist()
+        changes.notify()
+        persist(after: record)
         return record
     }
 
@@ -301,7 +145,7 @@ final class BrowserDownloadStore {
         let value = min(1, max(0, fraction))
         guard abs(records[index].fractionCompleted - value) >= 0.005 else { return }
         records[index].fractionCompleted = value
-        onChange?()
+        changes.notify()
     }
 
     /// Sets the destination chosen once the response arrived (Retry reuses
@@ -310,8 +154,8 @@ final class BrowserDownloadStore {
         guard let index = records.firstIndex(where: { $0.id == id }) else { return }
         records[index].path = path
         records[index].filename = URL(fileURLWithPath: path).lastPathComponent
-        onChange?()
-        persist()
+        changes.notify()
+        persist(after: records[index])
     }
 
     func finish(id: UUID, path: String) {
@@ -322,9 +166,10 @@ final class BrowserDownloadStore {
         records[index].finishedAt = Date()
         records[index].errorMessage = nil
         discardResumeData(at: index)
-        prune()
-        onChange?()
-        persist()
+        let record = records[index]
+        let pruned = prune()
+        changes.notify()
+        persist(after: pruned ? nil : record)
     }
 
     func fail(id: UUID, message: String, resumeData: Data? = nil) {
@@ -347,8 +192,8 @@ final class BrowserDownloadStore {
               records[index].state.isStopped
         else { return }
         saveResumeData(data, at: index)
-        onChange?()
-        persist()
+        changes.notify()
+        persist(after: records[index])
     }
 
     /// The saved resume data of a stopped download.
@@ -357,6 +202,9 @@ final class BrowserDownloadStore {
               record.canResume,
               let file = record.resumeDataFile
         else { return nil }
+        if record.privateContextID != nil {
+            return privateResumeData[file]
+        }
         return try? Data(contentsOf: resumeDataDirectory.appendingPathComponent(file))
     }
 
@@ -368,17 +216,16 @@ final class BrowserDownloadStore {
         records[index].finishedAt = nil
         records[index].errorMessage = nil
         discardResumeData(at: index)
-        onChange?()
-        persist()
+        changes.notify()
+        persist(after: records[index])
     }
 
     func remove(id: UUID) {
-        if let index = records.firstIndex(where: { $0.id == id }) {
-            discardResumeData(at: index)
-        }
-        records.removeAll { $0.id == id }
-        onChange?()
-        persist()
+        guard let index = records.firstIndex(where: { $0.id == id }) else { return }
+        discardResumeData(at: index)
+        let record = records.remove(at: index)
+        changes.notify()
+        persist(after: record)
     }
 
     func clearFinished() {
@@ -391,11 +238,29 @@ final class BrowserDownloadStore {
         removeFinished { $0.startedAt >= date }
     }
 
-    func matching(_ query: String) -> [BrowserDownloadRecord] {
+    /// The last window of a private context closed: its rows and their
+    /// resume data go. A download still running finishes its file but no
+    /// longer shows in the list.
+    func forgetPrivateContext(_ id: UUID) {
+        let count = records.count
+        for record in records where record.privateContextID == id {
+            if let file = record.resumeDataFile {
+                privateResumeData[file] = nil
+            }
+        }
+        records.removeAll { $0.privateContextID == id }
+        if records.count != count {
+            changes.notify()
+        }
+    }
+
+    /// The rows a window lists: saved downloads, plus its own private ones
+    /// when `privateContextID` is set.
+    func matching(_ query: String, privateContextID: UUID? = nil) -> [BrowserDownloadRecord] {
         let needle = query.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
-        guard !needle.isEmpty else { return records }
         return records.filter {
-            $0.filename.lowercased().contains(needle) || $0.url.lowercased().contains(needle)
+            ($0.privateContextID == nil || $0.privateContextID == privateContextID)
+                && (needle.isEmpty || $0.filename.lowercased().contains(needle) || $0.url.lowercased().contains(needle))
         }
     }
 
@@ -407,9 +272,10 @@ final class BrowserDownloadStore {
         if let resumeData {
             saveResumeData(resumeData, at: index)
         }
-        prune()
-        onChange?()
-        persist()
+        let record = records[index]
+        let pruned = prune()
+        changes.notify()
+        persist(after: pruned ? nil : record)
     }
 
     private func removeFinished(where shouldRemove: (BrowserDownloadRecord) -> Bool) {
@@ -422,12 +288,17 @@ final class BrowserDownloadStore {
         }
         let ids = Set(removed.map { records[$0].id })
         records.removeAll { ids.contains($0.id) }
-        onChange?()
+        changes.notify()
         persist()
     }
 
     private func saveResumeData(_ data: Data, at index: Int) {
         let file = "\(records[index].id.uuidString).resume"
+        if records[index].privateContextID != nil {
+            privateResumeData[file] = data
+            records[index].resumeDataFile = file
+            return
+        }
         do {
             try FileManager.default.createDirectory(at: resumeDataDirectory, withIntermediateDirectories: true)
             try data.write(to: resumeDataDirectory.appendingPathComponent(file), options: .atomic)
@@ -439,21 +310,30 @@ final class BrowserDownloadStore {
 
     private func discardResumeData(at index: Int) {
         guard let file = records[index].resumeDataFile else { return }
-        try? FileManager.default.removeItem(at: resumeDataDirectory.appendingPathComponent(file))
+        if records[index].privateContextID != nil {
+            privateResumeData[file] = nil
+        } else {
+            try? FileManager.default.removeItem(at: resumeDataDirectory.appendingPathComponent(file))
+        }
         records[index].resumeDataFile = nil
     }
 
-    private func prune() {
+    /// Keeps the 200 newest finished rows; true when it removed any.
+    private func prune() -> Bool {
         let finished = records.filter { $0.state != .inProgress }
-        guard finished.count > 200 else { return }
+        guard finished.count > 200 else { return false }
         let keep = Set(finished.sorted { $0.startedAt > $1.startedAt }.prefix(200).map(\.id))
         for index in records.indices where records[index].state != .inProgress && !keep.contains(records[index].id) {
             discardResumeData(at: index)
         }
         records.removeAll { $0.state != .inProgress && !keep.contains($0.id) }
+        return true
     }
 
-    private func persist() {
-        try? JSONFile.write(JSONList(records), to: url)
+    /// Writes the saved rows. A change to a private row alone (`record`)
+    /// writes nothing; private rows are never part of the file.
+    private func persist(after record: BrowserDownloadRecord? = nil) {
+        guard record?.privateContextID == nil else { return }
+        try? JSONFile.write(JSONList(records.filter { $0.privateContextID == nil }), to: url)
     }
 }

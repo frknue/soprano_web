@@ -100,7 +100,11 @@ extension SnapshotCommand {
     /// becomes visible) and returns it for capture.
     static func makePrivacySheet(_ options: PrivacyOptions, controller: BrowserWindowController) -> NSWindow? {
         if options.showClearData {
-            let (alert, accessory) = BrowserClearBrowsingDataSheet.makeAlert(theme: controller.theme)
+            let (alert, accessory) = BrowserClearBrowsingDataSheet.makeAlert(
+                theme: controller.theme,
+                profileName: controller.clearDataProfileName
+            )
+            print("privacy: clear-data sheet: \(alert.messageText) | \(alert.informativeText)")
             privacySheetOwner = accessory
             // cacheDisplay draws the accessory (our controls); NSAlert's own
             // title, icon and buttons are system glass and stay blank.
@@ -109,13 +113,15 @@ extension SnapshotCommand {
         if options.showSettingsPane {
             let settings = SettingsWindowController(
                 settingsStore: controller.settingsStore,
-                themeManager: controller.themeManager
+                themeManager: controller.themeManager,
+                contentBlocker: controller.manager.contentBlocker
             )
             privacySheetOwner = settings
             return settings.window
         }
         if options.showWebsiteData {
-            let sheet = BrowserWebsiteDataSheet(theme: controller.theme, dataStore: controller.websiteDataStore)
+            let sheet = controller.manager.makeWebsiteDataSheet(selected: controller.profileID)
+            print("privacy: website-data sheet shows profile \(sheet.profileName)")
             privacySheetOwner = sheet
             sheet.reload()
             spin(seconds: 1.5)
@@ -144,7 +150,7 @@ extension SnapshotCommand {
         controller.clearBrowsingData(options) { done = true }
         spin(seconds: 10) { done }
         print("privacy: cookies after clear (\(range.rawValue)): \(cookieNames(host: host, controller: controller))")
-        print("privacy: history entries after clear: \(controller.history.entries.count)")
+        print("privacy: history visits after clear: \(controller.history.visitCount())")
         guard let tab = controller.selectedTab else { return }
         tab.webView.reload()
         spin(seconds: 1.5)
@@ -191,7 +197,7 @@ extension SnapshotCommand {
             spin(seconds: delay)
             printDownload("before quit", record(), store: store)
             var settled = false
-            controller.interruptDownloadsForQuit { settled = true }
+            controller.downloadManager.interruptForQuit { settled = true }
             spin(seconds: 5) { settled }
             let relaunched = BrowserDownloadStore(url: store.url)
             printDownload("after relaunch", relaunched.records.first { $0.id == id }, store: relaunched)

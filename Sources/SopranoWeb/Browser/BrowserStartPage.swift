@@ -1,52 +1,63 @@
 import AppKit
 
 /// The local start page. It is plain HTML so it follows the Folio palette and
-/// can show the user's bookmarks and recent pages without a web request.
+/// can show the user's bookmarks and recent pages without a web request. A
+/// private window's start page says so and shows no recent pages. Top-level
+/// folders are cards that expand in place (`<details>`, no script) to list
+/// every bookmark inside them.
 enum BrowserStartPage {
+    /// Pages in the Recent list.
+    static let recentLimit = 6
+    /// Top-level bookmarks, and separately top-level folders, shown.
+    static let bookmarkLimit = 8
+
     static func html(
         theme: AppTheme,
         settings: BrowserSettings,
-        bookmarks: [BrowserBookmark],
-        history: [BrowserHistoryEntry]
+        bookmarks: BrowserBookmarkTree,
+        history: [BrowserHistoryPage],
+        kind: BrowserWindowKind = .normal
     ) -> String {
         let colors = theme.colors
         let bookmarksHTML: String
-        if bookmarks.isEmpty {
+        let cards = topLevelCards(bookmarks)
+        if cards.isEmpty {
             bookmarksHTML = """
             <p class="empty">Bookmark a page with ⌘D and it shows up here.</p>
             """
         } else {
             bookmarksHTML = """
             <div class="grid">
-            \(bookmarks.prefix(8).map { bookmark in
-                """
-                <a class="card" href="\(escape(bookmark.url))">
-                  <div class="title">\(escape(bookmark.displayTitle))</div>
-                  <div class="host">\(escape(host(of: bookmark.url)))</div>
-                </a>
-                """
-            }.joined(separator: "\n"))
+            \(cards.joined(separator: "\n"))
             </div>
             """
         }
 
-        let historyHTML: String
-        if history.isEmpty {
-            historyHTML = """
-            <p class="empty">Pages you visit appear here.</p>
+        let recentSection: String
+        if !kind.suggestsHistory {
+            recentSection = ""
+        } else if history.isEmpty {
+            recentSection = """
+            <section>
+              <h2>Recent</h2>
+              <p class="empty">Pages you visit appear here.</p>
+            </section>
             """
         } else {
-            historyHTML = """
-            <div class="recent">
-            \(history.prefix(6).map { entry in
-                """
-                <a href="\(escape(entry.url))">
-                  <span class="title">\(escape(entry.displayTitle))</span>
-                  <span class="host">\(escape(host(of: entry.url)))</span>
-                </a>
-                """
-            }.joined(separator: "\n"))
-            </div>
+            recentSection = """
+            <section>
+              <h2>Recent</h2>
+              <div class="recent">
+              \(history.prefix(BrowserStartPage.recentLimit).map { entry in
+                  """
+                  <a href="\(escape(entry.url))">
+                    <span class="title">\(escape(entry.displayTitle))</span>
+                    <span class="host">\(escape(host(of: entry.url)))</span>
+                  </a>
+                  """
+              }.joined(separator: "\n"))
+              </div>
+            </section>
             """
         }
 
@@ -131,7 +142,7 @@ enum BrowserStartPage {
             grid-template-columns: repeat(4, minmax(0, 1fr));
             gap: 8px;
           }
-          a.card {
+          .card {
             display: block;
             padding: 12px;
             border: 1px solid var(--border);
@@ -141,7 +152,27 @@ enum BrowserStartPage {
             text-decoration: none;
             min-width: 0;
           }
-          a.card:hover { background: var(--raised); }
+          a.card:hover, .folder summary:hover { background: var(--raised); }
+          .folder { padding: 0; }
+          .folder summary {
+            display: block;
+            list-style: none;
+            padding: 12px;
+            border-radius: 8px;
+            cursor: default;
+          }
+          .folder summary::-webkit-details-marker { display: none; }
+          .folder .glyph {
+            display: inline-block;
+            width: 14px;
+            color: var(--muted);
+            font-size: 10px;
+          }
+          .folder[open] { grid-column: 1 / -1; }
+          .folder[open] .glyph { transform: rotate(90deg); }
+          .folder[open] summary { border-bottom: 1px solid var(--border); border-radius: 8px 8px 0 0; }
+          .folder .recent, .folder .empty { padding: 4px 12px 8px 26px; }
+          .folder .recent a:last-child { border-bottom: 0; }
           .title {
             display: block;
             font-weight: 500;
@@ -187,9 +218,11 @@ enum BrowserStartPage {
         </head>
         <body>
         <main>
-          <div class="eyebrow">Soprano family</div>
+          <div class="eyebrow">\(kind.isPrivate ? "Private window" : "Soprano family")</div>
           <h1>Soprano Web</h1>
-          <p class="sub">Search the web, or enter an address above.</p>
+          <p class="sub">\(kind.isPrivate
+              ? "Pages you open here stay out of History. Cookies and site data go when the window closes."
+              : "Search the web, or enter an address above.")</p>
           <form action="\(escape(settings.searchEngine.searchFormURL))" method="get">
             <input type="search" name="q" placeholder="Search with \(escape(settings.searchEngine.name))">
             <button type="submit">Search</button>
@@ -198,10 +231,7 @@ enum BrowserStartPage {
             <h2>Bookmarks</h2>
             \(bookmarksHTML)
           </section>
-          <section>
-            <h2>Recent</h2>
-            \(historyHTML)
-          </section>
+          \(recentSection)
           <footer>
             <span>⌘L Address</span>
             <span>⌘T New tab</span>
@@ -210,6 +240,68 @@ enum BrowserStartPage {
         </main>
         </body>
         </html>
+        """
+    }
+
+    /// The first top-level bookmarks and folders, in tree order.
+    private static func topLevelCards(_ tree: BrowserBookmarkTree) -> [String] {
+        var bookmarkCount = 0
+        var folderCount = 0
+        var cards: [String] = []
+        for node in tree.root.children {
+            switch node {
+            case let .bookmark(bookmark):
+                guard bookmarkCount < bookmarkLimit else { continue }
+                bookmarkCount += 1
+                cards.append("""
+                <a class="card" href="\(escape(bookmark.url))">
+                  <div class="title">\(escape(bookmark.displayTitle))</div>
+                  <div class="host">\(escape(host(of: bookmark.url)))</div>
+                </a>
+                """)
+            case let .folder(folder):
+                guard folderCount < bookmarkLimit else { continue }
+                folderCount += 1
+                cards.append(folderCard(folder))
+            }
+        }
+        return cards
+    }
+
+    /// A folder card; open, it spans the grid and lists every bookmark in
+    /// the folder with the subfolder it sits in.
+    private static func folderCard(_ folder: BrowserBookmarkFolder) -> String {
+        let entries = BrowserBookmarkTree(children: folder.children).entries()
+        let count = switch entries.count {
+        case 0: "empty"
+        case 1: "1 bookmark"
+        default: "\(entries.count) bookmarks"
+        }
+        let list = entries.isEmpty
+            ? "<p class=\"empty\">This folder is empty.</p>"
+            : """
+            <div class="recent">
+            \(entries.map { entry in
+                let place = entry.path.isEmpty
+                    ? host(of: entry.bookmark.url)
+                    : "\(entry.path.joined(separator: " › ")) · \(host(of: entry.bookmark.url))"
+                return """
+                <a href="\(escape(entry.bookmark.url))">
+                  <span class="title">\(escape(entry.bookmark.displayTitle))</span>
+                  <span class="host">\(escape(place))</span>
+                </a>
+                """
+            }.joined(separator: "\n"))
+            </div>
+            """
+        return """
+        <details class="card folder">
+          <summary>
+            <div class="title"><span class="glyph">▸</span>\(escape(folder.displayName))</div>
+            <div class="host">Folder · \(count)</div>
+          </summary>
+          \(list)
+        </details>
         """
     }
 
