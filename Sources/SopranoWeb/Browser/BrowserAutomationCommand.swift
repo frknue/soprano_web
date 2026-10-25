@@ -130,6 +130,14 @@ struct BrowserCommandRequest: Codable, Equatable, Sendable {
             }
             arguments = [kind, value]
         }
+        if command == "move-to-window" {
+            guard arguments.count == 1,
+                  let destination = arguments.first,
+                  destination == "new" || (Int(destination) ?? 0) > 0
+            else {
+                throw BrowserAutomationError.invalidArguments(moveToWindowUsage)
+            }
+        }
 
         return BrowserCommandRequest(
             command: command,
@@ -153,6 +161,8 @@ struct BrowserCommandRequest: Codable, Equatable, Sendable {
         arguments.removeSubrange(index...(index + 1))
         return value
     }
+
+    static let moveToWindowUsage = "Usage: soprano-web browser [--window n] [--tab m] move-to-window <k|new>"
 }
 
 struct BrowserAutomationResponse: Codable, Equatable, Sendable {
@@ -204,6 +214,7 @@ enum BrowserCommand {
       soprano-web browser windows
       soprano-web browser new-window [url]
       soprano-web browser [--window n] close-window [n]
+      soprano-web browser [--window n] [--tab m] move-to-window <k|new>
 
     `windows` lists the open windows (1-based) with their tab count and the
     selected tab's title; `*` marks the window commands use by default: the
@@ -211,6 +222,10 @@ enum BrowserCommand {
     window n and `--tab n` tab n of that window (1-based, see `windows` and
     `tabs`); neither selects a tab or brings a window forward.
     `close-window` puts the window on History ▸ Recently Closed, like ⇧⌘W.
+    `move-to-window` moves the selected tab (or tab m) of the window into
+    window k, after its tabs, or into a new window (`new`); the tab keeps
+    its page and history. It selects nothing and brings no window forward;
+    a window left without tabs closes.
     `snapshot` assigns ephemeral refs such as `e1`; pass them back as `@e1`.
     `eval` runs an expression, or an async function body that uses `return`;
     Promises are awaited and the result prints as JSON. A thrown error or a
@@ -401,9 +416,59 @@ enum BrowserAutomationRouter {
             let tab = target.newTab(url: url)
             target.revealWindowIfNeeded()
             completion(.success(url ?? tab.state.url ?? "about:start"))
+        case "move-to-window":
+            completion(moveToWindow(request, from: target, in: manager))
         default:
             target.performAutomation(request, completion: completion)
         }
+    }
+
+    /// `move-to-window <k|new>`: the selected tab or `--tab m` of `source`
+    /// moves to the end of window k, or alone into a new window behind
+    /// `source`. Nothing is selected or brought forward.
+    static func moveToWindow(
+        _ request: BrowserCommandRequest,
+        from source: BrowserWindowController,
+        in manager: BrowserWindowManager
+    ) -> Result<String, Error> {
+        let tab: BrowserTab
+        if let number = request.tabIndex {
+            guard source.tabs.indices.contains(number - 1) else {
+                return .failure(BrowserAutomationError.invalidArguments("No tab \(number). Use `tabs` to list them."))
+            }
+            tab = source.tabs[number - 1]
+        } else if let selected = source.selectedTab {
+            tab = selected
+        } else {
+            return .failure(BrowserAutomationError.unavailable("No tab is open."))
+        }
+        guard let destination = request.arguments.first else {
+            return .failure(BrowserAutomationError.invalidArguments(BrowserCommandRequest.moveToWindowUsage))
+        }
+        let target: BrowserWindowController
+        if destination == "new" {
+            guard let created = manager.moveTabToNewWindow(tab, from: source, raise: false) else {
+                return .failure(BrowserAutomationError.unavailable("The tab could not move."))
+            }
+            target = created
+        } else {
+            guard let number = Int(destination), manager.controllers.indices.contains(number - 1) else {
+                return .failure(BrowserAutomationError.invalidArguments(
+                    "No window \(destination). Use `windows` to list them."
+                ))
+            }
+            target = manager.controllers[number - 1]
+            guard target !== source else {
+                return .failure(BrowserAutomationError.invalidArguments("The tab is already in window \(number)."))
+            }
+            guard manager.canMoveTab(from: source, to: target) else {
+                return .failure(BrowserAutomationError.invalidArguments("Window \(number) can't take tabs."))
+            }
+            manager.moveTab(tab, from: source, to: target, at: nil, select: false)
+        }
+        let window = manager.number(of: target) ?? 0
+        let index = (target.tabs.firstIndex { $0 === tab } ?? 0) + 1
+        return .success("window \(window) tab \(index)")
     }
 
     /// `* 1\t3 tabs\tExample Domain`, one line per window.

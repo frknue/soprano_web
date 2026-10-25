@@ -8,7 +8,12 @@ extension BrowserWindowController: WKUIDelegate {
         for navigationAction: WKNavigationAction,
         windowFeatures: WKWindowFeatures
     ) -> WKWebView? {
-        createLinkWebView(from: webView, configuration: configuration, navigationAction: navigationAction)
+        createLinkWebView(
+            from: webView,
+            configuration: configuration,
+            navigationAction: navigationAction,
+            windowFeatures: BrowserPopupFeatures(windowFeatures)
+        )
     }
 
     func webView(

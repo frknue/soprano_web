@@ -369,6 +369,14 @@ final class VimiumController: NSObject {
             moveTab(by: -1)
         case .moveTabRight:
             moveTab(by: 1)
+        case .moveTabToNewWindow:
+            // The move rebinds this controller to the new window; leave
+            // the key event first.
+            if let id = tab?.id {
+                DispatchQueue.main.async { [weak self] in
+                    self?.windowController?.moveTabToNewWindow(id: id)
+                }
+            }
 
         case .createTab:
             for _ in 0..<count {

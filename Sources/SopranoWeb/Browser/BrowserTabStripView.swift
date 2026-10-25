@@ -3,7 +3,9 @@ import AppKit
 /// The row of tabs above the toolbar. Tabs share the available width down to
 /// a readable minimum; when they no longer fit, the strip keeps the selected
 /// tab visible and puts the rest behind an overflow menu. Dragging a tab
-/// reorders the strip live and commits the move on release.
+/// reorders the strip live and commits the move on release; dragging it
+/// off the strip starts a system drag session that another window's tab
+/// list takes, or that opens a new window where it ends.
 @MainActor
 final class BrowserTabStripView: NSView {
     var onSelect: ((UUID) -> Void)?
@@ -12,6 +14,15 @@ final class BrowserTabStripView: NSView {
     var onReorder: ((UUID, Int) -> Void)?
     var onToggleMute: ((UUID) -> Void)?
     var contextMenuProvider: ((UUID) -> NSMenu?)?
+    /// Whether a tab dragged over the strip may drop here.
+    var canAcceptTab: ((UUID) -> Bool)?
+    /// A dragged tab dropped into gap n of the strip (0: before the first).
+    var onDropTab: ((UUID, Int) -> Void)?
+    /// This strip's tab was dropped where no window took it.
+    var onDragOut: ((UUID, NSPoint) -> Void)? {
+        get { dragSource.onDroppedOutside }
+        set { dragSource.onDroppedOutside = newValue }
+    }
 
     private struct Drag {
         let id: UUID
@@ -31,6 +42,8 @@ final class BrowserTabStripView: NSView {
     private var tabWidth: CGFloat = 0
     private var visibleStart = 0
     private var visibleCount = 0
+    private let dragSource = BrowserTabDragSource()
+    private let dropMarker = BrowserTabDropMarker()
 
     private let newTabButton: ChromeIconButton
     private let overflowButton: ChromeIconButton
@@ -42,6 +55,9 @@ final class BrowserTabStripView: NSView {
     private static let maximumTabWidth: CGFloat = 220
     private static let controlsWidth: CGFloat = 58
     private static let tabHeight: CGFloat = 30
+    /// How far above or below the strip the pointer may stray before a
+    /// reorder becomes a drag out of the strip.
+    private static let detachSlack: CGFloat = 16
 
     init(theme: AppTheme) {
         self.theme = theme
@@ -72,6 +88,9 @@ final class BrowserTabStripView: NSView {
         overflowButton.isHidden = true
         newTabButton.toolTip = "New tab (⌘T)"
         overflowButton.toolTip = "All tabs"
+        addSubview(dropMarker)
+        dropMarker.apply(theme: theme)
+        registerForDraggedTypes([.browserTab])
     }
 
     @available(*, unavailable)
@@ -126,6 +145,7 @@ final class BrowserTabStripView: NSView {
         for button in buttons.values {
             button.apply(theme: theme)
         }
+        dropMarker.apply(theme: theme)
     }
 
     override func layout() {
@@ -250,7 +270,8 @@ final class BrowserTabStripView: NSView {
     }
 
     private func handleDrag(_ id: UUID, _ phase: BrowserTabButton.DragPhase, _ event: NSEvent) {
-        let x = convert(event.locationInWindow, from: nil).x
+        let point = convert(event.locationInWindow, from: nil)
+        let x = point.x
         switch phase {
         case .began:
             guard let button = buttons[id] else { return }
@@ -258,6 +279,14 @@ final class BrowserTabStripView: NSView {
             drag = Drag(id: id, order: order, grabOffset: x - button.frame.minX, pointerX: x)
         case .moved:
             guard var drag, drag.id == id, visibleCount > 0 else { return }
+            if !bounds.insetBy(dx: 0, dy: -Self.detachSlack).contains(point), let button = buttons[id] {
+                // Off the strip: the reorder is dropped and the tab leaves
+                // in a system drag session.
+                self.drag = nil
+                layoutTabs(animated: true)
+                dragSource.begin(button, event: event)
+                return
+            }
             drag.pointerX = x
             let slot = BrowserTabReorder.slot(
                 at: x - Self.trafficLightInset,
@@ -279,6 +308,62 @@ final class BrowserTabStripView: NSView {
                 onReorder?(id, index)
             }
         }
+    }
+
+    // MARK: - Dropping a dragged tab
+
+    override func draggingEntered(_ sender: any NSDraggingInfo) -> NSDragOperation {
+        dropOperation(for: sender)
+    }
+
+    override func draggingUpdated(_ sender: any NSDraggingInfo) -> NSDragOperation {
+        dropOperation(for: sender)
+    }
+
+    override func draggingExited(_ sender: (any NSDraggingInfo)?) {
+        dropMarker.isHidden = true
+    }
+
+    override func draggingEnded(_ sender: any NSDraggingInfo) {
+        dropMarker.isHidden = true
+    }
+
+    override func performDragOperation(_ sender: any NSDraggingInfo) -> Bool {
+        dropMarker.isHidden = true
+        guard let id = BrowserTabDragSource.tabID(in: sender), canAcceptTab?(id) == true else { return false }
+        let index = dropIndex(for: sender)
+        // The move can close the source window; let the session finish first.
+        DispatchQueue.main.async { [weak self] in
+            self?.onDropTab?(id, index)
+        }
+        return true
+    }
+
+    private func dropOperation(for sender: any NSDraggingInfo) -> NSDragOperation {
+        guard let id = BrowserTabDragSource.tabID(in: sender), canAcceptTab?(id) == true, visibleCount > 0 else {
+            dropMarker.isHidden = true
+            return []
+        }
+        let index = dropIndex(for: sender)
+        dropMarker.frame = NSRect(
+            x: Self.trafficLightInset + CGFloat(index - visibleStart) * tabWidth - 2,
+            y: floor((bounds.height - Self.tabHeight) / 2),
+            width: 2,
+            height: Self.tabHeight
+        )
+        addSubview(dropMarker, positioned: .above, relativeTo: nil)
+        dropMarker.isHidden = false
+        return .move
+    }
+
+    private func dropIndex(for sender: any NSDraggingInfo) -> Int {
+        BrowserTabReorder.stripInsertionIndex(
+            x: convert(sender.draggingLocation, from: nil).x,
+            leading: Self.trafficLightInset,
+            tabWidth: tabWidth,
+            visibleStart: visibleStart,
+            visibleCount: visibleCount
+        )
     }
 
     @objc private func newTabPressed() {

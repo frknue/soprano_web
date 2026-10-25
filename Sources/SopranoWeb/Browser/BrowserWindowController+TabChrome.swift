@@ -33,6 +33,13 @@ extension BrowserWindowController {
         verticalTabsView.contextMenuProvider = { [weak self] id in
             self?.tabContextMenu(for: id, closeAfterTitle: "Close Tabs Below")
         }
+        // Tabs dragged between windows, or out of every window.
+        tabStrip.canAcceptTab = { [weak self] id in self?.canAcceptDroppedTab(id: id) ?? false }
+        tabStrip.onDropTab = { [weak self] id, index in self?.dropTab(id: id, at: index) }
+        tabStrip.onDragOut = { [weak self] id, point in self?.tabDraggedOut(id: id, to: point) }
+        verticalTabsView.canAcceptTab = { [weak self] id in self?.canAcceptDroppedTab(id: id) ?? false }
+        verticalTabsView.onDropTab = { [weak self] id, index in self?.dropTab(id: id, at: index) }
+        verticalTabsView.onDragOut = { [weak self] id, point in self?.tabDraggedOut(id: id, to: point) }
 
         sidebar.faviconProvider = { [weak self] address in
             self?.faviconStore.image(forAddress: address)

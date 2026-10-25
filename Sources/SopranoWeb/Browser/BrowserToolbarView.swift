@@ -40,6 +40,24 @@ final class BrowserToolbarView: NSView, NSTextFieldDelegate {
     private(set) var pageAddress = ""
     /// The user changed the text since the field was last focused.
     private(set) var isAddressEdited = false
+    /// A pop-up window's toolbar: navigation and a read-only address only.
+    private(set) var isCompact = false
+    private lazy var navigationLeadingToToggle = navigationControls.leadingAnchor.constraint(
+        equalTo: verticalTabsButton.trailingAnchor,
+        constant: 4
+    )
+    private lazy var navigationLeadingToEdge = navigationControls.leadingAnchor.constraint(
+        equalTo: leadingAnchor,
+        constant: 6
+    )
+    private lazy var captureTrailingToButtons = captureIndicator.trailingAnchor.constraint(
+        equalTo: bookmarkButton.leadingAnchor,
+        constant: -2
+    )
+    private lazy var captureTrailingToEdge = captureIndicator.trailingAnchor.constraint(
+        equalTo: trailingAnchor,
+        constant: -10
+    )
 
     static let preferredHeight: CGFloat = 46
 
@@ -114,6 +132,10 @@ final class BrowserToolbarView: NSView, NSTextFieldDelegate {
         addressField.action = #selector(addressSubmitted)
         addressField.onFocus = { [weak self] in self?.isAddressEdited = false }
         addressField.translatesAutoresizingMaskIntoConstraints = false
+        // The field takes the toolbar's spare width and gives way first in
+        // a narrow (pop-up) window; the navigation buttons keep their size.
+        addressField.setContentHuggingPriority(.init(1), for: .horizontal)
+        addressField.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
         addressFrame.addSubview(addressField)
         addressAccessories.orientation = .horizontal
         addressAccessories.spacing = 4
@@ -145,7 +167,7 @@ final class BrowserToolbarView: NSView, NSTextFieldDelegate {
             bookmarkButton.trailingAnchor.constraint(equalTo: downloadsButton.leadingAnchor, constant: -2),
             bookmarkButton.centerYAnchor.constraint(equalTo: sidebarButton.centerYAnchor),
 
-            navigationControls.leadingAnchor.constraint(equalTo: verticalTabsButton.trailingAnchor, constant: 4),
+            navigationLeadingToToggle,
             navigationControls.centerYAnchor.constraint(equalTo: verticalTabsButton.centerYAnchor),
             addressFrame.leadingAnchor.constraint(equalTo: navigationControls.trailingAnchor, constant: 8),
             addressFrame.trailingAnchor.constraint(equalTo: captureIndicator.leadingAnchor, constant: -6),
@@ -168,7 +190,7 @@ final class BrowserToolbarView: NSView, NSTextFieldDelegate {
             progressBar.bottomAnchor.constraint(equalTo: bottomAnchor),
             progressBar.heightAnchor.constraint(equalToConstant: 2),
 
-            captureIndicator.trailingAnchor.constraint(equalTo: bookmarkButton.leadingAnchor, constant: -2),
+            captureTrailingToButtons,
             captureIndicator.centerYAnchor.constraint(equalTo: sidebarButton.centerYAnchor),
         ])
 
@@ -274,6 +296,22 @@ final class BrowserToolbarView: NSView, NSTextFieldDelegate {
 
     func setDownloadsToggle(_ on: Bool) {
         downloadsButton.isToggledOn = on
+    }
+
+    /// Pop-up windows: back/forward/reload and the address, which can be
+    /// read and copied but not edited; no tab, bookmark or sidebar buttons.
+    func setCompact(_ compact: Bool) {
+        guard compact != isCompact else { return }
+        isCompact = compact
+        for button in [verticalTabsButton, bookmarkButton, downloadsButton, sidebarButton] {
+            button.isHidden = compact
+        }
+        navigationLeadingToToggle.isActive = !compact
+        navigationLeadingToEdge.isActive = compact
+        captureTrailingToButtons.isActive = !compact
+        captureTrailingToEdge.isActive = compact
+        addressField.isEditable = !compact
+        addressField.isSelectable = true
     }
 
     func controlTextDidBeginEditing(_ notification: Notification) {

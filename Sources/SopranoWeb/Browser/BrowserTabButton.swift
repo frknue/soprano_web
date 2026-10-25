@@ -201,6 +201,23 @@ final class BrowserTabButton: NSView {
         contextMenuProvider?(tabID)
     }
 
+    /// The pointer drag became a system drag session, which owns the rest
+    /// of the gesture: forget it here.
+    func cancelPointerDrag() {
+        dragOrigin = nil
+        isDragging = false
+    }
+
+    /// The tab as it looks now, for the drag session's image.
+    func dragImage() -> NSImage {
+        let image = NSImage(size: bounds.size)
+        if let rep = bitmapImageRepForCachingDisplay(in: bounds) {
+            cacheDisplay(in: bounds, to: rep)
+            image.addRepresentation(rep)
+        }
+        return image
+    }
+
     @objc private func closePressed() {
         onClose?(tabID)
     }

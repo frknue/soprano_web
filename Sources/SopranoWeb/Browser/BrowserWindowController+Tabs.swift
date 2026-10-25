@@ -4,12 +4,20 @@ import WebKit
 extension BrowserWindowController {
     // MARK: - Tabs
 
+    /// A new tab at the end, the start page or `url`. A pop-up window has
+    /// no tab list: its new tabs open in the window with tabs.
     @discardableResult
     func newTab(
         url: String? = nil,
         focusAddress: Bool = false,
         select: Bool = true
     ) -> BrowserTab {
+        if isPopup {
+            let target = manager.windowForNewTabs()
+            let tab = target.newTab(url: url, focusAddress: focusAddress, select: select)
+            manager.present(target)
+            return tab
+        }
         let tab = makeTab()
         attachTab(tab, select: false)
         if let url, !url.isEmpty {

@@ -140,6 +140,25 @@ final class BrowserWindowManager {
         return controllers.last
     }
 
+    /// The window new tabs and links from other apps go to: the active
+    /// window unless it is a pop-up, else the most recently active window
+    /// with tabs.
+    var tabbedController: BrowserWindowController? {
+        if let active = activeController, !active.isPopup { return active }
+        for id in activationOrder.reversed() {
+            if let controller = controllers.first(where: { $0.id == id }), !controller.isPopup {
+                return controller
+            }
+        }
+        return nil
+    }
+
+    /// Where a pop-up window's new tabs and links go: `tabbedController`,
+    /// else a new empty window (the caller adds the tab and presents it).
+    func windowForNewTabs() -> BrowserWindowController {
+        tabbedController ?? makeWindow(frame: frameForNewWindow())
+    }
+
     /// 1-based, as `browser windows` lists them.
     func number(of controller: BrowserWindowController) -> Int? {
         controllers.firstIndex { $0 === controller }.map { $0 + 1 }
@@ -186,19 +205,20 @@ final class BrowserWindowManager {
     }
 
     /// Closes a window the way its close button does: its tabs go onto the
-    /// recently-closed stack as one entry.
+    /// recently-closed stack as one entry (an emptied window and a pop-up
+    /// window go nowhere).
     func closeWindow(_ controller: BrowserWindowController) {
         windowClosing(controller)
         controller.window?.close()
     }
 
     /// The window is closing (close button, ⇧⌘W, its last tab,
-    /// `close-window`). Runs once per window; quitting keeps it in the
-    /// session instead.
+    /// `close-window`, its tabs moved away). Runs once per window; quitting
+    /// keeps it in the session instead.
     func windowClosing(_ controller: BrowserWindowController) {
         guard !isTerminating, let index = controllers.firstIndex(where: { $0 === controller }) else { return }
         let state = controller.windowState
-        if !state.tabs.isEmpty {
+        if !state.tabs.isEmpty, !controller.isPopup {
             recentlyClosed.push(BrowserClosedEntry(.window(state)))
         }
         controllers.remove(at: index)
@@ -218,20 +238,33 @@ final class BrowserWindowManager {
         controller.window.map { $0.frame.offsetBy(dx: -placement.offset.x, dy: -placement.offset.y) }
     }
 
-    private func makeWindow(id: UUID = UUID(), frame: NSRect) -> BrowserWindowController {
+    /// A new, empty window at `frame` (session coordinates). `activate`
+    /// makes it the window commands go to by default.
+    func makeWindow(
+        id: UUID = UUID(),
+        frame: NSRect,
+        isPopup: Bool = false,
+        activate: Bool = true
+    ) -> BrowserWindowController {
         let controller = BrowserWindowController(
             manager: self,
             id: id,
-            frame: frame.offsetBy(dx: placement.offset.x, dy: placement.offset.y)
+            frame: frame.offsetBy(dx: placement.offset.x, dy: placement.offset.y),
+            isPopup: isPopup
         )
         controllers.append(controller)
-        windowBecameActive(controller)
+        if activate {
+            windowBecameActive(controller)
+        }
         return controller
     }
 
-    private func frameForNewWindow() -> NSRect {
+    /// A new window's frame: one step down and right of `source` (else the
+    /// key or most recently active window with tabs), or the default frame.
+    func frameForNewWindow(cascadingFrom source: BrowserWindowController? = nil) -> NSRect {
         let screens = placement.screens()
-        if let source = keyController ?? activeController, let frame = sessionFrame(of: source) {
+        let base = source.flatMap { $0.isPopup ? nil : $0 } ?? tabbedController
+        if let base, let frame = sessionFrame(of: base) {
             return BrowserWindowFrames.cascaded(from: frame, screens: screens)
         }
         return BrowserWindowFrames.clamped(placement.defaultFrame(), to: screens, minSize: Self.windowMinSize)
@@ -282,7 +315,7 @@ final class BrowserWindowManager {
     }
 
     var currentSession: BrowserSession {
-        let open = controllers.filter { !$0.tabs.isEmpty }
+        let open = controllers.filter { !$0.tabs.isEmpty && !$0.isPopup }
         let active = activeController
         return BrowserSession(
             windows: open.map(\.windowState),
@@ -407,7 +440,7 @@ final class BrowserWindowManager {
             return FileManager.default.fileExists(atPath: url.path, isDirectory: &isDirectory) && !isDirectory.boolValue
         }
         guard !files.isEmpty else { return }
-        let controller = activeController ?? newWindow()
+        let controller = tabbedController ?? newWindow()
         for (index, url) in files.enumerated() {
             if index == 0, controller.tabs.count == 1, let tab = controller.selectedTab, tab.isStartPage {
                 controller.navigate(tab, to: url)

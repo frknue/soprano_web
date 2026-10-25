@@ -67,4 +67,13 @@ struct VimiumKeyMapTests {
         #expect(help.contains("m / `"))
         #expect(help.contains("gs"))
     }
+
+    @Test func capitalWMovesTheTabToANewWindow() {
+        var map = VimiumKeyMap()
+        #expect(map.feed("W") == .execute(.moveTabToNewWindow, 1))
+        let tabs = VimiumKeyMap.helpSections.first { $0.title == "Tabs" }?.rows ?? []
+        #expect(tabs.first { $0.keys == "W" }?.action == "move tab to a new window")
+        // Pins are still not modeled.
+        #expect(tabs.first { $0.keys == "⌥P" }?.action == "not available")
+    }
 }

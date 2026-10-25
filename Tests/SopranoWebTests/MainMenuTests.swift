@@ -54,4 +54,13 @@ struct MainMenuTests {
         let history = NSApp.mainMenu?.item(withTitle: "History")?.submenu
         #expect(history?.item(withTitle: "Recently Closed")?.submenu != nil)
     }
+
+    @Test func windowMenuMovesAndMergesTabs() {
+        _ = NSApplication.shared
+        let menu = MainMenuController { nil }
+        menu.install()
+        let window = NSApp.mainMenu?.item(withTitle: "Window")?.submenu
+        #expect(window?.item(withTitle: "Move Tab to New Window") != nil)
+        #expect(window?.item(withTitle: "Merge All Windows") != nil)
+    }
 }

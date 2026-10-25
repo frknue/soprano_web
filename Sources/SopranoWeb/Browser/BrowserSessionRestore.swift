@@ -169,6 +169,22 @@ enum BrowserWindowFrames {
         return next
     }
 
+    /// Where the pointer sits on a window made from a tab dragged out: over
+    /// its first tab, this far right of and below the top-left corner.
+    static let dropGrabOffset = NSPoint(x: 100, y: 15)
+
+    /// A window for a tab dropped where no window took it: `size`, placed
+    /// so the drop point lands `dropGrabOffset` into it, kept on a screen.
+    static func dropped(at point: NSPoint, size: NSSize, screens: [NSRect], minSize: NSSize) -> NSRect {
+        let frame = NSRect(
+            x: point.x - dropGrabOffset.x,
+            y: point.y + dropGrabOffset.y - size.height,
+            width: size.width,
+            height: size.height
+        )
+        return clamped(frame, to: screens, minSize: minSize)
+    }
+
     /// The frame stage 1 autosaved under `NSWindow Frame SopranoWebMainWindow`
     /// ("x y width height screenX screenY screenWidth screenHeight"); a
     /// migrated version 1 window opens there.

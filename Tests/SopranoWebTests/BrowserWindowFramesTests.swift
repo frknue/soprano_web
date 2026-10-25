@@ -44,6 +44,28 @@ struct BrowserWindowFramesTests {
         )
     }
 
+    @Test func aTabDroppedOutsideOpensItsWindowUnderThePointer() {
+        let point = NSPoint(x: 600, y: 700)
+        let frame = BrowserWindowFrames.dropped(
+            at: point,
+            size: NSSize(width: 1000, height: 600),
+            screens: [laptop],
+            minSize: minSize
+        )
+        #expect(frame == NSRect(x: 500, y: 115, width: 1000, height: 600))
+        #expect(frame.minX + BrowserWindowFrames.dropGrabOffset.x == point.x)
+        #expect(frame.maxY - BrowserWindowFrames.dropGrabOffset.y == point.y)
+
+        // Near the screen's edge the window stays on the screen.
+        let edge = BrowserWindowFrames.dropped(
+            at: NSPoint(x: 1500, y: 20),
+            size: NSSize(width: 1000, height: 600),
+            screens: [laptop],
+            minSize: minSize
+        )
+        #expect(edge == NSRect(x: 512, y: 0, width: 1000, height: 600))
+    }
+
     @Test func stageOneAutosavedFrameIsRead() {
         #expect(
             BrowserWindowFrames.autosavedFrame("120 80 1300 820 0 0 1512 944 ")

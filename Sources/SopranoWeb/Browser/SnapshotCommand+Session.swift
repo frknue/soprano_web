@@ -17,6 +17,20 @@ import WebKit
 /// - `--activate-window <n>`: make window n the active one.
 /// - `--move-tab <w>:<t>:<w2>`: detach tab t of window w and attach it to
 ///   window w2 (selected), the path moving a live tab takes.
+/// - `--move-to-new-window`: Window ▸ Move Tab to New Window on the active
+///   window's selected tab.
+/// - `--drop-tab <w>:<t>:<w2>:<i>`: drop tab t of window w on window w2's
+///   tab list at gap i (0 is before the first tab), through the handler
+///   the tab list's drag destination calls.
+/// - `--drop-outside <w>:<t>:<x>,<y>`: end tab t of window w's drag session
+///   where no window takes it, at x,y (the harness screen, as
+///   `--print-windows` frames), through the drag source's handler.
+/// - `--merge-windows`: Window ▸ Merge All Windows.
+/// - `--click-page <X>,<Y>`: a real mouse click into the active window's
+///   selected page, X,Y in page points from its top-left corner.
+/// - `--find-text <text>`: open the active window's find bar and type.
+/// - `--cli "<arguments>"`: run one `browser` CLI request (split on
+///   spaces) through the app's router and print its result.
 /// - `--start-download <url>`: start a download in the active window and
 ///   go on without waiting for it; `--wait-downloads` waits for every
 ///   download to stop.
@@ -41,6 +55,13 @@ struct SnapshotSessionOptions {
         case newWindow(String)
         case activateWindow(Int)
         case moveTab(from: Int, tab: Int, to: Int)
+        case moveToNewWindow
+        case dropTab(from: Int, tab: Int, to: Int, index: Int)
+        case dropOutside(from: Int, tab: Int, point: NSPoint)
+        case mergeWindows
+        case clickPage(SnapshotCommand.Click)
+        case findText(String)
+        case cli(String)
         case startDownload(String)
         case waitDownloads
         case crash
@@ -51,6 +72,8 @@ struct SnapshotSessionOptions {
     static let flags: Set<String> = [
         "--session", "--visit", "--select", "--close-tab", "--reopen-closed", "--duplicate",
         "--go-back", "--reload", "--close-window", "--new-window", "--activate-window", "--move-tab",
+        "--move-to-new-window", "--drop-tab", "--drop-outside", "--merge-windows", "--click-page",
+        "--find-text", "--cli",
         "--start-download", "--wait-downloads", "--crash", "--crash-page", "--print-windows",
         "--dump-tabs", "--save-session", "--capture-window",
     ]
@@ -58,7 +81,11 @@ struct SnapshotSessionOptions {
                                [--session <file>] [--visit <url>] [--select <n>] [--close-tab]
                                [--reopen-closed] [--duplicate] [--go-back] [--reload]
                                [--close-window] [--new-window <url>]... [--activate-window <n>]
-                               [--move-tab <window>:<tab>:<window>] [--start-download <url>]
+                               [--move-tab <window>:<tab>:<window>] [--move-to-new-window]
+                               [--drop-tab <window>:<tab>:<window>:<gap>]
+                               [--drop-outside <window>:<tab>:<x>,<y>] [--merge-windows]
+                               [--click-page X,Y] [--find-text <text>] [--cli "<arguments>"]
+                               [--start-download <url>]
                                [--wait-downloads] [--crash] [--crash-page] [--print-windows]
                                [--dump-tabs] [--save-session <file>] [--capture-window <n>]
     """
@@ -103,6 +130,33 @@ struct SnapshotSessionOptions {
                 throw SnapshotCommand.OptionError.unknownOption("--move-tab \(raw)")
             }
             actions.append(.moveTab(from: parts[0], tab: parts[1], to: parts[2]))
+        case "--move-to-new-window": actions.append(.moveToNewWindow)
+        case "--drop-tab":
+            let raw = try value()
+            let parts = raw.split(separator: ":").compactMap { Int($0) }
+            guard parts.count == 4, parts[0...2].allSatisfy({ $0 > 0 }), parts[3] >= 0 else {
+                throw SnapshotCommand.OptionError.unknownOption("--drop-tab \(raw)")
+            }
+            actions.append(.dropTab(from: parts[0], tab: parts[1], to: parts[2], index: parts[3]))
+        case "--drop-outside":
+            let raw = try value()
+            let parts = raw.split(separator: ":")
+            let coordinates = parts.count == 3 ? parts[2].split(separator: ",").compactMap { Double($0) } : []
+            guard parts.count == 3, let from = Int(parts[0]), let tab = Int(parts[1]), from > 0, tab > 0,
+                  coordinates.count == 2
+            else {
+                throw SnapshotCommand.OptionError.unknownOption("--drop-outside \(raw)")
+            }
+            actions.append(.dropOutside(from: from, tab: tab, point: NSPoint(x: coordinates[0], y: coordinates[1])))
+        case "--merge-windows": actions.append(.mergeWindows)
+        case "--click-page":
+            let raw = try value()
+            guard let click = SnapshotCommand.Click.parse(raw) else {
+                throw SnapshotCommand.OptionError.unknownOption("--click-page \(raw)")
+            }
+            actions.append(.clickPage(click))
+        case "--find-text": actions.append(.findText(try value()))
+        case "--cli": actions.append(.cli(try value()))
         case "--start-download": actions.append(.startDownload(try value()))
         case "--wait-downloads": actions.append(.waitDownloads)
         case "--crash": actions.append(.crash)
@@ -161,6 +215,50 @@ struct SnapshotSessionOptions {
         case let .moveTab(from, tab, to):
             moveTab(from: from, tab: tab, to: to, in: manager)
             return
+        case let .dropTab(from, number, to, index):
+            guard let (source, tab) = Self.tab(number, ofWindow: from, in: manager),
+                  manager.controllers.indices.contains(to - 1)
+            else {
+                print("snapshot: cannot drop tab \(number) of window \(from) on window \(to)")
+                return
+            }
+            Self.trackIfEmptied(source, by: tab)
+            let target = manager.controllers[to - 1]
+            let accepted = target.canAcceptDroppedTab(id: tab.id) && target.dropTab(id: tab.id, at: index)
+            print("drop-tab: \(tab.displayTitle) on window \(to) at gap \(index): \(accepted ? "accepted" : "refused")")
+            return
+        case let .dropOutside(from, number, point):
+            guard let (source, tab) = Self.tab(number, ofWindow: from, in: manager) else {
+                print("snapshot: no tab \(number) in window \(from)")
+                return
+            }
+            Self.trackIfEmptied(source, by: tab)
+            let offset = manager.placement.offset
+            source.tabDraggedOut(id: tab.id, to: NSPoint(x: point.x + offset.x, y: point.y + offset.y))
+            print("drop-outside: \(tab.displayTitle) at \(Int(point.x)),\(Int(point.y))")
+            return
+        case .mergeWindows:
+            let sources = manager.tabbedController.map(manager.mergeSources(into:)) ?? []
+            Self.closedWindows += sources.map { WeakController(controller: $0) }
+            manager.mergeAllWindows()
+            return
+        case .cli(let line):
+            let arguments = ["SopranoWeb", "browser"] + line.split(separator: " ").map(String.init)
+            do {
+                guard let request = try BrowserCommandRequest.parse(arguments) else { return }
+                var finished = false
+                BrowserAutomationRouter.perform(request, in: manager) { result in
+                    switch result {
+                    case .success(let output): print("cli: \(output)")
+                    case .failure(let error): print("cli error: \(error.localizedDescription)")
+                    }
+                    finished = true
+                }
+                Self.spin(15) { finished }
+            } catch {
+                print("cli error: \(error.localizedDescription)")
+            }
+            return
         case .waitDownloads:
             let downloads = manager.downloadManager
             Self.spin(120) { !downloads.hasActiveDownloads }
@@ -197,6 +295,20 @@ struct SnapshotSessionOptions {
             controller.reload()
         case .closeWindow:
             Self.close(controller, in: manager)
+        case .moveToNewWindow:
+            if let tab = controller.selectedTab {
+                Self.trackIfEmptied(controller, by: tab)
+            }
+            // What Window ▸ Move Tab to New Window runs.
+            controller.moveSelectedTabToNewWindow()
+        case .clickPage(let click):
+            if let webView = controller.selectedTab?.webView {
+                SnapshotCommand.perform(click, in: webView)
+            }
+        case .findText(let text):
+            controller.showFindBar()
+            controller.findBar.query = text
+            controller.findBar.onQueryChanged?(text)
         case .startDownload(let value):
             guard let url = URL(string: value) else { return }
             let store = manager.downloads
@@ -216,32 +328,46 @@ struct SnapshotSessionOptions {
             if let tab = controller.selectedTab {
                 controller.showCrashPage(tab)
             }
-        case .newWindow, .activateWindow, .moveTab, .waitDownloads, .printWindows, .reopenClosed:
+        case .newWindow, .activateWindow, .moveTab, .dropTab, .dropOutside, .mergeWindows, .cli,
+             .waitDownloads, .printWindows, .reopenClosed:
             break
         }
     }
 
-    /// Detach from one window, attach to another: the move a later Move Tab
-    /// to Window uses.
+    /// `--move-tab`: the move a dragged tab makes, selected in the target.
     @MainActor
     private func moveTab(from: Int, tab number: Int, to: Int, in manager: BrowserWindowManager) {
-        let windows = manager.controllers
-        guard windows.indices.contains(from - 1), windows.indices.contains(to - 1),
-              windows[from - 1].tabs.indices.contains(number - 1)
+        guard let (source, tab) = Self.tab(number, ofWindow: from, in: manager),
+              manager.controllers.indices.contains(to - 1)
         else {
             print("snapshot: cannot move tab \(number) of window \(from) to window \(to)")
             return
         }
-        let source = windows[from - 1]
-        let target = windows[to - 1]
-        let tab = source.tabs[number - 1]
-        source.detachTab(tab)
-        target.attachTab(tab, select: true)
-        manager.windowBecameActive(target)
-        if source.tabs.isEmpty {
-            Self.close(source, in: manager)
-        }
+        let target = manager.controllers[to - 1]
+        Self.trackIfEmptied(source, by: tab)
+        manager.moveTab(tab, from: source, to: target, at: nil, select: true)
         print("move-tab: \(tab.displayTitle) from window \(from) to window \(manager.number(of: target) ?? to)")
+    }
+
+    @MainActor
+    private static func tab(
+        _ number: Int,
+        ofWindow window: Int,
+        in manager: BrowserWindowManager
+    ) -> (BrowserWindowController, BrowserTab)? {
+        guard manager.controllers.indices.contains(window - 1) else { return nil }
+        let controller = manager.controllers[window - 1]
+        guard controller.tabs.indices.contains(number - 1) else { return nil }
+        return (controller, controller.tabs[number - 1])
+    }
+
+    /// A window about to lose its last tab must be released once it closes
+    /// (`closedWindowsStillAlive`).
+    @MainActor
+    private static func trackIfEmptied(_ controller: BrowserWindowController, by tab: BrowserTab) {
+        if controller.tabs.count == 1, controller.tabs.first === tab {
+            closedWindows.append(WeakController(controller: controller))
+        }
     }
 
     @MainActor
@@ -260,6 +386,8 @@ struct SnapshotSessionOptions {
             "crashPage": tab.lifecycle.crashView != nil,
             "blockedPopups": tab.links.blockedPopups.map(\.absoluteString),
             "favicon": tab.favicon != nil,
+            "zoom": tab.zoom,
+            "muted": tab.isMuted,
         ]
     }
 
@@ -278,9 +406,11 @@ struct SnapshotSessionOptions {
         let active = manager.activeController
         let windows: [[String: Any]] = manager.controllers.enumerated().map { index, controller in
             let frame = manager.sessionFrame(of: controller) ?? .zero
+            let page = controller.selectedTab?.webView.bounds.size ?? .zero
             return [
                 "number": index + 1,
                 "active": controller === active,
+                "popup": controller.isPopup,
                 "title": controller.window?.title ?? "",
                 "onScreen": controller.window.map { window in
                     NSScreen.screens.contains { $0.frame.intersects(window.frame) }
@@ -290,6 +420,8 @@ struct SnapshotSessionOptions {
                     "x": frame.origin.x, "y": frame.origin.y,
                     "width": frame.width, "height": frame.height,
                 ],
+                "pageSize": ["width": page.width, "height": page.height],
+                "find": controller.findBar.isHidden ? NSNull() as Any : controller.findQuery as Any,
                 "tabs": controller.tabs.map { tabInfo($0, selected: $0.id == controller.selectedTab?.id) },
             ]
         }
@@ -313,6 +445,8 @@ struct SnapshotSessionOptions {
         let alive = closedWindows.filter { $0.controller != nil }.count
         return json([
             "windows": windows,
+            // Lines up the output with a test server's request log.
+            "printedAt": Date().timeIntervalSince1970,
             "recentlyClosed": closed,
             "downloads": downloads,
             "closedWindowsStillAlive": alive,

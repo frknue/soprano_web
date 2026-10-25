@@ -9,6 +9,9 @@ final class BrowserWindowController: NSWindowController {
     unowned let manager: BrowserWindowManager
     /// Stable for the window's life and across relaunches (session `id`).
     let id: UUID
+    /// A page's `window.open` with a size: one tab, compact chrome (no tab
+    /// list, read-only address), never saved in the session.
+    let isPopup: Bool
 
     var tabs: [BrowserTab] = []
     var selectedIndex = 0
@@ -66,9 +69,10 @@ final class BrowserWindowController: NSWindowController {
     /// An empty window at `frame` (screen coordinates the window really
     /// uses); the manager adds its tabs. Create windows through
     /// `BrowserWindowManager`.
-    init(manager: BrowserWindowManager, id: UUID = UUID(), frame: NSRect) {
+    init(manager: BrowserWindowManager, id: UUID = UUID(), frame: NSRect, isPopup: Bool = false) {
         self.manager = manager
         self.id = id
+        self.isPopup = isPopup
         let themeManager = manager.themeManager
         let settings = manager.settingsStore.settings
         self.theme = themeManager.currentTheme
@@ -235,30 +239,39 @@ final class BrowserWindowController: NSWindowController {
     }
 
     private func applyTabsLayout() {
-        let vertical = usesVerticalTabs
+        let compact = isPopup
+        let vertical = usesVerticalTabs && !compact
         let collapsed = vertical && isVerticalSidebarCollapsed
-        verticalTabsView.isHidden = !vertical || collapsed
-        tabStrip.isHidden = vertical
-        tabStripHeight.constant = vertical ? 0 : BrowserTabStripView.preferredHeight
-        topBarHeight.constant = vertical
-            ? BrowserToolbarView.preferredHeight
-            : BrowserToolbarView.preferredHeight + BrowserTabStripView.preferredHeight
+        let railShown = vertical && !collapsed
+        let stripShown = !vertical && !compact
+        verticalTabsView.isHidden = !railShown
+        tabStrip.isHidden = !stripShown
+        tabStripHeight.constant = stripShown ? BrowserTabStripView.preferredHeight : 0
+        topBarHeight.constant = stripShown
+            ? BrowserToolbarView.preferredHeight + BrowserTabStripView.preferredHeight
+            : BrowserToolbarView.preferredHeight
 
-        topBarLeadingToRoot.isActive = !vertical || collapsed
-        topBarLeadingToSidebar.isActive = vertical && !collapsed
-        webLeadingToRoot.isActive = !vertical || collapsed
-        webLeadingToSidebar.isActive = vertical && !collapsed
-        // The traffic lights own the top-left corner; when the rail is hidden
-        // they sit over a 76 pt strip and the toolbar starts after it.
-        toolbarLeading.constant = collapsed ? 76 : 0
+        topBarLeadingToRoot.isActive = !railShown
+        topBarLeadingToSidebar.isActive = railShown
+        webLeadingToRoot.isActive = !railShown
+        webLeadingToSidebar.isActive = railShown
+        // The traffic lights own the top-left corner; without a rail or a
+        // strip above it they sit over a 76 pt strip and the toolbar starts
+        // after it.
+        toolbarLeading.constant = collapsed || compact ? 76 : 0
 
-        toolbar.setVerticalTabsToggle(vertical && !collapsed)
+        toolbar.setVerticalTabsToggle(railShown)
+        toolbar.setCompact(compact)
         updateTabStrip()
         updateWindowMinSize()
         viewNeedsLayout()
     }
 
     func updateWindowMinSize() {
+        if isPopup {
+            window?.minSize = BrowserPopupWindowFrame.minimumWindowSize(chromeHeight: BrowserToolbarView.preferredHeight)
+            return
+        }
         let rail = usesVerticalTabs && !isVerticalSidebarCollapsed
             ? BrowserVerticalTabsView.preferredWidth
             : 0

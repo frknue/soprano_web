@@ -2,7 +2,9 @@ import AppKit
 
 /// Arc-style vertical tab rail. Tabs stack down the left edge, with the new-tab
 /// button in the header; the rail keeps the window controls clear at the top.
-/// Dragging a row reorders the rail live and commits the move on release.
+/// Dragging a row reorders the rail live and commits the move on release;
+/// dragging it off the rail starts a system drag session that another
+/// window's tab list takes, or that opens a new window where it ends.
 @MainActor
 final class BrowserVerticalTabsView: NSView {
     var onSelect: ((UUID) -> Void)?
@@ -11,6 +13,15 @@ final class BrowserVerticalTabsView: NSView {
     var onReorder: ((UUID, Int) -> Void)?
     var onToggleMute: ((UUID) -> Void)?
     var contextMenuProvider: ((UUID) -> NSMenu?)?
+    /// Whether a tab dragged over the rail may drop here.
+    var canAcceptTab: ((UUID) -> Bool)?
+    /// A dragged tab dropped into gap n of the rail (0: above the first).
+    var onDropTab: ((UUID, Int) -> Void)?
+    /// This rail's tab was dropped where no window took it.
+    var onDragOut: ((UUID, NSPoint) -> Void)? {
+        get { dragSource.onDroppedOutside }
+        set { dragSource.onDroppedOutside = newValue }
+    }
 
     private var theme: AppTheme
     private var buttons: [UUID: BrowserTabButton] = [:]
@@ -25,10 +36,15 @@ final class BrowserVerticalTabsView: NSView {
     private let documentView = FlippedDocumentView()
     private let stack = BrowserVerticalTabStack()
     private let divider: ChromeRuleView
+    private let dragSource = BrowserTabDragSource()
+    private let dropMarker = BrowserTabDropMarker()
 
     static let preferredWidth: CGFloat = 232
     private static let controlsTop: CGFloat = 46
     private static let rowHeight: CGFloat = 32
+    /// How far right of the rail the pointer may stray before a reorder
+    /// becomes a drag out of the rail.
+    private static let detachSlack: CGFloat = 16
 
     init(theme: AppTheme) {
         self.theme = theme
@@ -71,8 +87,10 @@ final class BrowserVerticalTabsView: NSView {
         stack.spacing = 4
         stack.distribution = .fill
         documentView.addSubview(stack)
+        documentView.addSubview(dropMarker)
 
         addSubview(divider)
+        registerForDraggedTypes([.browserTab])
 
         NSLayoutConstraint.activate([
             headerLabel.topAnchor.constraint(equalTo: topAnchor, constant: Self.controlsTop),
@@ -164,6 +182,7 @@ final class BrowserVerticalTabsView: NSView {
         for button in buttons.values {
             button.apply(theme: theme)
         }
+        dropMarker.apply(theme: theme)
         needsDisplay = true
     }
 
@@ -217,6 +236,15 @@ final class BrowserVerticalTabsView: NSView {
             drag = (id, order)
         case .moved:
             guard var drag, drag.id == id else { return }
+            let local = convert(event.locationInWindow, from: nil)
+            if !bounds.insetBy(dx: -Self.detachSlack, dy: 0).contains(local), let button = buttons[id] {
+                // Off the rail: the reorder is dropped and the tab leaves
+                // in a system drag session.
+                self.drag = nil
+                arrange(order)
+                dragSource.begin(button, event: event)
+                return
+            }
             let y = stack.convert(event.locationInWindow, from: nil).y
             let slot = BrowserTabReorder.slot(
                 at: y,
@@ -239,6 +267,60 @@ final class BrowserVerticalTabsView: NSView {
             order = drag.order
             onReorder?(id, index)
         }
+    }
+
+    // MARK: - Dropping a dragged tab
+
+    override func draggingEntered(_ sender: any NSDraggingInfo) -> NSDragOperation {
+        dropOperation(for: sender)
+    }
+
+    override func draggingUpdated(_ sender: any NSDraggingInfo) -> NSDragOperation {
+        dropOperation(for: sender)
+    }
+
+    override func draggingExited(_ sender: (any NSDraggingInfo)?) {
+        dropMarker.isHidden = true
+    }
+
+    override func draggingEnded(_ sender: any NSDraggingInfo) {
+        dropMarker.isHidden = true
+    }
+
+    override func performDragOperation(_ sender: any NSDraggingInfo) -> Bool {
+        dropMarker.isHidden = true
+        guard let id = BrowserTabDragSource.tabID(in: sender), canAcceptTab?(id) == true else { return false }
+        let index = dropIndex(for: sender)
+        // The move can close the source window; let the session finish first.
+        DispatchQueue.main.async { [weak self] in
+            self?.onDropTab?(id, index)
+        }
+        return true
+    }
+
+    private func dropOperation(for sender: any NSDraggingInfo) -> NSDragOperation {
+        guard let id = BrowserTabDragSource.tabID(in: sender), canAcceptTab?(id) == true else {
+            dropMarker.isHidden = true
+            return []
+        }
+        let pitch = Self.rowHeight + stack.spacing
+        let gap = CGFloat(dropIndex(for: sender)) * pitch - stack.spacing / 2
+        dropMarker.frame = NSRect(
+            x: stack.frame.minX,
+            y: stack.frame.minY + gap - 1,
+            width: stack.frame.width,
+            height: 2
+        )
+        dropMarker.isHidden = false
+        return .move
+    }
+
+    private func dropIndex(for sender: any NSDraggingInfo) -> Int {
+        BrowserTabReorder.railInsertionIndex(
+            y: stack.convert(sender.draggingLocation, from: nil).y,
+            rowPitch: Self.rowHeight + stack.spacing,
+            count: order.count
+        )
     }
 
     @objc private func newTabPressed() {

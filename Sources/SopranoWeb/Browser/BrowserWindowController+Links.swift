@@ -73,8 +73,19 @@ extension BrowserWindowController {
     }
 
     /// Attaches a freshly made tab after its opener and records the opener.
+    /// From a pop-up window the tab opens at the end of the window with
+    /// tabs instead.
     @discardableResult
     func insertLinkTab(_ tab: BrowserTab, opener: BrowserTab, select: Bool) -> BrowserTab {
+        if isPopup {
+            let isNewWindow = manager.tabbedController == nil
+            let target = manager.windowForNewTabs()
+            target.insertLinkTab(tab, opener: opener, select: select || isNewWindow)
+            if select || isNewWindow {
+                manager.present(target)
+            }
+            return tab
+        }
         tab.isStartPage = false
         tab.links.openerID = opener.id
         let index: Int
@@ -93,11 +104,13 @@ extension BrowserWindowController {
 
     /// `WKUIDelegate` body for `createWebViewWith`: a link with a target or a
     /// `window.open` call becomes a tab after its opener. ⌘ or middle opens
-    /// it in the background.
+    /// it in the background. A plain `window.open` that asks for a width or
+    /// height opens a pop-up window of that size instead.
     func createLinkWebView(
         from webView: WKWebView,
         configuration: WKWebViewConfiguration,
-        navigationAction: WKNavigationAction
+        navigationAction: WKNavigationAction,
+        windowFeatures: BrowserPopupFeatures
     ) -> WKWebView? {
         // WebKit hands over the opener's preferences object; give the new tab
         // its own so per-site pop-up permission stays per tab.
@@ -113,7 +126,13 @@ extension BrowserWindowController {
                 opener.links.recentlyOpened = opener.links.recentlyOpened
                     .filter { now.timeIntervalSince($0.date) < 5 } + [(url, now)]
             }
-            insertLinkTab(tab, opener: opener, select: disposition != .backgroundTab)
+            if disposition == .currentTab, windowFeatures.opensWindow {
+                tab.isStartPage = false
+                tab.links.openerID = opener.id
+                manager.openPopupWindow(with: tab, features: windowFeatures, opener: self)
+            } else {
+                insertLinkTab(tab, opener: opener, select: disposition != .backgroundTab)
+            }
         } else {
             tab.isStartPage = false
             attachTab(tab, select: true)

@@ -103,6 +103,33 @@ struct BrowserCommandTests {
         }
     }
 
+    @Test func moveToWindowTakesAWindowNumberOrNew() throws {
+        let numbered = try BrowserCommandRequest.parse(
+            ["SopranoWeb", "browser", "--window", "1", "--tab", "3", "move-to-window", "2"]
+        )
+        #expect(numbered?.command == "move-to-window")
+        #expect(numbered?.arguments == ["2"])
+        #expect(numbered?.windowIndex == 1)
+        #expect(numbered?.tabIndex == 3)
+
+        let new = try BrowserCommandRequest.parse(["SopranoWeb", "browser", "move-to-window", "new"])
+        #expect(new?.arguments == ["new"])
+        #expect(new?.windowIndex == nil)
+        #expect(new?.tabIndex == nil)
+    }
+
+    @Test func moveToWindowRejectsAMissingOrBadDestination() {
+        for destination in [[], ["0"], ["-1"], ["two"], ["2", "3"], ["New"]] {
+            #expect(throws: BrowserAutomationError.self, "accepted \(destination)") {
+                _ = try BrowserCommandRequest.parse(["SopranoWeb", "browser", "move-to-window"] + destination)
+            }
+        }
+    }
+
+    @Test func helpDocumentsMoveToWindow() {
+        #expect(BrowserCommand.help.contains("browser [--window n] [--tab m] move-to-window <k|new>"))
+    }
+
     @Test func waitForLoadDefaultsToTenSeconds() throws {
         let request = try BrowserCommandRequest.parse(["SopranoWeb", "browser", "wait-for-load"])
         #expect(request?.timeout == 10)

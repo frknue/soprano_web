@@ -152,6 +152,8 @@ final class MainMenuController: NSObject, NSMenuItemValidation {
         windowMenu.addItem(.separator())
         windowMenu.addItem(item("Next Tab", #selector(nextTab), "\t", [.control]))
         windowMenu.addItem(item("Previous Tab", #selector(previousTab), "\t", [.control, .shift]))
+        windowMenu.addItem(item("Move Tab to New Window", #selector(moveTabToNewWindow), ""))
+        windowMenu.addItem(item("Merge All Windows", #selector(mergeAllWindows), ""))
         windowMenu.addItem(.separator())
         for number in 1...9 {
             let title = number == 9 ? "Last Tab" : "Tab \(number)"
@@ -219,8 +221,10 @@ final class MainMenuController: NSObject, NSMenuItemValidation {
             return controller.selectedTab?.webView.canGoBack ?? false
         case #selector(forward):
             return controller.selectedTab?.webView.canGoForward ?? false
-        case #selector(closeTab):
+        case #selector(closeTab), #selector(moveTabToNewWindow):
             return !controller.tabs.isEmpty
+        case #selector(mergeAllWindows):
+            return manager.tabbedController.map { !manager.mergeSources(into: $0).isEmpty } ?? false
         case #selector(bookmark):
             return controller.selectedTab.map { !$0.isStartPage && $0.webView.url != nil } ?? false
         case #selector(printPage), #selector(exportPDF), #selector(saveAs):
@@ -358,6 +362,14 @@ final class MainMenuController: NSObject, NSMenuItemValidation {
 
     @objc private func previousTab() {
         controller()?.selectPreviousTab()
+    }
+
+    @objc private func moveTabToNewWindow() {
+        controller()?.moveSelectedTabToNewWindow()
+    }
+
+    @objc private func mergeAllWindows() {
+        windowManager()?.mergeAllWindows()
     }
 
     @objc private func selectTabNumber(_ sender: NSMenuItem) {
