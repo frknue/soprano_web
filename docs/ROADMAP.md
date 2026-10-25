@@ -65,7 +65,19 @@ decision).
 - Tab suspension: after idle time or memory pressure, keep a snapshot and `interactionState`
   and release the web view; skip tabs playing audio, capturing, or on a keep-alive list.
 - History in SQLite with frecency for suggestions; Arc and Chrome history imports exceed the
-  5,000-entry JSON cap by an order of magnitude. Bookmark folders.
+  5,000-entry JSON cap by an order of magnitude. Bookmark folders. **Built on `feat/stage-2`
+  (history slice):** `History.sqlite` through the system SQLite (WAL, one database per
+  folder, so per profile once profiles land) with one row per address and one per visit
+  and how it was reached; `history.json` migrates once and stays as
+  `history.json.migrated`; no entry cap; frecency (recency buckets × visit-kind weights,
+  typed visits ×3) ranks address-bar suggestions from indexed queries (address prefix,
+  FTS5 word starts, FTS5 trigram substrings) — under 20 ms per keystroke with 100,000
+  visits; Settings ▸ Remove history items (one day … one year, the default, or manually),
+  pruned at launch and daily; the History sidebar grouped by day, paged as it scrolls,
+  searching titles and addresses; Clear Browsing Data deletes through SQL; same-document
+  (`pushState`) URL changes become visits after a second. `BrowserHistoryImport` and
+  `importVisits` are the entry point for the stage 3 Arc/Chrome importers. Left: bookmark
+  folders (bookmarks slice).
 - Content blocking: uBlock Origin Lite through `WKWebExtension` (loads and blocks on
   macOS 27), or `WKContentRuleList`s built from EasyList (150,000 rules per list).
 - Zoom remembered per site (eTLD+1), plus a default zoom.

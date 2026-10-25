@@ -82,10 +82,18 @@ family, not notarized.
    which closes itself when the site is done; other links open as tabs.
 4. `⌘D` bookmarks the page. `⌘Y`, `⌥⌘B` and `⌥⌘L` open History, Bookmarks and
    Downloads in the right sidebar; stopped downloads resume or retry from there.
+   History lists every visit by day (Today, Yesterday, the weekday for the rest
+   of the week, then the date) and loads older days as you scroll; the search
+   field matches titles and addresses. Right-click a visit and choose **Remove
+   from History** to remove every visit to that address; **Clear History…**
+   opens Clear Browsing Data. Address changes a page makes without loading
+   (single-page apps) count as visits once the page stays on them for a second.
 5. `⌘F` finds in the page; `Return` / `⇧Return` move between matches. `⌘P`
    prints, `⇧⌘S` saves the page, File ▸ Export as PDF… writes a PDF.
 6. `⌘,` opens Settings: search engine and suggestions, homepage, theme,
-   appearance, session restore, downloads, autoplay, notifications, per-site
+   appearance, session restore, how long History keeps visits (**Remove history
+   items**: after one day, one week, two weeks, one month, one year — the
+   default — or manually), downloads, autoplay, notifications, per-site
    decisions (**Websites**), stored site data and the default browser.
 
 The start page shows bookmarks and recent pages. `⌘=` / `⌘-` / `⌘0` zoom the
@@ -200,6 +208,12 @@ automation model, matching Soprano's browser pane.
   downloads, per-site decisions (`site-permissions.json`) and favicons:
   `~/Library/Application Support/Soprano Web/`. A stage 1 `session.json` is
   kept as `session.json.migrated` when it upgrades.
+- History: `History.sqlite` (SQLite in WAL mode, so `History.sqlite-wal` and
+  `-shm` sit next to it while the app runs) in the same folder, with one row per
+  address and one per visit. The stage 1 `history.json` moves into it once and
+  stays as `history.json.migrated`. Visits older than **Settings ▸ Remove
+  history items** are removed at launch and once a day; a damaged database is
+  kept as `History.sqlite.corrupt` and History starts over.
 - A private window writes none of these files: its cookies and site data live
   in a WebKit store that is never written to disk and goes with the window,
   its new site decisions, favicons, closed tabs and download list entries stay
@@ -212,8 +226,8 @@ automation model, matching Soprano's browser pane.
 The Dev build (`com.soprano.web.dev`) uses `Soprano Web Dev` and
 `~/.config/soprano-web-dev/` instead, so testing never touches release data.
 
-The `Settings ▸ Downloads` row shows the resolved path. History and bookmarks are
-local JSON; nothing leaves the machine. Search suggestions, when on, send what
+The `Settings ▸ Downloads` row shows the resolved path. History (SQLite) and
+bookmarks (JSON) are local; nothing leaves the machine. Search suggestions, when on, send what
 you type to the search engine without cookies.
 
 ## Scope

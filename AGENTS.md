@@ -47,6 +47,11 @@ no linter or formatter; match surrounding style.
 
   It builds the real windows with volatile stores through the window manager,
   captures the chrome with AppKit and the page with WebKit, and writes a PNG.
+  History is a fresh `History.sqlite` in a temporary folder: `--sidebar` seeds
+  visits over several days (the day headers), `--address <text>` seeds visits
+  and typed visits and prints `address-history` (pages and visits in the
+  database), `address-rows` and `address-history-candidates` (what the
+  database returned, with frecency).
   Every window it opens stays off every display and never becomes key or front.
   Run it without `--out` for every flag: clicks and modifier clicks, sign-in
   sheets, session restore and crashes, address-bar typing, tab audio and hover,
@@ -70,7 +75,7 @@ no linter or formatter; match surrounding style.
   number, frame, page size, pop-up flag, find query, tabs with back/forward
   lists and zoom, its own closed tabs, the cookies and website data records
   of its data store), the default store's cookies and records, the history
-  count and URLs, the favicon files, the windows the session would save,
+  visit count and the newest 50 visits' URLs, the favicon files, the windows the session would save,
   how many data stores and web views of closed private windows are still
   alive, the recently-closed stack and the downloads (with a `private` flag)
   as one JSON line with a `printedAt` time to match a test server's log;
@@ -108,7 +113,9 @@ no linter or formatter; match surrounding style.
   Websites, the recently-closed stack, Vimium's global marks,
   notification-click routing, links from other apps (`outsideTabbedController`:
   never a private window) and the debounced `session.json` (restore every
-  normal window, frames clamped to today's screens). `BrowserWindowPlacement`
+  normal window, frames clamped to today's screens). It runs History's
+  retention pass (Settings ▸ Remove history items) at launch, once a day and
+  when the setting changes. `BrowserWindowPlacement`
   keeps harness windows off-screen. `BrowserAutomationRouter` (in
   `BrowserAutomationCommand.swift`) picks the CLI's window from
   `automationControllers` (private windows excluded) and runs
@@ -153,7 +160,23 @@ no linter or formatter; match surrounding style.
   stack of tabs and windows, and window frame clamping/cascading (and where a
   dragged-out tab's window opens). `BrowserTabMove.swift` — the tab-move rule,
   Merge All Windows ordering and pop-up window frames from `WKWindowFeatures`.
-- `Browser/BrowserDataStores.swift` — history, bookmarks and downloads JSON
+- `Browser/BrowserHistoryStore.swift` — History, the only way in or out of it:
+  `BrowserHistoryStore(directory:)` opens `<directory>/History.sqlite` (WAL;
+  a damaged file is kept as `.corrupt`), migrates `history.json` once
+  (`history.json.migrated`), records visits (`record(url:title:at:kind:)`, a
+  repeat of the newest visit within 5 minutes merges), answers bounded,
+  indexed reads (`suggestionCandidates(for:)`, `recentPages(limit:)`,
+  `visits(matching:before:limit:)`, `visitCount(matching:)`), removes
+  (`removePage(url:)`, `removeVisits(since:now:)`) and runs
+  `runMaintenance(retention:)` (pruning plus a frecency refresh) on its own
+  connection off the main thread. `BrowserHistoryDatabase.swift` holds the
+  schema and SQL (`urls`, `visits`, FTS5 `urls_words` for word starts and
+  `urls_trigram` for substrings), `BrowserSQLite.swift` the thin wrapper over
+  the system `SQLite3` module, and `BrowserHistoryModel.swift` the pure parts:
+  `BrowserVisitKind`, `BrowserFrecency`, `BrowserHistoryRetention`,
+  `BrowserHistoryDays` (the sidebar's day headers) and
+  `BrowserSameDocumentVisits` (when a `pushState` URL change becomes a visit).
+- `Browser/BrowserDataStores.swift` — bookmarks and downloads JSON
   (`{version, entries}` envelopes, lossy decoding; a private window's download
   rows carry `privateContextID` and stay in memory);
   `BrowserSitePermissionStore.swift` — per-host allow/deny decisions
@@ -217,7 +240,10 @@ site or a CDP flow that cannot use the CLI).
   rail is collapsed is UI state in `UserDefaults`. Tests always inject temporary
   URLs/defaults and never touch the real files.
 - Every WebKit action that changes the page runs on the main actor; JSON stores
-  are synchronous and atomic.
+  are synchronous and atomic. History is SQLite through `import SQLite3` (no
+  packages): every read is an indexed, `LIMIT`ed query on the main actor
+  (never load the whole table), and anything that touches every row runs on a
+  second connection off the main thread.
 - Commit only paths changed in the session. Short imperative subjects,
   `feat:` / `fix:` / `docs:` / `test:` / `chore:` prefixes.
 - After a user-visible change, add a line under `## [Unreleased]` in

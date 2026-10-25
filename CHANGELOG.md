@@ -137,8 +137,25 @@ app.
 - In a private window, `⇧⌘T` reopens that window's own closed tabs, and
   closing the window is final: nothing goes onto History ▸ Recently Closed.
   Its address bar suggests bookmarks, its tabs and searches, never history.
+- Settings ▸ Remove history items: after one day, one week, two weeks, one
+  month, one year (the default) or manually. Older visits are removed at launch
+  and once a day.
+- The History sidebar (`⌘Y`) groups visits under Today, Yesterday, the weekday
+  for the rest of the week, then the date, shows each visit's time, and loads
+  older days as you scroll.
 
 ### Changed
+- History lives in a SQLite database (`History.sqlite`) instead of
+  `history.json` and keeps every visit, not just the last 5,000. Your existing
+  history moves over on first launch; the old file stays as
+  `history.json.migrated`.
+- Address-bar suggestions rank pages by frecency: how often and how recently
+  you visited, with visits you typed counting three times and how you reached
+  the page (link, typed, reload, back/forward, form) weighed in. Suggestions
+  stay instant with a large history.
+- Remove from History (right-click a visit in the History sidebar) removes
+  every visit to that address; the sidebar search matches every word in titles
+  and addresses.
 - Closing the last tab now closes the window, like Safari and Chrome. The app
   keeps running in the Dock; reopening it creates a fresh start tab.
 - The command palette moved from `⌘P` to `⇧⌘P`; `⌘9` selects the last tab.
@@ -180,5 +197,8 @@ app.
 - Closing a background tab keeps the selected tab selected.
 - A page opened right after the start page is recorded in history, and a page
   without a title no longer keeps the "New Tab" title.
+- Single-page apps (pages that change the address with `history.pushState` or a
+  `#/` route) now add a History visit for each address they stay on for a
+  second; jumping to an anchor on the page does not.
 - Muting a tab also mutes media that starts later and stays muted after
   navigating.
