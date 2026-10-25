@@ -49,7 +49,7 @@ enum BrowserWindowKind: String, Sendable {
 /// profile share the manager's context for it (`context(for:)`, made on
 /// first use); a private window has its own, shared with its pop-up windows
 /// and the windows its tabs moved into, and released with the last of them.
-/// App-wide stores (bookmarks, downloads, favicons, settings) stay on the
+/// App-wide stores (Spaces and pins, downloads, favicons, settings) stay on the
 /// manager; everything consults `kind` before writing.
 @MainActor
 final class BrowserDataContext {

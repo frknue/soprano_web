@@ -48,7 +48,7 @@ enum SnapshotCommand {
         var captureStatus: BrowserCaptureStatus?
         var pageTools = SnapshotPageTools.Options()
         var privacy = PrivacyOptions()
-        var bookmarks = BookmarkOptions()
+        var pins = PinOptions()
         var sleep = SnapshotSleepOptions()
         var blocker = SnapshotBlockerOptions()
     }
@@ -87,7 +87,7 @@ enum SnapshotCommand {
                                [--capture camera|microphone|camera-muted-mic|microphone-muted]
     \(SnapshotPageTools.usage)
     \(privacyUsage)
-    \(bookmarksUsage)
+    \(pinsUsage)
     \(SnapshotSleepOptions.usage)
     \(SnapshotBlockerOptions.usage)
     """
@@ -226,7 +226,7 @@ enum SnapshotCommand {
             case _ where SnapshotPageTools.flags.contains(option):
                 SnapshotPageTools.parse(option, try value(option), into: &options.pageTools)
             default:
-                guard try parseBookmarks(option, value: { try value(option) }, into: &options.bookmarks)
+                guard try parsePins(option, value: { try value(option) }, into: &options.pins)
                     || parsePrivacy(option, value: { try value(option) }, into: &options.privacy)
                     || SnapshotSleepOptions.parse(option, value: { try value(option) }, into: &options.sleep)
                     || SnapshotBlockerOptions.parse(option, value: { try value(option) }, into: &options.blocker)
@@ -293,18 +293,22 @@ enum SnapshotCommand {
         }
         options.sleep.apply(to: settingsStore)
         let themeManager = ThemeManager(themeId: options.theme, appearance: .system)
-        let bookmarksURL = temp.appendingPathComponent("bookmarks.json")
-        prepareBookmarksFile(options.bookmarks, at: bookmarksURL)
-        let bookmarks = BrowserBookmarkStore(url: bookmarksURL)
-        if options.bookmarks.seedTree {
-            seedBookmarkTree(bookmarks)
-        }
         let downloads = BrowserDownloadStore(url: temp.appendingPathComponent("downloads.json"))
         let profiles = BrowserProfileStore(url: temp.appendingPathComponent("profiles.json"))
         // `--add-profile`: the profiles exist before any window opens.
         for name in options.session.profilesToAdd {
             let profile = profiles.add(name: name)
             print("profile: added \(profile.name) \(profile.id.uuidString) (\(profile.color.rawValue))")
+        }
+        let bookmarksURL = temp.appendingPathComponent("bookmarks.json")
+        prepareBookmarksFile(options.pins, at: bookmarksURL)
+        let spaces = BrowserSpaceStore(
+            url: temp.appendingPathComponent("spaces.json"),
+            profiles: profiles.profiles,
+            bookmarksURL: bookmarksURL
+        )
+        if options.pins.seedTree {
+            seedPinTree(spaces, inSpace: spaces.firstSpace(ofProfile: BrowserProfile.defaultID)?.id)
         }
         let session = BrowserSessionStore(url: temp.appendingPathComponent("session.json"))
         options.session.prepare(sessionURL: session.url)
@@ -321,7 +325,7 @@ enum SnapshotCommand {
             settingsStore: settingsStore,
             profiles: profiles,
             supportDirectory: temp,
-            bookmarks: bookmarks,
+            spaces: spaces,
             downloads: downloads,
             faviconStore: BrowserFaviconStore(directory: temp.appendingPathComponent("Favicons", isDirectory: true)),
             sessionStore: session,
@@ -416,7 +420,7 @@ enum SnapshotCommand {
             if history.visitCount() == 0 {
                 history.importVisits(Self.seededHistory(now: Date()))
             }
-            seedBookmarkTree(bookmarks)
+            seedPinTree(spaces, inSpace: controller.currentSpaceID)
             if downloads.records.isEmpty, !options.session.startsDownloads {
                 let finished = downloads.begin(
                     url: "https://example.com/files/report.pdf",
@@ -436,8 +440,8 @@ enum SnapshotCommand {
             }
             controller.showSidebar(section: section)
         }
-        if options.bookmarks.isActive {
-            runBookmarkScenario(options.bookmarks, controller: controller)
+        if options.pins.isActive {
+            runPinScenario(options.pins, controller: controller)
         }
         if options.showFind {
             controller.showFindBar()
@@ -514,7 +518,7 @@ enum SnapshotCommand {
             print("address-follows-navigation: \(follows ? "yes" : "no") (page \(page))")
         }
         if let address = options.address {
-            AddressBarSnapshot.type(address, into: controller, history: history, bookmarks: bookmarks)
+            AddressBarSnapshot.type(address, into: controller, history: history)
             wait(0.3)
         }
         SnapshotPageTools.run(options.pageTools, controller: controller)
@@ -560,7 +564,7 @@ enum SnapshotCommand {
         if options.printTabs {
             printTabs(controller)
         }
-        let bookmarkPopover = makeBookmarkPopover(options.bookmarks, controller: controller)
+        let bookmarkPopover = makePinPopover(options.pins, controller: controller)
 
         let captureWindow: NSWindow
         let privacySheet = makePrivacySheet(options.privacy, controller: controller)

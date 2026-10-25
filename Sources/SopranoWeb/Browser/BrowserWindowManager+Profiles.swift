@@ -63,8 +63,9 @@ extension BrowserWindowManager {
     /// Settings ▸ Profiles ▸ Delete (after the confirmation): closes every
     /// window of the profile, private ones opened over it included,
     /// without putting them on Recently Closed; drops its Recently Closed
-    /// entries; removes it from `profiles.json`; then, once its web views
-    /// are released, removes its data store
+    /// entries; deletes its Spaces and favorites; removes it from
+    /// `profiles.json`; then, once its web views are released, removes its
+    /// data store
     /// (`WKWebsiteDataStore.remove(forIdentifier:)`) and deletes its folder.
     /// `completion` gets the data store removal's error, if it never
     /// succeeded. Default can't be deleted.
@@ -77,6 +78,7 @@ extension BrowserWindowManager {
             closeWindow(controller, remember: false)
         }
         recentlyClosed.removeAll { $0.profileID == id }
+        spaces.deleteSpaces(ofProfile: id)
         // Everything still holding the profile's stores (Settings sheets,
         // chrome) lets go when the list changes.
         profiles.remove(id: id)

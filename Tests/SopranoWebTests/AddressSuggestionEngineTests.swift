@@ -44,7 +44,7 @@ struct AddressSuggestionEngineTests {
     private func suggest(
         _ query: String,
         history: [Visit] = [],
-        bookmarks: [BrowserBookmark] = [],
+        pins: [BrowserPin] = [],
         tabs: [AddressSuggestionTab] = [],
         remote: [String] = [],
         completes: Bool = true
@@ -52,7 +52,7 @@ struct AddressSuggestionEngineTests {
         AddressSuggestionEngine.suggestions(for: AddressSuggestionInput(
             query: query,
             history: pages(history),
-            bookmarks: bookmarks,
+            pins: pins,
             tabs: tabs,
             searchEngine: .duckDuckGo,
             remoteSuggestions: remote,
@@ -100,11 +100,11 @@ struct AddressSuggestionEngineTests {
         #expect(titles == ["Alpine", "Alps", "Alpha", "Alpaca"])
     }
 
-    @Test func aBookmarkRanksAboveAnEqualHistoryPage() {
+    @Test func aPinRanksAboveAnEqualHistoryPage() {
         let result = suggest(
             "doc",
             history: [visit("https://docs-a.example/", "Docs A"), visit("https://docs-b.example/", "Docs B")],
-            bookmarks: [BrowserBookmark(url: "https://docs-b.example/", title: "Docs B")],
+            pins: [BrowserPin(url: "https://docs-b.example/", title: "Docs B")],
             completes: false
         )
         let local = result.rows.filter { [.history, .bookmark].contains($0.kind) }.map(\.title)
@@ -113,7 +113,7 @@ struct AddressSuggestionEngineTests {
 
     // MARK: Dedupe
 
-    @Test func samePageAppearsOnceAcrossTabsBookmarksAndHistory() {
+    @Test func samePageAppearsOnceAcrossTabsPinsAndHistory() {
         let tabID = UUID()
         let result = suggest(
             "swift",
@@ -122,8 +122,8 @@ struct AddressSuggestionEngineTests {
                 visit("http://swift.org/documentation/#intro", "Swift Docs"),
                 visit("https://swift.org/blog/", "Swift Blog"),
             ],
-            bookmarks: [
-                BrowserBookmark(url: "https://swift.org/blog", title: "Blog (bookmark)"),
+            pins: [
+                BrowserPin(url: "https://swift.org/blog", title: "Blog (bookmark)"),
             ],
             tabs: [
                 AddressSuggestionTab(id: tabID, title: "Docs tab", url: "https://swift.org/documentation/"),

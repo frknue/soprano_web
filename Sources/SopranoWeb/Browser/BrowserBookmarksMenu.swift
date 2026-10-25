@@ -1,9 +1,10 @@
 import AppKit
 
 /// The Bookmarks menu below its own commands (Bookmark This Page, Show
-/// Bookmarks): every bookmark as an item that opens it in the active
-/// window, every folder as a submenu ending in Open All in Tabs. Rebuilt
-/// whenever the bookmarks change.
+/// Bookmarks): every pin of the active window's Space (Default's first
+/// Space without a window) as an item that opens it in the active window,
+/// every folder as a submenu ending in Open All in Tabs. Rebuilt whenever
+/// the Spaces change and each time the menu opens.
 @MainActor
 final class BrowserBookmarksMenu: NSObject, NSMenuDelegate {
     static let titleLimit = 60
@@ -13,6 +14,8 @@ final class BrowserBookmarksMenu: NSObject, NSMenuDelegate {
     private let commandCount: Int
     private let windowManager: () -> BrowserWindowManager?
     private var observation: BrowserObservation?
+    /// The Space whose pins the menu lists.
+    private var shownSpaceID: UUID?
 
     init(menu: NSMenu, windowManager: @escaping () -> BrowserWindowManager?) {
         self.menu = menu
@@ -24,40 +27,54 @@ final class BrowserBookmarksMenu: NSObject, NSMenuDelegate {
         rebuild()
     }
 
-    /// Picks up a window manager that didn't exist when the menu was made.
+    /// Picks up a window manager that didn't exist when the menu was made,
+    /// and the active window's Space when it changed.
     func menuNeedsUpdate(_ menu: NSMenu) {
-        guard menu === self.menu, observation == nil else { return }
+        guard menu === self.menu else { return }
+        let needsObservation = observation == nil
         observeBookmarks()
-        rebuild()
+        if needsObservation || currentSpaceID() != shownSpaceID {
+            rebuild()
+        }
     }
 
     private func observeBookmarks() {
         guard observation == nil, let manager = windowManager() else { return }
-        observation = manager.bookmarks.changes.observe { [weak self] in self?.rebuild() }
+        observation = manager.spaces.changes.observe { [weak self] in self?.rebuild() }
+    }
+
+    /// The active window's Space, else Default's first.
+    private func currentSpaceID() -> UUID? {
+        guard let manager = windowManager() else { return nil }
+        return manager.tabbedController?.currentSpaceID
+            ?? manager.spaces.firstSpace(ofProfile: BrowserProfile.defaultID)?.id
     }
 
     func rebuild() {
         while menu.items.count > commandCount {
             menu.removeItem(at: commandCount)
         }
-        guard let manager = windowManager(), !manager.bookmarks.tree.isEmpty else { return }
+        shownSpaceID = currentSpaceID()
+        guard let manager = windowManager(), let spaceID = shownSpaceID else { return }
+        let tree = manager.spaces.pinTree(inSpace: spaceID)
+        guard !tree.isEmpty else { return }
         menu.addItem(.separator())
-        add(manager.bookmarks.tree.root.children, to: menu, favicons: manager.faviconStore)
+        add(tree.root.children, to: menu, favicons: manager.faviconStore)
     }
 
-    private func add(_ nodes: [BrowserBookmarkNode], to menu: NSMenu, favicons: BrowserFaviconStore) {
+    private func add(_ nodes: [BrowserPinNode], to menu: NSMenu, favicons: BrowserFaviconStore) {
         for node in nodes {
             switch node {
-            case let .bookmark(bookmark):
+            case let .pin(pin):
                 let item = NSMenuItem(
-                    title: Self.menuTitle(bookmark.displayTitle),
+                    title: Self.menuTitle(pin.displayTitle),
                     action: #selector(openBookmark(_:)),
                     keyEquivalent: ""
                 )
                 item.target = self
-                item.representedObject = bookmark.url
-                item.toolTip = bookmark.url
-                item.image = Self.menuImage(favicons.image(forAddress: bookmark.url))
+                item.representedObject = pin.url
+                item.toolTip = pin.url
+                item.image = Self.menuImage(favicons.image(forAddress: pin.url))
                 menu.addItem(item)
             case let .folder(folder):
                 let item = NSMenuItem(title: Self.menuTitle(folder.displayName), action: nil, keyEquivalent: "")
@@ -70,7 +87,7 @@ final class BrowserBookmarksMenu: NSObject, NSMenuDelegate {
                 } else {
                     add(folder.children, to: submenu, favicons: favicons)
                 }
-                if !folder.allBookmarks.isEmpty {
+                if !folder.allPins.isEmpty {
                     submenu.addItem(.separator())
                     let openAll = NSMenuItem(title: "Open All in Tabs", action: #selector(openFolder(_:)), keyEquivalent: "")
                     openAll.target = self

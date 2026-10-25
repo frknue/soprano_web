@@ -52,7 +52,8 @@ struct AddressSuggestionInput: Sendable {
     var query: String
     /// History's candidates for the query (`BrowserHistoryStore.suggestionCandidates`).
     var history: [BrowserHistoryPage] = []
-    var bookmarks: [BrowserBookmark] = []
+    /// The window's current Space's pins.
+    var pins: [BrowserPin] = []
     /// Open tabs other than the selected one.
     var tabs: [AddressSuggestionTab] = []
     var searchEngine: SearchEngine = .duckDuckGo
@@ -63,21 +64,21 @@ struct AddressSuggestionInput: Sendable {
 }
 
 extension AddressSuggestionInput {
-    /// A window's suggestion sources: bookmarks, its own open tabs and the
-    /// search engine, plus History unless the window keeps History out (a
-    /// private window).
+    /// A window's suggestion sources: its Space's pins, its own open tabs
+    /// and the search engine, plus History unless the window keeps History
+    /// out (a private window).
     init(
         query: String,
         kind: BrowserWindowKind,
         history: [BrowserHistoryPage],
-        bookmarks: [BrowserBookmark],
+        pins: [BrowserPin],
         tabs: [AddressSuggestionTab],
         searchEngine: SearchEngine
     ) {
         self.init(
             query: query,
             history: kind.suggestsHistory ? history : [],
-            bookmarks: bookmarks,
+            pins: pins,
             tabs: tabs,
             searchEngine: searchEngine
         )
@@ -143,24 +144,24 @@ enum AddressSuggestionEngine {
                 )
             }
         }
-        for bookmark in input.bookmarks {
-            let key = AddressURLText.key(bookmark.url)
+        for pin in input.pins {
+            let key = AddressURLText.key(pin.url)
             guard !key.isEmpty else { continue }
             if var existing = pages[key] {
                 existing.isBookmarked = true
                 existing.kind = .bookmark
-                let title = bookmark.title.trimmingCharacters(in: .whitespacesAndNewlines)
+                let title = pin.title.trimmingCharacters(in: .whitespacesAndNewlines)
                 if !title.isEmpty { existing.title = title }
                 pages[key] = existing
             } else {
                 pages[key] = Candidate(
                     key: key,
-                    url: bookmark.url,
-                    title: bookmark.title.trimmingCharacters(in: .whitespacesAndNewlines),
+                    url: pin.url,
+                    title: pin.title.trimmingCharacters(in: .whitespacesAndNewlines),
                     kind: .bookmark,
                     tabID: nil,
                     frecency: 0,
-                    lastVisit: bookmark.addedAt,
+                    lastVisit: pin.addedAt,
                     isBookmarked: true
                 )
             }

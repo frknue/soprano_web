@@ -70,7 +70,7 @@ final class BrowserWindowController: NSWindowController {
     lazy var vimiumPromptPanel = VimiumPromptPanel(theme: theme)
     lazy var vimiumTextPanel = VimiumTextPanel(theme: theme)
     /// ⌘D's popover and the sidebar's bookmark editor.
-    lazy var bookmarkEditorPanel = BrowserBookmarkEditorPanel()
+    lazy var bookmarkEditorPanel = BrowserPinEditorPanel()
     var vimiumToastView: NSView?
     var popupBlockedControl: ChromeButton?
     /// The address field's zoom percentage (`updateZoomChip`).
@@ -108,8 +108,8 @@ final class BrowserWindowController: NSWindowController {
         self.sidebar = BrowserSidebarView(
             theme: theme,
             history: dataContext.history,
-            bookmarks: manager.bookmarks,
-            bookmarkState: manager.bookmarkUIState,
+            spaces: manager.spaces,
+            pinState: manager.pinUIState,
             downloads: manager.downloads
         )
         self.hairline = ChromeRuleView(axis: .horizontal, color: theme.colors.borderSubtle)
@@ -159,7 +159,7 @@ final class BrowserWindowController: NSWindowController {
     // App-wide stores, owned by the manager.
     var themeManager: ThemeManager { manager.themeManager }
     var settingsStore: BrowserSettingsStore { manager.settingsStore }
-    var bookmarks: BrowserBookmarkStore { manager.bookmarks }
+    var spaces: BrowserSpaceStore { manager.spaces }
     var downloads: BrowserDownloadStore { manager.downloads }
     private var defaults: UserDefaults { manager.defaults }
 
@@ -172,6 +172,18 @@ final class BrowserWindowController: NSWindowController {
     var sitePermissions: BrowserSitePermissionStore { dataContext.sitePermissions }
     var faviconStore: BrowserFaviconStore { dataContext.faviconStore }
     var connectionSecurity: BrowserConnectionSecurity { dataContext.connectionSecurity }
+
+    /// The Space whose pins this window reads and writes: for now the first
+    /// Space of its profile (a private window's: the one it was opened
+    /// over).
+    var currentSpaceID: UUID? {
+        spaces.firstSpace(ofProfile: profileID)?.id
+    }
+
+    /// The current Space's pinned tree; empty without one.
+    var currentPinTree: BrowserPinTree {
+        currentSpaceID.map(spaces.pinTree(inSpace:)) ?? BrowserPinTree()
+    }
 
     /// This window as `BrowserTabMoveRule` sees it.
     var moveRuleWindow: BrowserTabMoveRule.Window {
@@ -368,8 +380,10 @@ final class BrowserWindowController: NSWindowController {
         sidebar.onNewBookmarkFolder = { [weak self] parent, index in self?.newBookmarkFolder(in: parent, at: index) }
         sidebar.onEditBookmarkNode = { [weak self] id in self?.editBookmarkNodeFromSidebar(id) }
         sidebar.onDeleteBookmarkNode = { [weak self] id in self?.deleteBookmarkNode(id) }
+        sidebar.currentSpaceID = { [weak self] in self?.currentSpaceID }
         sidebar.onMoveBookmarkNode = { [weak self] id, folder, index in
-            self?.bookmarks.move(id, to: folder, at: index)
+            guard let self, let spaceID = self.currentSpaceID else { return }
+            self.spaces.movePin(id, to: folder, at: index, inSpace: spaceID)
         }
         sidebar.onRemoveDownload = { [weak self] id in self?.downloads.remove(id: id) }
         sidebar.onCancelDownload = { [weak self] id in self?.cancelDownload(id: id) }
@@ -387,7 +401,7 @@ final class BrowserWindowController: NSWindowController {
                 }
                 self.markStartPagesStale()
             },
-            bookmarks.changes.observe { [weak self] in
+            spaces.changes.observe { [weak self] in
                 self?.sidebar.refresh()
                 self?.markStartPagesStale()
                 self?.updateChrome()

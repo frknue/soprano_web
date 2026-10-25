@@ -26,8 +26,9 @@ enum BrowserProfileColor: String, Codable, CaseIterable, Sendable {
 }
 
 /// One profile (Safari's model): a window belongs to one profile, and its
-/// tabs use the profile's website data, history and site decisions.
-/// Bookmarks, downloads, favicons, settings and Recently Closed are shared.
+/// tabs use the profile's website data, history and site decisions. Each
+/// profile has one or more Spaces (`BrowserSpaceStore`) and its own
+/// favorites; downloads, favicons, settings and Recently Closed are shared.
 struct BrowserProfile: Codable, Equatable, Identifiable, Sendable {
     /// The Default profile's fixed id. It keeps `WKWebsiteDataStore.default()`
     /// and the files in the support folder itself.
@@ -39,11 +40,19 @@ struct BrowserProfile: Codable, Equatable, Identifiable, Sendable {
     var id: UUID
     var name: String
     var color: BrowserProfileColor
+    /// When the profile's Today tabs archive themselves.
+    var archiveAfter: BrowserArchiveAfter
 
-    init(id: UUID = UUID(), name: String, color: BrowserProfileColor) {
+    init(
+        id: UUID = UUID(),
+        name: String,
+        color: BrowserProfileColor,
+        archiveAfter: BrowserArchiveAfter = .default
+    ) {
         self.id = id
         self.name = name
         self.color = color
+        self.archiveAfter = archiveAfter
     }
 
     static var defaultProfile: BrowserProfile {
@@ -69,11 +78,11 @@ struct BrowserProfile: Codable, Equatable, Identifiable, Sendable {
     }
 
     private enum CodingKeys: String, CodingKey {
-        case id, name, color
+        case id, name, color, archiveAfter
     }
 
     /// An entry needs an id; a missing name becomes "Profile", an unknown
-    /// color blue.
+    /// color blue, a missing or unknown archive time `.default`.
     init(from decoder: Decoder) throws {
         let c = try decoder.container(keyedBy: CodingKeys.self)
         id = try c.decode(UUID.self, forKey: .id)
@@ -82,10 +91,12 @@ struct BrowserProfile: Codable, Equatable, Identifiable, Sendable {
         self.name = name.isEmpty ? (id == Self.defaultID ? Self.defaultName : "Profile") : name
         color = ((try? c.decodeIfPresent(String.self, forKey: .color)) ?? nil)
             .flatMap(BrowserProfileColor.init(rawValue:)) ?? .blue
+        archiveAfter = ((try? c.decodeIfPresent(String.self, forKey: .archiveAfter)) ?? nil)
+            .flatMap(BrowserArchiveAfter.init(rawValue:)) ?? .default
     }
 }
 
-/// `profiles.json`: `{ "version": 1, "profiles": [{id, name, color}] }`.
+/// `profiles.json`: `{ "version": 1, "profiles": [{id, name, color, archiveAfter}] }`.
 /// Decoding is tolerant: an entry that does not decode is skipped, a
 /// repeated id keeps its first entry, and the Default profile is always
 /// there, first.
@@ -182,6 +193,11 @@ struct BrowserProfileList: Codable, Equatable, Sendable {
         profiles[index].color = color
     }
 
+    mutating func setArchiveAfter(id: UUID, _ archiveAfter: BrowserArchiveAfter) {
+        guard let index = profiles.firstIndex(where: { $0.id == id }) else { return }
+        profiles[index].archiveAfter = archiveAfter
+    }
+
     /// Removes a profile; Default stays.
     mutating func remove(id: UUID) {
         guard id != BrowserProfile.defaultID else { return }
@@ -224,6 +240,11 @@ final class BrowserProfileStore {
 
     func setColor(id: UUID, _ color: BrowserProfileColor) {
         list.setColor(id: id, color)
+        persist()
+    }
+
+    func setArchiveAfter(id: UUID, _ archiveAfter: BrowserArchiveAfter) {
+        list.setArchiveAfter(id: id, archiveAfter)
         persist()
     }
 

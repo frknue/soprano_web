@@ -44,7 +44,7 @@ extension BrowserWindowController {
             query: query,
             kind: kind,
             history: kind.suggestsHistory ? history.suggestionCandidates(for: query) : [],
-            bookmarks: bookmarks.bookmarks,
+            pins: currentSpaceID.map { spaces.pins(inSpace: $0) } ?? [],
             tabs: openTabs,
             searchEngine: settingsStore.settings.searchEngine
         )

@@ -1,10 +1,10 @@
 import AppKit
 
-/// One row of the sidebar's Bookmarks outline: indented by depth, a
-/// disclosure chevron and folder icon for a folder (with its bookmark
-/// count), the favicon for a bookmark (address in the tooltip).
+/// One row of a pinned outline (the sidebar's Bookmarks section): indented
+/// by depth, a disclosure chevron and folder icon for a folder (with its
+/// pin count), the favicon for a pin (address in the tooltip).
 @MainActor
-final class BrowserBookmarkOutlineCellView: NSTableCellView {
+final class BrowserPinOutlineCellView: NSTableCellView {
     static let rowHeight: CGFloat = 30
     static let indent: CGFloat = 16
 
@@ -77,7 +77,7 @@ final class BrowserBookmarkOutlineCellView: NSTableCellView {
         fatalError("init(coder:) is not supported")
     }
 
-    func configure(row: BrowserBookmarkOutline.Row, theme: AppTheme, favicon: NSImage?) {
+    func configure(row: BrowserPinOutline.Row, theme: AppTheme, favicon: NSImage?) {
         apply(theme: theme)
         leading.constant = 8 + CGFloat(row.depth) * Self.indent
         switch row.node {
@@ -87,15 +87,15 @@ final class BrowserBookmarkOutlineCellView: NSTableCellView {
             disclosure.setAccessibilityLabel(row.isExpanded ? "Collapse \(folder.displayName)" : "Expand \(folder.displayName)")
             iconView.image = symbol(row.isExpanded ? "folder.fill" : "folder", size: 12)
             titleLabel.stringValue = folder.displayName
-            let count = folder.allBookmarks.count
+            let count = folder.allPins.count
             countLabel.stringValue = count == 0 ? "" : "\(count)"
             toolTip = nil
-        case let .bookmark(bookmark):
+        case let .pin(pin):
             disclosure.isHidden = true
             iconView.image = favicon ?? symbol("bookmark", size: 12)
-            titleLabel.stringValue = bookmark.displayTitle
+            titleLabel.stringValue = pin.displayTitle
             countLabel.stringValue = ""
-            toolTip = bookmark.url
+            toolTip = pin.url
         }
         setAccessibilityLabel(titleLabel.stringValue)
     }

@@ -18,8 +18,8 @@ final class BrowserProfilesSheet: NSWindowController {
     private let rootView = NSView()
     private let header = NSTextField(labelWithString: "Profiles")
     private let subtitle = NSTextField(
-        wrappingLabelWithString: "Each profile keeps its own cookies, website data, history and site decisions. "
-            + "Bookmarks, downloads and settings are shared."
+        wrappingLabelWithString: "Each profile keeps its own cookies, website data, history, site decisions "
+            + "and bookmarks. Downloads and settings are shared."
     )
     private let topRule: ChromeRuleView
     private let bottomRule: ChromeRuleView
@@ -140,8 +140,8 @@ final class BrowserProfilesSheet: NSWindowController {
         }
         return (
             "Delete the profile “\(name)”?",
-            windows + "Its history, cookies, website data and site decisions are removed from this Mac. "
-                + "Bookmarks, downloads and settings stay."
+            windows + "Its history, cookies, website data, site decisions and bookmarks are removed "
+                + "from this Mac. Downloads and settings stay."
         )
     }
 

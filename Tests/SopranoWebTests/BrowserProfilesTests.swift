@@ -71,6 +71,28 @@ struct BrowserProfilesTests {
         #expect(garbage.profiles == [.defaultProfile])
     }
 
+    @Test func archiveAfterDecodesTolerantlyAndRoundTrips() throws {
+        let work = UUID()
+        let home = UUID()
+        let text = """
+        {"version": 1, "profiles": [
+          {"id": "\(BrowserProfile.defaultID.uuidString)", "name": "Default"},
+          {"id": "\(work.uuidString)", "name": "Work", "archiveAfter": "days7"},
+          {"id": "\(home.uuidString)", "name": "Home", "archiveAfter": "fortnight"}
+        ]}
+        """
+        var list = try JSONDecoder().decode(BrowserProfileList.self, from: Data(text.utf8))
+        // Missing (a stage 2 file) and unknown values get the default.
+        #expect(list.profiles.map(\.archiveAfter) == [.hours12, .days7, .hours12])
+        #expect(BrowserArchiveAfter.default == .hours12)
+        #expect(BrowserArchiveAfter.never.interval == nil)
+        #expect(BrowserArchiveAfter.hour1.interval == 3_600)
+
+        list.setArchiveAfter(id: home, .never)
+        let decoded = try JSONDecoder().decode(BrowserProfileList.self, from: JSONEncoder().encode(list))
+        #expect(decoded.profiles.map(\.archiveAfter) == [.hours12, .days7, .never])
+    }
+
     @Test func unreadableFileStartsWithDefault() throws {
         let url = temporaryFile()
         defer { try? FileManager.default.removeItem(at: url.deletingLastPathComponent()) }

@@ -261,7 +261,10 @@ final class MainMenuController: NSObject, NSMenuItemValidation {
             return manager.tabbedController.map { !manager.mergeSources(into: $0).isEmpty } ?? false
         case #selector(bookmark):
             guard let tab = controller.selectedTab, !tab.isStartPage, let url = tab.webView.url else { return false }
-            menuItem.title = controller.bookmarks.isBookmarked(url.absoluteString) ? "Edit Bookmark" : "Bookmark This Page"
+            let isPinned = controller.currentSpaceID.map {
+                controller.spaces.isPinned(url.absoluteString, inSpace: $0)
+            } ?? false
+            menuItem.title = isPinned ? "Edit Bookmark" : "Bookmark This Page"
             return true
         case #selector(printPage), #selector(exportPDF), #selector(saveAs):
             return controller.canUsePageTools

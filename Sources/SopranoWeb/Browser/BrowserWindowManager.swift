@@ -60,7 +60,8 @@ final class BrowserWindowManager {
     /// The support folder: the Default profile's files, and `Profiles/<id>/`
     /// for the others.
     let supportDirectory: URL
-    let bookmarks: BrowserBookmarkStore
+    /// Every Space with its pins, and every profile's favorites.
+    let spaces: BrowserSpaceStore
     let downloads: BrowserDownloadStore
     let downloadManager: BrowserDownloadManager
     let faviconStore: BrowserFaviconStore
@@ -72,8 +73,8 @@ final class BrowserWindowManager {
     let persistsSession: Bool
     let placement: BrowserWindowPlacement
     let defaults: UserDefaults
-    /// Expanded sidebar folders and ⌘D's last folder, for every window.
-    let bookmarkUIState: BrowserBookmarkUIState
+    /// Expanded pin folders and ⌘D's last folder per Space, for every window.
+    let pinUIState: BrowserPinUIState
     /// Theme changes for every window (`ThemeManager` has one callback).
     let themeChanges = BrowserObservers<AppTheme>()
     /// Puts idle tabs to sleep (Settings ▸ "Put inactive tabs to sleep",
@@ -114,7 +115,7 @@ final class BrowserWindowManager {
         settingsStore: BrowserSettingsStore,
         profiles: BrowserProfileStore,
         supportDirectory: URL,
-        bookmarks: BrowserBookmarkStore,
+        spaces: BrowserSpaceStore,
         downloads: BrowserDownloadStore,
         faviconStore: BrowserFaviconStore,
         sessionStore: BrowserSessionStore,
@@ -127,7 +128,7 @@ final class BrowserWindowManager {
         self.settingsStore = settingsStore
         self.profiles = profiles
         self.supportDirectory = supportDirectory
-        self.bookmarks = bookmarks
+        self.spaces = spaces
         self.downloads = downloads
         self.downloadManager = BrowserDownloadManager(store: downloads, settingsStore: settingsStore)
         self.faviconStore = faviconStore
@@ -135,7 +136,7 @@ final class BrowserWindowManager {
         self.persistsSession = persistsSession
         self.placement = placement
         self.defaults = defaults
-        self.bookmarkUIState = BrowserBookmarkUIState(defaults: defaults)
+        self.pinUIState = BrowserPinUIState(defaults: defaults)
         let defaultHistory = BrowserHistoryStore(directory: supportDirectory)
         self.defaultContext = BrowserDataContext(
             kind: .normal,
@@ -160,11 +161,18 @@ final class BrowserWindowManager {
             self?.profilesSheet?.apply(theme: theme)
             self?.themeChanges.notify(theme)
         }
+        // Every profile keeps a Space: a new profile gets one, a deleted
+        // profile's go (`deleteProfile` also removes them first).
+        spaces.reconcile(with: profiles.profiles)
         observations = [
             settingsStore.changes.observe { [weak self] settings in
                 self?.applyTheme(of: settings)
                 self?.applyHistoryRetention(settings.historyRetention)
                 self?.contentBlocker.setEnabled(settings.blockAdsAndTrackers)
+            },
+            profiles.changes.observe { [weak self] in
+                guard let self else { return }
+                self.spaces.reconcile(with: self.profiles.profiles)
             },
         ]
         downloadManager.fallbackWindow = { [weak self] in self?.activeController?.window }
@@ -564,14 +572,16 @@ final class BrowserWindowManager {
         }
     }
 
-    /// The start page: the app theme, bookmarks and the profile's recent
-    /// pages; a private window's in Folio Ink without recent pages.
+    /// The start page: the app theme, the pins of the profile's first
+    /// Space and the profile's recent pages; a private window's in Folio
+    /// Ink without recent pages.
     func startPageHTML(for context: BrowserDataContext) -> String {
         let kind = context.kind
+        let space = spaces.firstSpace(ofProfile: context.profileID)
         return BrowserStartPage.html(
             theme: kind.isPrivate ? .folioInk : themeManager.currentTheme,
             settings: settingsStore.settings,
-            bookmarks: bookmarks.tree,
+            pins: space?.pinned ?? BrowserPinTree(),
             history: kind.suggestsHistory ? context.history.recentPages(limit: BrowserStartPage.recentLimit) : [],
             kind: kind
         )

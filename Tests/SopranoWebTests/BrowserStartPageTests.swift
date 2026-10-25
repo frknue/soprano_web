@@ -3,12 +3,12 @@ import AppKit
 import Testing
 
 struct BrowserStartPageTests {
-    @Test func bookmarksAreEscaped() {
+    @Test func pinsAreEscaped() {
         let html = BrowserStartPage.html(
             theme: .folioPaper,
             settings: BrowserSettings(searchEngine: .google),
-            bookmarks: BrowserBookmarkTree(children: [
-                .bookmark(BrowserBookmark(
+            pins: BrowserPinTree(children: [
+                .pin(BrowserPin(
                     url: "https://example.com/?q=\"quoted\"",
                     title: "<script>alert(1)</script>"
                 )),
@@ -24,7 +24,7 @@ struct BrowserStartPageTests {
         let html = BrowserStartPage.html(
             theme: .folioInk,
             settings: .default,
-            bookmarks: BrowserBookmarkTree(),
+            pins: BrowserPinTree(),
             history: [
                 BrowserHistoryPage(
                     url: "https://example.com/products/x",
@@ -42,24 +42,24 @@ struct BrowserStartPageTests {
         let html = BrowserStartPage.html(
             theme: .folioPaper,
             settings: .default,
-            bookmarks: BrowserBookmarkTree(),
+            pins: BrowserPinTree(),
             history: []
         )
         #expect(html.contains("Bookmark a page with ⌘D"))
         #expect(html.contains("Pages you visit appear here."))
     }
 
-    @Test func topLevelFoldersAreCardsListingTheirBookmarks() {
-        let tree = BrowserBookmarkTree(children: [
-            .folder(BrowserBookmarkFolder(name: "Work & <Play>", children: [
-                .bookmark(BrowserBookmark(url: "https://a.example/", title: "A")),
-                .folder(BrowserBookmarkFolder(name: "Docs", children: [
-                    .bookmark(BrowserBookmark(url: "https://b.example/", title: "B")),
+    @Test func topLevelFoldersAreCardsListingTheirPins() {
+        let tree = BrowserPinTree(children: [
+            .folder(BrowserPinFolder(name: "Work & <Play>", children: [
+                .pin(BrowserPin(url: "https://a.example/", title: "A")),
+                .folder(BrowserPinFolder(name: "Docs", children: [
+                    .pin(BrowserPin(url: "https://b.example/", title: "B")),
                 ])),
             ])),
-            .bookmark(BrowserBookmark(url: "https://top.example/", title: "Top")),
+            .pin(BrowserPin(url: "https://top.example/", title: "Top")),
         ])
-        let html = BrowserStartPage.html(theme: .folioPaper, settings: .default, bookmarks: tree, history: [])
+        let html = BrowserStartPage.html(theme: .folioPaper, settings: .default, pins: tree, history: [])
         #expect(html.contains("<details class=\"card folder\">"))
         #expect(html.contains("Work &amp; &lt;Play&gt;"))
         #expect(html.contains("Folder · 2 bookmarks"))

@@ -93,20 +93,24 @@ no linter or formatter; match surrounding style.
   one; numbers count private windows, unlike the CLI's). The harness's
   support folder is a temporary one, so profile folders go with it; it
   deletes every profile it made before exiting, so no WebKit data store is
-  left behind. Bookmark flags: `--sidebar` seeds a bookmark tree (nested
-  folders, an empty one) when there are no bookmarks, `--bookmarks-tree`
-  seeds it before the first window (the start page's folder cards),
-  `--bookmarks-file <json>` starts from that `bookmarks.json` (a version 1
-  file migrates), `--expand-folder <name|all>` (repeatable) opens outline
-  folders, `--bookmark-drop <title>:on|above:<row>` (repeatable) runs the
-  outline's drop handler (`performBookmarkDrop`, what a real drop calls; rows
-  as `--print-bookmarks` numbers them; prints moved or refused),
-  `--bookmark-search <text>` types into the sidebar search,
-  `--bookmark-folder <name>` sets ⌘D's last-used folder,
-  `--bookmark-popover` runs ⌘D on the selected page and draws its popover
-  into the capture (built in the offscreen window, never a shown panel) and
-  `--print-bookmarks` prints the tree, the outline rows, Vimium's `b` lines,
-  the file version and the Bookmarks menu as text. Sleep and zoom flags:
+  left behind. Pin flags (every one works on the window's current Space,
+  for now its profile's first Space): `--sidebar` seeds a pinned tree
+  (nested folders, an empty one) when the Space has no pins, `--pins-tree`
+  seeds Default's Space before the first window (the start page's folder
+  cards), `--bookmarks-file <json>` starts from that stage 2
+  `bookmarks.json` (version 1 or 2; it migrates into Default's Space),
+  `--expand-folder <name|all>` (repeatable) opens outline folders,
+  `--pin-drop <title>:on|above:<row>` (repeatable) runs the outline's drop
+  handler (`performBookmarkDrop`, what a real drop calls; rows as
+  `--print-pins` numbers them; prints moved or refused), `--pin-search
+  <text>` types into the sidebar search, `--pin-folder <name>` sets ⌘D's
+  last-used folder in the Space, `--pin-popover` runs ⌘D on the selected
+  page and draws its popover into the capture (built in the offscreen
+  window, never a shown panel) and `--print-pins` prints every Space
+  (`space:` with profile, color, icon and pin count), each profile's
+  favorites count and archive time, the current Space's tree, the outline
+  rows, Vimium's `b` lines, `spaces.json`'s version and the migrated
+  `bookmarks.json` copy, and the Bookmarks menu as text. Sleep and zoom flags:
   `--sleep-after <seconds>` (a test threshold; the idle pass runs on the
   real timer four times per threshold), `--tab-sleep <setting>`,
   `--default-zoom <percent>`, `--support-dir <dir>` (a support folder kept
@@ -188,13 +192,16 @@ no linter or formatter; match surrounding style.
   a deleted profile's is `defaultContext`), `history(for:)`,
   `windowMark(for:)` and `deleteProfile(_:completion:)` (closes the
   profile's windows without Recently Closed, drops its closed entries,
-  removes it from `profiles.json`, then retries
-  `WKWebsiteDataStore.remove(forIdentifier:)` until its web views are
-  released and deletes its folder).
+  deletes its Spaces and favorites, removes it from `profiles.json`, then
+  retries `WKWebsiteDataStore.remove(forIdentifier:)` until its web views
+  are released and deletes its folder). The manager reconciles `spaces`
+  with the profile list at launch and on every profile change, so a new
+  profile gets its Space.
 - `Browser/BrowserProfiles.swift` — `BrowserProfile` (fixed Default id; its
-  folder, `<support>/Profiles/<id>/` for the others, and data-store
-  identifier), `BrowserProfileColor` (Folio tokens), `BrowserProfileList`
-  (`profiles.json`, tolerant decoding, unique names, next color),
+  folder, `<support>/Profiles/<id>/` for the others, data-store
+  identifier and `archiveAfter`), `BrowserProfileColor` (Folio tokens),
+  `BrowserProfileList` (`profiles.json`, tolerant decoding, unique names,
+  next color),
   `BrowserProfileStore` and `BrowserWindowMark` ("Private", the profile
   when there are several, or "Private · Work"). `BrowserWindowMarkView` draws
   the mark (color dot and eyebrow) in the rail header and before the address
@@ -214,6 +221,9 @@ no linter or formatter; match surrounding style.
 - `Browser/BrowserWindowController.swift` — one window: per-window stored state
   (its `dataContext` and `kind`, a private window's own `closedTabs`), init,
   layout, wiring, settings and theme (Folio Ink always for a private window).
+  `currentSpaceID` is the Space whose pins every bookmark surface reads and
+  writes (for now the first Space of the window's profile; `currentPinTree`
+  its tree).
   Its behavior lives in extension files
   by concern: `+Tabs` (`attachTab`/`detachTab`: everything that binds a tab to a
   window), `+TabMove` (Move Tab to New Window, the drop and drag-out handlers
@@ -221,7 +231,8 @@ no linter or formatter; match surrounding style.
   (`WKNavigationDelegate`), `+UIDelegate`
   (`WKUIDelegate`), `+Downloads` (hand-off to the download manager), `+Sidebar`,
   `+Bookmarks` (⌘D and the star's popover, the sidebar's Open All in Tabs,
-  New Folder, Edit/Rename and Delete with its confirmation),
+  New Folder, Edit/Rename and Delete with its confirmation, all on the
+  current Space's pins),
   `+Vimium`, `+Session` (window state, lazy restore, crash recovery,
   `NSWindowDelegate`), `+PageMessages`, `+Links` (pop-ups, pop-up windows,
   modifier clicks, external apps), `+SignIn` (auth challenges, TLS
@@ -254,22 +265,35 @@ no linter or formatter; match surrounding style.
   `BrowserVisitKind`, `BrowserFrecency`, `BrowserHistoryRetention`,
   `BrowserHistoryDays` (the sidebar's day headers) and
   `BrowserSameDocumentVisits` (when a `pushState` URL change becomes a visit).
-- `Browser/BrowserBookmarks.swift` — the bookmark tree, the only way in or
-  out of `bookmarks.json`: `BrowserBookmarkTree` (one root with the fixed
-  `rootID`; pure insert, move — never into itself or a descendant, the index
-  is the drop gap counted before the item leaves —, rename, edit, remove,
-  `bookmarks(url:)`, `entries()` with folder paths, `folderEntries`,
-  `folderForNewBookmark(lastUsed:)`), `BrowserBookmarkFile` (version 2
-  `root`; version 1 lists migrate newest first, bad nodes skipped, repeated
-  ids dropped), `BrowserBookmarkStore` (shared by every profile; `insert` is
-  the importers' entry point; a version 1 file is kept as `.migrated`, an
-  unreadable one as `.corrupt`), `BrowserBookmarkUIState` (expanded folders
-  and ⌘D's last folder in `UserDefaults`) and `BrowserBookmarkOutline` (the
-  sidebar's visible rows and where a drop lands).
-  `BrowserBookmarkEditor.swift` is the Folio popover (⌘D, Edit Bookmark,
-  Rename, New Folder) and its child panel; `BrowserBookmarkOutlineCell.swift`
-  an outline row; `BrowserBookmarksMenu.swift` the Bookmarks menu's tree,
-  rebuilt on every change (`dump` prints it).
+- `Browser/BrowserPins.swift` — the pin model (stage 2's bookmarks):
+  `BrowserPin`, `BrowserPinFolder`, `BrowserPinNode`, `BrowserPinTree` (one
+  root with the fixed `rootID` per Space; pure insert, move — never into
+  itself or a descendant, the index is the drop gap counted before the item
+  leaves —, rename, edit, remove, `pins(url:)`, `entries()` with folder
+  paths, `folderEntries`, `folderForNewPin(lastUsed:)`), the node coding
+  (`"type": "pin"`; stage 2's `"bookmark"` reads too),
+  `BrowserBookmarksFile` (stage 2's `bookmarks.json`, read once for the
+  migration: version 2 `root`, version 1 lists newest first, bad nodes
+  skipped, repeated ids dropped) and `BrowserPinOutline` (an outline's
+  visible rows and where a drop lands). `BrowserSpaces.swift` —
+  `BrowserSpace` (name, `BrowserSpaceIcon`, color mark, profile, pinned
+  tree, `importedFrom`), `BrowserFavorites` (per profile, at most 12),
+  `BrowserArchiveAfter`, `BrowserSpaceList` (the pure operations: a
+  profile's last Space can't be deleted or moved away, `reconcile(with:)`
+  gives every profile a Space and drops orphans) and `BrowserSpacesFile`
+  (`spaces.json`, tolerant decoding). `BrowserSpaceStore.swift` —
+  `BrowserSpaceStore`, the only way in or out of `spaces.json` (Space
+  operations, per-Space pin operations with `inSpace:`, favorites with
+  `ofProfile:`; `insert(_:into:at:inSpace:)`, `createSpace(…importedFrom:)`
+  and `insertFavorite` are the importers' entry points; a missing file
+  starts with one Space per profile and migrates `bookmarks.json` into
+  Default's, kept as `bookmarks.json.migrated`; an unreadable one is kept
+  as `.corrupt`) and `BrowserPinUIState` (expanded folders and ⌘D's last
+  folder per Space in `UserDefaults`). `BrowserPinEditor.swift` is the
+  Folio popover (⌘D, Edit Bookmark, Rename, New Folder) and its child
+  panel; `BrowserPinOutlineCell.swift` an outline row;
+  `BrowserBookmarksMenu.swift` the Bookmarks menu's tree of the active
+  window's Space, rebuilt on every change (`dump` prints it).
 - `Browser/BrowserDataStores.swift` — downloads JSON
   (`{version, entries}` envelopes, lossy decoding; a private window's download
   rows carry `privateContextID` and stay in memory);

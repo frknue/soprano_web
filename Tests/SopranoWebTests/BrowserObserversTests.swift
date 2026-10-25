@@ -7,30 +7,31 @@ struct BrowserObserversTests {
     private func temporaryURL() -> URL {
         FileManager.default.temporaryDirectory
             .appendingPathComponent("SopranoWebObservers-\(UUID().uuidString)", isDirectory: true)
-            .appendingPathComponent("bookmarks.json")
+            .appendingPathComponent("spaces.json")
     }
 
-    @Test func everyWindowHearsAStoreChangeUntilItUnsubscribes() {
+    @Test func everyWindowHearsAStoreChangeUntilItUnsubscribes() throws {
         let url = temporaryURL()
         defer { try? FileManager.default.removeItem(at: url.deletingLastPathComponent()) }
-        let store = BrowserBookmarkStore(url: url)
+        let store = BrowserSpaceStore(url: url, profiles: [.defaultProfile])
+        let space = try #require(store.firstSpace(ofProfile: BrowserProfile.defaultID)).id
         var first = 0
         var second = 0
         let firstWindow = store.changes.observe { first += 1 }
         let secondWindow = store.changes.observe { second += 1 }
 
-        let example = store.addBookmark(url: "https://example.com", title: "Example")
+        let example = try #require(store.addPin(url: "https://example.com", title: "Example", inSpace: space))
         #expect(first == 1)
         #expect(second == 1)
 
         firstWindow.cancel()
-        store.addBookmark(url: "https://webkit.org", title: "WebKit")
+        store.addPin(url: "https://webkit.org", title: "WebKit", inSpace: space)
         #expect(first == 1)
         #expect(second == 2)
         #expect(store.changes.count == 1)
 
         secondWindow.cancel()
-        store.remove(id: example.id)
+        store.removePin(example.id, inSpace: space)
         #expect(second == 2)
         #expect(store.changes.count == 0)
     }

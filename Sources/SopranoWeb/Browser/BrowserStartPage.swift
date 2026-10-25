@@ -1,26 +1,26 @@
 import AppKit
 
 /// The local start page. It is plain HTML so it follows the Folio palette and
-/// can show the user's bookmarks and recent pages without a web request. A
+/// can show the Space's pins and recent pages without a web request. A
 /// private window's start page says so and shows no recent pages. Top-level
 /// folders are cards that expand in place (`<details>`, no script) to list
-/// every bookmark inside them.
+/// every pin inside them.
 enum BrowserStartPage {
     /// Pages in the Recent list.
     static let recentLimit = 6
-    /// Top-level bookmarks, and separately top-level folders, shown.
+    /// Top-level pins, and separately top-level folders, shown.
     static let bookmarkLimit = 8
 
     static func html(
         theme: AppTheme,
         settings: BrowserSettings,
-        bookmarks: BrowserBookmarkTree,
+        pins: BrowserPinTree,
         history: [BrowserHistoryPage],
         kind: BrowserWindowKind = .normal
     ) -> String {
         let colors = theme.colors
         let bookmarksHTML: String
-        let cards = topLevelCards(bookmarks)
+        let cards = topLevelCards(pins)
         if cards.isEmpty {
             bookmarksHTML = """
             <p class="empty">Bookmark a page with ⌘D and it shows up here.</p>
@@ -243,20 +243,20 @@ enum BrowserStartPage {
         """
     }
 
-    /// The first top-level bookmarks and folders, in tree order.
-    private static func topLevelCards(_ tree: BrowserBookmarkTree) -> [String] {
-        var bookmarkCount = 0
+    /// The first top-level pins and folders, in tree order.
+    private static func topLevelCards(_ tree: BrowserPinTree) -> [String] {
+        var pinCount = 0
         var folderCount = 0
         var cards: [String] = []
         for node in tree.root.children {
             switch node {
-            case let .bookmark(bookmark):
-                guard bookmarkCount < bookmarkLimit else { continue }
-                bookmarkCount += 1
+            case let .pin(pin):
+                guard pinCount < bookmarkLimit else { continue }
+                pinCount += 1
                 cards.append("""
-                <a class="card" href="\(escape(bookmark.url))">
-                  <div class="title">\(escape(bookmark.displayTitle))</div>
-                  <div class="host">\(escape(host(of: bookmark.url)))</div>
+                <a class="card" href="\(escape(pin.url))">
+                  <div class="title">\(escape(pin.displayTitle))</div>
+                  <div class="host">\(escape(host(of: pin.url)))</div>
                 </a>
                 """)
             case let .folder(folder):
@@ -270,8 +270,8 @@ enum BrowserStartPage {
 
     /// A folder card; open, it spans the grid and lists every bookmark in
     /// the folder with the subfolder it sits in.
-    private static func folderCard(_ folder: BrowserBookmarkFolder) -> String {
-        let entries = BrowserBookmarkTree(children: folder.children).entries()
+    private static func folderCard(_ folder: BrowserPinFolder) -> String {
+        let entries = BrowserPinTree(children: folder.children).entries()
         let count = switch entries.count {
         case 0: "empty"
         case 1: "1 bookmark"
@@ -283,11 +283,11 @@ enum BrowserStartPage {
             <div class="recent">
             \(entries.map { entry in
                 let place = entry.path.isEmpty
-                    ? host(of: entry.bookmark.url)
-                    : "\(entry.path.joined(separator: " › ")) · \(host(of: entry.bookmark.url))"
+                    ? host(of: entry.pin.url)
+                    : "\(entry.path.joined(separator: " › ")) · \(host(of: entry.pin.url))"
                 return """
-                <a href="\(escape(entry.bookmark.url))">
-                  <span class="title">\(escape(entry.bookmark.displayTitle))</span>
+                <a href="\(escape(entry.pin.url))">
+                  <span class="title">\(escape(entry.pin.displayTitle))</span>
                   <span class="host">\(escape(place))</span>
                 </a>
                 """
