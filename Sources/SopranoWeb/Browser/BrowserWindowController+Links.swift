@@ -73,13 +73,12 @@ extension BrowserWindowController {
     }
 
     /// Attaches a freshly made tab after its opener and records the opener.
-    /// From a pop-up window the tab opens at the end of the window with
-    /// tabs instead.
+    /// From a pop-up window the tab opens at the end of a window with tabs
+    /// of the pop-up's data context instead.
     @discardableResult
     func insertLinkTab(_ tab: BrowserTab, opener: BrowserTab, select: Bool) -> BrowserTab {
         if isPopup {
-            let isNewWindow = manager.tabbedController == nil
-            let target = manager.windowForNewTabs()
+            let (target, isNewWindow) = manager.windowForNewTabs(from: self)
             target.insertLinkTab(tab, opener: opener, select: select || isNewWindow)
             if select || isNewWindow {
                 manager.present(target)

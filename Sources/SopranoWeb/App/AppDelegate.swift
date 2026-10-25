@@ -54,8 +54,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         }
     }
 
-    /// Links from other apps open in the most recently active window, or a
-    /// new window when none is open.
+    /// Links from other apps open in the most recently active normal window
+    /// (never a private one), or a new window when none is open.
     func application(_ application: NSApplication, open urls: [URL]) {
         guard let windowManager else {
             pendingURLs.append(contentsOf: urls)
@@ -98,11 +98,23 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         let item = NSMenuItem(title: "New Window", action: #selector(newWindowFromDock), keyEquivalent: "")
         item.target = self
         menu.addItem(item)
+        let privateItem = NSMenuItem(
+            title: "New Private Window",
+            action: #selector(newPrivateWindowFromDock),
+            keyEquivalent: ""
+        )
+        privateItem.target = self
+        menu.addItem(privateItem)
         return menu
     }
 
     @objc private func newWindowFromDock() {
         windowManager?.newWindow()
+        NSApp.activate(ignoringOtherApps: true)
+    }
+
+    @objc private func newPrivateWindowFromDock() {
+        windowManager?.newPrivateWindow()
         NSApp.activate(ignoringOtherApps: true)
     }
 

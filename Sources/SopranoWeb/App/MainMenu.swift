@@ -56,6 +56,7 @@ final class MainMenuController: NSObject, NSMenuItemValidation {
         let fileMenu = NSMenu(title: "File")
         fileMenu.addItem(item("New Tab", #selector(newTab), "t"))
         fileMenu.addItem(item("New Window", #selector(newWindow), "n"))
+        fileMenu.addItem(item("New Private Window", #selector(newPrivateWindow), "n", [.command, .shift]))
         fileMenu.addItem(item("Reopen Closed Tab", #selector(reopenClosedTab), "t", [.command, .shift]))
         fileMenu.addItem(item("Open Location…", #selector(openLocation), "l"))
         fileMenu.addItem(.separator())
@@ -203,9 +204,15 @@ final class MainMenuController: NSObject, NSMenuItemValidation {
     func validateMenuItem(_ menuItem: NSMenuItem) -> Bool {
         guard let manager = windowManager() else { return false }
         switch menuItem.action {
-        case #selector(newWindow), #selector(newTab), #selector(openLocation), #selector(openSettings):
+        case #selector(newWindow), #selector(newPrivateWindow), #selector(newTab), #selector(openLocation),
+             #selector(openSettings):
             return true
         case #selector(reopenClosedTab):
+            // A private window reopens only its own closed tabs.
+            if let controller = manager.activeController, !controller.kind.usesAppRecentlyClosed {
+                menuItem.title = "Reopen Closed Tab"
+                return controller.canReopenClosedTab
+            }
             menuItem.title = manager.recentlyClosed.newest?.isWindow == true
                 ? "Reopen Closed Window"
                 : "Reopen Closed Tab"
@@ -255,6 +262,10 @@ final class MainMenuController: NSObject, NSMenuItemValidation {
         windowManager()?.newWindow()
     }
 
+    @objc private func newPrivateWindow() {
+        windowManager()?.newPrivateWindow()
+    }
+
     @objc private func openLocation() {
         guard let manager = windowManager() else { return }
         guard let controller = manager.activeController else {
@@ -269,8 +280,15 @@ final class MainMenuController: NSObject, NSMenuItemValidation {
         controller()?.closeSelectedTab()
     }
 
+    /// ⇧⌘T: in a private window its own last closed tab, otherwise the
+    /// newest entry of the app-wide stack.
     @objc private func reopenClosedTab() {
-        windowManager()?.reopenMostRecent()
+        guard let manager = windowManager() else { return }
+        if let controller = manager.activeController {
+            controller.reopenClosedTab()
+        } else {
+            manager.reopenMostRecent()
+        }
     }
 
     /// ⇧⌘W closes the key window: a browser window onto the recently-closed
@@ -406,7 +424,8 @@ final class MainMenuController: NSObject, NSMenuItemValidation {
         alert.informativeText = """
         ⌘L  Address bar
         ⌘T  New tab            ⌘W  Close tab
-        ⌘N  New window         ⇧⌘W Close window
+        ⌘N  New window         ⇧⌘N New private window
+        ⇧⌘W Close window
         ⇧⌘T Reopen closed tab or window
         ⌃Tab / ⌃⇧Tab  Next / previous tab
         ⌘[  Back               ⌘]  Forward

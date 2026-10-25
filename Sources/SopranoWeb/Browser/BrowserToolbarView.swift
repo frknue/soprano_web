@@ -33,6 +33,9 @@ final class BrowserToolbarView: NSView, NSTextFieldDelegate {
     private let bookmarkButton: ChromeIconButton
     private let downloadsButton: ChromeIconButton
     private let sidebarButton: ChromeIconButton
+    /// "Private" before the address field of a private window without a
+    /// tab rail.
+    let privateMark = NSTextField(labelWithString: "")
 
     private var theme: AppTheme
     private var security: BrowserSecurityState = .local
@@ -57,6 +60,14 @@ final class BrowserToolbarView: NSView, NSTextFieldDelegate {
     private lazy var captureTrailingToEdge = captureIndicator.trailingAnchor.constraint(
         equalTo: trailingAnchor,
         constant: -10
+    )
+    private lazy var addressLeadingToNavigation = addressFrame.leadingAnchor.constraint(
+        equalTo: navigationControls.trailingAnchor,
+        constant: 8
+    )
+    private lazy var addressLeadingToPrivateMark = addressFrame.leadingAnchor.constraint(
+        equalTo: privateMark.trailingAnchor,
+        constant: 8
     )
 
     static let preferredHeight: CGFloat = 46
@@ -155,6 +166,12 @@ final class BrowserToolbarView: NSView, NSTextFieldDelegate {
         addSubview(progressBar)
         progressBar.translatesAutoresizingMaskIntoConstraints = false
         addSubview(captureIndicator)
+        privateMark.translatesAutoresizingMaskIntoConstraints = false
+        privateMark.isHidden = true
+        privateMark.setContentHuggingPriority(.required, for: .horizontal)
+        privateMark.setContentCompressionResistancePriority(.required, for: .horizontal)
+        privateMark.toolTip = "Private window: no history, and cookies and site data go when it closes"
+        addSubview(privateMark)
 
         NSLayoutConstraint.activate([
             verticalTabsButton.leadingAnchor.constraint(equalTo: leadingAnchor, constant: 10),
@@ -169,7 +186,9 @@ final class BrowserToolbarView: NSView, NSTextFieldDelegate {
 
             navigationLeadingToToggle,
             navigationControls.centerYAnchor.constraint(equalTo: verticalTabsButton.centerYAnchor),
-            addressFrame.leadingAnchor.constraint(equalTo: navigationControls.trailingAnchor, constant: 8),
+            addressLeadingToNavigation,
+            privateMark.leadingAnchor.constraint(equalTo: navigationControls.trailingAnchor, constant: 10),
+            privateMark.centerYAnchor.constraint(equalTo: addressFrame.centerYAnchor),
             addressFrame.trailingAnchor.constraint(equalTo: captureIndicator.leadingAnchor, constant: -6),
             addressFrame.centerYAnchor.constraint(equalTo: verticalTabsButton.centerYAnchor),
             addressFrame.heightAnchor.constraint(equalToConstant: Chrome.fieldHeight),
@@ -222,6 +241,7 @@ final class BrowserToolbarView: NSView, NSTextFieldDelegate {
             ]
         )
         progressBar.color = theme.colors.blue
+        privateMark.attributedStringValue = ChromeText.eyebrow("Private", color: theme.colors.textPrimary)
         captureIndicator.apply(theme: theme)
         refreshSecurityIcon()
         needsDisplay = true
@@ -296,6 +316,14 @@ final class BrowserToolbarView: NSView, NSTextFieldDelegate {
 
     func setDownloadsToggle(_ on: Bool) {
         downloadsButton.isToggledOn = on
+    }
+
+    /// Shows the "Private" mark before the address field.
+    func setPrivateMark(_ shown: Bool) {
+        guard privateMark.isHidden == shown else { return }
+        privateMark.isHidden = !shown
+        addressLeadingToNavigation.isActive = !shown
+        addressLeadingToPrivateMark.isActive = shown
     }
 
     /// Pop-up windows: back/forward/reload and the address, which can be

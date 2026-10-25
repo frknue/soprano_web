@@ -62,6 +62,28 @@ struct AddressSuggestionInput: Sendable {
     var limit = 8
 }
 
+extension AddressSuggestionInput {
+    /// A window's suggestion sources: bookmarks, its own open tabs and the
+    /// search engine, plus History unless the window keeps History out (a
+    /// private window).
+    init(
+        query: String,
+        kind: BrowserWindowKind,
+        history: [BrowserHistoryEntry],
+        bookmarks: [BrowserBookmark],
+        tabs: [AddressSuggestionTab],
+        searchEngine: SearchEngine
+    ) {
+        self.init(
+            query: query,
+            history: kind.suggestsHistory ? history : [],
+            bookmarks: bookmarks,
+            tabs: tabs,
+            searchEngine: searchEngine
+        )
+    }
+}
+
 // MARK: - Visits
 
 /// History aggregated per URL: how often it was visited, how often the visit

@@ -259,9 +259,9 @@ struct BrowserCertificateExceptions {
     }
 }
 
-/// Connection decisions shared by every window: certificate exceptions and
-/// the client identity chosen per host (one chooser per host at a time).
-/// Nothing here is persisted.
+/// Connection decisions of one data context (every normal window, or one
+/// private window): certificate exceptions and the client identity chosen
+/// per host (one chooser per host at a time). Nothing here is persisted.
 @MainActor
 final class BrowserConnectionSecurity {
     typealias ChallengeCompletion = @MainActor @Sendable (URLSession.AuthChallengeDisposition, URLCredential?) -> Void

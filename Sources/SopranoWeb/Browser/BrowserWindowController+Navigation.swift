@@ -123,10 +123,6 @@ extension BrowserWindowController {
         tab.webView.load(URLRequest(url: BrowserStartPageSchemeHandler.url))
     }
 
-    func startPageHTML() -> String {
-        manager.startPageHTML()
-    }
-
     func markStartPagesStale() {
         for tab in tabs where tab.isStartPage {
             staleStartTabs.insert(tab.id)
@@ -145,7 +141,7 @@ extension BrowserWindowController {
         toolbar.setBookmarkEnabled(!tab.isStartPage && !shownURL.isEmpty)
         toolbar.setSidebarToggle(isSidebarVisible)
         toolbar.setDownloadsToggle(isSidebarVisible && sidebarSection == .downloads)
-        window?.title = tab.isStartPage ? "New Tab" : tab.displayTitle
+        window?.title = kind.windowTitle(tab.isStartPage ? "New Tab" : tab.displayTitle)
         window?.representedURL = tab.isStartPage ? nil : url
         updatePopupBlockedControl()
     }
@@ -206,7 +202,8 @@ extension BrowserWindowController: WKNavigationDelegate {
         tab.typedNavigationPending = false
         if tab.suppressNextHistoryRecord {
             tab.suppressNextHistoryRecord = false
-        } else if !tab.isStartPage,
+        } else if kind.recordsHistory,
+                  !tab.isStartPage,
                   let address = webView.url?.absoluteString,
                   ["http", "https", "file"].contains(webView.url?.scheme?.lowercased() ?? "")
         {
@@ -338,7 +335,7 @@ extension BrowserWindowController: WKNavigationDelegate {
         navigationAction: WKNavigationAction,
         didBecome download: WKDownload
     ) {
-        downloadManager.adopt(download, from: window)
+        adoptDownload(download)
     }
 
     func webView(
@@ -346,7 +343,7 @@ extension BrowserWindowController: WKNavigationDelegate {
         navigationResponse: WKNavigationResponse,
         didBecome download: WKDownload
     ) {
-        downloadManager.adopt(download, from: window)
+        adoptDownload(download)
     }
 }
 

@@ -55,6 +55,15 @@ struct MainMenuTests {
         #expect(history?.item(withTitle: "Recently Closed")?.submenu != nil)
     }
 
+    @Test func newPrivateWindowIsShiftCommandN() {
+        _ = NSApplication.shared
+        let menu = MainMenuController { nil }
+        menu.install()
+        let items = (NSApp.mainMenu?.items ?? []).compactMap(\.submenu).flatMap(\.items)
+        let matches = items.filter { $0.keyEquivalent == "n" && $0.keyEquivalentModifierMask == [.command, .shift] }
+        #expect(matches.map(\.title) == ["New Private Window"])
+    }
+
     @Test func windowMenuMovesAndMergesTabs() {
         _ = NSApplication.shared
         let menu = MainMenuController { nil }

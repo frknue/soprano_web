@@ -1,13 +1,15 @@
 import AppKit
 
 /// The local start page. It is plain HTML so it follows the Folio palette and
-/// can show the user's bookmarks and recent pages without a web request.
+/// can show the user's bookmarks and recent pages without a web request. A
+/// private window's start page says so and shows no recent pages.
 enum BrowserStartPage {
     static func html(
         theme: AppTheme,
         settings: BrowserSettings,
         bookmarks: [BrowserBookmark],
-        history: [BrowserHistoryEntry]
+        history: [BrowserHistoryEntry],
+        kind: BrowserWindowKind = .normal
     ) -> String {
         let colors = theme.colors
         let bookmarksHTML: String
@@ -30,23 +32,31 @@ enum BrowserStartPage {
             """
         }
 
-        let historyHTML: String
-        if history.isEmpty {
-            historyHTML = """
-            <p class="empty">Pages you visit appear here.</p>
+        let recentSection: String
+        if !kind.suggestsHistory {
+            recentSection = ""
+        } else if history.isEmpty {
+            recentSection = """
+            <section>
+              <h2>Recent</h2>
+              <p class="empty">Pages you visit appear here.</p>
+            </section>
             """
         } else {
-            historyHTML = """
-            <div class="recent">
-            \(history.prefix(6).map { entry in
-                """
-                <a href="\(escape(entry.url))">
-                  <span class="title">\(escape(entry.displayTitle))</span>
-                  <span class="host">\(escape(host(of: entry.url)))</span>
-                </a>
-                """
-            }.joined(separator: "\n"))
-            </div>
+            recentSection = """
+            <section>
+              <h2>Recent</h2>
+              <div class="recent">
+              \(history.prefix(6).map { entry in
+                  """
+                  <a href="\(escape(entry.url))">
+                    <span class="title">\(escape(entry.displayTitle))</span>
+                    <span class="host">\(escape(host(of: entry.url)))</span>
+                  </a>
+                  """
+              }.joined(separator: "\n"))
+              </div>
+            </section>
             """
         }
 
@@ -187,9 +197,11 @@ enum BrowserStartPage {
         </head>
         <body>
         <main>
-          <div class="eyebrow">Soprano family</div>
+          <div class="eyebrow">\(kind.isPrivate ? "Private window" : "Soprano family")</div>
           <h1>Soprano Web</h1>
-          <p class="sub">Search the web, or enter an address above.</p>
+          <p class="sub">\(kind.isPrivate
+              ? "Pages you open here stay out of History. Cookies and site data go when the window closes."
+              : "Search the web, or enter an address above.")</p>
           <form action="\(escape(settings.searchEngine.searchFormURL))" method="get">
             <input type="search" name="q" placeholder="Search with \(escape(settings.searchEngine.name))">
             <button type="submit">Search</button>
@@ -198,10 +210,7 @@ enum BrowserStartPage {
             <h2>Bookmarks</h2>
             \(bookmarksHTML)
           </section>
-          <section>
-            <h2>Recent</h2>
-            \(historyHTML)
-          </section>
+          \(recentSection)
           <footer>
             <span>⌘L Address</span>
             <span>⌘T New tab</span>

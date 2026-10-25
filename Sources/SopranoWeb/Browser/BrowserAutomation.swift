@@ -4,10 +4,6 @@ import WebKit
 extension BrowserWindowController {
     // MARK: - Zoom and palette
 
-    var canReopenClosedTab: Bool {
-        !manager.recentlyClosed.isEmpty
-    }
-
     func zoomIn() {
         setZoom((selectedTab?.zoom ?? 1) + 0.1)
     }

@@ -4,9 +4,9 @@ import WebKit
 extension BrowserWindowController {
     // MARK: - Clear Browsing Data
 
-    /// The store every tab of this window uses.
+    /// The store every tab of this window uses (a private window's own).
     var websiteDataStore: WKWebsiteDataStore {
-        (selectedTab ?? tabs.first)?.webView.configuration.websiteDataStore ?? .default()
+        dataContext.websiteDataStore
     }
 
     func showClearBrowsingData() {
@@ -31,6 +31,7 @@ extension BrowserWindowController {
             history.removeEntries(since: since)
             // Closed tabs and windows carry their own back/forward lists.
             manager.recentlyClosed.removeAll()
+            closedTabs.removeAll()
             saveSession()
         }
         if options.downloadList {

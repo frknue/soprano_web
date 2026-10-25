@@ -24,6 +24,8 @@ final class BrowserVerticalTabsView: NSView {
     }
 
     private var theme: AppTheme
+    /// A private window's rail: its header reads "Private".
+    private var isPrivate = false
     private var buttons: [UUID: BrowserTabButton] = [:]
     private var order: [UUID] = []
     private var rowWidthConstraints: [UUID: NSLayoutConstraint] = [:]
@@ -173,10 +175,7 @@ final class BrowserVerticalTabsView: NSView {
     func apply(theme: AppTheme) {
         self.theme = theme
         layer?.backgroundColor = theme.colors.bgPanel.cgColor
-        headerLabel.attributedStringValue = ChromeText.eyebrow(
-            "Tabs",
-            color: theme.colors.textMuted
-        )
+        applyHeader()
         newTabButton.apply(theme: theme)
         divider.color = theme.colors.borderSubtle
         for button in buttons.values {
@@ -184,6 +183,21 @@ final class BrowserVerticalTabsView: NSView {
         }
         dropMarker.apply(theme: theme)
         needsDisplay = true
+    }
+
+    /// Marks the rail as a private window's: the header reads "Private".
+    func setPrivate(_ isPrivate: Bool) {
+        self.isPrivate = isPrivate
+        applyHeader()
+    }
+
+    private func applyHeader() {
+        headerLabel.attributedStringValue = isPrivate
+            ? ChromeText.eyebrow("Private", color: theme.colors.textPrimary)
+            : ChromeText.eyebrow("Tabs", color: theme.colors.textMuted)
+        headerLabel.toolTip = isPrivate
+            ? "Private window: no history, and cookies and site data go when it closes"
+            : nil
     }
 
     private func rebuild(tabs: [BrowserTabItem]) {

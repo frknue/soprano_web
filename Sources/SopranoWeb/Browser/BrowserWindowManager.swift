@@ -40,8 +40,9 @@ struct BrowserWindowPlacement {
 
 /// Owns every browser window and the app-wide pieces they share: the stores,
 /// downloads, Settings, the recently-closed stack, Vimium's global marks,
-/// notification clicks and the session file. `AppDelegate` (or the snapshot
-/// harness) owns the one manager.
+/// notification clicks and the session file. Every normal window uses
+/// `defaultContext`; each private window gets its own `BrowserDataContext`.
+/// `AppDelegate` (or the snapshot harness) owns the one manager.
 @MainActor
 final class BrowserWindowManager {
     static let windowMinSize = NSSize(width: 760, height: 520)
@@ -59,7 +60,9 @@ final class BrowserWindowManager {
     let sitePermissions: BrowserSitePermissionStore
     let faviconStore: BrowserFaviconStore
     let sessionStore: BrowserSessionStore
-    let connectionSecurity = BrowserConnectionSecurity()
+    /// The data every normal window uses: `WKWebsiteDataStore.default()`
+    /// and the saved site decisions and favicons.
+    let defaultContext: BrowserDataContext
     /// False in the harness: it may restore a session file but never writes.
     let persistsSession: Bool
     let placement: BrowserWindowPlacement
@@ -108,7 +111,13 @@ final class BrowserWindowManager {
         self.persistsSession = persistsSession
         self.placement = placement
         self.defaults = defaults
-
+        self.defaultContext = BrowserDataContext(
+            kind: .normal,
+            websiteDataStore: .default(),
+            sitePermissions: sitePermissions,
+            faviconStore: faviconStore,
+            connectionSecurity: BrowserConnectionSecurity()
+        )
         themeManager.onThemeChanged = { [weak self] theme in
             self?.websitesSheet?.apply(theme: theme)
             self?.themeChanges.notify(theme)
@@ -129,39 +138,60 @@ final class BrowserWindowManager {
     }
 
     /// The key browser window, else the most recently active one: where
-    /// menu commands, links from other apps and the CLI go by default.
+    /// menu commands go by default.
     var activeController: BrowserWindowController? {
-        if let keyController { return keyController }
-        for id in activationOrder.reversed() {
-            if let controller = controllers.first(where: { $0.id == id }) {
-                return controller
-            }
-        }
-        return controllers.last
+        mostRecentlyActive { _ in true }
     }
 
-    /// The window new tabs and links from other apps go to: the active
-    /// window unless it is a pop-up, else the most recently active window
-    /// with tabs.
+    /// The window new tabs from menu commands go to: the active window
+    /// unless it is a pop-up, else the most recently active window with
+    /// tabs.
     var tabbedController: BrowserWindowController? {
-        if let active = activeController, !active.isPopup { return active }
+        mostRecentlyActive { !$0.isPopup }
+    }
+
+    /// Where links from other apps and the CLI's new tabs go: the most
+    /// recently active normal window with tabs (never a private window).
+    var outsideTabbedController: BrowserWindowController? {
+        mostRecentlyActive { !$0.isPopup && $0.kind.acceptsOutsideRequests }
+    }
+
+    /// The key window, else the most recently active one, that `matches`.
+    func mostRecentlyActive(where matches: (BrowserWindowController) -> Bool) -> BrowserWindowController? {
+        if let keyController, matches(keyController) { return keyController }
         for id in activationOrder.reversed() {
-            if let controller = controllers.first(where: { $0.id == id }), !controller.isPopup {
+            if let controller = controllers.first(where: { $0.id == id }), matches(controller) {
                 return controller
             }
         }
-        return nil
+        return controllers.last(where: matches)
     }
 
-    /// Where a pop-up window's new tabs and links go: `tabbedController`,
-    /// else a new empty window (the caller adds the tab and presents it).
-    func windowForNewTabs() -> BrowserWindowController {
-        tabbedController ?? makeWindow(frame: frameForNewWindow())
+    /// Where a pop-up window's new tabs and links go: the most recently
+    /// active window with tabs of the pop-up's data context, else a new
+    /// empty window of that context (`isNew`; the caller adds the tab and
+    /// presents it).
+    func windowForNewTabs(from popup: BrowserWindowController) -> (window: BrowserWindowController, isNew: Bool) {
+        let context = popup.dataContext
+        if let window = mostRecentlyActive(where: { !$0.isPopup && $0.dataContext === context }) {
+            return (window, false)
+        }
+        return (makeWindow(frame: frameForNewWindow(), context: context), true)
     }
 
-    /// 1-based, as `browser windows` lists them.
+    /// The windows the `browser` CLI sees, numbered 1…n in this order.
+    var automationControllers: [BrowserWindowController] {
+        controllers.filter { $0.kind.acceptsOutsideRequests }
+    }
+
+    /// The window the CLI acts on without `--window`.
+    var automationActiveController: BrowserWindowController? {
+        mostRecentlyActive { $0.kind.acceptsOutsideRequests }
+    }
+
+    /// 1-based, as `browser windows` lists them; nil for a private window.
     func number(of controller: BrowserWindowController) -> Int? {
-        controllers.firstIndex { $0 === controller }.map { $0 + 1 }
+        automationControllers.firstIndex { $0 === controller }.map { $0 + 1 }
     }
 
     /// A tab in any window.
@@ -204,9 +234,19 @@ final class BrowserWindowManager {
         return controller
     }
 
+    /// File ▸ New Private Window (⇧⌘N): a window with its own
+    /// non-persistent data store and a start tab (or `url`).
+    @discardableResult
+    func newPrivateWindow(url: String? = nil) -> BrowserWindowController {
+        let controller = makeWindow(frame: frameForNewWindow(), context: .makePrivate(over: defaultContext))
+        controller.newTab(url: url, focusAddress: url == nil)
+        present(controller)
+        return controller
+    }
+
     /// Closes a window the way its close button does: its tabs go onto the
-    /// recently-closed stack as one entry (an emptied window and a pop-up
-    /// window go nowhere).
+    /// recently-closed stack as one entry (an emptied window, a pop-up
+    /// window and a private window go nowhere).
     func closeWindow(_ controller: BrowserWindowController) {
         windowClosing(controller)
         controller.window?.close()
@@ -214,16 +254,20 @@ final class BrowserWindowManager {
 
     /// The window is closing (close button, ⇧⌘W, its last tab,
     /// `close-window`, its tabs moved away). Runs once per window; quitting
-    /// keeps it in the session instead.
+    /// keeps it in the session instead. The last window of a private data
+    /// context takes the context's download rows with it.
     func windowClosing(_ controller: BrowserWindowController) {
         guard !isTerminating, let index = controllers.firstIndex(where: { $0 === controller }) else { return }
-        let state = controller.windowState
-        if !state.tabs.isEmpty, !controller.isPopup {
-            recentlyClosed.push(BrowserClosedEntry(.window(state)))
+        if !controller.isPopup, controller.kind.usesAppRecentlyClosed, !controller.tabs.isEmpty {
+            recentlyClosed.push(BrowserClosedEntry(.window(controller.windowState)))
         }
         controllers.remove(at: index)
         activationOrder.removeAll { $0 == controller.id }
         controller.tearDown()
+        let context = controller.dataContext
+        if let id = context.downloadContextID, !controllers.contains(where: { $0.dataContext === context }) {
+            downloads.forgetPrivateContext(id)
+        }
         scheduleSessionSave()
         // AppKit finishes closing the window after this returns; the
         // controller owns the window, so it stays alive until then.
@@ -238,19 +282,22 @@ final class BrowserWindowManager {
         controller.window.map { $0.frame.offsetBy(dx: -placement.offset.x, dy: -placement.offset.y) }
     }
 
-    /// A new, empty window at `frame` (session coordinates). `activate`
-    /// makes it the window commands go to by default.
+    /// A new, empty window at `frame` (session coordinates) whose tabs use
+    /// `context` (nil: `defaultContext`). `activate` makes it the window
+    /// commands go to by default.
     func makeWindow(
         id: UUID = UUID(),
         frame: NSRect,
         isPopup: Bool = false,
+        context: BrowserDataContext? = nil,
         activate: Bool = true
     ) -> BrowserWindowController {
         let controller = BrowserWindowController(
             manager: self,
             id: id,
             frame: frame.offsetBy(dx: placement.offset.x, dy: placement.offset.y),
-            isPopup: isPopup
+            isPopup: isPopup,
+            dataContext: context ?? defaultContext
         )
         controllers.append(controller)
         if activate {
@@ -314,8 +361,10 @@ final class BrowserWindowManager {
         }
     }
 
+    /// Every normal window with tabs (pop-up and private windows are never
+    /// saved) and the recently-closed stack.
     var currentSession: BrowserSession {
-        let open = controllers.filter { !$0.tabs.isEmpty && !$0.isPopup }
+        let open = controllers.filter { !$0.tabs.isEmpty && !$0.isPopup && $0.kind.savesSession }
         let active = activeController
         return BrowserSession(
             windows: open.map(\.windowState),
@@ -357,10 +406,12 @@ final class BrowserWindowManager {
         reopen(entry)
     }
 
+    /// Entries only ever go back into normal windows with tabs.
     private func reopen(_ entry: BrowserClosedEntry) {
+        let candidates = controllers.filter { !$0.isPopup && $0.kind.usesAppRecentlyClosed }
         let target = entry.reopenTarget(
-            openWindowIDs: controllers.map(\.id),
-            keyWindowID: activeController?.id
+            openWindowIDs: candidates.map(\.id),
+            keyWindowID: mostRecentlyActive { !$0.isPopup && $0.kind.usesAppRecentlyClosed }?.id
         )
         switch (target, entry.content) {
         case let (.window(id, index), .tab(state, _, _)):
@@ -381,29 +432,36 @@ final class BrowserWindowManager {
 
     // MARK: - App-wide pieces
 
-    /// Every tab's web view configuration: the default data store, autoplay
-    /// and the start page. Nothing in it refers to a window.
-    func makeTabConfiguration() -> WKWebViewConfiguration {
+    /// A tab's web view configuration for `context`: its data store,
+    /// autoplay and the start page. Nothing in it refers to a window, so
+    /// the tab can move between the windows of `context`.
+    func makeTabConfiguration(for context: BrowserDataContext) -> WKWebViewConfiguration {
         let configuration = WKWebViewConfiguration()
-        configuration.websiteDataStore = .default()
+        configuration.websiteDataStore = context.websiteDataStore
         configuration.mediaTypesRequiringUserActionForPlayback = settingsStore.settings.autoplay.mediaTypesRequiringUserAction
         configuration.defaultWebpagePreferences.allowsContentJavaScript = true
         configuration.preferences = BrowserWindowController.makePreferences()
         configuration.applicationNameForUserAgent = BrowserUserAgent.applicationName
-        configuration.setURLSchemeHandler(makeStartPageSchemeHandler(), forURLScheme: BrowserStartPageSchemeHandler.scheme)
+        configuration.setURLSchemeHandler(
+            makeStartPageSchemeHandler(for: context.kind),
+            forURLScheme: BrowserStartPageSchemeHandler.scheme
+        )
         return configuration
     }
 
-    func makeStartPageSchemeHandler() -> BrowserStartPageSchemeHandler {
-        BrowserStartPageSchemeHandler { [weak self] in self?.startPageHTML() ?? "" }
+    func makeStartPageSchemeHandler(for kind: BrowserWindowKind) -> BrowserStartPageSchemeHandler {
+        BrowserStartPageSchemeHandler { [weak self] in self?.startPageHTML(for: kind) ?? "" }
     }
 
-    func startPageHTML() -> String {
+    /// The start page: the app theme, bookmarks and recent pages; a private
+    /// window's in Folio Ink without recent pages.
+    func startPageHTML(for kind: BrowserWindowKind) -> String {
         BrowserStartPage.html(
-            theme: themeManager.currentTheme,
+            theme: kind.isPrivate ? .folioInk : themeManager.currentTheme,
             settings: settingsStore.settings,
             bookmarks: bookmarks.bookmarks,
-            history: history.entries
+            history: kind.suggestsHistory ? history.entries : [],
+            kind: kind
         )
     }
 
@@ -431,8 +489,8 @@ final class BrowserWindowManager {
         }
     }
 
-    /// Links from other apps: the most recently active window, or a new one
-    /// when none is open. A lone start tab takes the first link.
+    /// Links from other apps: the most recently active normal window, or a
+    /// new one when none is open. A lone start tab takes the first link.
     func open(_ urls: [URL]) {
         let files = urls.filter { url in
             guard url.isFileURL else { return true }
@@ -440,7 +498,7 @@ final class BrowserWindowManager {
             return FileManager.default.fileExists(atPath: url.path, isDirectory: &isDirectory) && !isDirectory.boolValue
         }
         guard !files.isEmpty else { return }
-        let controller = tabbedController ?? newWindow()
+        let controller = outsideTabbedController ?? newWindow()
         for (index, url) in files.enumerated() {
             if index == 0, controller.tabs.count == 1, let tab = controller.selectedTab, tab.isStartPage {
                 controller.navigate(tab, to: url)

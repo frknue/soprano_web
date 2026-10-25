@@ -9,11 +9,13 @@ import WebKit
 ///   launch (a copy; never written back). Every saved window opens.
 /// - `--visit <url>`: navigate the selected tab.
 /// - `--select <n>`: select tab n (1-based).
-/// - `--close-tab`, `--reopen-closed` (⇧⌘T), `--duplicate`, `--go-back`,
+/// - `--close-tab`, `--reopen-closed` (⇧⌘T: the active window's in a private
+///   window, else the app-wide stack's), `--duplicate`, `--go-back`,
 ///   `--reload` (⌘R).
 /// - `--close-window`: ⇧⌘W on the active window.
 /// - `--new-window <url>`: File ▸ New Window, then load `url` (`start` for
 ///   the start page). The window stays off every display.
+/// - `--new-private-window <url>`: File ▸ New Private Window, likewise.
 /// - `--activate-window <n>`: make window n the active one.
 /// - `--move-tab <w>:<t>:<w2>`: detach tab t of window w and attach it to
 ///   window w2 (selected), the path moving a live tab takes.
@@ -36,8 +38,11 @@ import WebKit
 ///   download to stop.
 /// - `--crash`: kill the selected tab's web content process.
 /// - `--crash-page`: show the crash page on the selected tab.
-/// - `--print-windows`: print every window, its frame and tabs, the
-///   recently-closed stack and the downloads as one JSON line.
+/// - `--print-windows`: print every window (kind, frame, tabs, the cookies
+///   and website data records of its data store), the default store's
+///   cookies and records, the history count, the favicon files, how many
+///   private data stores and web views of closed private windows are still
+///   alive, the recently-closed stack and the downloads as one JSON line.
 /// - `--dump-tabs`: print the active window's tabs as one JSON line after
 ///   the actions.
 /// - `--save-session <file>`: write the session after the actions.
@@ -53,6 +58,7 @@ struct SnapshotSessionOptions {
         case reload
         case closeWindow
         case newWindow(String)
+        case newPrivateWindow(String)
         case activateWindow(Int)
         case moveTab(from: Int, tab: Int, to: Int)
         case moveToNewWindow
@@ -71,7 +77,8 @@ struct SnapshotSessionOptions {
 
     static let flags: Set<String> = [
         "--session", "--visit", "--select", "--close-tab", "--reopen-closed", "--duplicate",
-        "--go-back", "--reload", "--close-window", "--new-window", "--activate-window", "--move-tab",
+        "--go-back", "--reload", "--close-window", "--new-window", "--new-private-window",
+        "--activate-window", "--move-tab",
         "--move-to-new-window", "--drop-tab", "--drop-outside", "--merge-windows", "--click-page",
         "--find-text", "--cli",
         "--start-download", "--wait-downloads", "--crash", "--crash-page", "--print-windows",
@@ -80,7 +87,8 @@ struct SnapshotSessionOptions {
     static let usage = """
                                [--session <file>] [--visit <url>] [--select <n>] [--close-tab]
                                [--reopen-closed] [--duplicate] [--go-back] [--reload]
-                               [--close-window] [--new-window <url>]... [--activate-window <n>]
+                               [--close-window] [--new-window <url>]...
+                               [--new-private-window <url>]... [--activate-window <n>]
                                [--move-tab <window>:<tab>:<window>] [--move-to-new-window]
                                [--drop-tab <window>:<tab>:<window>:<gap>]
                                [--drop-outside <window>:<tab>:<x>,<y>] [--merge-windows]
@@ -122,6 +130,7 @@ struct SnapshotSessionOptions {
         case "--reload": actions.append(.reload)
         case "--close-window": actions.append(.closeWindow)
         case "--new-window": actions.append(.newWindow(try value()))
+        case "--new-private-window": actions.append(.newPrivateWindow(try value()))
         case "--activate-window": actions.append(.activateWindow(try number()))
         case "--move-tab":
             let raw = try value()
@@ -178,7 +187,12 @@ struct SnapshotSessionOptions {
     @MainActor
     func run(_ manager: BrowserWindowManager, wait seconds: Double) {
         for action in actions {
-            autoreleasepool { perform(action, in: manager) }
+            autoreleasepool {
+                // Private stores and web views about to close are followed
+                // until they are released.
+                Self.trackPrivateData(in: manager)
+                perform(action, in: manager)
+            }
             Self.spin(seconds)
         }
         if dumpTabs, let controller = manager.activeController {
@@ -204,6 +218,10 @@ struct SnapshotSessionOptions {
         case .newWindow(let value):
             let start = value == "start" || BrowserAddressResolver.isStartPage(URL(string: value))
             manager.newWindow(url: start ? nil : value)
+            return
+        case .newPrivateWindow(let value):
+            let start = value == "start" || BrowserAddressResolver.isStartPage(URL(string: value))
+            manager.newPrivateWindow(url: start ? nil : value)
             return
         case .activateWindow(let number):
             guard manager.controllers.indices.contains(number - 1) else {
@@ -267,7 +285,12 @@ struct SnapshotSessionOptions {
             print(Self.windows(manager))
             return
         case .reopenClosed:
-            manager.reopenMostRecent()
+            // What ⇧⌘T runs.
+            if let controller = manager.activeController {
+                controller.reopenClosedTab()
+            } else {
+                manager.reopenMostRecent()
+            }
             return
         default:
             break
@@ -316,7 +339,7 @@ struct SnapshotSessionOptions {
             controller.startDownload(URLRequest(url: url))
             Self.spin(10) { store.records.contains { !before.contains($0.id) } }
             let started = store.records.first { !before.contains($0.id) }
-            print("download: started \(started?.filename ?? "nothing") in window \(manager.number(of: controller) ?? 0)")
+            print("download: started \(started?.filename ?? "nothing") in window \(Self.harnessNumber(of: controller, in: manager))")
         case .crash:
             if let webView = controller.selectedTab?.webView,
                let pid = (webView.value(forKey: "_webProcessIdentifier") as? NSNumber)?.int32Value,
@@ -328,8 +351,8 @@ struct SnapshotSessionOptions {
             if let tab = controller.selectedTab {
                 controller.showCrashPage(tab)
             }
-        case .newWindow, .activateWindow, .moveTab, .dropTab, .dropOutside, .mergeWindows, .cli,
-             .waitDownloads, .printWindows, .reopenClosed:
+        case .newWindow, .newPrivateWindow, .activateWindow, .moveTab, .dropTab, .dropOutside, .mergeWindows,
+             .cli, .waitDownloads, .printWindows, .reopenClosed:
             break
         }
     }
@@ -398,17 +421,31 @@ struct SnapshotSessionOptions {
             info["index"] = index + 1
             return info
         }
-        return json(["tabs": tabs, "recentlyClosed": controller.manager.recentlyClosed.count])
+        return json([
+            "tabs": tabs,
+            "recentlyClosed": controller.manager.recentlyClosed.count,
+            "windowClosedTabs": controller.closedTabs.count,
+        ])
+    }
+
+    /// The window's 1-based place among every window (`--print-windows`
+    /// numbers), private ones included.
+    @MainActor
+    private static func harnessNumber(of controller: BrowserWindowController, in manager: BrowserWindowManager) -> Int {
+        (manager.controllers.firstIndex { $0 === controller } ?? -1) + 1
     }
 
     @MainActor
     private static func windows(_ manager: BrowserWindowManager) -> String {
+        trackPrivateData(in: manager)
         let active = manager.activeController
         let windows: [[String: Any]] = manager.controllers.enumerated().map { index, controller in
             let frame = manager.sessionFrame(of: controller) ?? .zero
             let page = controller.selectedTab?.webView.bounds.size ?? .zero
             return [
                 "number": index + 1,
+                "cliNumber": manager.number(of: controller) ?? NSNull(),
+                "kind": controller.kind.rawValue,
                 "active": controller === active,
                 "popup": controller.isPopup,
                 "title": controller.window?.title ?? "",
@@ -423,6 +460,9 @@ struct SnapshotSessionOptions {
                 "pageSize": ["width": page.width, "height": page.height],
                 "find": controller.findBar.isHidden ? NSNull() as Any : controller.findQuery as Any,
                 "tabs": controller.tabs.map { tabInfo($0, selected: $0.id == controller.selectedTab?.id) },
+                "closedTabs": controller.closedTabs.newestFirst.map(\.title),
+                "dataStore": storeContents(controller.dataContext.websiteDataStore),
+                "sharesDefaultStore": controller.dataContext.websiteDataStore === WKWebsiteDataStore.default(),
             ]
         }
         let closed: [[String: Any]] = manager.recentlyClosed.newestFirst.map { entry in
@@ -438,11 +478,18 @@ struct SnapshotSessionOptions {
                 "filename": record.filename,
                 "state": record.state.rawValue,
                 "progress": Int((record.fractionCompleted * 100).rounded()),
+                "private": record.privateContextID != nil,
             ]
         }
         // A closed window's controller must be released (no retain cycle
         // through stores, tabs or handlers); it is gone by the next turn.
         let alive = closedWindows.filter { $0.controller != nil }.count
+        let openStores = manager.controllers.map(\.dataContext.websiteDataStore)
+        let openWebViews = manager.controllers.flatMap { $0.tabs.map(\.webView) }
+        let faviconFiles = manager.faviconStore.directory.flatMap {
+            try? FileManager.default.contentsOfDirectory(atPath: $0.path)
+        } ?? []
+        let session = manager.currentSession
         return json([
             "windows": windows,
             // Lines up the output with a test server's request log.
@@ -450,7 +497,59 @@ struct SnapshotSessionOptions {
             "recentlyClosed": closed,
             "downloads": downloads,
             "closedWindowsStillAlive": alive,
+            "historyCount": manager.history.entries.count,
+            "historyURLs": manager.history.entries.map(\.url),
+            "defaultStore": storeContents(.default()),
+            "faviconFiles": faviconFiles.sorted(),
+            "sessionWindows": session.windows.map { $0.tabs.map { $0.url ?? "about:start" } },
+            "privateStoresTracked": trackedPrivateStores.count,
+            "closedPrivateStoresStillAlive": trackedPrivateStores.filter { weak in
+                guard let store = weak.object else { return false }
+                return !openStores.contains { $0 === store }
+            }.count,
+            "privateWebViewsTracked": trackedPrivateWebViews.count,
+            "closedPrivateWebViewsStillAlive": trackedPrivateWebViews.filter { weak in
+                guard let webView = weak.object else { return false }
+                return !openWebViews.contains { $0 === webView }
+            }.count,
         ])
+    }
+
+    /// Cookies (`name=value`) and website data record names of `store`.
+    @MainActor
+    private static func storeContents(_ store: WKWebsiteDataStore) -> [String: Any] {
+        var cookies: [String]?
+        var records: [String]?
+        store.httpCookieStore.getAllCookies { list in
+            cookies = list.map { "\($0.name)=\($0.value)" }.sorted()
+        }
+        store.fetchDataRecords(ofTypes: WKWebsiteDataStore.allWebsiteDataTypes()) { list in
+            records = list.map(\.displayName).sorted()
+        }
+        spin(5) { cookies != nil && records != nil }
+        return ["cookies": cookies ?? [], "records": records ?? []]
+    }
+
+    private struct WeakObject {
+        weak var object: AnyObject?
+    }
+
+    @MainActor private static var trackedPrivateStores: [WeakObject] = []
+    @MainActor private static var trackedPrivateWebViews: [WeakObject] = []
+
+    /// Remembers every private window's data store and web views, weakly,
+    /// so `--print-windows` can tell whether closed ones were released.
+    @MainActor
+    static func trackPrivateData(in manager: BrowserWindowManager) {
+        for controller in manager.controllers where controller.kind.isPrivate {
+            let store = controller.dataContext.websiteDataStore
+            if !trackedPrivateStores.contains(where: { $0.object === store }) {
+                trackedPrivateStores.append(WeakObject(object: store))
+            }
+            for tab in controller.tabs where !trackedPrivateWebViews.contains(where: { $0.object === tab.webView }) {
+                trackedPrivateWebViews.append(WeakObject(object: tab.webView))
+            }
+        }
     }
 
     private struct WeakController {

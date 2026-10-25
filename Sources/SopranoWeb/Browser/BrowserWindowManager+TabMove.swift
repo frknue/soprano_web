@@ -6,11 +6,13 @@ import AppKit
 /// its page, back/forward list, audio, zoom and find query come along and
 /// nothing reloads.
 extension BrowserWindowManager {
-    /// Whether a tab may move from `source` into `target`'s tab list. A
-    /// pop-up window holds only the tab its page opened. (Private windows
-    /// and profiles narrow this to windows of the same kind.)
+    /// Whether a tab may move from `source` into `target`'s tab list: never
+    /// into a pop-up window, and only between windows of one data context
+    /// (normal with normal, a private window with the windows its tabs
+    /// moved into). Drops, Merge All Windows, `move-to-window` and the menu
+    /// all ask here.
     func canMoveTab(from source: BrowserWindowController, to target: BrowserWindowController) -> Bool {
-        source !== target && !target.isPopup
+        BrowserTabMoveRule.allows(from: source.moveRuleWindow, to: target.moveRuleWindow)
     }
 
     /// Moves `tab` into `target` at `index` (nil: the end). `select` selects
@@ -38,7 +40,8 @@ extension BrowserWindowManager {
 
     /// Window ▸ Move Tab to New Window, a tab dropped where no window took
     /// it, Vimium `W` and `move-to-window new`: `tab` becomes the only tab
-    /// of a new window at `frame` (session coordinates; nil: cascaded from
+    /// of a new window of `source`'s data context (a private tab stays
+    /// private) at `frame` (session coordinates; nil: cascaded from
     /// `source`). `raise` brings the window forward; otherwise it is ordered
     /// in behind `source` and does not become the default window.
     @discardableResult
@@ -49,7 +52,11 @@ extension BrowserWindowManager {
         raise: Bool = true
     ) -> BrowserWindowController? {
         guard source.tabs.contains(where: { $0 === tab }) else { return nil }
-        let controller = makeWindow(frame: frame ?? frameForNewWindow(cascadingFrom: source), activate: raise)
+        let controller = makeWindow(
+            frame: frame ?? frameForNewWindow(cascadingFrom: source),
+            context: source.dataContext,
+            activate: raise
+        )
         let find = source.findQuery(carriedBy: tab)
         source.detachTab(tab)
         controller.attachTab(tab, select: true)
@@ -86,16 +93,18 @@ extension BrowserWindowManager {
         return moveTabToNewWindow(tab, from: source, frame: frame)
     }
 
-    /// The windows Merge All Windows empties into `target`.
+    /// The windows Merge All Windows empties into `target`: the other
+    /// windows of its data context.
     func mergeSources(into target: BrowserWindowController) -> [BrowserWindowController] {
         guard !target.isPopup else { return [] }
         return controllers.filter { !$0.isPopup && canMoveTab(from: $0, to: target) }
     }
 
-    /// Window ▸ Merge All Windows: every tab of the other windows moves into
-    /// the active window, after its tabs and in window order; its selected
-    /// tab stays selected. The emptied windows close without going onto
-    /// Recently Closed. Pop-up windows stay as they are.
+    /// Window ▸ Merge All Windows: every tab of the other windows of the
+    /// active window's data context moves into it, after its tabs and in
+    /// window order; its selected tab stays selected. The emptied windows
+    /// close without going onto Recently Closed. Pop-up windows, and normal
+    /// or private windows of another context, stay as they are.
     func mergeAllWindows() {
         guard let target = tabbedController else { return }
         let sources = mergeSources(into: target)
@@ -124,7 +133,8 @@ extension BrowserWindowManager {
     }
 
     /// A page's `window.open` with a size: `tab` (made from WebKit's
-    /// configuration, so `window.opener` works) in a compact window sized
+    /// configuration, so `window.opener` works and it shares the opener's
+    /// data store) in a compact window of the opener's data context, sized
     /// and placed from `features`.
     @discardableResult
     func openPopupWindow(
@@ -138,7 +148,7 @@ extension BrowserWindowManager {
             opener: sessionFrame(of: opener),
             screens: placement.screens()
         )
-        let controller = makeWindow(frame: frame, isPopup: true)
+        let controller = makeWindow(frame: frame, isPopup: true, context: opener.dataContext)
         controller.attachTab(tab, select: true)
         present(controller)
         return controller

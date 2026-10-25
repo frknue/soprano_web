@@ -28,19 +28,38 @@ enum SitePermissionDecision: String, Codable, Sendable {
 /// Remembered per-site decisions: `{ "version": 1, "sites": { host: {
 /// permission: "allow" | "deny" } } }`. Keys and values this build does not
 /// know are kept as they are, so an older build never drops a newer one's
-/// decisions.
+/// decisions. A private window uses an overlay (`init(overlaying:)`): it
+/// reads the saved decisions and keeps its own answers in memory.
 @MainActor
 final class BrowserSitePermissionStore {
     static let currentVersion = 1
 
-    /// Host key → permission raw value → decision raw value.
+    /// Host key → permission raw value → decision raw value. An overlay
+    /// holds only its own answers.
     private(set) var sites: [String: [String: String]]
-    let url: URL
+    /// Nil for an overlay: nothing is written.
+    let url: URL?
+    /// Notified after every change, and for an overlay also after the saved
+    /// decisions underneath it changed.
     let changes = BrowserObservers<Void>()
+    /// The saved decisions an overlay reads through to.
+    private let base: BrowserSitePermissionStore?
+    private var baseObservation: BrowserObservation?
 
     init(url: URL = BrowserFiles.supportDirectory().appendingPathComponent("site-permissions.json")) {
         self.url = url
         self.sites = JSONFile.read(File.self, at: url)?.sites ?? [:]
+        self.base = nil
+    }
+
+    /// An in-memory layer over `base`: decisions read its own answers first,
+    /// then `base`'s; `set` and `removeAll` change only the layer, which goes
+    /// away with it.
+    init(overlaying base: BrowserSitePermissionStore) {
+        self.url = nil
+        self.sites = [:]
+        self.base = base
+        baseObservation = base.changes.observe { [weak self] in self?.changes.notify() }
     }
 
     /// The key decisions are stored under: the lowercased host, or `"file"`
@@ -54,9 +73,10 @@ final class BrowserSitePermissionStore {
     }
 
     func decision(_ permission: SitePermission, host: String) -> SitePermissionDecision? {
-        guard let host = Self.normalized(host),
-              let raw = sites[host]?[permission.rawValue]
-        else { return nil }
+        guard let key = Self.normalized(host) else { return nil }
+        guard let raw = sites[key]?[permission.rawValue] else {
+            return base?.decision(permission, host: key)
+        }
         return SitePermissionDecision(rawValue: raw)
     }
 
@@ -93,7 +113,9 @@ final class BrowserSitePermissionStore {
     }
 
     private func persist() {
-        try? JSONFile.write(File(version: Self.currentVersion, sites: sites), to: url)
+        if let url {
+            try? JSONFile.write(File(version: Self.currentVersion, sites: sites), to: url)
+        }
         changes.notify()
     }
 

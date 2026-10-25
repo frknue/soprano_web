@@ -92,6 +92,9 @@ final class BrowserSidebarView: NSView, NSTableViewDataSource, NSTableViewDelega
     let history: BrowserHistoryStore
     let bookmarks: BrowserBookmarkStore
     let downloads: BrowserDownloadStore
+    /// A private window's data context: its own download rows are listed
+    /// along with the saved ones.
+    var privateDownloadContextID: UUID?
 
     init(
         theme: AppTheme,
@@ -310,7 +313,7 @@ final class BrowserSidebarView: NSView, NSTableViewDataSource, NSTableViewDelega
         case .bookmarks:
             rows = bookmarks.matching(query).map(BrowserSidebarRow.bookmark)
         case .downloads:
-            rows = downloads.matching(query).map(BrowserSidebarRow.download)
+            rows = downloads.matching(query, privateContextID: privateDownloadContextID).map(BrowserSidebarRow.download)
         }
 
         titleLabel.stringValue = section.title
@@ -337,7 +340,8 @@ final class BrowserSidebarView: NSView, NSTableViewDataSource, NSTableViewDelega
         case .downloads:
             countLabel.stringValue = "\(rows.count) \(rows.count == 1 ? "download" : "downloads")"
             footerButton.title = "Clear Finished"
-            footerButton.isEnabled = downloads.records.contains { $0.state != .inProgress }
+            footerButton.isEnabled = downloads.matching("", privateContextID: privateDownloadContextID)
+                .contains { $0.state != .inProgress }
             footerButton.isHidden = false
         }
 

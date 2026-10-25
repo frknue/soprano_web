@@ -1,6 +1,24 @@
 import AppKit
 import WebKit
 
+/// Which windows may exchange live tabs. A tab's web view keeps its data
+/// store for life, so a tab only moves between windows of one data context:
+/// every normal window shares one, a private window shares its own only with
+/// the windows its tabs moved into. A pop-up window holds only the tab its
+/// page opened.
+enum BrowserTabMoveRule {
+    struct Window: Equatable, Sendable {
+        var id: UUID
+        /// The window's `BrowserDataContext.id`.
+        var context: UUID
+        var isPopup: Bool
+    }
+
+    static func allows(from source: Window, to target: Window) -> Bool {
+        source.id != target.id && !target.isPopup && source.context == target.context
+    }
+}
+
 /// Window ▸ Merge All Windows: the order tabs leave and arrive in.
 enum BrowserWindowMerge {
     /// The order to take a window's tabs out in: the selected tab last, so

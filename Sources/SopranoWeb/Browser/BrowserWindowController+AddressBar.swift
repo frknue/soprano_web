@@ -42,6 +42,7 @@ extension BrowserWindowController {
         }
         return AddressSuggestionInput(
             query: query,
+            kind: kind,
             history: history.entries,
             bookmarks: bookmarks.bookmarks,
             tabs: openTabs,

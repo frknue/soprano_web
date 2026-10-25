@@ -33,7 +33,7 @@ extension BrowserWindowController {
         add("Close Other Tabs", #selector(closeOtherTabsFromMenu(_:)), enabled: tabs.count > 1)
         add(closeAfterTitle, #selector(closeTabsAfterFromMenu(_:)), enabled: index < tabs.count - 1)
         menu.addItem(.separator())
-        add("Reopen Closed Tab", #selector(reopenClosedTabFromMenu(_:)), enabled: !manager.recentlyClosed.isEmpty)
+        add("Reopen Closed Tab", #selector(reopenClosedTabFromMenu(_:)), enabled: canReopenClosedTab)
         return menu
     }
 

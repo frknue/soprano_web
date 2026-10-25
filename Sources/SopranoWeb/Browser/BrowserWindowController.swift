@@ -2,8 +2,9 @@ import AppKit
 import WebKit
 
 /// One browser window and its tabs. App-wide pieces (stores, downloads,
-/// Settings, the recently-closed stack) live on `manager`; this keeps
-/// per-window state only.
+/// Settings, the recently-closed stack) live on `manager`; the window's data
+/// store, site decisions, favicons and connection decisions on `dataContext`;
+/// this keeps per-window state only.
 @MainActor
 final class BrowserWindowController: NSWindowController {
     unowned let manager: BrowserWindowManager
@@ -12,6 +13,10 @@ final class BrowserWindowController: NSWindowController {
     /// A page's `window.open` with a size: one tab, compact chrome (no tab
     /// list, read-only address), never saved in the session.
     let isPopup: Bool
+    /// What this window's tabs read and write; shared with every window a
+    /// tab may move to. A private window's own context dies with the last
+    /// window that uses it.
+    let dataContext: BrowserDataContext
 
     var tabs: [BrowserTab] = []
     var selectedIndex = 0
@@ -19,6 +24,9 @@ final class BrowserWindowController: NSWindowController {
     var sidebarSection: BrowserSidebarSection = .history
     var findQuery = ""
     var staleStartTabs: Set<UUID> = []
+    /// A private window's closed tabs, in memory only (⇧⌘T in the window
+    /// reopens them). Normal windows use the manager's stack.
+    var closedTabs = BrowserRecentlyClosedStack()
     /// HTTP sign-in sheets waiting on this window.
     let credentialPrompts = BrowserCredentialPrompts()
     let permissionsState = BrowserPermissionsState()
@@ -67,21 +75,29 @@ final class BrowserWindowController: NSWindowController {
     static let verticalSidebarCollapsedKey = "verticalSidebarCollapsed"
 
     /// An empty window at `frame` (screen coordinates the window really
-    /// uses); the manager adds its tabs. Create windows through
-    /// `BrowserWindowManager`.
-    init(manager: BrowserWindowManager, id: UUID = UUID(), frame: NSRect, isPopup: Bool = false) {
+    /// uses) whose tabs use `dataContext`; the manager adds its tabs. Create
+    /// windows through `BrowserWindowManager`.
+    init(
+        manager: BrowserWindowManager,
+        id: UUID = UUID(),
+        frame: NSRect,
+        isPopup: Bool = false,
+        dataContext: BrowserDataContext
+    ) {
         self.manager = manager
         self.id = id
         self.isPopup = isPopup
+        self.dataContext = dataContext
         let themeManager = manager.themeManager
         let settings = manager.settingsStore.settings
-        self.theme = themeManager.currentTheme
+        let theme = Self.theme(for: dataContext.kind, appTheme: themeManager.currentTheme)
+        self.theme = theme
         self.usesVerticalTabs = settings.usesVerticalTabs
         self.isVerticalSidebarCollapsed = manager.defaults.bool(
             forKey: Self.verticalSidebarCollapsedKey
         )
         self.lastSearchEngine = settings.searchEngine
-        self.verticalTabsView = BrowserVerticalTabsView(theme: themeManager.currentTheme)
+        self.verticalTabsView = BrowserVerticalTabsView(theme: theme)
         self.toolbar = BrowserToolbarView(theme: theme)
         self.tabStrip = BrowserTabStripView(theme: theme)
         self.findBar = BrowserFindBar(theme: theme)
@@ -93,7 +109,6 @@ final class BrowserWindowController: NSWindowController {
         )
         self.hairline = ChromeRuleView(axis: .horizontal, color: theme.colors.borderSubtle)
         self.sidebarDivider = ChromeRuleView(axis: .vertical, color: theme.colors.borderSubtle)
-
         let window = BrowserWindow(
             contentRect: frame,
             styleMask: [.titled, .closable, .miniaturizable, .resizable, .fullSizeContentView],
@@ -111,7 +126,12 @@ final class BrowserWindowController: NSWindowController {
         window.tabbingMode = .disallowed
         window.minSize = NSSize(width: 760, height: 520)
         window.backgroundColor = theme.colors.bgBase
-        window.title = "New Tab"
+        window.title = kind.windowTitle("New Tab")
+        if kind.isPrivate {
+            // Sheets, menus and the title bar follow Ink too, whatever the
+            // app's appearance.
+            window.appearance = theme.appearance.nsAppearance
+        }
         window.setFrame(frame, display: false)
 
         rootView.wantsLayer = true
@@ -120,6 +140,8 @@ final class BrowserWindowController: NSWindowController {
         wireCallbacks()
         installTabChrome()
         installAddressBar()
+        sidebar.privateDownloadContextID = dataContext.downloadContextID
+        verticalTabsView.setPrivate(kind.isPrivate)
         applyTheme(theme)
         applyTabsLayout()
     }
@@ -135,10 +157,24 @@ final class BrowserWindowController: NSWindowController {
     var history: BrowserHistoryStore { manager.history }
     var bookmarks: BrowserBookmarkStore { manager.bookmarks }
     var downloads: BrowserDownloadStore { manager.downloads }
-    var sitePermissions: BrowserSitePermissionStore { manager.sitePermissions }
-    var faviconStore: BrowserFaviconStore { manager.faviconStore }
-    var connectionSecurity: BrowserConnectionSecurity { manager.connectionSecurity }
     private var defaults: UserDefaults { manager.defaults }
+
+    // This window's data, owned by its data context.
+    var kind: BrowserWindowKind { dataContext.kind }
+    var sitePermissions: BrowserSitePermissionStore { dataContext.sitePermissions }
+    var faviconStore: BrowserFaviconStore { dataContext.faviconStore }
+    var connectionSecurity: BrowserConnectionSecurity { dataContext.connectionSecurity }
+
+    /// This window as `BrowserTabMoveRule` sees it.
+    var moveRuleWindow: BrowserTabMoveRule.Window {
+        BrowserTabMoveRule.Window(id: id, context: dataContext.id, isPopup: isPopup)
+    }
+
+    /// A private window always uses Folio Ink; a normal window the app's
+    /// theme.
+    static func theme(for kind: BrowserWindowKind, appTheme: AppTheme) -> AppTheme {
+        kind.isPrivate ? .folioInk : appTheme
+    }
 
     var selectedTab: BrowserTab? {
         guard tabs.indices.contains(selectedIndex) else { return tabs.first }
@@ -262,6 +298,9 @@ final class BrowserWindowController: NSWindowController {
 
         toolbar.setVerticalTabsToggle(railShown)
         toolbar.setCompact(compact)
+        // A private window's mark sits in the rail header, or next to the
+        // address field when there is no rail.
+        toolbar.setPrivateMark(kind.isPrivate && !railShown)
         updateTabStrip()
         updateWindowMinSize()
         viewNeedsLayout()
@@ -340,7 +379,11 @@ final class BrowserWindowController: NSWindowController {
                 self.sidebar.refresh()
             },
             sitePermissions.changes.observe { [weak self] in self?.sitePermissionsChanged() },
-            manager.themeChanges.observe { [weak self] theme in self?.applyTheme(theme) },
+            manager.themeChanges.observe { [weak self] theme in
+                // A private window keeps Folio Ink.
+                guard let self, !self.kind.isPrivate else { return }
+                self.applyTheme(theme)
+            },
             settingsStore.changes.observe { [weak self] settings in self?.applySettings(settings) },
         ]
         setUpPermissions()

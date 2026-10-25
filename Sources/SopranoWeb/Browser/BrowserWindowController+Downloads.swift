@@ -11,7 +11,12 @@ extension BrowserWindowController {
 
     /// Starts a download of `request` in this window.
     func startDownload(_ request: URLRequest) {
-        downloadManager.start(request, in: downloadWebView())
+        downloadManager.start(request, in: downloadWebView(), privateContextID: dataContext.downloadContextID)
+    }
+
+    /// Takes over a download a page in this window started.
+    func adoptDownload(_ download: WKDownload) {
+        downloadManager.adopt(download, from: window, privateContextID: dataContext.downloadContextID)
     }
 
     func cancelDownload(id: UUID) {
@@ -26,7 +31,7 @@ extension BrowserWindowController {
         downloadManager.retry(id: id, in: downloadWebView())
     }
 
-    /// Downloads need a web view of the default data store; any tab works.
+    /// Downloads need a web view of this window's data store; any tab works.
     private func downloadWebView() -> WKWebView {
         if let tab = selectedTab ?? tabs.first {
             return tab.webView

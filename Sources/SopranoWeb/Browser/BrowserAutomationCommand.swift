@@ -220,7 +220,8 @@ enum BrowserCommand {
     selected tab's title; `*` marks the window commands use by default: the
     key window, else the most recently active one. `--window n` targets
     window n and `--tab n` tab n of that window (1-based, see `windows` and
-    `tabs`); neither selects a tab or brings a window forward.
+    `tabs`); neither selects a tab or brings a window forward. Private
+    windows are never listed, numbered or targeted.
     `close-window` puts the window on History ▸ Recently Closed, like ⇧⌘W.
     `move-to-window` moves the selected tab (or tab m) of the window into
     window k, after its tabs, or into a new window (`new`); the tab keeps
@@ -356,7 +357,9 @@ final class BrowserAutomationController {
     }
 }
 
-/// Window-level CLI commands and the window a request goes to.
+/// Window-level CLI commands and the window a request goes to. The CLI
+/// sees only normal windows: private windows are never listed, numbered or
+/// targeted.
 @MainActor
 enum BrowserAutomationRouter {
     static func perform(
@@ -371,22 +374,23 @@ enum BrowserAutomationRouter {
             return
         case "new-window":
             let controller = manager.newWindow(url: url)
-            completion(.success("window \(manager.number(of: controller) ?? manager.controllers.count)"))
+            completion(.success("window \(manager.number(of: controller) ?? manager.automationControllers.count)"))
             return
         default:
             break
         }
 
+        let windows = manager.automationControllers
         let target: BrowserWindowController
         if let number = request.windowIndex {
-            guard manager.controllers.indices.contains(number - 1) else {
+            guard windows.indices.contains(number - 1) else {
                 completion(.failure(BrowserAutomationError.invalidArguments(
                     "No window \(number). Use `windows` to list them."
                 )))
                 return
             }
-            target = manager.controllers[number - 1]
-        } else if let active = manager.activeController {
+            target = windows[number - 1]
+        } else if let active = manager.automationActiveController {
             target = active
         } else if request.command == "open" || request.command == "new-tab" {
             let controller = manager.newWindow(url: url)
@@ -403,11 +407,11 @@ enum BrowserAutomationRouter {
         case "close-window":
             var closing = target
             if let value = request.arguments.first {
-                guard let number = Int(value), manager.controllers.indices.contains(number - 1) else {
+                guard let number = Int(value), windows.indices.contains(number - 1) else {
                     completion(.failure(BrowserAutomationError.invalidArguments("No window \(value).")))
                     return
                 }
-                closing = manager.controllers[number - 1]
+                closing = windows[number - 1]
             }
             let number = manager.number(of: closing) ?? 0
             manager.closeWindow(closing)
@@ -452,12 +456,13 @@ enum BrowserAutomationRouter {
             }
             target = created
         } else {
-            guard let number = Int(destination), manager.controllers.indices.contains(number - 1) else {
+            let windows = manager.automationControllers
+            guard let number = Int(destination), windows.indices.contains(number - 1) else {
                 return .failure(BrowserAutomationError.invalidArguments(
                     "No window \(destination). Use `windows` to list them."
                 ))
             }
-            target = manager.controllers[number - 1]
+            target = windows[number - 1]
             guard target !== source else {
                 return .failure(BrowserAutomationError.invalidArguments("The tab is already in window \(number)."))
             }
@@ -471,10 +476,10 @@ enum BrowserAutomationRouter {
         return .success("window \(window) tab \(index)")
     }
 
-    /// `* 1\t3 tabs\tExample Domain`, one line per window.
+    /// `* 1\t3 tabs\tExample Domain`, one line per normal window.
     static func windowList(_ manager: BrowserWindowManager) -> String {
-        let active = manager.activeController
-        return manager.controllers.enumerated().map { index, controller in
+        let active = manager.automationActiveController
+        return manager.automationControllers.enumerated().map { index, controller in
             let mark = controller === active ? "*" : " "
             let count = controller.tabs.count
             let title = controller.selectedTab?.displayTitle ?? "New Tab"

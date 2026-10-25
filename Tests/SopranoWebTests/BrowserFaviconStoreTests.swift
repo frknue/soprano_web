@@ -57,4 +57,30 @@ struct BrowserFaviconStoreTests {
         #expect((redComponent(of: first) ?? 0) > 0.9)
         #expect((redComponent(of: second) ?? 1) < 0.1)
     }
+
+    @Test func inMemoryStoreWritesNoFilesAndKeepsItsIconsToItself() async throws {
+        let directory = FileManager.default.temporaryDirectory
+            .appendingPathComponent("soprano-web-favicons-\(UUID().uuidString)", isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let saved = BrowserFaviconStore(directory: directory)
+        let results = Results()
+        saved.resolve(pageURL: URL(string: "https://known.example/")!, candidates: [icon(.red)]) { results.first = $0 }
+        for _ in 0..<150 where results.first == nil {
+            try await Task.sleep(for: .milliseconds(20))
+        }
+        let filesBefore = try FileManager.default.contentsOfDirectory(atPath: directory.path)
+        #expect(filesBefore.count == 1)
+
+        let memory = BrowserFaviconStore(inMemoryOver: saved)
+        // Saved icons still show.
+        #expect(memory.image(for: URL(string: "https://known.example/page")) != nil)
+        memory.resolve(pageURL: URL(string: "https://secret.example/")!, candidates: [icon(.blue)]) { results.second = $0 }
+        for _ in 0..<150 where results.second == nil {
+            try await Task.sleep(for: .milliseconds(20))
+        }
+        #expect((redComponent(of: try #require(results.second)) ?? 1) < 0.1)
+        #expect(memory.image(for: URL(string: "https://secret.example/")) != nil)
+        #expect(saved.image(for: URL(string: "https://secret.example/")) == nil)
+        #expect(try FileManager.default.contentsOfDirectory(atPath: directory.path) == filesBefore)
+    }
 }

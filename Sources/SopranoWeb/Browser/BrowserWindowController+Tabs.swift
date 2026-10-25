@@ -5,7 +5,8 @@ extension BrowserWindowController {
     // MARK: - Tabs
 
     /// A new tab at the end, the start page or `url`. A pop-up window has
-    /// no tab list: its new tabs open in the window with tabs.
+    /// no tab list: its new tabs open in a window with tabs of its data
+    /// context.
     @discardableResult
     func newTab(
         url: String? = nil,
@@ -13,7 +14,7 @@ extension BrowserWindowController {
         select: Bool = true
     ) -> BrowserTab {
         if isPopup {
-            let target = manager.windowForNewTabs()
+            let target = manager.windowForNewTabs(from: self).window
             let tab = target.newTab(url: url, focusAddress: focusAddress, select: select)
             manager.present(target)
             return tab
@@ -36,15 +37,15 @@ extension BrowserWindowController {
         return tab
     }
 
-    /// A tab that belongs to no window yet: its web view, page scripts and
-    /// Vimium layer. `attachTab` binds it to a window. Everything here is
-    /// app-wide (the start page reads the manager), so the tab can later
-    /// move between windows.
+    /// A tab that belongs to no window yet: its web view (of this window's
+    /// data store), page scripts and Vimium layer. `attachTab` binds it to a
+    /// window. Nothing here refers to this window, so the tab can later
+    /// move between the windows of its data context.
     func makeTab(configuration: WKWebViewConfiguration? = nil) -> BrowserTab {
-        let configuration = configuration ?? manager.makeTabConfiguration()
+        let configuration = configuration ?? manager.makeTabConfiguration(for: dataContext)
         if configuration.urlSchemeHandler(forURLScheme: BrowserStartPageSchemeHandler.scheme) == nil {
             configuration.setURLSchemeHandler(
-                manager.makeStartPageSchemeHandler(),
+                manager.makeStartPageSchemeHandler(for: kind),
                 forURLScheme: BrowserStartPageSchemeHandler.scheme
             )
         }
@@ -333,8 +334,9 @@ extension BrowserWindowController {
         selectTab(index: number - 1, focus: true)
     }
 
-    /// Closes a tab onto the recently-closed stack. The last tab closes the
-    /// window instead, which goes onto the stack as one window entry.
+    /// Closes a tab onto the recently-closed stack (a private window's own).
+    /// The last tab closes the window instead, which goes onto the stack as
+    /// one window entry (a private window goes nowhere).
     func closeTab(id: UUID) {
         guard let index = tabs.firstIndex(where: { $0.id == id }) else { return }
         guard tabs.count > 1 else {
@@ -342,7 +344,12 @@ extension BrowserWindowController {
             return
         }
         let tab = tabs[index]
-        manager.recentlyClosed.push(BrowserClosedEntry(.tab(tab.state, windowID: self.id, index: index)))
+        let entry = BrowserClosedEntry(.tab(tab.state, windowID: self.id, index: index))
+        if kind.usesAppRecentlyClosed {
+            manager.recentlyClosed.push(entry)
+        } else {
+            closedTabs.push(entry)
+        }
         detachTab(tab)
         discardTab(tab)
     }
@@ -352,9 +359,20 @@ extension BrowserWindowController {
         closeTab(id: tab.id)
     }
 
-    /// ⇧⌘T: the most recently closed tab or window, wherever it belongs.
+    /// ⇧⌘T: the most recently closed tab or window, wherever it belongs; in
+    /// a private window, this window's most recently closed tab.
     func reopenClosedTab() {
-        manager.reopenMostRecent()
+        guard !kind.usesAppRecentlyClosed else {
+            manager.reopenMostRecent()
+            return
+        }
+        guard let entry = closedTabs.pop(), case let .tab(state, _, index) = entry.content else { return }
+        reopenTab(state, at: index)
+    }
+
+    /// Whether ⇧⌘T has something to reopen from this window.
+    var canReopenClosedTab: Bool {
+        kind.usesAppRecentlyClosed ? !manager.recentlyClosed.isEmpty : !closedTabs.isEmpty
     }
 
     /// Puts a reopened tab back at `index` (nil: the end) and selects it.
