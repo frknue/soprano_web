@@ -54,8 +54,8 @@ extension BrowserWindowController {
     }
 
     /// An empty web view of this window's data context (or of
-    /// `configuration`, a pop-up's) with every page script. It starts no
-    /// web content process until it loads.
+    /// `configuration`, a pop-up's) with every page script and the content
+    /// blocker's lists. It starts no web content process until it loads.
     private func makeWebView(configuration: WKWebViewConfiguration?) -> BrowserWebView {
         let configuration = configuration ?? manager.makeTabConfiguration(for: dataContext)
         if configuration.urlSchemeHandler(forURLScheme: BrowserStartPageSchemeHandler.scheme) == nil {
@@ -86,6 +86,9 @@ extension BrowserWindowController {
         webView.isInspectable = true
         webView.translatesAutoresizingMaskIntoConstraints = false
         webView.isHidden = true
+        // Every new web view (a tab, a pop-up, a tab waking from sleep)
+        // starts with the lists; its first navigation re-checks its site.
+        applyContentBlocking(to: webView, pageURL: nil)
         return webView
     }
 

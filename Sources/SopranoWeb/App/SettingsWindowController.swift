@@ -4,6 +4,8 @@ import AppKit
 final class SettingsWindowController: NSWindowController, NSTextFieldDelegate {
     private let settingsStore: BrowserSettingsStore
     private let themeManager: ThemeManager
+    private let contentBlocker: BrowserContentBlocker
+    private var contentBlockerObservation: BrowserObservation?
     private var theme: AppTheme
 
     private let rootView = NSView()
@@ -83,14 +85,29 @@ final class SettingsWindowController: NSWindowController, NSTextFieldDelegate {
         button.widthAnchor.constraint(equalToConstant: 200).isActive = true
         return button
     }()
+    private lazy var blockAdsSwitch = ChromeSwitch(
+        isOn: settingsStore.settings.blockAdsAndTrackers,
+        theme: theme,
+        target: self,
+        action: #selector(blockAdsChanged)
+    )
+    private lazy var updateListsButton: ChromeButton = {
+        let button = ChromeButton(title: "Update Now", theme: theme, kind: .standard)
+        button.target = self
+        button.action = #selector(updateListsPressed)
+        return button
+    }()
+    /// "61,234 rules · updated 25 Oct 2026 at 14:02", "Updating lists…".
+    private let blockerStatusLabel = NSTextField(labelWithString: "")
     private let askDownloadSwitch: ChromeSwitch
     private let websiteDataButton: ChromeButton
     private let defaultBrowserLabel = NSTextField(labelWithString: "")
     private let defaultBrowserButton: ChromeButton
 
-    init(settingsStore: BrowserSettingsStore, themeManager: ThemeManager) {
+    init(settingsStore: BrowserSettingsStore, themeManager: ThemeManager, contentBlocker: BrowserContentBlocker) {
         self.settingsStore = settingsStore
         self.themeManager = themeManager
+        self.contentBlocker = contentBlocker
         self.theme = themeManager.currentTheme
         self.engineButton = ChromeButton(
             title: settingsStore.settings.searchEngine.name,
@@ -155,7 +172,7 @@ final class SettingsWindowController: NSWindowController, NSTextFieldDelegate {
         self.websiteDataButton = ChromeButton(title: "Manage…", theme: theme, kind: .standard)
         self.defaultBrowserButton = ChromeButton(title: "Make Default", theme: theme, kind: .standard)
         let window = NSWindow(
-            contentRect: NSRect(x: 0, y: 0, width: 620, height: 820),
+            contentRect: NSRect(x: 0, y: 0, width: 620, height: 860),
             styleMask: [.titled, .closable, .fullSizeContentView],
             backing: .buffered,
             defer: false
@@ -167,7 +184,7 @@ final class SettingsWindowController: NSWindowController, NSTextFieldDelegate {
         window.titlebarAppearsTransparent = true
         window.isReleasedWhenClosed = false
         window.backgroundColor = theme.colors.bgBase
-        window.minSize = NSSize(width: 620, height: 820)
+        window.minSize = NSSize(width: 620, height: 860)
 
         rootView.wantsLayer = true
         window.contentView = rootView
@@ -248,6 +265,7 @@ final class SettingsWindowController: NSWindowController, NSTextFieldDelegate {
             [rowLabel("Ask where to save"), askDownloadSwitch],
             [rowLabel("Autoplay"), autoplayButton],
             [rowLabel("Notifications"), notificationsRow()],
+            [rowLabel("Block ads and trackers"), contentBlockingRow()],
             [rowLabel("Profiles"), profilesButton],
             [rowLabel("Websites"), websitesButton],
             [rowLabel("Website data"), websiteDataButton],
@@ -255,7 +273,7 @@ final class SettingsWindowController: NSWindowController, NSTextFieldDelegate {
         ]
         let grid = NSGridView(views: rows)
         grid.translatesAutoresizingMaskIntoConstraints = false
-        // 18 rows; the window stays well under 900 pt for small displays.
+        // 19 rows; the window stays under 900 pt for small displays.
         grid.rowSpacing = 12
         grid.columnSpacing = 18
         grid.column(at: 0).xPlacement = .trailing
@@ -266,6 +284,10 @@ final class SettingsWindowController: NSWindowController, NSTextFieldDelegate {
         rootView.addSubview(doneButton)
         refreshDownloadLabel()
         refreshDefaultBrowser()
+        refreshContentBlocking()
+        contentBlockerObservation = contentBlocker.changes.observe { [weak self] in
+            self?.refreshContentBlocking()
+        }
 
         NSLayoutConstraint.activate([
             header.topAnchor.constraint(equalTo: rootView.topAnchor, constant: 42),
@@ -382,6 +404,9 @@ final class SettingsWindowController: NSWindowController, NSTextFieldDelegate {
         websitesButton.apply(theme: theme)
         profilesButton.apply(theme: theme)
         askDownloadSwitch.apply(theme: theme)
+        blockAdsSwitch.apply(theme: theme)
+        updateListsButton.apply(theme: theme)
+        blockerStatusLabel.textColor = theme.colors.textMuted
         websiteDataButton.apply(theme: theme)
         defaultBrowserButton.apply(theme: theme)
         defaultBrowserLabel.textColor = theme.colors.textPrimary
@@ -412,6 +437,8 @@ final class SettingsWindowController: NSWindowController, NSTextFieldDelegate {
         defaultZoomButton.title = BrowserZoom.percent(settingsStore.settings.defaultZoom)
         notificationsSwitch.isOn = settingsStore.settings.allowsNotificationRequests
         askDownloadSwitch.isOn = settingsStore.settings.askDownloadLocation
+        blockAdsSwitch.isOn = settingsStore.settings.blockAdsAndTrackers
+        refreshContentBlocking()
         refreshDefaultBrowser()
         refreshDownloadLabel()
         needsLayout()
@@ -569,6 +596,51 @@ extension SettingsWindowController {
         stack.spacing = 8
         stack.alignment = .centerY
         return stack
+    }
+
+    /// The switch and Update Now, with the lists' status under them.
+    private func contentBlockingRow() -> NSView {
+        blockAdsSwitch.translatesAutoresizingMaskIntoConstraints = false
+        NSLayoutConstraint.activate([
+            blockAdsSwitch.widthAnchor.constraint(equalToConstant: Chrome.switchSize.width),
+            blockAdsSwitch.heightAnchor.constraint(equalToConstant: Chrome.switchSize.height),
+            updateListsButton.widthAnchor.constraint(equalToConstant: 104),
+            blockerStatusLabel.widthAnchor.constraint(lessThanOrEqualToConstant: 200),
+        ])
+        blockerStatusLabel.font = ChromeFont.meta
+        // Two lines in the 200 pt control column; a longer status
+        // truncates (the tooltip has it all).
+        blockerStatusLabel.lineBreakMode = .byWordWrapping
+        blockerStatusLabel.maximumNumberOfLines = 2
+        blockerStatusLabel.preferredMaxLayoutWidth = 200
+        blockerStatusLabel.cell?.wraps = true
+        blockerStatusLabel.cell?.truncatesLastVisibleLine = true
+        let controls = NSStackView(views: [blockAdsSwitch, updateListsButton])
+        controls.orientation = .horizontal
+        controls.spacing = 10
+        controls.alignment = .centerY
+        let stack = NSStackView(views: [controls, blockerStatusLabel])
+        stack.orientation = .vertical
+        stack.spacing = 4
+        stack.alignment = .leading
+        return stack
+    }
+
+    private func refreshContentBlocking() {
+        blockerStatusLabel.stringValue = contentBlocker.statusText
+        blockerStatusLabel.toolTip = contentBlocker.statusText
+        updateListsButton.isEnabled = contentBlocker.isEnabled && !contentBlocker.isUpdating
+    }
+
+    @objc private func blockAdsChanged() {
+        let value = blockAdsSwitch.isOn
+        settingsStore.update { $0.blockAdsAndTrackers = value }
+    }
+
+    /// Downloads both lists now (conditionally) and recompiles what changed.
+    @objc func updateListsPressed() {
+        let blocker = contentBlocker
+        Task { await blocker.update() }
     }
 
     @objc private func autoplayPressed() {

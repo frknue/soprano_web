@@ -216,6 +216,8 @@ extension BrowserWindowController: WKNavigationDelegate {
     func webView(_ webView: WKWebView, didCommit navigation: WKNavigation!) {
         guard let tab = tab(for: webView) else { return }
         clearCrashState(tab)
+        // The committed page's site decides (a redirect can change it).
+        applyContentBlocking(to: tab.webView, pageURL: webView.url)
         // A new document: its site's zoom, no unsaved input or capture yet.
         tab.zoom = siteZoom(for: webView.url)
         webView.pageZoom = tab.zoom
@@ -291,7 +293,10 @@ extension BrowserWindowController: WKNavigationDelegate {
         _ webView: WKWebView,
         didReceiveServerRedirectForProvisionalNavigation navigation: WKNavigation!
     ) {
-        guard let tab = tab(for: webView), tab.id == selectedTab?.id else { return }
+        guard let tab = tab(for: webView) else { return }
+        // The page's site may have changed; its subresources load next.
+        applyContentBlocking(to: tab.webView, pageURL: webView.url)
+        guard tab.id == selectedTab?.id else { return }
         updateChrome()
     }
 
@@ -369,6 +374,10 @@ extension BrowserWindowController: WKNavigationDelegate {
         {
             tab.pendingURL = url.absoluteString
             tab.pendingVisitKind = BrowserVisitKind(navigationAction.navigationType)
+        }
+        if navigationAction.targetFrame?.isMainFrame == true, let tab = tab(for: webView) {
+            // The new page's lists are in place before it starts loading.
+            applyContentBlocking(to: tab.webView, pageURL: url)
         }
         decisionHandler(.allow)
     }

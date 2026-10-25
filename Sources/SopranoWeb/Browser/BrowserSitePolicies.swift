@@ -162,8 +162,9 @@ final class BrowserTabMedia {
 // MARK: - Settings ▸ Websites
 
 /// The rows of Settings ▸ Websites: one per host, its decisions in a fixed
-/// order (camera, microphone, notifications, pop-ups, zoom, keep awake,
-/// external apps, then anything this build does not know by name).
+/// order (camera, microphone, notifications, pop-ups, zoom, keep awake, ad
+/// blocking, external apps, then anything this build does not know by
+/// name).
 struct BrowserWebsiteRow: Equatable, Sendable {
     struct Entry: Equatable, Sendable {
         let label: String
@@ -194,6 +195,7 @@ struct BrowserWebsiteRow: Equatable, Sendable {
         SitePermission.popups.rawValue,
         SitePermission.zoom.rawValue,
         SitePermission.keepAwake.rawValue,
+        SitePermission.contentBlocking.rawValue,
     ]
     private static let externalPrefix = "externalApp:"
 
@@ -212,6 +214,7 @@ struct BrowserWebsiteRow: Equatable, Sendable {
         case SitePermission.popups.rawValue: return "Pop-ups"
         case SitePermission.zoom.rawValue: return "Zoom"
         case SitePermission.keepAwake.rawValue: return "Keep awake"
+        case SitePermission.contentBlocking.rawValue: return "Ad blocking"
         default:
             if raw.hasPrefix(externalPrefix) {
                 return "Open \(raw.dropFirst(externalPrefix.count)) links"
@@ -226,7 +229,7 @@ struct BrowserWebsiteRow: Equatable, Sendable {
         }
         switch SitePermissionDecision(rawValue: raw) {
         case .allow: return key == SitePermission.keepAwake.rawValue ? "On" : "Allow"
-        case .deny: return "Block"
+        case .deny: return key == SitePermission.contentBlocking.rawValue ? "Off" : "Block"
         case nil: return raw
         }
     }

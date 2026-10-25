@@ -68,13 +68,15 @@ extension BrowserWindowController {
     }
 
     /// A remembered decision changed (a prompt answer, ⌘+/⌘-/⌘0 in any
-    /// window of the profile, Settings ▸ Websites): new documents read it
-    /// from the state scripts, open pages get their
-    /// `Notification.permission` and their site's zoom now.
+    /// window of the profile, the "Block ads on this site" switch,
+    /// Settings ▸ Websites): new documents read it from the state scripts,
+    /// open pages get their `Notification.permission` and their site's
+    /// zoom now, and tabs of a site whose ad blocking changed reload.
     func sitePermissionsChanged() {
         refreshPermissionStates()
         refreshPopupPermissions()
         applySiteZooms()
+        applyContentBlockingToTabs(reloadingChanged: true)
     }
 
     /// Re-applies remembered decisions and the notification setting to every

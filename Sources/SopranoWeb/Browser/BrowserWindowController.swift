@@ -405,6 +405,11 @@ final class BrowserWindowController: NSWindowController {
                 self.applyTheme(theme)
             },
             settingsStore.changes.observe { [weak self] settings in self?.applySettings(settings) },
+            // Settings ▸ Block ads and trackers, or new lists: new loads
+            // follow; nothing reloads.
+            manager.contentBlocker.changes.observe { [weak self] in
+                self?.applyContentBlockingToTabs(reloadingChanged: false)
+            },
         ]
         setUpPermissions()
     }

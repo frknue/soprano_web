@@ -113,7 +113,8 @@ extension SnapshotCommand {
         if options.showSettingsPane {
             let settings = SettingsWindowController(
                 settingsStore: controller.settingsStore,
-                themeManager: controller.themeManager
+                themeManager: controller.themeManager,
+                contentBlocker: controller.manager.contentBlocker
             )
             privacySheetOwner = settings
             return settings.window

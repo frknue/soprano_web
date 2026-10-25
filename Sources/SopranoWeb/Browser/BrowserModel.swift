@@ -187,6 +187,8 @@ struct BrowserSettings: Codable, Equatable, Sendable {
     /// Settings ▸ "Default page zoom", one of `BrowserZoom.steps`; sites
     /// without a remembered zoom use it.
     var defaultZoom: Double = 1
+    /// Settings ▸ "Block ads and trackers" (EasyList and EasyPrivacy).
+    var blockAdsAndTrackers: Bool = true
 
     static let `default` = BrowserSettings()
 
@@ -230,6 +232,7 @@ extension BrowserSettings {
         defaultZoom = ((try? c.decodeIfPresent(Double.self, forKey: .defaultZoom)) ?? nil)
             .flatMap(BrowserZoom.validated)
             .map(BrowserZoom.nearestStep) ?? defaultZoom
+        blockAdsAndTrackers = (try? c.decodeIfPresent(Bool.self, forKey: .blockAdsAndTrackers)) ?? blockAdsAndTrackers
     }
 }
 

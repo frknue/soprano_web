@@ -50,6 +50,7 @@ enum SnapshotCommand {
         var privacy = PrivacyOptions()
         var bookmarks = BookmarkOptions()
         var sleep = SnapshotSleepOptions()
+        var blocker = SnapshotBlockerOptions()
     }
 
     enum OptionError: Error, CustomStringConvertible {
@@ -88,6 +89,7 @@ enum SnapshotCommand {
     \(privacyUsage)
     \(bookmarksUsage)
     \(SnapshotSleepOptions.usage)
+    \(SnapshotBlockerOptions.usage)
     """
 
     nonisolated static func parse(_ arguments: [String]) throws -> Options {
@@ -227,6 +229,7 @@ enum SnapshotCommand {
                 guard try parseBookmarks(option, value: { try value(option) }, into: &options.bookmarks)
                     || parsePrivacy(option, value: { try value(option) }, into: &options.privacy)
                     || SnapshotSleepOptions.parse(option, value: { try value(option) }, into: &options.sleep)
+                    || SnapshotBlockerOptions.parse(option, value: { try value(option) }, into: &options.blocker)
                 else {
                     throw OptionError.unknownOption(option)
                 }
@@ -324,7 +327,8 @@ enum SnapshotCommand {
             sessionStore: session,
             persistsSession: false,
             placement: .offscreen(size: options.size),
-            defaults: defaults
+            defaults: defaults,
+            filterLists: options.blocker.sources
         )
         options.sleep.apply(to: manager)
         let history = manager.defaultContext.history
@@ -484,7 +488,11 @@ enum SnapshotCommand {
         // the harness puts nothing on screen. Websites shows the captured
         // window's profile.
         let settingsPreview = options.showSettings
-            ? SettingsWindowController(settingsStore: settingsStore, themeManager: themeManager)
+            ? SettingsWindowController(
+                settingsStore: settingsStore,
+                themeManager: themeManager,
+                contentBlocker: manager.contentBlocker
+            )
             : nil
         let websitesSheet = options.showWebsites
             ? manager.makeWebsitesSheet(selected: controller.profileID)

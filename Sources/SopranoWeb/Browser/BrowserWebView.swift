@@ -10,6 +10,10 @@ final class BrowserWebView: WKWebView {
     /// opens a context menu; consumed by `willOpenMenu(_:with:)`.
     var contextMenuTarget: BrowserContextMenuTarget?
 
+    /// The content blocker's lists attached to this web view's user
+    /// content controller, by identifier (WebKit has no getter).
+    var contentRuleListIDs: [String] = []
+
     override func willOpenMenu(_ menu: NSMenu, with event: NSEvent) {
         super.willOpenMenu(menu, with: event)
         let target = contextMenuTarget.flatMap { $0.isFresh(at: Date()) ? $0 : nil }

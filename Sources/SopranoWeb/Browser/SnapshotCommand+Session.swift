@@ -88,6 +88,8 @@ struct SnapshotSessionOptions {
         case printWindows
         /// Tab sleep and zoom flags (`SnapshotSleepAction`).
         case sleep(SnapshotSleepAction)
+        /// Content blocker flags (`SnapshotBlockerAction`).
+        case blocker(SnapshotBlockerAction)
     }
 
     static let flags: Set<String> = Set([
@@ -99,7 +101,7 @@ struct SnapshotSessionOptions {
         "--start-download", "--wait-downloads", "--crash", "--crash-page", "--print-windows",
         "--dump-tabs", "--save-session", "--capture-window",
         "--add-profile", "--profile", "--delete-profile", "--profiles-sheet",
-    ]).union(SnapshotSleepAction.flags)
+    ]).union(SnapshotSleepAction.flags).union(SnapshotBlockerAction.flags)
     static let usage = """
                                [--session <file>] [--visit <url>] [--select <n>] [--close-tab]
                                [--reopen-closed] [--duplicate] [--go-back] [--reload]
@@ -204,6 +206,10 @@ struct SnapshotSessionOptions {
         case "--delete-profile": actions.append(.deleteProfile(try value()))
         case "--profiles-sheet": showProfilesSheet = true
         default:
+            if let action = try SnapshotBlockerAction.parse(option, value: value) {
+                actions.append(.blocker(action))
+                return
+            }
             guard let action = try SnapshotSleepAction.parse(option, value: value) else {
                 throw SnapshotCommand.OptionError.unknownOption(option)
             }
@@ -250,6 +256,9 @@ struct SnapshotSessionOptions {
     private func perform(_ action: Action, in manager: BrowserWindowManager) {
         switch action {
         case .sleep(let action):
+            action.perform(in: manager)
+            return
+        case .blocker(let action):
             action.perform(in: manager)
             return
         case let .newWindow(value, profileName):
@@ -400,7 +409,7 @@ struct SnapshotSessionOptions {
                 controller.showCrashPage(tab)
             }
         case .newWindow, .newPrivateWindow, .deleteProfile, .activateWindow, .moveTab, .dropTab, .dropOutside,
-             .mergeWindows, .cli, .waitDownloads, .printWindows, .reopenClosed, .sleep:
+             .mergeWindows, .cli, .waitDownloads, .printWindows, .reopenClosed, .sleep, .blocker:
             break
         }
     }

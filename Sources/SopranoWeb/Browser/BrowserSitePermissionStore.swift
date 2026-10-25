@@ -17,6 +17,9 @@ struct SitePermission: RawRepresentable, Hashable, Sendable {
     static let keepAwake = SitePermission(rawValue: "keepAwake")
     /// The site's page zoom (a number such as `"1.25"`, not a decision).
     static let zoom = SitePermission(rawValue: "zoom")
+    /// The connection popover's "Block ads on this site" switch: `deny`
+    /// turns the content blocker off for the site's pages.
+    static let contentBlocking = SitePermission(rawValue: "contentBlocking")
 
     /// Opening links with `scheme` (e.g. `zoommtg`) in another app.
     static func externalApp(scheme: String) -> SitePermission {

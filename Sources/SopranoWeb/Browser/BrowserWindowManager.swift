@@ -79,6 +79,9 @@ final class BrowserWindowManager {
     /// Puts idle tabs to sleep (Settings ▸ "Put inactive tabs to sleep",
     /// memory pressure).
     let tabSleeper = BrowserTabSleeper()
+    /// Settings ▸ "Block ads and trackers": the compiled EasyList and
+    /// EasyPrivacy lists every tab gets, in `<support>/ContentBlocking/`.
+    let contentBlocker: BrowserContentBlocker
 
     /// Open windows in the order they opened; the CLI numbers them 1…n.
     private(set) var controllers: [BrowserWindowController] = []
@@ -117,7 +120,8 @@ final class BrowserWindowManager {
         sessionStore: BrowserSessionStore,
         persistsSession: Bool = true,
         placement: BrowserWindowPlacement = .screen,
-        defaults: UserDefaults = .standard
+        defaults: UserDefaults = .standard,
+        filterLists: [BrowserFilterListSource] = BrowserFilterListSource.defaults
     ) {
         self.themeManager = themeManager
         self.settingsStore = settingsStore
@@ -144,6 +148,11 @@ final class BrowserWindowManager {
             faviconStore: faviconStore,
             connectionSecurity: BrowserConnectionSecurity()
         )
+        self.contentBlocker = BrowserContentBlocker(
+            directory: supportDirectory.appendingPathComponent("ContentBlocking", isDirectory: true),
+            sources: filterLists,
+            isEnabled: settingsStore.settings.blockAdsAndTrackers
+        )
         historyStores[BrowserProfile.defaultID] = defaultHistory
         themeManager.onThemeChanged = { [weak self] theme in
             self?.websitesSheet?.apply(theme: theme)
@@ -155,12 +164,14 @@ final class BrowserWindowManager {
             settingsStore.changes.observe { [weak self] settings in
                 self?.applyTheme(of: settings)
                 self?.applyHistoryRetention(settings.historyRetention)
+                self?.contentBlocker.setEnabled(settings.blockAdsAndTrackers)
             },
         ]
         downloadManager.fallbackWindow = { [weak self] in self?.activeController?.window }
         BrowserNotificationCenter.shared.onClick = { [weak self] click in self?.openNotification(click) }
         startHistoryMaintenance()
         tabSleeper.start(manager: self)
+        contentBlocker.start()
     }
 
     // MARK: - History retention
@@ -568,7 +579,11 @@ final class BrowserWindowManager {
 
     func showSettings() {
         let controller = settingsWindowController ?? {
-            let controller = SettingsWindowController(settingsStore: settingsStore, themeManager: themeManager)
+            let controller = SettingsWindowController(
+                settingsStore: settingsStore,
+                themeManager: themeManager,
+                contentBlocker: contentBlocker
+            )
             controller.onShowWebsites = { [weak self] parent in self?.showWebsites(on: parent) }
             controller.onShowWebsiteData = { [weak self] parent in self?.showWebsiteData(on: parent) }
             controller.onShowProfiles = { [weak self] parent in self?.showProfiles(on: parent) }
