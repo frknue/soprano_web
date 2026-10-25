@@ -30,6 +30,15 @@ final class SettingsWindowController: NSWindowController, NSTextFieldDelegate {
     var onShowWebsiteData: ((NSWindow) -> Void)?
     /// Presents Settings ▸ Profiles as a sheet on the given window.
     var onShowProfiles: ((NSWindow) -> Void)?
+    /// Settings ▸ Search engine ▸ Manage…, while shown.
+    private var searchEnginesSheet: BrowserSearchEnginesSheet?
+    private lazy var searchEnginesButton: ChromeButton = {
+        let button = ChromeButton(title: "Manage…", theme: theme, kind: .standard)
+        button.target = self
+        button.action = #selector(searchEnginesPressed)
+        button.widthAnchor.constraint(equalToConstant: 92).isActive = true
+        return button
+    }()
     private lazy var autoplayButton: ChromeButton = {
         let button = ChromeButton(title: settingsStore.settings.autoplay.name, theme: theme, kind: .standard)
         button.target = self
@@ -110,7 +119,7 @@ final class SettingsWindowController: NSWindowController, NSTextFieldDelegate {
         self.contentBlocker = contentBlocker
         self.theme = themeManager.currentTheme
         self.engineButton = ChromeButton(
-            title: settingsStore.settings.searchEngine.name,
+            title: settingsStore.settings.defaultSearchEngine.name,
             theme: theme,
             kind: .standard,
             target: nil,
@@ -251,7 +260,7 @@ final class SettingsWindowController: NSWindowController, NSTextFieldDelegate {
         pathLabel.setContentHuggingPriority(.defaultLow, for: .horizontal)
 
         let rows: [[NSView]] = [
-            [rowLabel("Search engine"), engineButton],
+            [rowLabel("Search engine"), searchEngineRow()],
             [rowLabel("Include search engine suggestions"), suggestionsSwitch],
             [rowLabel("Homepage"), homepageFrame],
             [rowLabel("Theme"), themeButton],
@@ -354,6 +363,15 @@ final class SettingsWindowController: NSWindowController, NSTextFieldDelegate {
         return stack
     }
 
+    /// The default engine's menu and Manage… (custom engines and keywords).
+    private func searchEngineRow() -> NSView {
+        let stack = NSStackView(views: [engineButton, searchEnginesButton])
+        stack.orientation = .horizontal
+        stack.spacing = 8
+        stack.alignment = .centerY
+        return stack
+    }
+
     private func defaultBrowserRow() -> NSView {
         let stack = NSStackView(views: [defaultBrowserLabel, defaultBrowserButton])
         stack.orientation = .horizontal
@@ -386,6 +404,8 @@ final class SettingsWindowController: NSWindowController, NSTextFieldDelegate {
             label.textColor = theme.colors.textMuted
         }
         engineButton.apply(theme: theme)
+        searchEnginesButton.apply(theme: theme)
+        searchEnginesSheet?.apply(theme: theme)
         themeButton.apply(theme: theme)
         appearanceButton.apply(theme: theme)
         downloadButton.apply(theme: theme)
@@ -423,7 +443,7 @@ final class SettingsWindowController: NSWindowController, NSTextFieldDelegate {
     }
 
     private func refresh() {
-        engineButton.title = settingsStore.settings.searchEngine.name
+        engineButton.title = settingsStore.settings.defaultSearchEngine.name
         themeButton.title = AppTheme.options.first { $0.id == settingsStore.settings.themeID }?.name
             ?? settingsStore.settings.themeID
         appearanceButton.title = settingsStore.settings.appearance.name
@@ -445,16 +465,29 @@ final class SettingsWindowController: NSWindowController, NSTextFieldDelegate {
     }
 
     @objc private func enginePressed() {
-        let current = settingsStore.settings.searchEngine
+        let engines = settingsStore.settings.searchEngines
         showMenu(
             from: engineButton,
-            items: SearchEngine.allCases.map { engine in
-                (engine.name, engine == current, { [weak self] in
-                    self?.settingsStore.update { $0.searchEngine = engine }
+            items: engines.all.map { engine in
+                (engine.name, engine.id == engines.defaultID, { [weak self] in
+                    self?.settingsStore.update { $0.searchEngines.setDefault(engine.id) }
                     self?.refresh()
                 })
             }
         )
+    }
+
+    /// Opens Settings ▸ Search engine ▸ Manage… as a sheet on Settings.
+    @objc func searchEnginesPressed() {
+        guard let window, searchEnginesSheet == nil else { return }
+        let sheet = BrowserSearchEnginesSheet(settingsStore: settingsStore, theme: theme)
+        guard let sheetWindow = sheet.window else { return }
+        searchEnginesSheet = sheet
+        window.beginSheet(sheetWindow) { [weak self] _ in
+            self?.searchEnginesSheet = nil
+            // A deleted default engine fell back to DuckDuckGo.
+            self?.refresh()
+        }
     }
 
     @objc private func themePressed() {

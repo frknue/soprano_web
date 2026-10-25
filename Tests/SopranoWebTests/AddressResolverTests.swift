@@ -28,14 +28,14 @@ struct BrowserAddressResolverTests {
     }
 
     @Test func wordsBecomeASearch() {
-        let url = BrowserAddressResolver.resolve("swift appkit browser", searchEngine: .duckDuckGo)
+        let url = BrowserAddressResolver.resolve("swift appkit browser")
         #expect(url?.host == "duckduckgo.com")
         #expect(URLComponents(url: url!, resolvingAgainstBaseURL: false)?
             .queryItems?.first(where: { $0.name == "q" })?.value == "swift appkit browser")
     }
 
     @Test func searchEngineIsHonoured() {
-        let url = BrowserAddressResolver.resolve("soprano", searchEngine: .google)
+        let url = BrowserAddressResolver.resolve("soprano", searchEngines: BrowserSearchEngines(defaultID: .google))
         #expect(url?.host == "www.google.com")
         #expect(url?.path == "/search")
     }

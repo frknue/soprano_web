@@ -54,7 +54,7 @@ struct AddressSuggestionEngineTests {
             history: pages(history),
             pins: pins,
             tabs: tabs,
-            searchEngine: .duckDuckGo,
+            searchEngines: .default,
             remoteSuggestions: remote,
             allowsInlineCompletion: completes
         ))

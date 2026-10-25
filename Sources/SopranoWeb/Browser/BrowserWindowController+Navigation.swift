@@ -13,7 +13,7 @@ extension BrowserWindowController {
     func navigate(_ tab: BrowserTab, to input: String) {
         guard let url = BrowserAddressResolver.resolve(
             input,
-            searchEngine: settingsStore.settings.searchEngine
+            searchEngines: settingsStore.settings.searchEngines
         ) else {
             NSSound.beep()
             return

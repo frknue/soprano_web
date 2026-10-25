@@ -37,7 +37,7 @@ final class BrowserWindowController: NSWindowController {
     private(set) var theme: AppTheme
     private var usesVerticalTabs: Bool
     private var isVerticalSidebarCollapsed: Bool
-    private var lastSearchEngine: SearchEngine
+    private var lastSearchEngine: BrowserSearchEngine
     let verticalTabsView: BrowserVerticalTabsView
     let rootView = NSView()
     private let topBar = NSView()
@@ -100,7 +100,7 @@ final class BrowserWindowController: NSWindowController {
         self.isVerticalSidebarCollapsed = manager.defaults.bool(
             forKey: Self.verticalSidebarCollapsedKey
         )
-        self.lastSearchEngine = settings.searchEngine
+        self.lastSearchEngine = settings.defaultSearchEngine
         self.verticalTabsView = BrowserVerticalTabsView(theme: theme)
         self.toolbar = BrowserToolbarView(theme: theme)
         self.tabStrip = BrowserTabStripView(theme: theme)
@@ -476,8 +476,8 @@ final class BrowserWindowController: NSWindowController {
         refreshPermissionStates()
         // Settings ▸ Default page zoom: sites without their own zoom follow.
         applySiteZooms()
-        let searchChanged = lastSearchEngine != settings.searchEngine
-        lastSearchEngine = settings.searchEngine
+        let searchChanged = lastSearchEngine != settings.defaultSearchEngine
+        lastSearchEngine = settings.defaultSearchEngine
         if searchChanged {
             for tab in tabs where tab.isStartPage {
                 staleStartTabs.insert(tab.id)

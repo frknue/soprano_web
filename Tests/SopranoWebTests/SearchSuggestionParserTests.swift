@@ -32,11 +32,11 @@ struct SearchSuggestionParserTests {
     @Test func suggestionURLsEncodeTheQuery() {
         let query = "c++ & rust?"
         let encoded = "c%2B%2B%20%26%20rust?"
-        #expect(SearchEngine.duckDuckGo.suggestionURL(for: query)?.absoluteString
+        #expect(BrowserSearchEngine.duckDuckGo.suggestionURL(for: query)?.absoluteString
             == "https://duckduckgo.com/ac/?q=\(encoded)&type=list")
-        #expect(SearchEngine.google.suggestionURL(for: query)?.absoluteString
+        #expect(BrowserSearchEngine.google.suggestionURL(for: query)?.absoluteString
             == "https://suggestqueries.google.com/complete/search?client=firefox&q=\(encoded)")
-        #expect(SearchEngine.bing.suggestionURL(for: query)?.absoluteString
+        #expect(BrowserSearchEngine.bing.suggestionURL(for: query)?.absoluteString
             == "https://api.bing.com/osjson.aspx?query=\(encoded)")
     }
 }

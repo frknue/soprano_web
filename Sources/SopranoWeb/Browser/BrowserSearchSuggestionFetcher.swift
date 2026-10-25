@@ -22,10 +22,11 @@ final class BrowserSearchSuggestionFetcher {
     }
 
     /// Calls `completion` with the phrases for `query`, unless another
-    /// request or `cancel()` comes first. Failures deliver nothing.
+    /// request or `cancel()` comes first. Failures, and engines without a
+    /// suggestion service, deliver nothing.
     func request(
         _ query: String,
-        engine: SearchEngine,
+        engine: BrowserSearchEngine,
         completion: @escaping @MainActor ([String]) -> Void
     ) {
         task?.cancel()

@@ -142,6 +142,15 @@ no linter or formatter; match surrounding style.
   backgrounds
   on views unhidden after first display may not appear in the cached AppKit
   pass; that is a harness limitation, not the app.
+  Search engine flags (before the first window): `--search-engine
+  "<name>|<keyword>|<url with %s>"` (repeatable; saved like Settings ▸
+  Search engine ▸ Manage… saves one, or `search-engine: refused` with the
+  reason), `--search-engine-keyword <name|id>=<keyword>` (repeatable; a
+  built-in's keyword), `--default-search-engine <keyword|name>` and
+  `--search-engines-sheet` (captures Manage…); each prints
+  `search-engines:` (every engine, `*` before the default). `--address
+  "w cats"` with an engine keyed `w` shows the keyword row first in
+  `address-rows`.
 - Verify real navigation and the agent surface against a running dev app:
 
   ```bash
@@ -249,6 +258,22 @@ no linter or formatter; match surrounding style.
   stack of tabs and windows, and window frame clamping/cascading (and where a
   dragged-out tab's window opens). `BrowserTabMove.swift` — the tab-move rule,
   Merge All Windows ordering and pop-up window frames from `WKWindowFeatures`.
+- `Browser/BrowserSearchEngines.swift` — search engines, pure:
+  `BrowserSearchEngine` (id, name, keyword, template with `%s` replaced by
+  the percent-encoded query; the built-ins DuckDuckGo, Google and Bing keep
+  their old ids, so `searchEngine` in `settings.json` still reads, and have
+  no keyword unless the user gives one — `searchEngineKeywords`, by id —
+  so "b tree" stays an ordinary search; `searchForm` is the start page's
+  GET form) and `BrowserSearchEngines`, the one API the address field,
+  Settings and the Command Bar share: built-ins plus `customSearchEngines`
+  (bad entries, repeated ids and keywords dropped), the default (unknown
+  falls back to DuckDuckGo), `engine(forKeyword:)`, `resolve(_:)` ("keyword
+  query": a keyword followed by a query, never a bare word),
+  `searchURL(engine:query:)` and the editing rules (`problem`, `save` — a
+  built-in's keyword only —, `remove`, `setDefault`).
+  `BrowserAddressResolver.resolve` tries a keyword first, then
+  `address(for:)`, then the default engine; the dropdown's first row for a
+  keyword is "Search <Engine> for …" (`.keywordSearch`).
 - `Browser/BrowserHistoryStore.swift` — History, the only way in or out of it:
   `BrowserHistoryStore(directory:)` opens `<directory>/History.sqlite` (WAL;
   a damaged file is kept as `.corrupt`), migrates `history.json` once
@@ -359,7 +384,8 @@ no linter or formatter; match surrounding style.
 - `Browser/VimiumController.swift`, `VimiumKeyMap.swift`, `VimiumPageScripts.swift`,
   `VimiumPanels.swift`, `BrowserWebView.swift` — the native Vimium mode layer.
 - `Browser/SnapshotCommand*.swift`, `SnapshotPageTools.swift` — offscreen UI harness.
-- `App/` — app delegate, menu, settings window, resources.
+- `App/` — app delegate, menu, settings window (`BrowserSearchEnginesSheet`
+  is Settings ▸ Search engine ▸ Manage…), resources.
 - `Vendored/` — Folio design system from Soprano. Never edit these files here.
 
 `SOPRANO_COMMIT` records the Soprano commit the vendored files came from. Refresh

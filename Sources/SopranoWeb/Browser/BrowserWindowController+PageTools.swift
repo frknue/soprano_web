@@ -197,7 +197,7 @@ extension BrowserWindowController {
             identifiers: identifiers,
             titles: titles,
             target: target,
-            searchEngine: settingsStore.settings.searchEngine
+            searchEngine: settingsStore.settings.defaultSearchEngine
         )
         menu.removeAllItems()
         for entry in entries {

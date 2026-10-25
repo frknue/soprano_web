@@ -46,7 +46,7 @@ extension BrowserWindowController {
             history: kind.suggestsHistory ? history.suggestionCandidates(for: query) : [],
             pins: currentSpaceID.map { spaces.pins(inSpace: $0) } ?? [],
             tabs: openTabs,
-            searchEngine: settingsStore.settings.searchEngine
+            searchEngines: settingsStore.settings.searchEngines
         )
     }
 
@@ -63,7 +63,12 @@ extension BrowserWindowController {
         case .url(let address):
             openAddress(address, typed: true, newTab: newTab)
         case .search(let query):
-            guard let url = settingsStore.settings.searchEngine.searchURL(for: query) else { return }
+            guard let url = settingsStore.settings.defaultSearchEngine.searchURL(for: query) else { return }
+            openAddress(url.absoluteString, typed: false, newTab: newTab)
+        case .keywordSearch(let engineID, let query):
+            guard let url = settingsStore.settings.searchEngines.engine(id: engineID)?.searchURL(for: query) else {
+                return
+            }
             openAddress(url.absoluteString, typed: false, newTab: newTab)
         }
     }

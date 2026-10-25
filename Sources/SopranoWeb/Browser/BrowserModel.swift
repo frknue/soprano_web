@@ -117,49 +117,15 @@ enum AppearancePreference: String, Codable, CaseIterable, Sendable {
     }
 }
 
-enum SearchEngine: String, Codable, CaseIterable, Sendable {
-    case duckDuckGo
-    case google
-    case bing
-
-    var name: String {
-        switch self {
-        case .duckDuckGo: "DuckDuckGo"
-        case .google: "Google"
-        case .bing: "Bing"
-        }
-    }
-
-    var searchFormURL: String {
-        switch self {
-        case .duckDuckGo: "https://duckduckgo.com/"
-        case .google: "https://www.google.com/search"
-        case .bing: "https://www.bing.com/search"
-        }
-    }
-
-    func searchURL(for query: String) -> URL? {
-        var components = URLComponents()
-        switch self {
-        case .duckDuckGo:
-            components.host = "duckduckgo.com"
-            components.path = "/"
-        case .google:
-            components.host = "www.google.com"
-            components.path = "/search"
-        case .bing:
-            components.host = "www.bing.com"
-            components.path = "/search"
-        }
-        components.scheme = "https"
-        components.queryItems = [URLQueryItem(name: "q", value: query)]
-        return components.url
-    }
-}
-
 struct BrowserSettings: Codable, Equatable, Sendable {
     var version: Int = 1
-    var searchEngine: SearchEngine = .duckDuckGo
+    /// The default engine: a built-in's id or one of `customSearchEngines`'.
+    var searchEngine: BrowserSearchEngineID = .duckDuckGo
+    /// Settings ▸ Search engine ▸ Manage…, after the built-ins.
+    var customSearchEngines: [BrowserSearchEngine] = []
+    /// Keywords given to built-in engines, by id (`"google": "g"`); they
+    /// have none by default.
+    var searchEngineKeywords: [String: String] = [:]
     /// Empty means the built-in start page.
     var homepage: String = ""
     var themeID: String = "folio"
@@ -196,6 +162,26 @@ struct BrowserSettings: Codable, Equatable, Sendable {
         verticalTabs ?? true
     }
 
+    /// Every engine and the default (an unknown default reads as DuckDuckGo).
+    var searchEngines: BrowserSearchEngines {
+        get {
+            BrowserSearchEngines(
+                custom: customSearchEngines,
+                builtInKeywords: searchEngineKeywords,
+                defaultID: searchEngine
+            )
+        }
+        set {
+            customSearchEngines = newValue.custom
+            searchEngineKeywords = newValue.builtInKeywords
+            searchEngine = newValue.defaultID
+        }
+    }
+
+    var defaultSearchEngine: BrowserSearchEngine {
+        searchEngines.defaultEngine
+    }
+
     var downloadDirectoryURL: URL {
         if let downloadDirectory, !downloadDirectory.isEmpty {
             return URL(fileURLWithPath: downloadDirectory, isDirectory: true)
@@ -213,7 +199,19 @@ extension BrowserSettings {
         self.init()
         let c = try decoder.container(keyedBy: CodingKeys.self)
         version = (try? c.decodeIfPresent(Int.self, forKey: .version)) ?? version
-        searchEngine = (try? c.decodeIfPresent(SearchEngine.self, forKey: .searchEngine)) ?? searchEngine
+        // Engines before the default, so it can name a custom one; a bad
+        // entry, a repeated id or keyword is dropped, an unknown default is
+        // DuckDuckGo.
+        let engines = BrowserSearchEngines(
+            custom: (try? c.decodeIfPresent(LossyArray<BrowserSearchEngine>.self, forKey: .customSearchEngines))?
+                .elements ?? [],
+            builtInKeywords: (try? c.decodeIfPresent(BrowserSearchKeywordMap.self, forKey: .searchEngineKeywords))?
+                .keywords ?? [:],
+            defaultID: (try? c.decodeIfPresent(BrowserSearchEngineID.self, forKey: .searchEngine)) ?? searchEngine
+        )
+        customSearchEngines = engines.custom
+        searchEngineKeywords = engines.builtInKeywords
+        searchEngine = engines.defaultID
         homepage = (try? c.decodeIfPresent(String.self, forKey: .homepage)) ?? homepage
         themeID = (try? c.decodeIfPresent(String.self, forKey: .themeID)) ?? themeID
         appearance = (try? c.decodeIfPresent(AppearancePreference.self, forKey: .appearance)) ?? appearance
@@ -300,12 +298,27 @@ final class BrowserSettingsStore {
 // MARK: - Addresses
 
 enum BrowserAddressResolver {
-    /// Resolves what the address bar or a command-line argument means.
-    /// `about:start` and empty input both mean the start page.
+    /// Resolves what the address bar or a command-line argument means:
+    /// "keyword query" searches that engine, an address opens, anything
+    /// else searches the default engine. `about:start` and empty input
+    /// both mean the start page.
     static func resolve(
         _ input: String,
-        searchEngine: SearchEngine = .duckDuckGo
+        searchEngines: BrowserSearchEngines = .default
     ) -> URL? {
+        let trimmed = input.trimmingCharacters(in: .whitespacesAndNewlines)
+        if let search = searchEngines.resolve(trimmed) {
+            return search.url
+        }
+        if let url = address(for: trimmed) {
+            return url
+        }
+        return searchEngines.defaultEngine.searchURL(for: trimmed)
+    }
+
+    /// The URL `input` names when it reads as an address (the start page
+    /// for empty input), or nil when it reads as a search.
+    static func address(for input: String) -> URL? {
         let trimmed = input.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty else { return URL(string: "about:start") }
 
@@ -346,7 +359,7 @@ enum BrowserAddressResolver {
             return URL(string: "https://\(trimmed)")
         }
 
-        return searchEngine.searchURL(for: trimmed)
+        return nil
     }
 
     static func isStartPage(_ url: URL?) -> Bool {

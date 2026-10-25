@@ -223,10 +223,7 @@ enum BrowserStartPage {
           <p class="sub">\(kind.isPrivate
               ? "Pages you open here stay out of History. Cookies and site data go when the window closes."
               : "Search the web, or enter an address above.")</p>
-          <form action="\(escape(settings.searchEngine.searchFormURL))" method="get">
-            <input type="search" name="q" placeholder="Search with \(escape(settings.searchEngine.name))">
-            <button type="submit">Search</button>
-          </form>
+          \(searchFormHTML(settings.defaultSearchEngine))
           <section>
             <h2>Bookmarks</h2>
             \(bookmarksHTML)
@@ -240,6 +237,22 @@ enum BrowserStartPage {
         </main>
         </body>
         </html>
+        """
+    }
+
+    /// The search box, a plain GET form to the engine. An engine whose
+    /// template has no form shape (`%s` in the path, or http) gets none:
+    /// the address field searches it.
+    private static func searchFormHTML(_ engine: BrowserSearchEngine) -> String {
+        guard let form = engine.searchForm else { return "" }
+        let hidden = form.hidden.map { field in
+            "\n    <input type=\"hidden\" name=\"\(escape(field.name))\" value=\"\(escape(field.value))\">"
+        }.joined()
+        return """
+        <form action="\(escape(form.action))" method="get">
+            <input type="search" name="\(escape(form.field))" placeholder="Search with \(escape(engine.name))">\(hidden)
+            <button type="submit">Search</button>
+          </form>
         """
     }
 
