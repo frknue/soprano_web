@@ -310,6 +310,8 @@ enum SnapshotCommand {
         if options.pins.seedTree {
             seedPinTree(spaces, inSpace: spaces.firstSpace(ofProfile: BrowserProfile.defaultID)?.id)
         }
+        // `--create-space`: the Spaces exist before any window opens.
+        options.session.createSpaces(in: spaces, profiles: profiles)
         let session = BrowserSessionStore(url: temp.appendingPathComponent("session.json"))
         options.session.prepare(sessionURL: session.url)
 
@@ -420,7 +422,7 @@ enum SnapshotCommand {
             if history.visitCount() == 0 {
                 history.importVisits(Self.seededHistory(now: Date()))
             }
-            seedPinTree(spaces, inSpace: controller.currentSpaceID)
+            seedPinTree(spaces, inSpace: controller.pinSpaceID)
             if downloads.records.isEmpty, !options.session.startsDownloads {
                 let finished = downloads.begin(
                     url: "https://example.com/files/report.pdf",

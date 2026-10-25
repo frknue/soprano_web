@@ -366,6 +366,9 @@ enum BrowserAddressResolver {
 
 /// One saved tab. Files before the sleep slice also hold a per-tab `zoom`;
 /// it is ignored, since a page takes its site's zoom when it loads.
+/// Version 3 adds the tab's Space and its pin or favorite link (`pinID`,
+/// `favoriteID`); without them a tab is a Today tab of its window's
+/// profile's first Space.
 struct BrowserTabState: Codable, Equatable, Sendable {
     /// Nil is the start page.
     var url: String?
@@ -374,6 +377,13 @@ struct BrowserTabState: Codable, Equatable, Sendable {
     /// Nil in files written before it was saved; the tab then restores its
     /// URL only.
     var interactionState: Data?
+    /// The tab's Space; nil in a private window and in version 2 files.
+    var spaceID: UUID?
+    var origin: BrowserTabOrigin = .today
+
+    private enum CodingKeys: String, CodingKey {
+        case url, title, interactionState, spaceID, pinID, favoriteID
+    }
 }
 
 extension BrowserTabState {
@@ -383,6 +393,22 @@ extension BrowserTabState {
         url = try? c.decodeIfPresent(String.self, forKey: .url)
         title = (try? c.decodeIfPresent(String.self, forKey: .title)) ?? title
         interactionState = try? c.decodeIfPresent(Data.self, forKey: .interactionState)
+        spaceID = (try? c.decodeIfPresent(UUID.self, forKey: .spaceID)) ?? nil
+        if let pin = (try? c.decodeIfPresent(UUID.self, forKey: .pinID)) ?? nil {
+            origin = .pinned(pin)
+        } else if let favorite = (try? c.decodeIfPresent(UUID.self, forKey: .favoriteID)) ?? nil {
+            origin = .favorite(favorite)
+        }
+    }
+
+    func encode(to encoder: Encoder) throws {
+        var c = encoder.container(keyedBy: CodingKeys.self)
+        try c.encodeIfPresent(url, forKey: .url)
+        try c.encode(title, forKey: .title)
+        try c.encodeIfPresent(interactionState, forKey: .interactionState)
+        try c.encodeIfPresent(spaceID, forKey: .spaceID)
+        try c.encodeIfPresent(origin.pinID, forKey: .pinID)
+        try c.encodeIfPresent(origin.favoriteID, forKey: .favoriteID)
     }
 }
 
@@ -405,18 +431,33 @@ struct BrowserWindowFrame: Codable, Equatable, Sendable {
     }
 }
 
-/// One saved window: its tabs, the selected one, where it was and its
-/// profile.
+/// One saved window: its tabs, the selected one, where it was, the Space it
+/// shows and each Space's selection.
 struct BrowserWindowState: Codable, Equatable, Sendable {
     /// Stable across relaunches, so a closed tab finds its window again.
     var id = UUID()
     /// Nil for the window a version 1 session migrates to.
     var frame: BrowserWindowFrame?
+    /// Every tab of every Space, in window order.
     var tabs: [BrowserTabState]
+    /// Index in `tabs` of the selected tab (of the current Space).
     var selectedIndex = 0
+    /// The current Space's profile (version 2: the window's profile).
     /// Missing in files written before profiles: Default. A profile that no
     /// longer exists opens in Default too.
     var profileID = BrowserProfile.defaultID
+    /// The Space the window shows; nil in a private window and in version 2
+    /// files (`placedInSpaces` picks the profile's first Space).
+    var currentSpaceID: UUID?
+    /// The tab each Space selects when the window switches to it.
+    var spaceSelections: [BrowserSpaceSelection] = []
+}
+
+/// A Space's remembered tab in a saved window: its index in the window's
+/// `tabs`.
+struct BrowserSpaceSelection: Codable, Equatable, Sendable {
+    var spaceID: UUID
+    var index: Int
 }
 
 extension BrowserWindowState {
@@ -427,6 +468,9 @@ extension BrowserWindowState {
         tabs = (try? c.decodeIfPresent(LossyArray<BrowserTabState>.self, forKey: .tabs))?.elements ?? []
         selectedIndex = (try? c.decodeIfPresent(Int.self, forKey: .selectedIndex)) ?? 0
         profileID = ((try? c.decodeIfPresent(UUID.self, forKey: .profileID)) ?? nil) ?? BrowserProfile.defaultID
+        currentSpaceID = (try? c.decodeIfPresent(UUID.self, forKey: .currentSpaceID)) ?? nil
+        spaceSelections = (try? c.decodeIfPresent(LossyArray<BrowserSpaceSelection>.self, forKey: .spaceSelections))?
+            .elements ?? []
     }
 
     /// The selected tab's title, as the Window menu showed it.
@@ -450,8 +494,12 @@ extension BrowserTabState {
 ///
 /// Version 1 (stage 1) held one window's `tabs`, `selectedIndex` and
 /// `closedTabs`; it decodes as one window whose closed tabs return to it.
+/// Version 2 windows have no Spaces; their tabs open in the first Space of
+/// the window's profile (`BrowserWindowState.placedInSpaces`). Version 3
+/// adds each window's `currentSpaceID` and `spaceSelections` and each
+/// tab's `spaceID` and pin or favorite link.
 struct BrowserSession: Codable, Equatable, Sendable {
-    static let currentVersion = 2
+    static let currentVersion = 3
 
     /// The version of the file this was read from; new sessions are current.
     var version = Self.currentVersion
@@ -520,13 +568,14 @@ final class BrowserSessionStore {
         self.url = url
     }
 
-    /// Where a version 1 file is kept after it migrates.
+    /// Where an older file (version 1 or 2) is kept after it migrates.
     var migratedURL: URL {
         url.appendingPathExtension("migrated")
     }
 
-    /// Reads the session. A version 1 file is copied to `migratedURL` once;
-    /// the next save replaces it with version 2.
+    /// Reads the session. An older file is copied to `migratedURL` once (a
+    /// copy already there stays); the next save replaces it with the
+    /// current version.
     func load() -> BrowserSession? {
         guard let session = JSONFile.read(BrowserSession.self, at: url) else { return nil }
         if session.version < BrowserSession.currentVersion,

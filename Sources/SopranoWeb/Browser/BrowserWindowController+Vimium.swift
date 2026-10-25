@@ -71,7 +71,7 @@ extension BrowserWindowController {
     /// palette matches it too.
     func showVimiumBookmarks(newTab: Bool) {
         guard let window else { return }
-        let entries = currentSpaceID.map { spaces.pinEntries(inSpace: $0) } ?? []
+        let entries = pinSpaceID.map { spaces.pinEntries(inSpace: $0) } ?? []
         guard !entries.isEmpty else {
             showVimiumToast("No bookmarks yet.")
             return
@@ -100,9 +100,10 @@ extension BrowserWindowController {
         )
     }
 
+    /// `T`: the current Space's tabs, numbered as ⌘1…⌘9 count them.
     func showVimiumTabs() {
         guard let window else { return }
-        let items = tabs.enumerated().map { index, tab in
+        let items = visibleTabs.enumerated().map { index, tab in
             CommandItem(
                 id: "vimium-tab-\(tab.id)",
                 icon: "rectangle.on.rectangle",

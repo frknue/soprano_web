@@ -34,6 +34,9 @@ extension BrowserWindowController {
         }
     }
 
+    /// The current Space's suggestion sources: its profile's History, its
+    /// pins and the window's other open tabs (of every Space; picking one
+    /// switches to its Space).
     func addressSuggestionInput(for query: String) -> AddressSuggestionInput {
         let selectedID = selectedTab?.id
         let openTabs = tabs.compactMap { tab -> AddressSuggestionTab? in
@@ -43,8 +46,8 @@ extension BrowserWindowController {
         return AddressSuggestionInput(
             query: query,
             kind: kind,
-            history: kind.suggestsHistory ? history.suggestionCandidates(for: query) : [],
-            pins: currentSpaceID.map { spaces.pins(inSpace: $0) } ?? [],
+            history: kind.suggestsHistory ? dataContext.history.suggestionCandidates(for: query) : [],
+            pins: pinSpaceID.map { spaces.pins(inSpace: $0) } ?? [],
             tabs: openTabs,
             searchEngine: settingsStore.settings.searchEngine
         )

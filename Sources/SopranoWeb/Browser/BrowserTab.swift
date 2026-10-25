@@ -27,9 +27,39 @@ struct BrowserTabItem: Equatable {
     }
 }
 
+/// Where a live tab comes from: a Today tab (opened from a link, ⌘T, a
+/// moved tab), or the live tab of a pin of its Space or a favorite of its
+/// profile. The session saves it as `pinID` / `favoriteID`.
+enum BrowserTabOrigin: Equatable, Sendable {
+    case today
+    case pinned(UUID)
+    case favorite(UUID)
+
+    var pinID: UUID? {
+        if case let .pinned(id) = self { return id }
+        return nil
+    }
+
+    var favoriteID: UUID? {
+        if case let .favorite(id) = self { return id }
+        return nil
+    }
+}
+
 @MainActor
 final class BrowserTab {
     let id: UUID
+    /// What the tab reads and writes for its whole life: its Space's
+    /// profile (a private or pop-up window's tab: the window's context).
+    /// Its web views are made from it, and every WebKit callback and
+    /// per-tab operation (History, site decisions, favicons, connection
+    /// security, downloads) uses it, never the window's current Space's.
+    let dataContext: BrowserDataContext
+    /// The Space the tab belongs to in its window; nil in a private or
+    /// pop-up window. Only the window holding the tab changes it (before
+    /// `attachTab`), since its `visibleTabs` follow it.
+    var spaceID: UUID?
+    var origin: BrowserTabOrigin
     /// The tab's page. Sleeping replaces it with a fresh, empty one
     /// (`BrowserWindowController.replaceWebView`); everything that binds a
     /// web view to a window follows the swap.
@@ -69,6 +99,9 @@ final class BrowserTab {
     init(
         id: UUID = UUID(),
         webView: BrowserWebView,
+        dataContext: BrowserDataContext,
+        spaceID: UUID? = nil,
+        origin: BrowserTabOrigin = .today,
         title: String = "New Tab",
         zoom: Double = 1,
         isStartPage: Bool = true,
@@ -76,6 +109,9 @@ final class BrowserTab {
     ) {
         self.id = id
         self.webView = webView
+        self.dataContext = dataContext
+        self.spaceID = spaceID
+        self.origin = origin
         self.title = title
         self.zoom = zoom
         self.isStartPage = isStartPage
@@ -100,7 +136,7 @@ final class BrowserTab {
     }
 
     var state: BrowserTabState {
-        BrowserTabState.snapshot(
+        var state = BrowserTabState.snapshot(
             pending: lifecycle.pendingRestore,
             isStartPage: isStartPage,
             failedURL: failedURL,
@@ -108,6 +144,9 @@ final class BrowserTab {
             title: title,
             interactionState: { webView.interactionState as? Data }
         )
+        state.spaceID = spaceID
+        state.origin = origin
+        return state
     }
 
     var displayTitle: String {

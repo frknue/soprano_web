@@ -83,12 +83,38 @@ struct MainMenuTests {
         #expect(item?.isHidden == true)
     }
 
-    @Test func bookmarksMenuStartsWithItsCommands() {
+    @Test func spacesMenuReplacesBookmarksWithItsCommands() {
         _ = NSApplication.shared
         let menu = MainMenuController { nil }
-        let bookmarks = menu.buildMenu().item(withTitle: "Bookmarks")?.submenu
-        #expect(bookmarks?.items.map(\.title) == ["Bookmark This Page", "Show Bookmarks"])
-        #expect(bookmarks?.items.first?.keyEquivalent == "d")
-        #expect(bookmarks?.items.last?.keyEquivalentModifierMask == [.command, .option])
+        let main = menu.buildMenu()
+        #expect(main.item(withTitle: "Bookmarks") == nil)
+        let spaces = main.item(withTitle: "Spaces")?.submenu
+        let commands = spaces?.items.filter { !$0.isSeparatorItem } ?? []
+        #expect(commands.map(\.title) == ["Next Space", "Previous Space", "Bookmark This Page", "Show Bookmarks"])
+        let right = String(Character(UnicodeScalar(UInt16(NSRightArrowFunctionKey))!))
+        let left = String(Character(UnicodeScalar(UInt16(NSLeftArrowFunctionKey))!))
+        #expect(commands[0].keyEquivalent == right)
+        #expect(commands[1].keyEquivalent == left)
+        #expect(commands[0].keyEquivalentModifierMask == [.command, .option])
+        #expect(commands[2].keyEquivalent == "d")
+        #expect(commands[3].keyEquivalentModifierMask == [.command, .option])
+    }
+
+    @Test func spaceShortcutsCollideWithNothingElse() {
+        _ = NSApplication.shared
+        let menu = MainMenuController { nil }
+        let items = menu.buildMenu().items.compactMap(\.submenu).flatMap(\.items)
+        let arrows = [NSLeftArrowFunctionKey, NSRightArrowFunctionKey].map {
+            String(Character(UnicodeScalar(UInt16($0))!))
+        }
+        // ⌥⌘←/⌥⌘→ only switch Spaces; ⌃1…⌃9 are free for them.
+        let optionCommandArrows = items.filter {
+            arrows.contains($0.keyEquivalent) && $0.keyEquivalentModifierMask == [.command, .option]
+        }
+        #expect(optionCommandArrows.map(\.title) == ["Next Space", "Previous Space"])
+        let controlDigits = items.filter {
+            $0.keyEquivalentModifierMask == [.control] && Int($0.keyEquivalent) != nil
+        }
+        #expect(controlDigits.isEmpty)
     }
 }

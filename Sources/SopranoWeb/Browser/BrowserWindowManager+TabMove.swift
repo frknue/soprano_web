@@ -6,19 +6,19 @@ import AppKit
 /// its page, back/forward list, audio, zoom and find query come along and
 /// nothing reloads.
 extension BrowserWindowManager {
-    /// Whether a tab may move from `source` into `target`'s tab list: never
-    /// into a pop-up window, and only between windows of one data context
-    /// (normal with normal, a private window with the windows its tabs
-    /// moved into). Drops, Merge All Windows, `move-to-window` and the menu
-    /// all ask here.
-    func canMoveTab(from source: BrowserWindowController, to target: BrowserWindowController) -> Bool {
-        BrowserTabMoveRule.allows(from: source.moveRuleWindow, to: target.moveRuleWindow)
+    /// Whether `tab` may move from `source` into `target`'s tab list: never
+    /// into a pop-up window, and only when `target`'s current Space uses
+    /// the tab's data context (`BrowserTabMoveRule`). Drops,
+    /// `move-to-window` and the menu all ask here.
+    func canMoveTab(_ tab: BrowserTab, from source: BrowserWindowController, to target: BrowserWindowController) -> Bool {
+        BrowserTabMoveRule.allows(tabContext: tab.dataContext.id, from: source.id, to: target.moveRuleWindow)
     }
 
-    /// Moves `tab` into `target` at `index` (nil: the end). `select` selects
-    /// it there and brings `target` forward; otherwise neither window's
-    /// selection changes except where the tab left. An emptied `source`
-    /// closes without going onto Recently Closed.
+    /// Moves `tab` into `target`'s current Space as a Today tab at `index`
+    /// of that Space (nil: the end). `select` selects it there and brings
+    /// `target` forward; otherwise neither window's selection changes
+    /// except where the tab left. An emptied `source` closes without going
+    /// onto Recently Closed.
     func moveTab(
         _ tab: BrowserTab,
         from source: BrowserWindowController,
@@ -26,9 +26,11 @@ extension BrowserWindowManager {
         at index: Int?,
         select: Bool
     ) {
-        guard canMoveTab(from: source, to: target), source.tabs.contains(where: { $0 === tab }) else { return }
+        guard canMoveTab(tab, from: source, to: target), source.tabs.contains(where: { $0 === tab }) else { return }
         let find = source.findQuery(carriedBy: tab)
         source.detachTab(tab)
+        tab.spaceID = target.currentSpaceID
+        tab.origin = .today
         target.attachTab(tab, at: index, select: select)
         if select {
             target.carryFind(find)
@@ -40,10 +42,11 @@ extension BrowserWindowManager {
 
     /// Window ▸ Move Tab to New Window, a tab dropped where no window took
     /// it, Vimium `W` and `move-to-window new`: `tab` becomes the only tab
-    /// of a new window of `source`'s data context (a private tab stays
-    /// private) at `frame` (session coordinates; nil: cascaded from
-    /// `source`). `raise` brings the window forward; otherwise it is ordered
-    /// in behind `source` and does not become the default window.
+    /// of a new window of its data context (a private tab stays private),
+    /// on the tab's Space (a pop-up's tab: its profile's first Space), at
+    /// `frame` (session coordinates; nil: cascaded from `source`). `raise`
+    /// brings the window forward; otherwise it is ordered in behind
+    /// `source` and does not become the default window.
     @discardableResult
     func moveTabToNewWindow(
         _ tab: BrowserTab,
@@ -54,11 +57,14 @@ extension BrowserWindowManager {
         guard source.tabs.contains(where: { $0 === tab }) else { return nil }
         let controller = makeWindow(
             frame: frame ?? frameForNewWindow(cascadingFrom: source),
-            context: source.dataContext,
+            context: tab.dataContext,
+            spaceID: tab.spaceID,
             activate: raise
         )
         let find = source.findQuery(carriedBy: tab)
         source.detachTab(tab)
+        tab.spaceID = controller.currentSpaceID
+        tab.origin = .today
         controller.attachTab(tab, select: true)
         controller.carryFind(find)
         if raise {
@@ -93,27 +99,24 @@ extension BrowserWindowManager {
         return moveTabToNewWindow(tab, from: source, frame: frame)
     }
 
-    /// The windows Merge All Windows empties into `target`: the other
-    /// windows of its data context.
+    /// The windows Merge All Windows empties into `target`
+    /// (`BrowserTabMoveRule.merges`): every other normal window, or the
+    /// other private windows of a private target's context.
     func mergeSources(into target: BrowserWindowController) -> [BrowserWindowController] {
-        guard !target.isPopup else { return [] }
-        return controllers.filter { !$0.isPopup && canMoveTab(from: $0, to: target) }
+        controllers.filter { BrowserTabMoveRule.merges($0.moveRuleWindow, into: target.moveRuleWindow) }
     }
 
-    /// Window ▸ Merge All Windows: every tab of the other windows of the
-    /// active window's data context moves into it, after its tabs and in
-    /// window order; its selected tab stays selected. The emptied windows
-    /// close without going onto Recently Closed. Pop-up windows, and normal
-    /// or private windows of another context, stay as they are.
+    /// Window ▸ Merge All Windows: every tab of the other windows that
+    /// merge into the active window moves into it, after its tabs and in
+    /// window order, each keeping its Space and pin or favorite link; its
+    /// selected tab stays selected. The emptied windows close without going
+    /// onto Recently Closed. Pop-up windows, and windows of another kind or
+    /// private context, stay as they are.
     func mergeAllWindows() {
         guard let target = tabbedController else { return }
         let sources = mergeSources(into: target)
         guard !sources.isEmpty else { return }
-        let plan = BrowserWindowMerge.merged(
-            target: target.tabs.map(\.id),
-            selectedIndex: target.selectedIndex,
-            others: sources.map { $0.tabs.map(\.id) }
-        )
+        let selected = target.selectedTab?.id
         for source in sources {
             let tabs = source.tabs
             let leaving = BrowserWindowMerge.detachOrder(tabs: tabs.map(\.id), selected: source.selectedTab?.id)
@@ -123,11 +126,13 @@ extension BrowserWindowManager {
                 }
             }
             for tab in tabs {
-                target.attachTab(tab, at: plan.tabs.firstIndex(of: tab.id), select: false)
+                target.attachTab(tab, select: false)
             }
             closeIfEmptied(source)
         }
-        target.selectTab(index: plan.selectedIndex, focus: true)
+        if let selected {
+            target.selectTab(id: selected, focus: true)
+        }
         present(target)
         scheduleSessionSave()
     }
@@ -148,7 +153,7 @@ extension BrowserWindowManager {
             opener: sessionFrame(of: opener),
             screens: placement.screens()
         )
-        let controller = makeWindow(frame: frame, isPopup: true, context: opener.dataContext)
+        let controller = makeWindow(frame: frame, isPopup: true, context: tab.dataContext)
         controller.attachTab(tab, select: true)
         present(controller)
         return controller

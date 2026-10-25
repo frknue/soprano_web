@@ -4,14 +4,20 @@ import WebKit
 extension BrowserWindowController {
     // MARK: - Session
 
-    /// What the session saves for this window.
+    /// What the session saves for this window: every tab of every Space,
+    /// the current Space and each Space's selection.
     var windowState: BrowserWindowState {
-        BrowserWindowState(
+        let ids = tabs.map(\.id)
+        return BrowserWindowState(
             id: id,
             frame: manager.sessionFrame(of: self).map(BrowserWindowFrame.init),
             tabs: tabs.map(\.state),
-            selectedIndex: selectedIndex,
-            profileID: profileID
+            selectedIndex: selectedTab.flatMap { selected in ids.firstIndex(of: selected.id) } ?? 0,
+            profileID: profileID,
+            currentSpaceID: currentSpaceID,
+            spaceSelections: spaceSelections.compactMap { spaceID, tabID in
+                ids.firstIndex(of: tabID).map { BrowserSpaceSelection(spaceID: spaceID, index: $0) }
+            }.sorted { $0.index < $1.index }
         )
     }
 
@@ -21,14 +27,28 @@ extension BrowserWindowController {
         manager.scheduleSessionSave()
     }
 
-    /// Adds a saved window's tabs. Only the selected tab loads; the others
-    /// load on first selection.
+    /// Adds a saved window's tabs (placed in today's Spaces,
+    /// `BrowserWindowState.placedInSpaces`), each in its Space with its
+    /// profile's context, and each Space's selection. Only the current
+    /// Space's selected tab loads; the others load on first selection. A
+    /// current Space without tabs gets a start tab.
     func restoreTabs(_ state: BrowserWindowState) {
+        var restored: [BrowserTab] = []
         for tab in state.tabs {
-            addRestoredTab(tab)
+            restored.append(addRestoredTab(tab))
+        }
+        for selection in state.spaceSelections where restored.indices.contains(selection.index) {
+            spaceSelections[selection.spaceID] = restored[selection.index].id
         }
         guard !tabs.isEmpty else { return }
-        selectTab(index: min(max(0, state.selectedIndex), tabs.count - 1), focus: false)
+        let selected = restored.indices.contains(state.selectedIndex) ? restored[state.selectedIndex] : nil
+        if let selected, selected.spaceID == currentSpaceID {
+            selectTab(id: selected.id, focus: false)
+        } else if let current = currentSpaceID {
+            switchToSpace(current, focus: false)
+        } else {
+            selectTab(index: 0, focus: false)
+        }
     }
 
     /// Runs when a tab becomes the selected one: a restored tab loads, a

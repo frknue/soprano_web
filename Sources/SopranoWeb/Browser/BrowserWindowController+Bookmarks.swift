@@ -3,7 +3,8 @@ import AppKit
 /// ⌘D and the star's popover, and what the sidebar's Bookmarks outline asks
 /// for: open, Open All in Tabs, New Folder, Edit/Rename and Delete. All of
 /// it reads and writes the pins of the window's current Space
-/// (`currentSpaceID`). Private windows may pin too (a deliberate save).
+/// (`pinSpaceID`; a private window's: its profile's first Space). Private
+/// windows may pin too (a deliberate save).
 extension BrowserWindowController {
     // MARK: - ⌘D and the star
 
@@ -36,7 +37,7 @@ extension BrowserWindowController {
     /// there; returns its pin and whether it is new. Nil on the start page,
     /// an empty tab or without a Space.
     func bookmarkSelectedPage() -> (pin: BrowserPin, added: Bool)? {
-        guard let spaceID = currentSpaceID, let tab = selectedTab, !tab.isStartPage,
+        guard let spaceID = pinSpaceID, let tab = selectedTab, !tab.isStartPage,
               let address = tab.webView.url?.absoluteString
         else {
             return nil
@@ -56,7 +57,7 @@ extension BrowserWindowController {
     /// The editor for pin or folder `id` of the current Space, wired to the
     /// store. The panel shows it; the harness captures it offscreen instead.
     func makeBookmarkEditor(for id: UUID, heading: String, showsURL: Bool) -> BrowserPinEditorView? {
-        guard let spaceID = currentSpaceID else { return nil }
+        guard let spaceID = pinSpaceID else { return nil }
         let tree = spaces.pinTree(inSpace: spaceID)
         guard let node = tree.node(id: id), let location = tree.location(of: id) else { return nil }
         let isFolder = node.isFolder
@@ -119,7 +120,7 @@ extension BrowserWindowController {
     /// Adds "New Folder" in `parentID` at `index`, shows it in the outline
     /// and opens the editor on it to name it.
     func newBookmarkFolder(in parentID: UUID, at index: Int?) {
-        guard let spaceID = currentSpaceID,
+        guard let spaceID = pinSpaceID,
               let folder = spaces.addPinFolder(name: "New Folder", in: parentID, at: index, inSpace: spaceID)
         else { return }
         sidebar.revealBookmarkNode(folder.id)
@@ -146,7 +147,7 @@ extension BrowserWindowController {
     /// Deletes a pin or an empty folder at once; a folder with contents
     /// asks first.
     func deleteBookmarkNode(_ id: UUID) {
-        guard let spaceID = currentSpaceID, let node = spaces.pinTree(inSpace: spaceID).node(id: id) else { return }
+        guard let spaceID = pinSpaceID, let node = spaces.pinTree(inSpace: spaceID).node(id: id) else { return }
         guard let folder = node.folder, !folder.children.isEmpty else {
             spaces.removePin(id, inSpace: spaceID)
             return

@@ -1,7 +1,7 @@
 import AppKit
 
-/// A window's mark as an eyebrow: the profile's color dot (when the mark
-/// names a profile) and "Private", the profile name or "Private · Work".
+/// A window's mark as an eyebrow: its color dot (the Space's or the
+/// profile's) and "Private", the Space or profile name or "Private · Work".
 /// The tab rail's header shows it (or `fallback`, "Tabs"); with horizontal
 /// tabs it sits before the address field.
 @MainActor
@@ -68,7 +68,7 @@ final class BrowserWindowMarkView: NSView {
         } else {
             label.attributedStringValue = ChromeText.eyebrow(fallback ?? "", color: colors.textMuted)
         }
-        let color = mark.profileColor
+        let color = mark.color
         dot.isHidden = color == nil
         if let color {
             dot.color = color.color(in: colors)

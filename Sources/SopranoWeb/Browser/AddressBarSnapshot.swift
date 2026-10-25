@@ -46,14 +46,14 @@ enum AddressBarSnapshot {
             }
         }
         let spaces = controller.spaces
-        if let spaceID = controller.currentSpaceID,
+        if let spaceID = controller.pinSpaceID,
            !spaces.isPinned("https://github.com/frknue/soprano_web", inSpace: spaceID)
         {
             spaces.addPin(url: "https://github.com/frknue/soprano_web", title: "Soprano Web", inSpace: spaceID)
         }
         print("address-history: \(history.pageCount()) pages, \(history.visitCount()) visits in \(history.databaseURL.lastPathComponent)")
         // Inside a folder: suggestions see every pin in every folder.
-        if let spaceID = controller.currentSpaceID,
+        if let spaceID = controller.pinSpaceID,
            !spaces.isPinned("https://developer.apple.com/documentation/webkit", inSpace: spaceID),
            let docs = spaces.addPinFolder(name: "Docs", inSpace: spaceID)
         {

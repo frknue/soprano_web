@@ -42,7 +42,7 @@ extension BrowserWindowController {
         verticalTabsView.onDragOut = { [weak self] id, point in self?.tabDraggedOut(id: id, to: point) }
 
         sidebar.faviconProvider = { [weak self] address in
-            self?.faviconStore.image(forAddress: address)
+            self?.dataContext.faviconStore.image(forAddress: address)
         }
     }
 
@@ -61,7 +61,7 @@ extension BrowserWindowController {
     /// The tab's address changed: show the host's cached icon right away
     /// (the page reports its own once parsed) and drop a stale link bubble.
     func tabURLChanged(_ tab: BrowserTab) {
-        let cached = faviconStore.image(for: tab.webView.url)
+        let cached = tab.dataContext.faviconStore.image(for: tab.webView.url)
         if tab.favicon !== cached {
             tab.favicon = cached
         }
@@ -85,7 +85,7 @@ extension BrowserWindowController {
                 base: pageURL
             )
         }
-        faviconStore.resolve(pageURL: pageURL, candidates: candidates) { [weak self, weak tab] image in
+        tab.dataContext.faviconStore.resolve(pageURL: pageURL, candidates: candidates) { [weak self, weak tab] image in
             guard let self, let tab,
                   BrowserFaviconSelection.key(for: tab.webView.url) == key,
                   tab.favicon !== image
@@ -124,7 +124,7 @@ extension BrowserWindowController {
             item.target = self
             item.representedObject = entry
             item.toolTip = entry.url.absoluteString
-            item.image = faviconStore.image(for: entry.url) ?? Self.placeholderMenuIcon
+            item.image = tab.dataContext.faviconStore.image(for: entry.url) ?? Self.placeholderMenuIcon
             menu.addItem(item)
         }
         return menu

@@ -17,23 +17,28 @@ extension BrowserWindowController {
     }
 
     /// Whether this window's tab list takes a dragged tab: its own (a
-    /// reorder) or one from a window it can move from.
+    /// reorder within the current Space) or one from a window it can move
+    /// from (`BrowserTabMoveRule`: the tab's context is the current
+    /// Space's).
     func canAcceptDroppedTab(id: UUID) -> Bool {
-        if tabs.contains(where: { $0.id == id }) { return !isPopup }
-        guard let (source, _) = manager.tab(id: id) else { return false }
-        return manager.canMoveTab(from: source, to: self)
+        if visibleTabs.contains(where: { $0.id == id }) { return !isPopup }
+        guard let (source, tab) = manager.tab(id: id), source !== self else { return false }
+        return manager.canMoveTab(tab, from: source, to: self)
     }
 
     /// A tab dropped into gap `insertion` of this window's tab list (0 is
-    /// before the first tab): its own tab moves there, another window's
-    /// tab moves in, selected. Returns false when the tab can't come here.
+    /// before the first tab of the current Space): its own tab moves there,
+    /// another window's tab moves in as a Today tab of the current Space,
+    /// selected. Returns false when the tab can't come here.
     @discardableResult
     func dropTab(id: UUID, at insertion: Int) -> Bool {
-        if let from = tabs.firstIndex(where: { $0.id == id }) {
+        if let from = visibleTabs.firstIndex(where: { $0.id == id }) {
             moveTab(id: id, toIndex: BrowserTabReorder.moveIndex(forInsertion: insertion, from: from))
             return true
         }
-        guard let (source, tab) = manager.tab(id: id), manager.canMoveTab(from: source, to: self) else {
+        guard let (source, tab) = manager.tab(id: id), source !== self,
+              manager.canMoveTab(tab, from: source, to: self)
+        else {
             return false
         }
         manager.moveTab(tab, from: source, to: self, at: insertion, select: true)

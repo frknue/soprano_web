@@ -133,11 +133,19 @@ final class BrowserSidebarView: NSView, NSTableViewDataSource, NSTableViewDelega
     private var isLoadingMoreHistory = false
     static let historyPageSize = 100
 
-    let history: BrowserHistoryStore
+    /// The current Space's profile's History; the window swaps it on a
+    /// Space switch (the next `refresh` reads it).
+    var history: BrowserHistoryStore {
+        didSet {
+            historyVisits = []
+            historyQuery = ""
+            historyHasMore = false
+        }
+    }
     let spaces: BrowserSpaceStore
     let pinState: BrowserPinUIState
     /// The Space whose pins the Bookmarks section shows (the window's).
-    var currentSpaceID: () -> UUID? = { nil }
+    var pinSpaceID: () -> UUID? = { nil }
     let downloads: BrowserDownloadStore
     /// A private window's data context: its own download rows are listed
     /// along with the saved ones.
@@ -370,7 +378,7 @@ final class BrowserSidebarView: NSView, NSTableViewDataSource, NSTableViewDelega
                 rows = outlineRows.map(BrowserSidebarRow.bookmarkNode)
             } else {
                 outlineRows = []
-                let matches = currentSpaceID().map { spaces.matchingPins(query, inSpace: $0) } ?? []
+                let matches = pinSpaceID().map { spaces.matchingPins(query, inSpace: $0) } ?? []
                 rows = matches.map(BrowserSidebarRow.bookmarkMatch)
             }
         case .downloads:
@@ -397,7 +405,7 @@ final class BrowserSidebarView: NSView, NSTableViewDataSource, NSTableViewDelega
             footerButton.isEnabled = true
             footerButton.isHidden = false
         case .bookmarks:
-            let count = isSearching ? rows.count : (currentSpaceID().map { spaces.pinEntries(inSpace: $0).count } ?? 0)
+            let count = isSearching ? rows.count : (pinSpaceID().map { spaces.pinEntries(inSpace: $0).count } ?? 0)
             countLabel.stringValue = "\(count) \(count == 1 ? "bookmark" : "bookmarks")"
             footerButton.title = "New Folder"
             footerButton.isEnabled = !isSearching
@@ -422,7 +430,7 @@ final class BrowserSidebarView: NSView, NSTableViewDataSource, NSTableViewDelega
 
     /// The current Space's pinned tree; empty without one.
     private var pinTree: BrowserPinTree {
-        currentSpaceID().map(spaces.pinTree(inSpace:)) ?? BrowserPinTree()
+        pinSpaceID().map(spaces.pinTree(inSpace:)) ?? BrowserPinTree()
     }
 
     /// Redraws the rows (favicons arrived) without querying again.

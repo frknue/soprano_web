@@ -2,7 +2,8 @@ import AppKit
 import WebKit
 
 /// Window state for site permissions: notification prompts in flight (one
-/// per host, every request from that host waits on it).
+/// per profile and host, every request from that host in that profile
+/// waits on it).
 @MainActor
 final class BrowserPermissionsState {
     struct NotificationWaiter {
@@ -11,7 +12,12 @@ final class BrowserPermissionsState {
         let id: Int
     }
 
+    /// Keyed by `promptKey(context:host:)`.
     var notificationPrompts: [String: [NotificationWaiter]] = [:]
+
+    static func promptKey(context: BrowserDataContext, host: String) -> String {
+        "\(context.id.uuidString) \(host)"
+    }
 }
 
 extension BrowserWindowController {
@@ -40,9 +46,10 @@ extension BrowserWindowController {
         })
     }
 
-    /// Replaces the tab's state scripts (mute flag, remembered notification
-    /// decisions) so the next document starts with the current state. Every
-    /// other user script stays, in order, in its own world.
+    /// Replaces the tab's state scripts (mute flag, its profile's
+    /// remembered notification decisions) so the next document starts with
+    /// the current state. Every other user script stays, in order, in its
+    /// own world.
     func refreshStateScripts(_ tab: BrowserTab) {
         let contentController = tab.webView.configuration.userContentController
         let kept = contentController.userScripts.filter {
@@ -50,19 +57,21 @@ extension BrowserWindowController {
         }
         contentController.removeAllUserScripts()
         kept.forEach(contentController.addUserScript)
-        let notifications = kind.allowsWebNotifications
+        let context = tab.dataContext
+        let notifications = context.kind.allowsWebNotifications
         BrowserPermissionScripts.stateScripts(
             muted: tab.isMuted,
-            notificationStates: notifications ? NotificationPermissionState.states(in: sitePermissions) : [:],
+            notificationStates: notifications ? NotificationPermissionState.states(in: context.sitePermissions) : [:],
             askingAllowed: notifications && settingsStore.settings.allowsNotificationRequests
         ).forEach(contentController.addUserScript)
     }
 
-    /// The shim's `Notification.permission` for `host` in this window.
-    func notificationState(for host: String?) -> NotificationPermissionState {
-        guard kind.allowsWebNotifications, let host else { return .denied }
+    /// The shim's `Notification.permission` for `host` in data context
+    /// `context` (a tab's).
+    func notificationState(for host: String?, in context: BrowserDataContext) -> NotificationPermissionState {
+        guard context.kind.allowsWebNotifications, let host else { return .denied }
         return NotificationPermissionState(
-            decision: sitePermissions.decision(.notifications, host: host),
+            decision: context.sitePermissions.decision(.notifications, host: host),
             askingAllowed: settingsStore.settings.allowsNotificationRequests
         )
     }
@@ -87,7 +96,7 @@ extension BrowserWindowController {
             guard !tab.isStartPage,
                   let host = BrowserSitePermissionStore.key(for: tab.webView.url)
             else { continue }
-            let state = notificationState(for: host)
+            let state = notificationState(for: host, in: tab.dataContext)
             tab.webView.evaluateJavaScript(
                 BrowserPermissionScripts.notificationCall("setPermission", [state.rawValue]),
                 in: nil,
@@ -100,10 +109,12 @@ extension BrowserWindowController {
 
     func decideMediaCapture(
         origin: WKSecurityOrigin,
-        type: WKMediaCaptureType
+        type: WKMediaCaptureType,
+        in context: BrowserDataContext
     ) async -> WKPermissionDecision {
         let request = MediaCaptureRequest(type)
         let host = BrowserSitePermissionStore.key(for: origin)
+        let sitePermissions = context.sitePermissions
         if let host, let remembered = request.rememberedDecision(in: sitePermissions, host: host) {
             return remembered == .allow ? .grant : .deny
         }
@@ -239,22 +250,26 @@ extension BrowserWindowController {
 
     // MARK: - Web notifications
 
-    /// `notificationRequest {id}` from the page shim: answer from memory,
-    /// deny when asking is off, otherwise ask once per host and remember.
+    /// `notificationRequest {id}` from the page shim: answer from the tab's
+    /// profile's memory, deny when asking is off, otherwise ask once per
+    /// profile and host and remember there.
     func handleNotificationRequest(body: [String: Any], tab: BrowserTab, frame: WKFrameInfo) {
         guard frame.isMainFrame, let id = body["id"] as? Int, id > 0 else { return }
         let waiter = BrowserPermissionsState.NotificationWaiter(tabID: tab.id, frame: frame, id: id)
+        let context = tab.dataContext
         let host = BrowserSitePermissionStore.key(for: frame.securityOrigin)
-        let state = notificationState(for: host)
+        let state = notificationState(for: host, in: context)
         guard state == .default, let host else {
             resolveNotificationRequests([waiter], state: state)
             return
         }
-        if permissionsState.notificationPrompts[host] != nil {
-            permissionsState.notificationPrompts[host]?.append(waiter)
+        let key = BrowserPermissionsState.promptKey(context: context, host: host)
+        if permissionsState.notificationPrompts[key] != nil {
+            permissionsState.notificationPrompts[key]?.append(waiter)
             return
         }
-        permissionsState.notificationPrompts[host] = [waiter]
+        permissionsState.notificationPrompts[key] = [waiter]
+        let sitePermissions = context.sitePermissions
         Task { @MainActor [weak self] in
             guard let self else { return }
             let answer = await self.askPermission(
@@ -263,9 +278,9 @@ extension BrowserWindowController {
                 rememberHost: host,
                 alwaysRemember: true
             )
-            let waiters = self.permissionsState.notificationPrompts.removeValue(forKey: host) ?? []
+            let waiters = self.permissionsState.notificationPrompts.removeValue(forKey: key) ?? []
             if answer.remember {
-                self.sitePermissions.set(.notifications, answer.allowed ? .allow : .deny, host: host)
+                sitePermissions.set(.notifications, answer.allowed ? .allow : .deny, host: host)
             }
             self.resolveNotificationRequests(waiters, state: answer.allowed ? .granted : .denied)
             if answer.allowed {
@@ -310,9 +325,9 @@ extension BrowserWindowController {
                 in: .page
             )
         }
-        guard kind.allowsWebNotifications,
+        guard tab.dataContext.kind.allowsWebNotifications,
               let host = BrowserSitePermissionStore.key(for: frame.securityOrigin),
-              sitePermissions.decision(.notifications, host: host) == .allow
+              tab.dataContext.sitePermissions.decision(.notifications, host: host) == .allow
         else {
             acknowledge(false)
             return
@@ -351,8 +366,8 @@ extension BrowserWindowController {
     }
 
     /// A click on a posted notification (routed here by the manager, which
-    /// found the tab and brought this window forward): select the tab and
-    /// fire the page's `click` handler.
+    /// found the tab and brought this window forward): select the tab
+    /// (switching to its Space) and fire the page's `click` handler.
     func openNotification(_ click: BrowserNotificationCenter.Click, tab: BrowserTab) {
         selectTab(id: tab.id, focus: true)
         tab.webView.evaluateJavaScript(

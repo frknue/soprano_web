@@ -2,41 +2,48 @@ import AppKit
 import WebKit
 
 /// Which windows may exchange live tabs. A tab's web view keeps its data
-/// store for life, so a tab only moves between windows of one data context:
-/// every normal window shares one, a private window shares its own only with
-/// the windows its tabs moved into. A pop-up window holds only the tab its
-/// page opened.
+/// store for life, so a tab only moves into a window whose current Space
+/// uses the tab's data context (its profile's; a private window's own
+/// context is shared only with the windows its tabs moved into), and it
+/// lands there as a Today tab of that Space. A pop-up window holds only the
+/// tab its page opened.
 enum BrowserTabMoveRule {
     struct Window: Equatable, Sendable {
         var id: UUID
-        /// The window's `BrowserDataContext.id`.
+        /// The window's current `BrowserDataContext.id` (its current
+        /// Space's profile; a private or pop-up window's fixed one).
         var context: UUID
         var isPopup: Bool
+        /// A normal window, which holds every Space.
+        var hasSpaces: Bool
     }
 
-    static func allows(from source: Window, to target: Window) -> Bool {
-        source.id != target.id && !target.isPopup && source.context == target.context
+    /// Whether a tab of data context `tabContext` may move from window
+    /// `source` into `target` (drops, `move-to-window`, the menu).
+    static func allows(tabContext: UUID, from source: UUID, to target: Window) -> Bool {
+        source != target.id && !target.isPopup && tabContext == target.context
+    }
+
+    /// Merge All Windows: whether every tab of `source` joins `target`,
+    /// each keeping its Space. Normal windows all merge (each has every
+    /// Space); a private window merges only with windows of its context;
+    /// pop-up windows never take part.
+    static func merges(_ source: Window, into target: Window) -> Bool {
+        guard source.id != target.id, !source.isPopup, !target.isPopup else { return false }
+        if source.hasSpaces || target.hasSpaces {
+            return source.hasSpaces && target.hasSpaces
+        }
+        return source.context == target.context
     }
 }
 
-/// Window ▸ Merge All Windows: the order tabs leave and arrive in.
+/// Window ▸ Merge All Windows: the order tabs leave in.
 enum BrowserWindowMerge {
     /// The order to take a window's tabs out in: the selected tab last, so
     /// the window never selects (and so loads) another tab on the way out.
     static func detachOrder<ID: Equatable>(tabs: [ID], selected: ID?) -> [ID] {
         guard let selected, tabs.contains(selected) else { return tabs }
         return tabs.filter { $0 != selected } + [selected]
-    }
-
-    /// The target window's tabs, then every other window's tabs in window
-    /// order, each keeping its own order. The target's selected tab stays
-    /// selected at the same index.
-    static func merged<ID: Equatable>(
-        target: [ID],
-        selectedIndex: Int,
-        others: [[ID]]
-    ) -> (tabs: [ID], selectedIndex: Int) {
-        (target + others.flatMap { $0 }, selectedIndex)
     }
 }
 

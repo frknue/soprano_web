@@ -42,21 +42,22 @@ enum BrowserContentBlockingPolicy {
 }
 
 extension BrowserWindowController {
-    func blocksContent(onPage url: URL?) -> Bool {
+    /// Whether a page at `url` of data context `context` gets the lists.
+    func blocksContent(onPage url: URL?, in context: BrowserDataContext) -> Bool {
         BrowserContentBlockingPolicy.blocks(
             pageURL: url,
             isEnabled: manager.contentBlocker.isEnabled,
-            sitePermissions: sitePermissions
+            sitePermissions: context.sitePermissions
         )
     }
 
-    /// Attaches the blocker's current lists to `webView` for a top-level
-    /// page at `pageURL`, or takes them off. Runs before a main-frame
-    /// navigation is allowed, so the new page's loads follow it. Returns
-    /// whether anything changed.
+    /// Attaches the blocker's current lists to `webView` (of data context
+    /// `context`: its tab's) for a top-level page at `pageURL`, or takes
+    /// them off. Runs before a main-frame navigation is allowed, so the new
+    /// page's loads follow it. Returns whether anything changed.
     @discardableResult
-    func applyContentBlocking(to webView: BrowserWebView, pageURL: URL?) -> Bool {
-        let lists = blocksContent(onPage: pageURL) ? manager.contentBlocker.activeLists : []
+    func applyContentBlocking(to webView: BrowserWebView, pageURL: URL?, in context: BrowserDataContext) -> Bool {
+        let lists = blocksContent(onPage: pageURL, in: context) ? manager.contentBlocker.activeLists : []
         let identifiers = lists.compactMap { $0.identifier }
         guard webView.contentRuleListIDs != identifiers else { return false }
         let contentController = webView.configuration.userContentController
@@ -68,6 +69,12 @@ extension BrowserWindowController {
         return true
     }
 
+    /// `applyContentBlocking` for the tab's own web view and context.
+    @discardableResult
+    func applyContentBlocking(to tab: BrowserTab, pageURL: URL?) -> Bool {
+        applyContentBlocking(to: tab.webView, pageURL: pageURL, in: tab.dataContext)
+    }
+
     /// Every tab follows the setting, new lists and the site switches.
     /// `reloadingChanged` reloads the loaded pages whose blocking turned on
     /// or off (the site switch), so the page loads again with or without
@@ -76,7 +83,7 @@ extension BrowserWindowController {
         for tab in tabs {
             let webView = tab.webView
             let wasBlocking = !webView.contentRuleListIDs.isEmpty
-            guard applyContentBlocking(to: webView, pageURL: webView.url),
+            guard applyContentBlocking(to: tab, pageURL: webView.url),
                   reloadingChanged,
                   wasBlocking != !webView.contentRuleListIDs.isEmpty,
                   webView.url != nil, !tab.isStartPage, !tab.isRestorePending
@@ -94,13 +101,15 @@ extension BrowserWindowController {
               ["http", "https"].contains(url?.scheme?.lowercased() ?? ""),
               let host = BrowserSitePermissionStore.siteKey(for: url)
         else { return nil }
+        let sitePermissions = tab.dataContext.sitePermissions
         return BrowserSiteBlockingAccessory(
             host: host,
             isOn: sitePermissions.blocksContent(host: host),
             theme: theme
-        ) { [weak self] blocks in
-            // Every window of the profile reloads its tabs of the site.
-            self?.sitePermissions.setBlocksContent(blocks, host: host)
+        ) { blocks in
+            // Every window with tabs of the profile reloads its tabs of the
+            // site.
+            sitePermissions.setBlocksContent(blocks, host: host)
         }
     }
 }

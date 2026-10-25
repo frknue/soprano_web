@@ -18,7 +18,7 @@ extension BrowserWindowController {
             hasOpenPrompt: hasOpenPrompt(tab),
             hasUnsavedInput: !tab.lifecycle.unsavedFrames.isEmpty,
             isPopup: isPopup || manager.hasPopupWindow(openedBy: tab),
-            isKeptAwake: keepAwakeKey(for: tab).map(sitePermissions.keepsAwake(host:)) ?? false,
+            isKeptAwake: keepAwakeKey(for: tab).map(tab.dataContext.sitePermissions.keepsAwake(host:)) ?? false,
             lastActive: tab.lifecycle.lastActiveAt
         )
     }
@@ -205,6 +205,7 @@ extension BrowserWindowController {
               let tab = tabs.first(where: { $0.id == id }),
               let host = keepAwakeKey(for: tab)
         else { return }
+        let sitePermissions = tab.dataContext.sitePermissions
         sitePermissions.setKeepsAwake(!sitePermissions.keepsAwake(host: host), host: host)
     }
 }

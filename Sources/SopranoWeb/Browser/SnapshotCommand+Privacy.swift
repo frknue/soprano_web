@@ -150,7 +150,7 @@ extension SnapshotCommand {
         controller.clearBrowsingData(options) { done = true }
         spin(seconds: 10) { done }
         print("privacy: cookies after clear (\(range.rawValue)): \(cookieNames(host: host, controller: controller))")
-        print("privacy: history visits after clear: \(controller.history.visitCount())")
+        print("privacy: history visits after clear: \(controller.dataContext.history.visitCount())")
         guard let tab = controller.selectedTab else { return }
         tab.webView.reload()
         spin(seconds: 1.5)

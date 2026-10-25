@@ -4,12 +4,12 @@ extension BrowserWindowController {
     // MARK: - Tab context menu
 
     /// Reload, Duplicate, Mute, Copy Link, Keep This Site Awake, Move Tab
-    /// to New Window, the close actions and Reopen Closed Tab for one tab.
-    /// `closeAfterTitle` names the run after it: "Close Tabs Below" in the
-    /// rail, "… to the Right" in the strip.
+    /// to New Window, the close actions and Reopen Closed Tab for one tab
+    /// of the current Space. `closeAfterTitle` names the run after it:
+    /// "Close Tabs Below" in the rail, "… to the Right" in the strip.
     func tabContextMenu(for id: UUID, closeAfterTitle: String) -> NSMenu? {
-        guard let index = tabs.firstIndex(where: { $0.id == id }) else { return nil }
-        let tab = tabs[index]
+        guard let index = visibleTabs.firstIndex(where: { $0.id == id }) else { return nil }
+        let tab = visibleTabs[index]
         let menu = NSMenu(title: "Tab")
         menu.autoenablesItems = false
 
@@ -28,13 +28,13 @@ extension BrowserWindowController {
         add("Copy Link", #selector(copyTabLinkFromMenu(_:)), enabled: hasPage)
         let awakeHost = keepAwakeKey(for: tab)
         add("Keep This Site Awake", #selector(toggleKeepAwakeFromMenu(_:)), enabled: awakeHost != nil)
-        menu.items.last?.state = awakeHost.map(sitePermissions.keepsAwake(host:)) == true ? .on : .off
+        menu.items.last?.state = awakeHost.map(tab.dataContext.sitePermissions.keepsAwake(host:)) == true ? .on : .off
         menu.addItem(.separator())
         add("Move Tab to New Window", #selector(moveTabToNewWindowFromMenu(_:)))
         menu.addItem(.separator())
         add("Close Tab", #selector(closeTabFromMenu(_:)))
-        add("Close Other Tabs", #selector(closeOtherTabsFromMenu(_:)), enabled: tabs.count > 1)
-        add(closeAfterTitle, #selector(closeTabsAfterFromMenu(_:)), enabled: index < tabs.count - 1)
+        add("Close Other Tabs", #selector(closeOtherTabsFromMenu(_:)), enabled: visibleTabs.count > 1)
+        add(closeAfterTitle, #selector(closeTabsAfterFromMenu(_:)), enabled: index < visibleTabs.count - 1)
         menu.addItem(.separator())
         add("Reopen Closed Tab", #selector(reopenClosedTabFromMenu(_:)), enabled: canReopenClosedTab)
         return menu
@@ -45,17 +45,18 @@ extension BrowserWindowController {
         toggleMute(tab)
     }
 
-    /// Closes every tab but `id` and selects it.
+    /// Closes every tab of the current Space but `id` and selects it.
     func closeOtherTabs(keeping id: UUID) {
-        guard tabs.contains(where: { $0.id == id }) else { return }
-        closeTabs(tabs.filter { $0.id != id }.map(\.id), thenSelect: id)
+        guard visibleTabs.contains(where: { $0.id == id }) else { return }
+        closeTabs(visibleTabs.filter { $0.id != id }.map(\.id), thenSelect: id)
     }
 
-    /// Closes every tab after `id` (below it in the rail, right of it in
-    /// the strip). The selection stays, or moves to `id` when it was closed.
+    /// Closes every tab of the current Space after `id` (below it in the
+    /// rail, right of it in the strip). The selection stays, or moves to
+    /// `id` when it was closed.
     func closeTabs(after id: UUID) {
-        guard let index = tabs.firstIndex(where: { $0.id == id }) else { return }
-        let closing = tabs[(index + 1)...].map(\.id)
+        guard let index = visibleTabs.firstIndex(where: { $0.id == id }) else { return }
+        let closing = visibleTabs[(index + 1)...].map(\.id)
         guard !closing.isEmpty else { return }
         let selected = selectedTab.map(\.id).flatMap { closing.contains($0) ? nil : $0 } ?? id
         closeTabs(closing, thenSelect: selected)

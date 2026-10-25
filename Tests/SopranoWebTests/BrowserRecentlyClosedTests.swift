@@ -54,23 +54,19 @@ struct BrowserRecentlyClosedTests {
         #expect(loaded.entries.first?.title == "11")
     }
 
-    private func open(_ id: UUID, profile: UUID = BrowserProfile.defaultID) -> BrowserReopenWindow {
-        BrowserReopenWindow(id: id, profileID: profile)
-    }
-
     @Test func reopenedTabGoesBackToItsWindowAtItsIndex() {
         let home = UUID()
         let key = UUID()
         let entry = tab("a", window: home, index: 2)
-        #expect(entry.reopenTarget(openWindows: [open(key), open(home)]) == .window(home, index: 2))
+        #expect(entry.reopenTarget(openWindows: [key, home]) == .window(home, index: 2))
     }
 
     @Test func reopenedTabWhoseWindowClosedGoesToTheKeyWindowEnd() {
         let key = UUID()
         let other = UUID()
         let entry = tab("a", window: UUID(), index: 2)
-        #expect(entry.reopenTarget(openWindows: [open(key), open(other)]) == .window(key, index: nil))
-        #expect(tab("b").reopenTarget(openWindows: [open(key)]) == .window(key, index: nil))
+        #expect(entry.reopenTarget(openWindows: [key, other]) == .window(key, index: nil))
+        #expect(tab("b").reopenTarget(openWindows: [key]) == .window(key, index: nil))
     }
 
     @Test func reopenedTabWithNoWindowOpenGetsANewWindow() {
@@ -80,30 +76,22 @@ struct BrowserRecentlyClosedTests {
     @Test func reopenedWindowIsAlwaysANewWindow() {
         let key = UUID()
         let window = BrowserWindowState(id: key, tabs: [BrowserTabState(url: nil)])
-        #expect(BrowserClosedEntry(.window(window)).reopenTarget(openWindows: [open(key)]) == .newWindow)
+        #expect(BrowserClosedEntry(.window(window)).reopenTarget(openWindows: [key]) == .newWindow)
     }
 
-    @Test func reopenedTabGoesOnlyIntoAWindowOfItsProfile() {
+    @Test func aTabOfAnotherProfileReopensInTheKeyWindowInItsSpace() {
+        // Every normal window holds every Space, so a Work tab whose window
+        // closed goes to the key window (which switches to its Space).
         let work = UUID()
-        let defaultKey = UUID()
-        let workWindow = UUID()
+        let workSpace = UUID()
+        let key = UUID()
         let entry = BrowserClosedEntry(
-            .tab(BrowserTabState(url: "https://example.com/a", title: "a"), windowID: UUID(), index: 1),
+            .tab(BrowserTabState(url: "https://example.com/a", title: "a", spaceID: workSpace), windowID: UUID(), index: 1),
             profileID: work
         )
-        // The key window is a Default window; the tab goes to the most
-        // recently active Work window instead.
-        let windows = [open(defaultKey), open(workWindow, profile: work)]
-        #expect(entry.reopenTarget(openWindows: windows) == .window(workWindow, index: nil))
-        // With no Work window open it gets a new (Work) window.
-        #expect(entry.reopenTarget(openWindows: [open(defaultKey)]) == .newWindow)
-    }
-
-    @Test func reopenedTabIgnoresItsOldWindowIdInAnotherProfile() {
-        let work = UUID()
-        let reused = UUID()
-        let entry = BrowserClosedEntry(.tab(BrowserTabState(url: nil), windowID: reused, index: 0), profileID: work)
-        #expect(entry.reopenTarget(openWindows: [open(reused)]) == .newWindow)
+        #expect(entry.reopenTarget(openWindows: [key]) == .window(key, index: nil))
+        guard case let .tab(state, _, _) = entry.content else { return }
+        #expect(state.spaceID == workSpace)
     }
 
     @Test func entriesRememberTheirProfileAcrossTheSessionFile() throws {
@@ -122,14 +110,40 @@ struct BrowserRecentlyClosedTests {
         #expect(legacy.profileID == BrowserProfile.defaultID)
     }
 
-    @Test func deletingAProfileDropsOnlyItsEntries() {
+    @Test func deletingAProfileDropsItsTabsAndItsTabsOfClosedWindows() {
         let work = UUID()
+        let workSpace = UUID()
+        let defaultSpace = UUID()
         var stack = BrowserRecentlyClosedStack()
         stack.push(tab("default"))
         stack.push(BrowserClosedEntry(.tab(BrowserTabState(url: nil, title: "work"), windowID: nil, index: nil), profileID: work))
+        // A version 2 window of the profile: every tab is the profile's.
         stack.push(BrowserClosedEntry(.window(BrowserWindowState(tabs: [BrowserTabState(url: nil, title: "w")], profileID: work))))
-        stack.removeAll { $0.profileID == work }
-        #expect(stack.newestFirst.map(\.title) == ["default"])
+        // A window with tabs of both: the Work Space's tab leaves, the
+        // selections follow their tabs.
+        let mixed = BrowserWindowState(
+            tabs: [
+                BrowserTabState(url: "https://example.com/w", title: "w2", spaceID: workSpace),
+                BrowserTabState(url: "https://example.com/d", title: "d2", spaceID: defaultSpace),
+            ],
+            selectedIndex: 1,
+            profileID: work,
+            currentSpaceID: workSpace,
+            spaceSelections: [
+                BrowserSpaceSelection(spaceID: workSpace, index: 0),
+                BrowserSpaceSelection(spaceID: defaultSpace, index: 1),
+            ]
+        )
+        stack.push(BrowserClosedEntry(.window(mixed)))
+        stack.removeEntries(ofProfile: work, spaces: [workSpace])
+        #expect(stack.newestFirst.map(\.title) == ["d2 — 1 tab", "default"])
+        guard case let .window(kept) = stack.newest?.content else {
+            Issue.record("the mixed window stays")
+            return
+        }
+        #expect(kept.tabs.map(\.title) == ["d2"])
+        #expect(kept.selectedIndex == 0)
+        #expect(kept.spaceSelections == [BrowserSpaceSelection(spaceID: defaultSpace, index: 0)])
     }
 
     @Test func titlesFallBackToTheHostAndNewTab() {

@@ -261,33 +261,58 @@ final class BrowserProfileStore {
     }
 }
 
-/// What a window shows of itself next to its tabs: "Private", its profile
-/// (color and name) when more than one profile exists, or both
-/// ("Private · Work").
+/// What a window shows of itself next to its tabs: "Private" with its
+/// profile (color and name) when more than one profile exists ("Private ·
+/// Work"), or a normal window's current Space (its emoji, name and color
+/// mark) when more than one Space exists; nothing otherwise.
 struct BrowserWindowMark: Equatable, Sendable {
     var isPrivate: Bool
     /// Nil while only one profile exists.
     var profileName: String?
-    var profileColor: BrowserProfileColor?
+    /// The color dot: the Space's mark, else the profile's color.
+    var color: BrowserProfileColor?
+    /// The current Space's name; nil without one (or while only one Space
+    /// exists).
+    var spaceName: String?
+    var spaceIcon: BrowserSpaceIcon = .none
 
     init(kind: BrowserWindowKind, profile: BrowserProfile?) {
         isPrivate = kind.isPrivate
         profileName = profile?.name
-        profileColor = profile?.color
+        color = profile?.color
+    }
+
+    /// A normal window on `space`; `profile` (nil while only one exists)
+    /// goes into the tooltip.
+    init(space: BrowserSpace, profile: BrowserProfile?) {
+        isPrivate = false
+        profileName = profile?.name
+        color = space.color
+        spaceName = space.displayName
+        spaceIcon = space.icon
     }
 
     /// The mark's words; nil when there is nothing to show.
     var text: String? {
+        if let spaceName {
+            if case let .emoji(emoji) = spaceIcon {
+                return "\(emoji) \(spaceName)"
+            }
+            return spaceName
+        }
         switch (isPrivate, profileName) {
-        case (true, let name?): "Private · \(name)"
-        case (true, nil): "Private"
-        case (false, let name?): name
-        case (false, nil): nil
+        case (true, let name?): return "Private · \(name)"
+        case (true, nil): return "Private"
+        case (false, let name?): return name
+        case (false, nil): return nil
         }
     }
 
     var toolTip: String? {
         var parts: [String] = []
+        if let spaceName {
+            parts.append("Space: \(spaceName)")
+        }
         if let profileName {
             parts.append("Profile: \(profileName)")
         }

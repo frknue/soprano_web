@@ -4,7 +4,9 @@ import AppKit
 /// button in the header; the rail keeps the window controls clear at the top.
 /// Dragging a row reorders the rail live and commits the move on release;
 /// dragging it off the rail starts a system drag session that another
-/// window's tab list takes, or that opens a new window where it ends.
+/// window's tab list takes, or that opens a new window where it ends. A
+/// sideways two-finger swipe anywhere on the rail switches Spaces
+/// (`onSwipeSpace`); swipes on the page stay the page's back/forward.
 @MainActor
 final class BrowserVerticalTabsView: NSView {
     var onSelect: ((UUID) -> Void)?
@@ -22,6 +24,10 @@ final class BrowserVerticalTabsView: NSView {
         get { dragSource.onDroppedOutside }
         set { dragSource.onDroppedOutside = newValue }
     }
+    /// A sideways two-finger swipe on the rail: 1 for the next Space, -1
+    /// for the previous one.
+    var onSwipeSpace: ((Int) -> Void)?
+    private var swipe = BrowserSpaceSwipe()
 
     private var theme: AppTheme
     private var buttons: [UUID: BrowserTabButton] = [:]
@@ -33,7 +39,7 @@ final class BrowserVerticalTabsView: NSView {
     /// "Tabs", or the window's mark: "Private", its profile, or both.
     private let headerLabel: BrowserWindowMarkView
     private let newTabButton: ChromeIconButton
-    private let scrollView = NSScrollView()
+    private let scrollView = BrowserRailScrollView()
     private let documentView = FlippedDocumentView()
     private let stack = BrowserVerticalTabStack()
     private let divider: ChromeRuleView
@@ -76,6 +82,7 @@ final class BrowserVerticalTabsView: NSView {
         scrollView.hasVerticalScroller = true
         scrollView.autohidesScrollers = true
         scrollView.borderType = .noBorder
+        scrollView.onScroll = { [weak self] event in self?.handleSwipe(event) ?? false }
         addSubview(scrollView)
 
         documentView.translatesAutoresizingMaskIntoConstraints = false
@@ -331,6 +338,45 @@ final class BrowserVerticalTabsView: NSView {
 
     @objc private func newTabPressed() {
         onNewTab?()
+    }
+
+    // MARK: - Swiping between Spaces
+
+    override func scrollWheel(with event: NSEvent) {
+        if !handleSwipe(event) {
+            super.scrollWheel(with: event)
+        }
+    }
+
+    /// Feeds one scroll event of the rail (its header or tab list) to the
+    /// swipe tracker; true when it belongs to a sideways swipe, so the
+    /// list doesn't scroll with it.
+    @discardableResult
+    func handleSwipe(_ event: NSEvent) -> Bool {
+        let direction = swipe.scroll(
+            phase: event.phase,
+            momentumPhase: event.momentumPhase,
+            deltaX: event.scrollingDeltaX,
+            deltaY: event.scrollingDeltaY,
+            invertedFromDevice: event.isDirectionInvertedFromDevice
+        )
+        if let direction {
+            onSwipeSpace?(direction == .next ? 1 : -1)
+            return true
+        }
+        return swipe.isSwiping
+    }
+}
+
+/// The rail's tab list: it scrolls vertically and hands every scroll event
+/// to `onScroll` first, which takes sideways swipes.
+private final class BrowserRailScrollView: NSScrollView {
+    var onScroll: ((NSEvent) -> Bool)?
+
+    override func scrollWheel(with event: NSEvent) {
+        if onScroll?(event) != true {
+            super.scrollWheel(with: event)
+        }
     }
 }
 

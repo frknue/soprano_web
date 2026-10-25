@@ -8,7 +8,7 @@ final class MainMenuController: NSObject, NSMenuItemValidation {
     private var shareUpdater: ShareMenuUpdater?
     private var recentlyClosedUpdater: RecentlyClosedMenuUpdater?
     private var profileWindowUpdater: ProfileWindowMenuUpdater?
-    private(set) var bookmarksMenu: BrowserBookmarksMenu?
+    private(set) var spacesMenu: BrowserSpacesMenu?
     /// File ▸ New Window With Profile, shown while more than one profile
     /// exists.
     private var profileWindowItem: NSMenuItem?
@@ -160,11 +160,16 @@ final class MainMenuController: NSObject, NSMenuItemValidation {
         historyMenu.addItem(item("Clear Browsing Data…", #selector(clearBrowsingData), "\u{8}", [.command, .shift]))
         add(historyMenu, to: main)
 
-        let bookmarkMenu = NSMenu(title: "Bookmarks")
-        bookmarkMenu.addItem(item("Bookmark This Page", #selector(bookmark), "d"))
-        bookmarkMenu.addItem(item("Show Bookmarks", #selector(showBookmarks), "b", [.command, .option]))
-        bookmarksMenu = BrowserBookmarksMenu(menu: bookmarkMenu, windowManager: windowManager)
-        add(bookmarkMenu, to: main)
+        let spacesMenu = NSMenu(title: "Spaces")
+        self.spacesMenu = BrowserSpacesMenu(
+            menu: spacesMenu,
+            commands: [
+                item("Bookmark This Page", #selector(bookmark), "d"),
+                item("Show Bookmarks", #selector(showBookmarks), "b", [.command, .option]),
+            ],
+            windowManager: windowManager
+        )
+        add(spacesMenu, to: main)
 
         let windowMenu = NSMenu(title: "Window")
         windowMenu.addItem(
@@ -261,7 +266,7 @@ final class MainMenuController: NSObject, NSMenuItemValidation {
             return manager.tabbedController.map { !manager.mergeSources(into: $0).isEmpty } ?? false
         case #selector(bookmark):
             guard let tab = controller.selectedTab, !tab.isStartPage, let url = tab.webView.url else { return false }
-            let isPinned = controller.currentSpaceID.map {
+            let isPinned = controller.pinSpaceID.map {
                 controller.spaces.isPinned(url.absoluteString, inSpace: $0)
             } ?? false
             menuItem.title = isPinned ? "Edit Bookmark" : "Bookmark This Page"
@@ -460,6 +465,8 @@ final class MainMenuController: NSObject, NSMenuItemValidation {
         ⇧⌘W Close window
         ⇧⌘T Reopen closed tab or window
         ⌃Tab / ⌃⇧Tab  Next / previous tab
+        ⌃1–⌃9 Space by number
+        ⌥⌘→ / ⌥⌘←  Next / previous Space
         ⌘[  Back               ⌘]  Forward
         ⌘R  Reload             ⌘F  Find in page
         ⌘D  Bookmark           ⌘Y  History

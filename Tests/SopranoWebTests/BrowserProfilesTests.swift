@@ -161,14 +161,23 @@ struct BrowserProfilesTests {
         #expect(defaultHistory.databaseURL.deletingLastPathComponent().standardizedFileURL == support.standardizedFileURL)
     }
 
-    @Test func windowMarkNamesPrivateAndProfile() {
+    @Test func windowMarkNamesPrivateProfileAndSpace() {
         let work = BrowserProfile(name: "Work", color: .green)
         #expect(BrowserWindowMark(kind: .normal, profile: nil).text == nil)
         #expect(BrowserWindowMark(kind: .private, profile: nil).text == "Private")
         #expect(BrowserWindowMark(kind: .normal, profile: work).text == "Work")
         let both = BrowserWindowMark(kind: .private, profile: work)
         #expect(both.text == "Private · Work")
-        #expect(both.profileColor == .green)
+        #expect(both.color == .green)
+        // A normal window shows its Space: emoji, name and the Space's
+        // color; the profile goes into the tooltip.
+        let space = BrowserSpace(name: "Research", icon: .emoji("🔬"), color: .blue, profileID: work.id)
+        let spaceMark = BrowserWindowMark(space: space, profile: work)
+        #expect(spaceMark.text == "🔬 Research")
+        #expect(spaceMark.color == .blue)
+        #expect(spaceMark.toolTip == "Space: Research\nProfile: Work")
+        let plain = BrowserSpace(name: "Home", icon: .symbol("house"), color: .yellow, profileID: work.id)
+        #expect(BrowserWindowMark(space: plain, profile: nil).text == "Home")
     }
 
     @Test func deleteConfirmationSaysWhatGoes() {

@@ -1,29 +1,34 @@
 import AppKit
 
-/// The Bookmarks menu below its own commands (Bookmark This Page, Show
-/// Bookmarks): every pin of the active window's Space (Default's first
-/// Space without a window) as an item that opens it in the active window,
-/// every folder as a submenu ending in Open All in Tabs. Rebuilt whenever
-/// the Spaces change and each time the menu opens.
+/// The Spaces menu (stage 2's Bookmarks menu): every Space in display
+/// order, the first nine on ⌃1…⌃9, the active window's current Space
+/// checked; Next and Previous Space (⌥⌘→ / ⌥⌘←); the menu's own pin
+/// commands (Bookmark This Page, Show Bookmarks); then every pin of the
+/// active window's Space (Default's first Space without a window) as an
+/// item that opens it in the active window, every folder as a submenu
+/// ending in Open All in Tabs. Rebuilt whenever the Spaces change and each
+/// time the menu opens.
 @MainActor
-final class BrowserBookmarksMenu: NSObject, NSMenuDelegate {
+final class BrowserSpacesMenu: NSObject, NSMenuDelegate, NSMenuItemValidation {
     static let titleLimit = 60
+    /// The Spaces that get ⌃1…⌃9.
+    static let numberedSpaces = 9
 
     let menu: NSMenu
-    /// The menu's own commands, kept on every rebuild.
-    private let commandCount: Int
+    /// The menu's pin commands, put back on every rebuild.
+    private let commands: [NSMenuItem]
     private let windowManager: () -> BrowserWindowManager?
     private var observation: BrowserObservation?
-    /// The Space whose pins the menu lists.
+    /// The Space whose pins the menu lists (the active window's).
     private var shownSpaceID: UUID?
 
-    init(menu: NSMenu, windowManager: @escaping () -> BrowserWindowManager?) {
+    init(menu: NSMenu, commands: [NSMenuItem], windowManager: @escaping () -> BrowserWindowManager?) {
         self.menu = menu
-        self.commandCount = menu.items.count
+        self.commands = commands
         self.windowManager = windowManager
         super.init()
         menu.delegate = self
-        observeBookmarks()
+        observeSpaces()
         rebuild()
     }
 
@@ -32,34 +37,102 @@ final class BrowserBookmarksMenu: NSObject, NSMenuDelegate {
     func menuNeedsUpdate(_ menu: NSMenu) {
         guard menu === self.menu else { return }
         let needsObservation = observation == nil
-        observeBookmarks()
+        observeSpaces()
         if needsObservation || currentSpaceID() != shownSpaceID {
             rebuild()
         }
     }
 
-    private func observeBookmarks() {
+    private func observeSpaces() {
         guard observation == nil, let manager = windowManager() else { return }
         observation = manager.spaces.changes.observe { [weak self] in self?.rebuild() }
     }
 
-    /// The active window's Space, else Default's first.
+    /// The window the menu's Space items switch: the active window with
+    /// tabs, when it has Spaces.
+    private func spaceWindow() -> BrowserWindowController? {
+        windowManager()?.tabbedController.flatMap { $0.hasSpaces ? $0 : nil }
+    }
+
+    /// The active window's pin Space, else Default's first.
     private func currentSpaceID() -> UUID? {
         guard let manager = windowManager() else { return nil }
-        return manager.tabbedController?.currentSpaceID
+        return manager.tabbedController?.pinSpaceID
             ?? manager.spaces.firstSpace(ofProfile: BrowserProfile.defaultID)?.id
     }
 
     func rebuild() {
-        while menu.items.count > commandCount {
-            menu.removeItem(at: commandCount)
-        }
+        menu.removeAllItems()
         shownSpaceID = currentSpaceID()
-        guard let manager = windowManager(), let spaceID = shownSpaceID else { return }
+        let manager = windowManager()
+        let checked = manager?.tabbedController?.currentSpaceID
+        for (index, space) in (manager?.spaces.spaces ?? []).enumerated() {
+            let item = NSMenuItem(
+                title: Self.menuTitle(Self.spaceTitle(space)),
+                action: #selector(switchSpace(_:)),
+                keyEquivalent: index < Self.numberedSpaces ? "\(index + 1)" : ""
+            )
+            item.keyEquivalentModifierMask = [.control]
+            item.target = self
+            item.representedObject = space.id
+            item.state = space.id == checked ? .on : .off
+            menu.addItem(item)
+        }
+        if !menu.items.isEmpty {
+            menu.addItem(.separator())
+        }
+        menu.addItem(stepItem("Next Space", step: 1, key: NSRightArrowFunctionKey))
+        menu.addItem(stepItem("Previous Space", step: -1, key: NSLeftArrowFunctionKey))
+        menu.addItem(.separator())
+        commands.forEach(menu.addItem)
+        guard let manager, let spaceID = shownSpaceID else { return }
         let tree = manager.spaces.pinTree(inSpace: spaceID)
         guard !tree.isEmpty else { return }
         menu.addItem(.separator())
         add(tree.root.children, to: menu, favicons: manager.faviconStore)
+    }
+
+    /// A Space's menu title: its emoji (if it has one) and name.
+    static func spaceTitle(_ space: BrowserSpace) -> String {
+        if case let .emoji(emoji) = space.icon {
+            return "\(emoji) \(space.displayName)"
+        }
+        return space.displayName
+    }
+
+    private func stepItem(_ title: String, step: Int, key: Int) -> NSMenuItem {
+        let item = NSMenuItem(
+            title: title,
+            action: #selector(stepSpace(_:)),
+            keyEquivalent: String(Character(UnicodeScalar(UInt16(key))!))
+        )
+        item.keyEquivalentModifierMask = [.command, .option]
+        item.target = self
+        item.tag = step
+        return item
+    }
+
+    /// Space items work on a window with Spaces (not a private or pop-up
+    /// one).
+    func validateMenuItem(_ menuItem: NSMenuItem) -> Bool {
+        switch menuItem.action {
+        case #selector(switchSpace(_:)):
+            return spaceWindow() != nil
+        case #selector(stepSpace(_:)):
+            return spaceWindow() != nil && (windowManager()?.spaces.spaces.count ?? 0) > 1
+        default:
+            return true
+        }
+    }
+
+    @objc private func switchSpace(_ sender: NSMenuItem) {
+        guard let id = sender.representedObject as? UUID, let controller = spaceWindow() else { return }
+        controller.switchToSpace(id)
+        controller.revealWindowIfNeeded()
+    }
+
+    @objc private func stepSpace(_ sender: NSMenuItem) {
+        spaceWindow()?.switchToNeighborSpace(step: sender.tag)
     }
 
     private func add(_ nodes: [BrowserPinNode], to menu: NSMenu, favicons: BrowserFaviconStore) {
@@ -156,6 +229,14 @@ final class BrowserBookmarksMenu: NSObject, NSMenuDelegate {
         if flags.contains(.option) { text += "⌥" }
         if flags.contains(.shift) { text += "⇧" }
         if flags.contains(.command) { text += "⌘" }
-        return text + item.keyEquivalent.uppercased()
+        let key: String
+        switch item.keyEquivalent.unicodeScalars.first.map({ Int($0.value) }) {
+        case NSLeftArrowFunctionKey: key = "←"
+        case NSRightArrowFunctionKey: key = "→"
+        case NSUpArrowFunctionKey: key = "↑"
+        case NSDownArrowFunctionKey: key = "↓"
+        default: key = item.keyEquivalent.uppercased()
+        }
+        return text + key
     }
 }

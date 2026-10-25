@@ -2,8 +2,8 @@ import AppKit
 
 /// Snapshot flags for Spaces and their pinned folders. Results print as
 /// `space…:` / `pin…:` lines; the ⌘D popover is built and captured
-/// offscreen, never shown. Every flag works on the window's current Space
-/// (`BrowserWindowController.currentSpaceID`).
+/// offscreen, never shown. Every flag works on the window's pin Space
+/// (`BrowserWindowController.pinSpaceID`: its current Space).
 extension SnapshotCommand {
     struct PinOptions {
         /// `--bookmarks-file <json>`: copied in as stage 2's
@@ -26,7 +26,7 @@ extension SnapshotCommand {
         /// `--pin-popover`: ⌘D on the selected page, popover captured.
         var popover = false
         /// `--print-pins`: the Spaces, the current Space's tree, the
-        /// outline rows, Vimium's lines, the file and the Bookmarks menu.
+        /// outline rows, Vimium's lines, the file and the Spaces menu.
         var print = false
 
         var isActive: Bool {
@@ -121,7 +121,7 @@ extension SnapshotCommand {
                 sidebar.setFolderExpanded(folder.id, true)
             }
         }
-        if let name = options.lastFolder, let spaceID = controller.currentSpaceID {
+        if let name = options.lastFolder, let spaceID = controller.pinSpaceID {
             let folder = controller.currentPinTree.folderEntries().first { $0.name == name }
             controller.manager.pinUIState.setLastFolderID(folder?.id, inSpace: spaceID)
         }
@@ -135,7 +135,7 @@ extension SnapshotCommand {
             let target = destination.flatMap { controller.currentPinTree.folder(id: $0.folderID)?.displayName } ?? "-"
             print("pin-drop: \(title) \(drop) -> \(moved ? "moved into \(target) at \(destination?.index ?? -1)" : "refused")")
         }
-        if let search = options.search, let spaceID = controller.currentSpaceID {
+        if let search = options.search, let spaceID = controller.pinSpaceID {
             sidebar.setSearchText(search)
             for entry in store.matchingPins(search, inSpace: spaceID) {
                 print("pin-search: \(entry.pin.displayTitle) — \(entry.pathText)")
@@ -156,7 +156,7 @@ extension SnapshotCommand {
             case let .symbol(value): "symbol \(value)"
             }
             let profile = profiles.profile(id: space.profileID)?.name ?? space.profileID.uuidString
-            let current = space.id == controller.currentSpaceID ? " (current)" : ""
+            let current = space.id == controller.pinSpaceID ? " (current)" : ""
             print("space: \(space.displayName)\(current) | profile \(profile) | color \(space.color.rawValue) | icon \(icon) | \(store.pinEntries(inSpace: space.id).count) pins")
         }
         for profile in profiles.profiles {
@@ -180,7 +180,7 @@ extension SnapshotCommand {
             let mark = row.node.isFolder ? (row.isExpanded ? "▾ " : "▸ ") : "  "
             print("pin-outline: \(index) \(String(repeating: "  ", count: row.depth))\(mark)\(row.node.title)")
         }
-        for entry in controller.currentSpaceID.map({ store.pinEntries(inSpace: $0) }) ?? [] {
+        for entry in controller.pinSpaceID.map({ store.pinEntries(inSpace: $0) }) ?? [] {
             print("pin-vimium: \(entry.pin.displayTitle) | \(entry.detail)")
         }
         let file = (try? Data(contentsOf: store.url)).flatMap { try? JSONSerialization.jsonObject(with: $0) as? [String: Any] }
@@ -189,9 +189,9 @@ extension SnapshotCommand {
         print("spaces-file: version \(file?["version"] as? Int ?? 0), \(fileSpaces) spaces, bookmarks.json migrated copy \(migrated)")
         let menuController = MainMenuController { [manager = controller.manager] in manager }
         let main = menuController.buildMenu()
-        if let menu = main.item(withTitle: "Bookmarks")?.submenu {
-            for line in BrowserBookmarksMenu.dump(menu) {
-                print("bookmarks-menu: \(line)")
+        if let menu = main.item(withTitle: "Spaces")?.submenu {
+            for line in BrowserSpacesMenu.dump(menu) {
+                print("spaces-menu: \(line)")
             }
         }
     }
@@ -220,9 +220,9 @@ extension SnapshotCommand {
         root.addSubview(editor, positioned: .above, relativeTo: nil)
         editor.layoutSubtreeIfNeeded()
         let folder = controller.currentPinTree.folder(id: editor.content.folderID)?.displayName ?? "?"
-        let pinned = controller.currentSpaceID.map { controller.spaces.isPinned(result.pin.url, inSpace: $0) } ?? false
+        let pinned = controller.pinSpaceID.map { controller.spaces.isPinned(result.pin.url, inSpace: $0) } ?? false
         print("pin-popover: \(editor.content.heading) | name \(editor.nameField.stringValue) | folder \(folder) | star \(pinned ? "filled" : "empty")")
-        for line in BrowserBookmarksMenu.dump(editor.folderMenu()) {
+        for line in BrowserSpacesMenu.dump(editor.folderMenu()) {
             print("pin-popover-folders: \(line)")
         }
         return editor

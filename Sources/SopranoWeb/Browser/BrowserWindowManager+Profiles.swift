@@ -48,36 +48,55 @@ extension BrowserWindowManager {
         return store
     }
 
-    /// The profile a window belongs to (Default while its own is being
-    /// deleted).
+    /// The profile of a window's current Space (Default while its own is
+    /// being deleted).
     func profile(of controller: BrowserWindowController) -> BrowserProfile {
         profiles.profile(id: controller.profileID) ?? .defaultProfile
     }
 
-    /// What a window shows next to its tabs: "Private", its profile when
-    /// more than one exists, or both.
+    /// What a window shows next to its tabs: "Private" (with its profile
+    /// when more than one exists), or its current Space (icon, name and
+    /// color) when more than one Space exists.
     func windowMark(for controller: BrowserWindowController) -> BrowserWindowMark {
-        BrowserWindowMark(kind: controller.kind, profile: profiles.hasSeveral ? profile(of: controller) : nil)
+        let profile = profiles.hasSeveral ? profile(of: controller) : nil
+        if let space = controller.currentSpaceID.flatMap(spaces.space(id:)), spaces.spaces.count > 1 {
+            return BrowserWindowMark(space: space, profile: profile)
+        }
+        return BrowserWindowMark(kind: controller.kind, profile: profile)
     }
 
-    /// Settings ▸ Profiles ▸ Delete (after the confirmation): closes every
-    /// window of the profile, private ones opened over it included,
-    /// without putting them on Recently Closed; drops its Recently Closed
-    /// entries; deletes its Spaces and favorites; removes it from
+    /// The windows deleting profile `id` closes: its private and pop-up
+    /// windows, and every normal window holding only the profile's tabs.
+    func windowsClosing(onDeleteOf id: UUID) -> [BrowserWindowController] {
+        controllers.filter { controller in
+            controller.hasSpaces
+                ? !controller.tabs.isEmpty && controller.tabs.allSatisfy { $0.dataContext.profileID == id }
+                : controller.profileID == id
+        }
+    }
+
+    /// Settings ▸ Profiles ▸ Delete (after the confirmation): closes the
+    /// profile's tabs in every window (a window on one of its Spaces shows
+    /// another Space first; `windowsClosing(onDeleteOf:)` close whole) and
+    /// its private windows, none onto Recently Closed; drops its Recently
+    /// Closed tabs; deletes its Spaces and favorites; removes it from
     /// `profiles.json`; then, once its web views are released, removes its
-    /// data store
-    /// (`WKWebsiteDataStore.remove(forIdentifier:)`) and deletes its folder.
-    /// `completion` gets the data store removal's error, if it never
-    /// succeeded. Default can't be deleted.
+    /// data store (`WKWebsiteDataStore.remove(forIdentifier:)`) and deletes
+    /// its folder. `completion` gets the data store removal's error, if it
+    /// never succeeded. Default can't be deleted.
     func deleteProfile(_ id: UUID, completion: (@MainActor (Error?) -> Void)? = nil) {
         guard id != BrowserProfile.defaultID, let profile = profiles.profile(id: id) else {
             completion?(nil)
             return
         }
-        for controller in controllers where controller.profileID == id {
+        let closing = windowsClosing(onDeleteOf: id)
+        for controller in closing {
             closeWindow(controller, remember: false)
         }
-        recentlyClosed.removeAll { $0.profileID == id }
+        for controller in controllers where !closing.contains(where: { $0 === controller }) {
+            controller.closeTabs(ofProfile: id)
+        }
+        recentlyClosed.removeEntries(ofProfile: id, spaces: Set(spaces.spaces(ofProfile: id).map(\.id)))
         spaces.deleteSpaces(ofProfile: id)
         // Everything still holding the profile's stores (Settings sheets,
         // chrome) lets go when the list changes.

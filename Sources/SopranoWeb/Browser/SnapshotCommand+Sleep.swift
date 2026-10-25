@@ -165,11 +165,11 @@ enum SnapshotSleepAction {
             let tab = controller.selectedTab
             print("zoom: \(tab.map { BrowserZoom.percent($0.zoom) } ?? "-") on \(tab?.webView.url?.host ?? "-")")
         case .keepAwake(let number):
-            guard let controller = manager.activeController, controller.tabs.indices.contains(number - 1) else {
+            guard let controller = manager.activeController, controller.visibleTabs.indices.contains(number - 1) else {
                 print("snapshot: no tab \(number)")
                 return
             }
-            let tab = controller.tabs[number - 1]
+            let tab = controller.visibleTabs[number - 1]
             guard let menu = controller.tabContextMenu(for: tab.id, closeAfterTitle: "Close Tabs Below"),
                   let item = menu.items.first(where: { $0.title == "Keep This Site Awake" }),
                   item.isEnabled
@@ -179,7 +179,7 @@ enum SnapshotSleepAction {
             }
             controller.toggleKeepAwakeFromMenu(item)
             let host = controller.keepAwakeKey(for: tab) ?? "-"
-            print("keep-awake: \(host) \(controller.sitePermissions.keepsAwake(host: host) ? "on" : "off")")
+            print("keep-awake: \(host) \(tab.dataContext.sitePermissions.keepsAwake(host: host) ? "on" : "off")")
         }
     }
 
@@ -235,8 +235,8 @@ enum SnapshotSleepAction {
             "awakeBecause": tab.isAsleep ? NSNull() : (controller.sleepExemption(tab)?.rawValue ?? "idle") as Any,
             "snapshotBytes": tab.lifecycle.sleep?.snapshot?.count ?? 0,
             "webContentPID": Int(processIdentifier(of: tab.webView)),
-            "siteZoom": host.flatMap { controller.sitePermissions.zoom(host: $0) } ?? NSNull(),
-            "keptAwake": controller.keepAwakeKey(for: tab).map(controller.sitePermissions.keepsAwake(host:)) ?? false,
+            "siteZoom": host.flatMap { tab.dataContext.sitePermissions.zoom(host: $0) } ?? NSNull(),
+            "keptAwake": controller.keepAwakeKey(for: tab).map(tab.dataContext.sitePermissions.keepsAwake(host:)) ?? false,
             "playingAudio": tab.isPlayingAudio,
         ]
     }

@@ -133,7 +133,8 @@ extension BrowserWindowController {
         "select-tab", "close-tab", "focus-address",
     ]
 
-    /// Runs one CLI request. `--tab n` targets that tab without selecting it.
+    /// Runs one CLI request. `--tab n` targets tab n of the current Space
+    /// (as `tabs` numbers them) without selecting it.
     func performAutomation(
         _ request: BrowserCommandRequest,
         completion: @escaping (Result<String, Error>) -> Void
@@ -142,13 +143,13 @@ extension BrowserWindowController {
         let arguments = request.arguments
         let target: BrowserTab?
         if let tabIndex = request.tabIndex {
-            guard tabIndex > 0, tabs.indices.contains(tabIndex - 1) else {
+            guard tabIndex > 0, visibleTabs.indices.contains(tabIndex - 1) else {
                 completion(.failure(BrowserAutomationError.invalidArguments(
                     "No tab \(tabIndex). Use `tabs` to list them."
                 )))
                 return
             }
-            target = tabs[tabIndex - 1]
+            target = visibleTabs[tabIndex - 1]
         } else {
             target = selectedTab
         }
@@ -215,7 +216,7 @@ extension BrowserWindowController {
             }
 
         case "tabs":
-            let lines = tabs.enumerated().map { index, tab in
+            let lines = visibleTabs.enumerated().map { index, tab in
                 let selected = tab.id == selectedTab?.id ? "*" : " "
                 return "\(selected) \(index + 1)\t\(tab.displayTitle)\t\(tab.state.url ?? "about:start")"
             }
@@ -229,7 +230,7 @@ extension BrowserWindowController {
 
         case "select-tab":
             guard let value = arguments.first, let number = Int(value), number > 0,
-                  tabs.indices.contains(number - 1)
+                  visibleTabs.indices.contains(number - 1)
             else {
                 completion(.failure(BrowserAutomationError.invalidArguments(
                     "Usage: soprano-web browser select-tab <n>"
@@ -241,11 +242,11 @@ extension BrowserWindowController {
 
         case "close-tab":
             let number = arguments.first.flatMap(Int.init) ?? request.tabIndex ?? (selectedIndex + 1)
-            guard tabs.indices.contains(number - 1) else {
+            guard visibleTabs.indices.contains(number - 1) else {
                 completion(.failure(BrowserAutomationError.invalidArguments("No tab \(number).")))
                 return
             }
-            closeTab(id: tabs[number - 1].id)
+            closeTab(id: visibleTabs[number - 1].id)
             completion(.success("closed tab \(number)"))
 
         case "vimium":

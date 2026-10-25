@@ -1,7 +1,8 @@
 import AppKit
 
 /// One History ▸ Recently Closed entry: a tab or a whole window, and the
-/// profile it reopens in.
+/// profile it reopens in. A tab's state carries its Space; it reopens
+/// there (the profile's first Space when that one is gone).
 struct BrowserClosedEntry: Codable, Equatable, Sendable, Identifiable {
     enum Content: Equatable, Sendable {
         /// A tab, the window it was in and its index there (nil: the end).
@@ -44,23 +45,22 @@ struct BrowserClosedEntry: Codable, Equatable, Sendable, Identifiable {
         return false
     }
 
-    /// Where reopening puts this entry, given the open windows that take
+    /// Where reopening puts this entry, given the normal windows that take
     /// reopened tabs, most recently active first: a tab returns to its
     /// window at its old index while that window is open, otherwise to the
-    /// most recently active window of its profile (at the end); a window, or
-    /// a tab with no window of its profile open, opens a new window in its
-    /// profile.
-    func reopenTarget(openWindows: [BrowserReopenWindow]) -> BrowserReopenTarget {
+    /// most recently active window (at the end of its Space; every normal
+    /// window holds every Space); a window, or a tab with no window open,
+    /// opens a new window.
+    func reopenTarget(openWindows: [UUID]) -> BrowserReopenTarget {
         switch content {
         case .window:
             return .newWindow
         case .tab(_, let windowID, let index):
-            let ownProfile = openWindows.filter { $0.profileID == profileID }
-            if let windowID, ownProfile.contains(where: { $0.id == windowID }) {
+            if let windowID, openWindows.contains(windowID) {
                 return .window(windowID, index: index)
             }
-            if let window = ownProfile.first {
-                return .window(window.id, index: nil)
+            if let window = openWindows.first {
+                return .window(window, index: nil)
             }
             return .newWindow
         }
@@ -111,16 +111,11 @@ struct BrowserClosedEntry: Codable, Equatable, Sendable, Identifiable {
     }
 }
 
-/// An open window a reopened tab may go into.
-struct BrowserReopenWindow: Equatable, Sendable {
-    var id: UUID
-    var profileID: UUID
-}
-
 enum BrowserReopenTarget: Equatable, Sendable {
-    /// Into this open window, at `index` (nil or past the end: the end).
+    /// Into this open window, at `index` of the tab's Space (nil or past
+    /// the end: the end).
     case window(UUID, index: Int?)
-    /// A new window in the entry's profile.
+    /// A new window on the tab's Space.
     case newWindow
 }
 
@@ -163,10 +158,83 @@ struct BrowserRecentlyClosedStack: Equatable, Sendable {
         entries.removeAll()
     }
 
-    /// Drops the entries `matching` (a deleted profile's, or one profile's
-    /// on Clear Browsing Data).
-    mutating func removeAll(where matching: (BrowserClosedEntry) -> Bool) {
-        entries.removeAll(where: matching)
+    /// A deleted profile (or one whose history is cleared): its closed
+    /// tabs go, and its tabs leave closed windows — the tabs of `spaces`
+    /// (its Spaces) and, in a window saved before Spaces, every tab of a
+    /// window of the profile. A window left without tabs goes.
+    mutating func removeEntries(ofProfile profileID: UUID, spaces: Set<UUID>) {
+        entries = entries.compactMap { entry in
+            switch entry.content {
+            case .tab:
+                return entry.profileID == profileID ? nil : entry
+            case .window(let state):
+                let kept = state.keepingTabs { tab in
+                    guard let spaceID = tab.spaceID else { return state.profileID != profileID }
+                    return !spaces.contains(spaceID)
+                }
+                return kept.tabs.isEmpty ? nil : BrowserClosedEntry(.window(kept), id: entry.id)
+            }
+        }
+    }
+}
+
+extension BrowserWindowState {
+    /// The window with only the tabs `keep` accepts; the selection and each
+    /// Space's selection follow their tabs (a removed one is dropped, the
+    /// window's falls back to the first tab).
+    func keepingTabs(where keep: (BrowserTabState) -> Bool) -> BrowserWindowState {
+        var state = self
+        var newIndex: [Int: Int] = [:]
+        state.tabs = []
+        for (index, tab) in tabs.enumerated() where keep(tab) {
+            newIndex[index] = state.tabs.count
+            state.tabs.append(tab)
+        }
+        state.selectedIndex = newIndex[selectedIndex] ?? 0
+        state.spaceSelections = spaceSelections.compactMap { selection in
+            newIndex[selection.index].map { BrowserSpaceSelection(spaceID: selection.spaceID, index: $0) }
+        }
+        return state
+    }
+
+    /// The window as it opens with today's Spaces. Its Space is the saved
+    /// one, else the first Space of its profile (a version 2 window), else
+    /// the first Space; `profileID` becomes that Space's. A tab whose
+    /// Space is gone (or that has none: version 2) joins the window's
+    /// Space; a pin or favorite link that no longer resolves in the tab's
+    /// Space becomes a Today tab. Selections of other Spaces keep only
+    /// tabs still in that Space. Unchanged when there are no Spaces.
+    func placedInSpaces(_ list: BrowserSpaceList) -> BrowserWindowState {
+        guard let home = currentSpaceID.flatMap(list.space(id:))
+            ?? list.firstSpace(ofProfile: profileID)
+            ?? list.spaces.first
+        else { return self }
+        var state = self
+        state.currentSpaceID = home.id
+        state.profileID = home.profileID
+        for index in state.tabs.indices {
+            let space = state.tabs[index].spaceID.flatMap(list.space(id:)) ?? home
+            state.tabs[index].spaceID = space.id
+            state.tabs[index].origin = Self.origin(state.tabs[index].origin, in: space, list: list)
+        }
+        var seen: Set<UUID> = []
+        state.spaceSelections = spaceSelections.filter { selection in
+            state.tabs.indices.contains(selection.index)
+                && state.tabs[selection.index].spaceID == selection.spaceID
+                && seen.insert(selection.spaceID).inserted
+        }
+        return state
+    }
+
+    private static func origin(_ origin: BrowserTabOrigin, in space: BrowserSpace, list: BrowserSpaceList) -> BrowserTabOrigin {
+        switch origin {
+        case .today:
+            return .today
+        case let .pinned(id):
+            return space.pinned.node(id: id)?.pin == nil ? .today : origin
+        case let .favorite(id):
+            return list.favorites(ofProfile: space.profileID).item(id: id) == nil ? .today : origin
+        }
     }
 }
 

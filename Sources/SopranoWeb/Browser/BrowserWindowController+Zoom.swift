@@ -5,7 +5,7 @@ extension BrowserWindowController {
     // MARK: - Per-site zoom
 
     /// ⌘+ (and Vimium `zi`): the selected page's site one step larger, in
-    /// every tab of that site that reads this window's site decisions.
+    /// every tab of that site that reads the tab's profile's site decisions.
     func zoomIn() {
         guard let tab = selectedTab else { return }
         setZoom(BrowserZoom.zoomedIn(from: tab.zoom), for: tab)
@@ -22,27 +22,28 @@ extension BrowserWindowController {
     func resetZoom() {
         guard let tab = selectedTab else { return }
         if let key = BrowserSitePermissionStore.siteKey(for: tab.webView.url) {
-            sitePermissions.setZoom(nil, host: key)
+            tab.dataContext.sitePermissions.setZoom(nil, host: key)
         }
         apply(zoom: settingsStore.settings.defaultZoom, to: tab)
     }
 
-    /// Remembers `zoom` for the tab's site (a zoom equal to the default is
-    /// forgotten) and applies it. The site decisions notify every window of
-    /// the profile, whose tabs of the site follow (`applySiteZooms`); a page
-    /// without a site keeps the zoom until its next page.
+    /// Remembers `zoom` for the tab's site in its profile (a zoom equal to
+    /// the default is forgotten) and applies it. The site decisions notify
+    /// every window with tabs of the profile, whose tabs of the site follow
+    /// (`applySiteZooms`); a page without a site keeps the zoom until its
+    /// next page.
     private func setZoom(_ zoom: Double, for tab: BrowserTab) {
         if let key = BrowserSitePermissionStore.siteKey(for: tab.webView.url) {
             let isDefault = BrowserZoom.isSame(zoom, settingsStore.settings.defaultZoom)
-            sitePermissions.setZoom(isDefault ? nil : zoom, host: key)
+            tab.dataContext.sitePermissions.setZoom(isDefault ? nil : zoom, host: key)
         }
         apply(zoom: zoom, to: tab)
     }
 
-    /// The zoom a page at `url` opens with: its site's remembered zoom, else
-    /// the default page zoom.
-    func siteZoom(for url: URL?) -> Double {
-        BrowserSitePermissionStore.siteKey(for: url).flatMap { sitePermissions.zoom(host: $0) }
+    /// The zoom `tab`'s page at `url` opens with: its site's remembered
+    /// zoom in the tab's profile, else the default page zoom.
+    func siteZoom(for url: URL?, in tab: BrowserTab) -> Double {
+        BrowserSitePermissionStore.siteKey(for: url).flatMap { tab.dataContext.sitePermissions.zoom(host: $0) }
             ?? settingsStore.settings.defaultZoom
     }
 
@@ -52,7 +53,7 @@ extension BrowserWindowController {
         for tab in tabs where !tab.isRestorePending {
             let url = tab.webView.url
             guard tab.isStartPage || BrowserSitePermissionStore.siteKey(for: url) != nil else { continue }
-            apply(zoom: siteZoom(for: url), to: tab)
+            apply(zoom: siteZoom(for: url, in: tab), to: tab)
         }
     }
 
