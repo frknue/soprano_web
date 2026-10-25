@@ -8,6 +8,7 @@ final class MainMenuController: NSObject, NSMenuItemValidation {
     private var shareUpdater: ShareMenuUpdater?
     private var recentlyClosedUpdater: RecentlyClosedMenuUpdater?
     private var profileWindowUpdater: ProfileWindowMenuUpdater?
+    private(set) var bookmarksMenu: BrowserBookmarksMenu?
     /// File ▸ New Window With Profile, shown while more than one profile
     /// exists.
     private var profileWindowItem: NSMenuItem?
@@ -30,7 +31,9 @@ final class MainMenuController: NSObject, NSMenuItemValidation {
         profileWindowItem?.isHidden = !(windowManager()?.profiles.hasSeveral ?? false)
     }
 
-    private func buildMenu() -> NSMenu {
+    /// The main menu; `install` makes it the app's (the harness only reads
+    /// it).
+    func buildMenu() -> NSMenu {
         let main = NSMenu()
 
         let appMenu = NSMenu(title: "Soprano Web")
@@ -144,7 +147,6 @@ final class MainMenuController: NSObject, NSMenuItemValidation {
 
         let historyMenu = NSMenu(title: "History")
         historyMenu.addItem(item("Show All History", #selector(showHistory), "y"))
-        historyMenu.addItem(item("Show Bookmarks", #selector(showBookmarks), "b", [.command, .option]))
         historyMenu.addItem(item("Show Downloads", #selector(showDownloads), "l", [.command, .option]))
         historyMenu.addItem(.separator())
         let recentlyClosed = NSMenu(title: "Recently Closed")
@@ -160,6 +162,8 @@ final class MainMenuController: NSObject, NSMenuItemValidation {
 
         let bookmarkMenu = NSMenu(title: "Bookmarks")
         bookmarkMenu.addItem(item("Bookmark This Page", #selector(bookmark), "d"))
+        bookmarkMenu.addItem(item("Show Bookmarks", #selector(showBookmarks), "b", [.command, .option]))
+        bookmarksMenu = BrowserBookmarksMenu(menu: bookmarkMenu, windowManager: windowManager)
         add(bookmarkMenu, to: main)
 
         let windowMenu = NSMenu(title: "Window")
@@ -256,7 +260,9 @@ final class MainMenuController: NSObject, NSMenuItemValidation {
         case #selector(mergeAllWindows):
             return manager.tabbedController.map { !manager.mergeSources(into: $0).isEmpty } ?? false
         case #selector(bookmark):
-            return controller.selectedTab.map { !$0.isStartPage && $0.webView.url != nil } ?? false
+            guard let tab = controller.selectedTab, !tab.isStartPage, let url = tab.webView.url else { return false }
+            menuItem.title = controller.bookmarks.isBookmarked(url.absoluteString) ? "Edit Bookmark" : "Bookmark This Page"
+            return true
         case #selector(printPage), #selector(exportPDF), #selector(saveAs):
             return controller.canUsePageTools
         case #selector(stop):
@@ -394,7 +400,7 @@ final class MainMenuController: NSObject, NSMenuItemValidation {
     }
 
     @objc private func bookmark() {
-        controller()?.toggleBookmark()
+        controller()?.bookmarkCurrentPage()
     }
 
     @objc private func nextTab() {

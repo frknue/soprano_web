@@ -48,6 +48,7 @@ enum SnapshotCommand {
         var captureStatus: BrowserCaptureStatus?
         var pageTools = SnapshotPageTools.Options()
         var privacy = PrivacyOptions()
+        var bookmarks = BookmarkOptions()
     }
 
     enum OptionError: Error, CustomStringConvertible {
@@ -84,6 +85,7 @@ enum SnapshotCommand {
                                [--capture camera|microphone|camera-muted-mic|microphone-muted]
     \(SnapshotPageTools.usage)
     \(privacyUsage)
+    \(bookmarksUsage)
     """
 
     nonisolated static func parse(_ arguments: [String]) throws -> Options {
@@ -220,7 +222,9 @@ enum SnapshotCommand {
             case _ where SnapshotPageTools.flags.contains(option):
                 SnapshotPageTools.parse(option, try value(option), into: &options.pageTools)
             default:
-                guard try parsePrivacy(option, value: { try value(option) }, into: &options.privacy) else {
+                guard try parseBookmarks(option, value: { try value(option) }, into: &options.bookmarks)
+                    || parsePrivacy(option, value: { try value(option) }, into: &options.privacy)
+                else {
                     throw OptionError.unknownOption(option)
                 }
             }
@@ -276,7 +280,12 @@ enum SnapshotCommand {
             settingsStore.update { $0.autoplay = autoplay }
         }
         let themeManager = ThemeManager(themeId: options.theme, appearance: .system)
-        let bookmarks = BrowserBookmarkStore(url: temp.appendingPathComponent("bookmarks.json"))
+        let bookmarksURL = temp.appendingPathComponent("bookmarks.json")
+        prepareBookmarksFile(options.bookmarks, at: bookmarksURL)
+        let bookmarks = BrowserBookmarkStore(url: bookmarksURL)
+        if options.bookmarks.seedTree {
+            seedBookmarkTree(bookmarks)
+        }
         let downloads = BrowserDownloadStore(url: temp.appendingPathComponent("downloads.json"))
         let profiles = BrowserProfileStore(url: temp.appendingPathComponent("profiles.json"))
         // `--add-profile`: the profiles exist before any window opens.
@@ -392,11 +401,7 @@ enum SnapshotCommand {
             if history.visitCount() == 0 {
                 history.importVisits(Self.seededHistory(now: Date()))
             }
-            if bookmarks.bookmarks.isEmpty {
-                bookmarks.toggle(url: "https://example.com", title: "Example Domain")
-                bookmarks.toggle(url: "https://webkit.org", title: "WebKit")
-                bookmarks.toggle(url: "https://developer.apple.com/documentation/webkit", title: "WebKit Documentation")
-            }
+            seedBookmarkTree(bookmarks)
             if downloads.records.isEmpty, !options.session.startsDownloads {
                 let finished = downloads.begin(
                     url: "https://example.com/files/report.pdf",
@@ -415,6 +420,9 @@ enum SnapshotCommand {
                 downloads.updateProgress(id: active.id, fraction: 0.42)
             }
             controller.showSidebar(section: section)
+        }
+        if options.bookmarks.isActive {
+            runBookmarkScenario(options.bookmarks, controller: controller)
         }
         if options.showFind {
             controller.showFindBar()
@@ -531,6 +539,7 @@ enum SnapshotCommand {
         if options.printTabs {
             printTabs(controller)
         }
+        let bookmarkPopover = makeBookmarkPopover(options.bookmarks, controller: controller)
 
         let captureWindow: NSWindow
         let privacySheet = makePrivacySheet(options.privacy, controller: controller)
@@ -622,6 +631,15 @@ enum SnapshotCommand {
             let image = NSImage(size: dropdown.bounds.size)
             image.addRepresentation(rep)
             image.draw(in: dropdown.convert(dropdown.bounds, to: captureContent))
+        }
+        if let bookmarkPopover, bookmarkPopover.window === captureWindow,
+           let rep = bookmarkPopover.bitmapImageRepForCachingDisplay(in: bookmarkPopover.bounds)
+        {
+            // The popover hangs over the page, which is drawn after the chrome.
+            bookmarkPopover.cacheDisplay(in: bookmarkPopover.bounds, to: rep)
+            let image = NSImage(size: bookmarkPopover.bounds.size)
+            image.addRepresentation(rep)
+            image.draw(in: bookmarkPopover.convert(bookmarkPopover.bounds, to: captureContent))
         }
         if options.showSheet {
             drawAttachedSheet(of: window, in: captureContent)

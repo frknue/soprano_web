@@ -69,6 +69,8 @@ final class BrowserWindowController: NSWindowController {
     var vimiumFindActive = false
     lazy var vimiumPromptPanel = VimiumPromptPanel(theme: theme)
     lazy var vimiumTextPanel = VimiumTextPanel(theme: theme)
+    /// ⌘D's popover and the sidebar's bookmark editor.
+    lazy var bookmarkEditorPanel = BrowserBookmarkEditorPanel()
     var vimiumToastView: NSView?
     var popupBlockedControl: ChromeButton?
 
@@ -105,6 +107,7 @@ final class BrowserWindowController: NSWindowController {
             theme: theme,
             history: dataContext.history,
             bookmarks: manager.bookmarks,
+            bookmarkState: manager.bookmarkUIState,
             downloads: manager.downloads
         )
         self.hairline = ChromeRuleView(axis: .horizontal, color: theme.colors.borderSubtle)
@@ -337,7 +340,7 @@ final class BrowserWindowController: NSWindowController {
         toolbar.onToggleVerticalSidebar = { [weak self] in self?.toggleVerticalSidebar() }
 
         toolbar.onSubmit = { [weak self] value in self?.submitAddress(value) }
-        toolbar.onBookmark = { [weak self] in self?.toggleBookmark() }
+        toolbar.onBookmark = { [weak self] in self?.starPressed() }
         toolbar.onDownloads = { [weak self] in self?.toggleSidebar(section: .downloads) }
         toolbar.onSecurityInfo = { [weak self] in self?.showConnectionInfo() }
         toolbar.onSidebar = { [weak self] in
@@ -358,7 +361,14 @@ final class BrowserWindowController: NSWindowController {
         sidebar.onOpenFile = { [weak self] path in self?.openFile(path) }
         sidebar.onRevealFile = { [weak self] path in self?.revealFile(path) }
         sidebar.onRemoveHistory = { [weak self] url in self?.history.removePage(url: url) }
-        sidebar.onRemoveBookmark = { [weak self] id in self?.bookmarks.remove(id: id) }
+        sidebar.onOpenURLInNewTab = { [weak self] url in self?.newTab(url: url) }
+        sidebar.onOpenFolderInTabs = { [weak self] id in self?.openBookmarkFolderInTabs(id) }
+        sidebar.onNewBookmarkFolder = { [weak self] parent, index in self?.newBookmarkFolder(in: parent, at: index) }
+        sidebar.onEditBookmarkNode = { [weak self] id in self?.editBookmarkNodeFromSidebar(id) }
+        sidebar.onDeleteBookmarkNode = { [weak self] id in self?.deleteBookmarkNode(id) }
+        sidebar.onMoveBookmarkNode = { [weak self] id, folder, index in
+            self?.bookmarks.move(id, to: folder, at: index)
+        }
         sidebar.onRemoveDownload = { [weak self] id in self?.downloads.remove(id: id) }
         sidebar.onCancelDownload = { [weak self] id in self?.cancelDownload(id: id) }
         sidebar.onResumeDownload = { [weak self] id in self?.resumeDownload(id: id) }

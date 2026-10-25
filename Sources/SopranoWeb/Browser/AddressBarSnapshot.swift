@@ -46,9 +46,15 @@ enum AddressBarSnapshot {
                 history.record(url: address, title: title, at: date, kind: visit < typed ? .typed : .link)
             }
         }
-        bookmarks.toggle(url: "https://github.com/frknue/soprano_web", title: "Soprano Web")
+        if !bookmarks.isBookmarked("https://github.com/frknue/soprano_web") {
+            bookmarks.addBookmark(url: "https://github.com/frknue/soprano_web", title: "Soprano Web")
+        }
         print("address-history: \(history.pageCount()) pages, \(history.visitCount()) visits in \(history.databaseURL.lastPathComponent)")
-        bookmarks.toggle(url: "https://developer.apple.com/documentation/webkit", title: "WebKit Documentation")
+        // Inside a folder: suggestions see every bookmark in every folder.
+        if !bookmarks.isBookmarked("https://developer.apple.com/documentation/webkit") {
+            let docs = bookmarks.addFolder(name: "Docs")
+            bookmarks.addBookmark(url: "https://developer.apple.com/documentation/webkit", title: "WebKit Documentation", to: docs.id)
+        }
 
         controller.focusAddressBar()
         settle(0.1)

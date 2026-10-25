@@ -80,7 +80,7 @@ struct BrowserPrivateWindowTests {
         let html = BrowserStartPage.html(
             theme: .folioInk,
             settings: BrowserSettings(searchEngine: .duckDuckGo),
-            bookmarks: [],
+            bookmarks: BrowserBookmarkTree(),
             history: history,
             kind: .private
         )

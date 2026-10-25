@@ -82,4 +82,13 @@ struct MainMenuTests {
         #expect(item?.submenu != nil)
         #expect(item?.isHidden == true)
     }
+
+    @Test func bookmarksMenuStartsWithItsCommands() {
+        _ = NSApplication.shared
+        let menu = MainMenuController { nil }
+        let bookmarks = menu.buildMenu().item(withTitle: "Bookmarks")?.submenu
+        #expect(bookmarks?.items.map(\.title) == ["Bookmark This Page", "Show Bookmarks"])
+        #expect(bookmarks?.items.first?.keyEquivalent == "d")
+        #expect(bookmarks?.items.last?.keyEquivalentModifierMask == [.command, .option])
+    }
 }

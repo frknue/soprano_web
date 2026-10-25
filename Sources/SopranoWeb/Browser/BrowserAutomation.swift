@@ -85,10 +85,10 @@ extension BrowserWindowController {
                 id: "bookmark",
                 icon: "star",
                 label: "Bookmark This Page",
-                description: "Add or remove the page from bookmarks",
+                description: "Add the page to bookmarks, or edit its bookmark",
                 shortcut: ["⌘D"]
             ) { [weak self] in
-                self?.toggleBookmark()
+                self?.bookmarkCurrentPage()
             },
             CommandItem(
                 id: "history",

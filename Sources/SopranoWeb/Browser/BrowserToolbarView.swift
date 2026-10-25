@@ -259,16 +259,19 @@ final class BrowserToolbarView: NSView, NSTextFieldDelegate {
     func setBookmarked(_ bookmarked: Bool) {
         bookmarkButton.setSymbol(
             bookmarked ? "star.fill" : "star",
-            accessibilityLabel: bookmarked ? "Remove Bookmark" : "Bookmark This Page",
+            accessibilityLabel: bookmarked ? "Edit Bookmark" : "Bookmark This Page",
             pointSize: 12
         )
         bookmarkButton.isToggledOn = bookmarked
-        bookmarkButton.toolTip = bookmarked ? "Remove bookmark (⌘D)" : "Bookmark this page (⌘D)"
+        bookmarkButton.toolTip = bookmarked ? "Edit bookmark (⌘D)" : "Bookmark this page (⌘D)"
     }
 
     func setBookmarkEnabled(_ enabled: Bool) {
         bookmarkButton.isEnabled = enabled
     }
+
+    /// The star, which the bookmark popover hangs from.
+    var bookmarkAnchor: NSView { bookmarkButton }
 
     func setProgress(_ progress: Double, isLoading: Bool) {
         progressBar.progress = max(0, min(1, progress))

@@ -34,14 +34,18 @@ enum BrowserSidebarRow {
     /// A day header in History ("Today", "Yesterday", …).
     case day(String)
     case history(BrowserHistoryVisit)
-    case bookmark(BrowserBookmark)
+    /// A folder or bookmark of the Bookmarks outline.
+    case bookmarkNode(BrowserBookmarkOutline.Row)
+    /// A bookmark matching the search, shown with its folder path.
+    case bookmarkMatch(BrowserBookmarkEntry)
     case download(BrowserDownloadRecord)
 
     var url: String? {
         switch self {
         case .day: nil
         case let .history(visit): visit.url
-        case let .bookmark(bookmark): bookmark.url
+        case let .bookmarkNode(row): row.node.bookmark?.url
+        case let .bookmarkMatch(entry): entry.bookmark.url
         case let .download(download): download.url
         }
     }
@@ -50,12 +54,28 @@ enum BrowserSidebarRow {
         if case .day = self { return true }
         return false
     }
+
+    /// The bookmark or folder id of a Bookmarks row.
+    var bookmarkNodeID: UUID? {
+        switch self {
+        case let .bookmarkNode(row): row.node.id
+        case let .bookmarkMatch(entry): entry.bookmark.id
+        default: nil
+        }
+    }
+}
+
+extension NSPasteboard.PasteboardType {
+    /// A bookmark or folder dragged within the Bookmarks outline (its id).
+    static let sopranoBookmarkNode = NSPasteboard.PasteboardType("com.soprano.web.bookmark-node")
 }
 
 /// The right sidebar: history, bookmarks and downloads share one searchable
 /// list. It is deliberately one surface, not three panels. History is
 /// grouped by day and loads `historyPageSize` visits at a time as the list
-/// scrolls.
+/// scrolls. Bookmarks is an outline of folders (expanded state in
+/// `BrowserBookmarkUIState`) whose rows drag to reorder and move between
+/// folders; a search lists matching bookmarks flat with their folder path.
 @MainActor
 final class BrowserSidebarView: NSView, NSTableViewDataSource, NSTableViewDelegate,
     NSTextFieldDelegate, NSMenuDelegate
@@ -65,7 +85,18 @@ final class BrowserSidebarView: NSView, NSTableViewDataSource, NSTableViewDelega
     var onRevealFile: ((String) -> Void)?
     /// Removes every visit to the address.
     var onRemoveHistory: ((String) -> Void)?
-    var onRemoveBookmark: ((UUID) -> Void)?
+    /// Opens a bookmark in a new tab (sidebar menu).
+    var onOpenURLInNewTab: ((String) -> Void)?
+    /// Open All in Tabs on a folder.
+    var onOpenFolderInTabs: ((UUID) -> Void)?
+    /// New Folder in a folder at an index (nil: the end).
+    var onNewBookmarkFolder: ((_ parentID: UUID, _ index: Int?) -> Void)?
+    /// Edit Bookmark or Rename on a row; `anchorView(forBookmarkNode:)`
+    /// places the editor.
+    var onEditBookmarkNode: ((UUID) -> Void)?
+    var onDeleteBookmarkNode: ((UUID) -> Void)?
+    /// A dropped bookmark or folder: its id, the folder and index it goes to.
+    var onMoveBookmarkNode: ((_ id: UUID, _ folderID: UUID, _ index: Int) -> Void)?
     var onRemoveDownload: ((UUID) -> Void)?
     var onCancelDownload: ((UUID) -> Void)?
     var onResumeDownload: ((UUID) -> Void)?
@@ -91,6 +122,8 @@ final class BrowserSidebarView: NSView, NSTableViewDataSource, NSTableViewDelega
     private var footerTrailing: NSTextField?
     private var rows: [BrowserSidebarRow] = []
     private var contextRow = -1
+    /// The Bookmarks outline as shown (empty while searching).
+    private(set) var outlineRows: [BrowserBookmarkOutline.Row] = []
     /// History's loaded visits (newest first), the query they match and
     /// whether older ones remain.
     private var historyVisits: [BrowserHistoryVisit] = []
@@ -101,6 +134,7 @@ final class BrowserSidebarView: NSView, NSTableViewDataSource, NSTableViewDelega
 
     let history: BrowserHistoryStore
     let bookmarks: BrowserBookmarkStore
+    let bookmarkState: BrowserBookmarkUIState
     let downloads: BrowserDownloadStore
     /// A private window's data context: its own download rows are listed
     /// along with the saved ones.
@@ -110,11 +144,13 @@ final class BrowserSidebarView: NSView, NSTableViewDataSource, NSTableViewDelega
         theme: AppTheme,
         history: BrowserHistoryStore,
         bookmarks: BrowserBookmarkStore,
+        bookmarkState: BrowserBookmarkUIState,
         downloads: BrowserDownloadStore
     ) {
         self.theme = theme
         self.history = history
         self.bookmarks = bookmarks
+        self.bookmarkState = bookmarkState
         self.downloads = downloads
         self.searchFrame = ChromeFieldView(theme: theme)
         self.closeButton = ChromeIconButton(
@@ -197,9 +233,14 @@ final class BrowserSidebarView: NSView, NSTableViewDataSource, NSTableViewDelega
         tableView.addTableColumn(column)
         tableView.dataSource = self
         tableView.delegate = self
+        tableView.registerForDraggedTypes([.sopranoBookmarkNode])
+        tableView.setDraggingSourceOperationMask(.move, forLocal: true)
+        tableView.setDraggingSourceOperationMask([], forLocal: false)
 
         let menu = NSMenu()
         menu.delegate = self
+        // Open All in Tabs is disabled on an empty folder.
+        menu.autoenablesItems = false
         tableView.menu = menu
 
         scrollView.translatesAutoresizingMaskIntoConstraints = false
@@ -321,7 +362,13 @@ final class BrowserSidebarView: NSView, NSTableViewDataSource, NSTableViewDelega
         case .history:
             reloadHistory(query: query)
         case .bookmarks:
-            rows = bookmarks.matching(query).map(BrowserSidebarRow.bookmark)
+            if !isSearching {
+                outlineRows = BrowserBookmarkOutline.rows(bookmarks.tree, expanded: bookmarkState.expandedFolders)
+                rows = outlineRows.map(BrowserSidebarRow.bookmarkNode)
+            } else {
+                outlineRows = []
+                rows = bookmarks.matching(query).map(BrowserSidebarRow.bookmarkMatch)
+            }
         case .downloads:
             rows = downloads.matching(query, privateContextID: privateDownloadContextID).map(BrowserSidebarRow.download)
         }
@@ -346,8 +393,11 @@ final class BrowserSidebarView: NSView, NSTableViewDataSource, NSTableViewDelega
             footerButton.isEnabled = true
             footerButton.isHidden = false
         case .bookmarks:
-            countLabel.stringValue = "\(rows.count) \(rows.count == 1 ? "bookmark" : "bookmarks")"
-            footerButton.isHidden = true
+            let count = isSearching ? rows.count : bookmarks.entries.count
+            countLabel.stringValue = "\(count) \(count == 1 ? "bookmark" : "bookmarks")"
+            footerButton.title = "New Folder"
+            footerButton.isEnabled = !isSearching
+            footerButton.isHidden = false
         case .downloads:
             countLabel.stringValue = "\(rows.count) \(rows.count == 1 ? "download" : "downloads")"
             footerButton.title = "Clear Finished"
@@ -362,9 +412,116 @@ final class BrowserSidebarView: NSView, NSTableViewDataSource, NSTableViewDelega
         tableView.reloadData()
     }
 
+    private var isSearching: Bool {
+        !searchField.stringValue.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+    }
+
     /// Redraws the rows (favicons arrived) without querying again.
     func redisplayRows() {
         tableView.reloadData()
+    }
+
+    /// Types `text` into the search field (the harness).
+    func setSearchText(_ text: String) {
+        searchField.stringValue = text
+        refresh()
+    }
+
+    func controlTextDidChange(_ notification: Notification) {
+        guard (notification.object as? NSTextField) === searchField else { return }
+        refresh()
+    }
+
+    // MARK: - Bookmarks outline
+
+    func setFolderExpanded(_ id: UUID, _ expanded: Bool) {
+        bookmarkState.setExpanded(expanded, folder: id)
+        if section == .bookmarks {
+            refresh()
+        }
+    }
+
+    /// Expands every folder above `id` so its row shows.
+    func revealBookmarkNode(_ id: UUID) {
+        var current = id
+        while let location = bookmarks.tree.location(of: current), location.folderID != BrowserBookmarkTree.rootID {
+            bookmarkState.setExpanded(true, folder: location.folderID)
+            current = location.folderID
+        }
+        if section == .bookmarks {
+            refresh()
+            if let row = rows.firstIndex(where: { $0.bookmarkNodeID == id }) {
+                tableView.scrollRowToVisible(row)
+            }
+        }
+    }
+
+    /// The row view showing `id`, for the editor to hang from.
+    func anchorView(forBookmarkNode id: UUID) -> NSView? {
+        guard let row = rows.firstIndex(where: { $0.bookmarkNodeID == id }) else { return nil }
+        layoutSubtreeIfNeeded()
+        return tableView.view(atColumn: 0, row: row, makeIfNecessary: true)
+    }
+
+    /// Where a drop of `id` would land, or nil when it can't (a folder
+    /// into itself, on a bookmark, while searching).
+    func bookmarkDestination(for id: UUID, drop: BrowserBookmarkOutline.Drop) -> BrowserBookmarkOutline.Destination? {
+        guard section == .bookmarks, !isSearching,
+              let destination = BrowserBookmarkOutline.destination(for: drop, rows: outlineRows, tree: bookmarks.tree),
+              bookmarks.tree.canMove(id, into: destination.folderID)
+        else { return nil }
+        return destination
+    }
+
+    /// The drop handler: moves `id` where `drop` lands. The table's drop
+    /// and the harness's `--bookmark-drop` both come here.
+    @discardableResult
+    func performBookmarkDrop(_ id: UUID, drop: BrowserBookmarkOutline.Drop) -> Bool {
+        guard let destination = bookmarkDestination(for: id, drop: drop) else { return false }
+        onMoveBookmarkNode?(id, destination.folderID, destination.index)
+        return true
+    }
+
+    func tableView(_ tableView: NSTableView, pasteboardWriterForRow row: Int) -> NSPasteboardWriting? {
+        guard section == .bookmarks, rows.indices.contains(row), case let .bookmarkNode(outline) = rows[row] else {
+            return nil
+        }
+        let item = NSPasteboardItem()
+        item.setString(outline.node.id.uuidString, forType: .sopranoBookmarkNode)
+        return item
+    }
+
+    func tableView(
+        _ tableView: NSTableView,
+        validateDrop info: NSDraggingInfo,
+        proposedRow row: Int,
+        proposedDropOperation dropOperation: NSTableView.DropOperation
+    ) -> NSDragOperation {
+        guard let id = draggedBookmarkID(info) else { return [] }
+        var drop: BrowserBookmarkOutline.Drop = dropOperation == .on ? .on(row) : .above(row)
+        if dropOperation == .on, outlineRows.indices.contains(row), !outlineRows[row].node.isFolder {
+            // On a bookmark: the gap above it.
+            tableView.setDropRow(row, dropOperation: .above)
+            drop = .above(row)
+        }
+        return bookmarkDestination(for: id, drop: drop) == nil ? [] : .move
+    }
+
+    func tableView(
+        _ tableView: NSTableView,
+        acceptDrop info: NSDraggingInfo,
+        row: Int,
+        dropOperation: NSTableView.DropOperation
+    ) -> Bool {
+        guard let id = draggedBookmarkID(info) else { return false }
+        return performBookmarkDrop(id, drop: dropOperation == .on ? .on(row) : .above(row))
+    }
+
+    private func draggedBookmarkID(_ info: NSDraggingInfo) -> UUID? {
+        guard (info.draggingSource as? NSTableView) === tableView,
+              let text = info.draggingPasteboard.string(forType: .sopranoBookmarkNode)
+        else { return nil }
+        return UUID(uuidString: text)
     }
 
     /// The first page of visits, or as many as were loaded when the query
@@ -435,6 +592,17 @@ final class BrowserSidebarView: NSView, NSTableViewDataSource, NSTableViewDelega
             header.configure(title: title, theme: theme)
             return header
         }
+        if case let .bookmarkNode(outline) = rows[row] {
+            let identifier = NSUserInterfaceItemIdentifier("BrowserBookmarkOutlineRow")
+            let cell = tableView.makeView(withIdentifier: identifier, owner: self) as? BrowserBookmarkOutlineCellView
+                ?? BrowserBookmarkOutlineCellView(theme: theme)
+            cell.identifier = identifier
+            cell.configure(row: outline, theme: theme, favicon: outline.node.bookmark.flatMap { faviconProvider?($0.url) })
+            let id = outline.node.id
+            let expanded = outline.isExpanded
+            cell.onToggle = { [weak self] in self?.setFolderExpanded(id, !expanded) }
+            return cell
+        }
         let identifier = NSUserInterfaceItemIdentifier("BrowserSidebarRow")
         let cell = tableView.makeView(withIdentifier: identifier, owner: self) as? BrowserSidebarCellView
             ?? BrowserSidebarCellView(theme: theme)
@@ -452,7 +620,11 @@ final class BrowserSidebarView: NSView, NSTableViewDataSource, NSTableViewDelega
     }
 
     func tableView(_ tableView: NSTableView, heightOfRow row: Int) -> CGFloat {
-        rows[row].isDay ? 30 : tableView.rowHeight
+        switch rows[row] {
+        case .day: 30
+        case .bookmarkNode: BrowserBookmarkOutlineCellView.rowHeight
+        default: tableView.rowHeight
+        }
     }
 
     @objc private func openClickedRow() {
@@ -467,8 +639,13 @@ final class BrowserSidebarView: NSView, NSTableViewDataSource, NSTableViewDelega
             break
         case let .history(visit):
             onOpenURL?(visit.url)
-        case let .bookmark(bookmark):
-            onOpenURL?(bookmark.url)
+        case let .bookmarkNode(outline):
+            switch outline.node {
+            case let .bookmark(bookmark): onOpenURL?(bookmark.url)
+            case let .folder(folder): setFolderExpanded(folder.id, !outline.isExpanded)
+            }
+        case let .bookmarkMatch(entry):
+            onOpenURL?(entry.bookmark.url)
         case let .download(download):
             if download.state == .completed, let path = download.path {
                 onOpenFile?(path)
@@ -496,7 +673,7 @@ final class BrowserSidebarView: NSView, NSTableViewDataSource, NSTableViewDelega
         case .downloads:
             onClear?(.downloads)
         case .bookmarks:
-            break
+            onNewBookmarkFolder?(BrowserBookmarkTree.rootID, 0)
         }
     }
 
@@ -505,7 +682,12 @@ final class BrowserSidebarView: NSView, NSTableViewDataSource, NSTableViewDelega
     func menuNeedsUpdate(_ menu: NSMenu) {
         menu.removeAllItems()
         contextRow = tableView.clickedRow
-        guard contextRow >= 0, contextRow < rows.count else { return }
+        guard contextRow >= 0, contextRow < rows.count else {
+            if section == .bookmarks, !isSearching {
+                menu.addItem(item("New Folder", #selector(menuNewFolder)))
+            }
+            return
+        }
         let row = rows[contextRow]
 
         switch row {
@@ -516,11 +698,26 @@ final class BrowserSidebarView: NSView, NSTableViewDataSource, NSTableViewDelega
             menu.addItem(item("Copy Link", #selector(menuCopyLink)))
             menu.addItem(.separator())
             menu.addItem(item("Remove from History", #selector(menuRemove)))
-        case .bookmark:
+        case let .bookmarkNode(outline) where outline.node.isFolder:
+            let open = item("Open All in Tabs", #selector(menuOpenAll))
+            open.isEnabled = !(outline.node.folder?.allBookmarks.isEmpty ?? true)
+            menu.addItem(open)
+            menu.addItem(.separator())
+            menu.addItem(item("Rename…", #selector(menuEditBookmark)))
+            menu.addItem(item("New Folder", #selector(menuNewFolder)))
+            menu.addItem(.separator())
+            menu.addItem(item("Delete", #selector(menuRemove)))
+        case .bookmarkNode, .bookmarkMatch:
             menu.addItem(item("Open", #selector(menuOpen)))
+            menu.addItem(item("Open in New Tab", #selector(menuOpenInNewTab)))
             menu.addItem(item("Copy Link", #selector(menuCopyLink)))
             menu.addItem(.separator())
-            menu.addItem(item("Remove Bookmark", #selector(menuRemove)))
+            menu.addItem(item("Edit Bookmark…", #selector(menuEditBookmark)))
+            if case .bookmarkNode = row {
+                menu.addItem(item("New Folder", #selector(menuNewFolder)))
+            }
+            menu.addItem(.separator())
+            menu.addItem(item("Delete", #selector(menuRemove)))
         case let .download(download):
             if download.state == .completed, download.path != nil {
                 menu.addItem(item("Open", #selector(menuOpen)))
@@ -550,6 +747,35 @@ final class BrowserSidebarView: NSView, NSTableViewDataSource, NSTableViewDelega
     @objc private func menuOpen() {
         guard contextRow >= 0, contextRow < rows.count else { return }
         open(rows[contextRow])
+    }
+
+    @objc private func menuOpenInNewTab() {
+        guard contextRow >= 0, contextRow < rows.count, let url = rows[contextRow].url else { return }
+        onOpenURLInNewTab?(url)
+    }
+
+    @objc private func menuOpenAll() {
+        guard contextRow >= 0, contextRow < rows.count, let id = rows[contextRow].bookmarkNodeID else { return }
+        onOpenFolderInTabs?(id)
+    }
+
+    @objc private func menuEditBookmark() {
+        guard contextRow >= 0, contextRow < rows.count, let id = rows[contextRow].bookmarkNodeID else { return }
+        onEditBookmarkNode?(id)
+    }
+
+    /// In a folder row: first inside it. After a bookmark row: next to it.
+    /// Elsewhere: at the end of the top level.
+    @objc private func menuNewFolder() {
+        guard contextRow >= 0, contextRow < rows.count, case let .bookmarkNode(outline) = rows[contextRow] else {
+            onNewBookmarkFolder?(BrowserBookmarkTree.rootID, nil)
+            return
+        }
+        if outline.node.isFolder {
+            onNewBookmarkFolder?(outline.node.id, 0)
+        } else {
+            onNewBookmarkFolder?(outline.folderID, outline.index + 1)
+        }
     }
 
     @objc private func menuCopyLink() {
@@ -589,8 +815,10 @@ final class BrowserSidebarView: NSView, NSTableViewDataSource, NSTableViewDelega
             break
         case let .history(visit):
             onRemoveHistory?(visit.url)
-        case let .bookmark(bookmark):
-            onRemoveBookmark?(bookmark.id)
+        case .bookmarkNode, .bookmarkMatch:
+            if let id = rows[contextRow].bookmarkNodeID {
+                onDeleteBookmarkNode?(id)
+            }
         case let .download(download):
             onRemoveDownload?(download.id)
         }
@@ -698,8 +926,9 @@ private final class BrowserSidebarCellView: NSTableCellView {
     func configure(row: BrowserSidebarRow, theme: AppTheme, favicon: NSImage? = nil) {
         apply(theme: theme)
         setAction(nil)
+        toolTip = nil
         switch row {
-        case .day:
+        case .day, .bookmarkNode:
             break
         case let .history(visit):
             iconView.image = favicon ?? symbol("clock")
@@ -707,11 +936,14 @@ private final class BrowserSidebarCellView: NSTableCellView {
             subtitleLabel.stringValue = visit.url
             // The day header says which day; the row says when.
             dateLabel.stringValue = visit.visitedAt.formatted(date: .omitted, time: .shortened)
-        case let .bookmark(bookmark):
+        case let .bookmarkMatch(entry):
             iconView.image = favicon ?? symbol("bookmark")
-            titleLabel.stringValue = bookmark.displayTitle
-            subtitleLabel.stringValue = bookmark.url
-            dateLabel.stringValue = Self.date(bookmark.addedAt)
+            titleLabel.stringValue = entry.bookmark.displayTitle
+            // A search shows where each match sits.
+            subtitleLabel.stringValue = entry.pathText
+            dateLabel.stringValue = Self.date(entry.bookmark.addedAt)
+            progressBar.isHidden = true
+            toolTip = entry.bookmark.url
         case let .download(download):
             iconView.image = symbol(download.state == .completed ? "doc" : "arrow.down.circle")
             titleLabel.stringValue = download.filename

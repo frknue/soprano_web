@@ -72,6 +72,8 @@ final class BrowserWindowManager {
     let persistsSession: Bool
     let placement: BrowserWindowPlacement
     let defaults: UserDefaults
+    /// Expanded sidebar folders and ⌘D's last folder, for every window.
+    let bookmarkUIState: BrowserBookmarkUIState
     /// Theme changes for every window (`ThemeManager` has one callback).
     let themeChanges = BrowserObservers<AppTheme>()
 
@@ -126,6 +128,7 @@ final class BrowserWindowManager {
         self.persistsSession = persistsSession
         self.placement = placement
         self.defaults = defaults
+        self.bookmarkUIState = BrowserBookmarkUIState(defaults: defaults)
         let defaultHistory = BrowserHistoryStore(directory: supportDirectory)
         self.defaultContext = BrowserDataContext(
             kind: .normal,
@@ -553,7 +556,7 @@ final class BrowserWindowManager {
         return BrowserStartPage.html(
             theme: kind.isPrivate ? .folioInk : themeManager.currentTheme,
             settings: settingsStore.settings,
-            bookmarks: bookmarks.bookmarks,
+            bookmarks: bookmarks.tree,
             history: kind.suggestsHistory ? context.history.recentPages(limit: BrowserStartPage.recentLimit) : [],
             kind: kind
         )

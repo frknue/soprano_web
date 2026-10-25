@@ -19,18 +19,18 @@ struct BrowserObserversTests {
         let firstWindow = store.changes.observe { first += 1 }
         let secondWindow = store.changes.observe { second += 1 }
 
-        store.toggle(url: "https://example.com", title: "Example")
+        let example = store.addBookmark(url: "https://example.com", title: "Example")
         #expect(first == 1)
         #expect(second == 1)
 
         firstWindow.cancel()
-        store.toggle(url: "https://webkit.org", title: "WebKit")
+        store.addBookmark(url: "https://webkit.org", title: "WebKit")
         #expect(first == 1)
         #expect(second == 2)
         #expect(store.changes.count == 1)
 
         secondWindow.cancel()
-        store.toggle(url: "https://example.com", title: "Example")
+        store.remove(id: example.id)
         #expect(second == 2)
         #expect(store.changes.count == 0)
     }
