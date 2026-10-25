@@ -126,11 +126,11 @@ app.
 - File ▸ New Private Window (`⇧⌘N`, also in the Dock menu). A private window
   and every tab and pop-up it opens share one cookie and site-data store that
   is never written to disk and goes away with the window; each private window
-  has its own. It records no history, no session and no favicon files; new
-  camera, microphone, notification, pop-up and external-app answers last only
-  for the window; its downloads are listed there while it is open but not
-  saved; certificate exceptions and client certificates chosen there stay in
-  it. Files you download are kept.
+  has its own. It records no history, no session and no favicon files; sites
+  in it can't send notifications; new camera, microphone, pop-up and
+  external-app answers last only for the window; its downloads are listed there
+  while it is open but not saved; certificate exceptions and client
+  certificates chosen there stay in it. Files you download are kept.
 - A private window always uses Folio Ink, whatever the theme, and shows
   **Private** in the tab rail header (or before the address field with
   horizontal tabs); its title starts with "Private — ".

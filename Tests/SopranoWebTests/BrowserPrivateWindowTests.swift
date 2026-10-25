@@ -15,6 +15,7 @@ struct BrowserPrivateWindowTests {
         #expect(normal.writesFavicons)
         #expect(normal.savesDownloadRecords)
         #expect(normal.suggestsHistory)
+        #expect(normal.allowsWebNotifications)
         #expect(normal.acceptsOutsideRequests)
 
         let hidden = BrowserWindowKind.private
@@ -25,6 +26,7 @@ struct BrowserPrivateWindowTests {
         #expect(!hidden.writesFavicons)
         #expect(!hidden.savesDownloadRecords)
         #expect(!hidden.suggestsHistory)
+        #expect(!hidden.allowsWebNotifications)
         #expect(!hidden.acceptsOutsideRequests)
     }
 

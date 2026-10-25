@@ -31,6 +31,10 @@ enum BrowserWindowKind: String, Sendable {
     /// The `browser` CLI lists and targets the window, and links from other
     /// apps may open in it.
     var acceptsOutsideRequests: Bool { !isPrivate }
+    /// Sites may ask to send notifications. Notification Center keeps its own
+    /// copy of every notification, so a private window answers "denied", as
+    /// Safari and Chrome do.
+    var allowsWebNotifications: Bool { !isPrivate }
 
     /// The window title for a page titled `title`.
     func windowTitle(_ title: String) -> String {

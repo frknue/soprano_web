@@ -50,11 +50,21 @@ extension BrowserWindowController {
         }
         contentController.removeAllUserScripts()
         kept.forEach(contentController.addUserScript)
+        let notifications = kind.allowsWebNotifications
         BrowserPermissionScripts.stateScripts(
             muted: tab.isMuted,
-            notificationStates: NotificationPermissionState.states(in: sitePermissions),
-            askingAllowed: settingsStore.settings.allowsNotificationRequests
+            notificationStates: notifications ? NotificationPermissionState.states(in: sitePermissions) : [:],
+            askingAllowed: notifications && settingsStore.settings.allowsNotificationRequests
         ).forEach(contentController.addUserScript)
+    }
+
+    /// The shim's `Notification.permission` for `host` in this window.
+    func notificationState(for host: String?) -> NotificationPermissionState {
+        guard kind.allowsWebNotifications, let host else { return .denied }
+        return NotificationPermissionState(
+            decision: sitePermissions.decision(.notifications, host: host),
+            askingAllowed: settingsStore.settings.allowsNotificationRequests
+        )
     }
 
     /// A remembered decision changed (a prompt answer or Settings ▸
@@ -68,16 +78,12 @@ extension BrowserWindowController {
     /// Re-applies remembered decisions and the notification setting to every
     /// tab; also called when settings change.
     func refreshPermissionStates() {
-        let asking = settingsStore.settings.allowsNotificationRequests
         for tab in tabs {
             refreshStateScripts(tab)
             guard !tab.isStartPage,
                   let host = BrowserSitePermissionStore.key(for: tab.webView.url)
             else { continue }
-            let state = NotificationPermissionState(
-                decision: sitePermissions.decision(.notifications, host: host),
-                askingAllowed: asking
-            )
+            let state = notificationState(for: host)
             tab.webView.evaluateJavaScript(
                 BrowserPermissionScripts.notificationCall("setPermission", [state.rawValue]),
                 in: nil,
@@ -234,16 +240,9 @@ extension BrowserWindowController {
     func handleNotificationRequest(body: [String: Any], tab: BrowserTab, frame: WKFrameInfo) {
         guard frame.isMainFrame, let id = body["id"] as? Int, id > 0 else { return }
         let waiter = BrowserPermissionsState.NotificationWaiter(tabID: tab.id, frame: frame, id: id)
-        guard let host = BrowserSitePermissionStore.key(for: frame.securityOrigin) else {
-            resolveNotificationRequests([waiter], state: .denied)
-            return
-        }
-        let asking = settingsStore.settings.allowsNotificationRequests
-        let state = NotificationPermissionState(
-            decision: sitePermissions.decision(.notifications, host: host),
-            askingAllowed: asking
-        )
-        guard state == .default else {
+        let host = BrowserSitePermissionStore.key(for: frame.securityOrigin)
+        let state = notificationState(for: host)
+        guard state == .default, let host else {
             resolveNotificationRequests([waiter], state: state)
             return
         }
@@ -307,7 +306,8 @@ extension BrowserWindowController {
                 in: .page
             )
         }
-        guard let host = BrowserSitePermissionStore.key(for: frame.securityOrigin),
+        guard kind.allowsWebNotifications,
+              let host = BrowserSitePermissionStore.key(for: frame.securityOrigin),
               sitePermissions.decision(.notifications, host: host) == .allow
         else {
             acknowledge(false)

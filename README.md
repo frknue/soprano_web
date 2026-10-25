@@ -221,8 +221,9 @@ you type to the search engine without cookies.
 Soprano Web saves and restores every window, moves tabs between them and has
 private windows. Deliberately not built yet: named profiles, Chrome/Safari
 extension installation, a password manager, and tab groups/sync. Web
-notifications work while their tab is open (no Web Push), and tab mute doesn't
-reach WebAudio. `docs/ROADMAP.md` lists what comes next and in which order;
+notifications work while their tab is open (no Web Push, and never in private
+windows), and tab mute doesn't reach WebAudio. `docs/ROADMAP.md` lists what
+comes next and in which order;
 `docs/ARC-PARITY.md` compares it with Arc. The engine decision is WebKit; see
 `AGENTS.md` for why and what would have to change before adding a second
 engine.
