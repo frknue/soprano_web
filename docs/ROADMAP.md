@@ -126,6 +126,32 @@ decision).
   slice's scope.
 - Content blocking: uBlock Origin Lite through `WKWebExtension` (loads and blocks on
   macOS 27), or `WKContentRuleList`s built from EasyList (150,000 rules per list).
+  **Decided (2026-10):** a built-in blocker on `WKContentRuleList`s now, which works
+  on macOS 14 and needs no extension runtime; uBlock Origin Lite stays a stage 4
+  option. **Built on `feat/stage-2` (blocker slice):** Settings ▸ Block ads and
+  trackers (on by default) downloads EasyList and EasyPrivacy from easylist.to at
+  runtime (nothing bundled), at first enable and when a week old (checked at launch
+  and daily, `ETag`/`If-Modified-Since`, text cached in `ContentBlocking/`),
+  converts them with our own MIT converter (network filters, `$third-party`,
+  `$domain`, resource types, `$match-case`, `$important`, `@@` exceptions with
+  `$document`/`$elemhide`/`$generichide` scoping, generic hiding batched into
+  `css-display-none` rules, `domain##`, `#@#`; every pattern checked against
+  WebKit's regex subset; ≤150,000 rules per list) and compiles them with
+  `WKContentRuleListStore(url:)` (recompiled only when the text changed; the old
+  lists stay active until the new ones compile; a rejected list is bisected). Launch
+  looks up the last compiled lists and never waits. Every tab of every window gets
+  them (private, pop-ups, tabs waking from sleep); the setting applies to new loads
+  without reloading. The lock's connection sheet has "Block ads on this site" (per
+  host and profile, a private window's in memory; reloads the site's tabs; listed in
+  Settings ▸ Websites): the tab's lists come off while its top-level page is on that
+  host, rather than a compiled exceptions list, because an exception only reaches its
+  own list (every EasyList/EasyPrivacy list would be recompiled, ~5–7 s each, per
+  switch). Measured on 2026-10-25: EasyList 85,952 filters → 66,956 rules (600
+  skipped), EasyPrivacy 56,408 → 56,330 (78 skipped), compiled in 6.7 s and 5.2 s
+  (download, conversion and compile, under `taskpolicy -b`), 72.9 MB on disk. Left:
+  a blocked-request count (WebKit has no public callback) and the filter types WebKit
+  can't express (`$csp`, `$redirect`, `$removeparam`, `$rewrite`, scriptlets,
+  procedural CSS), which uBlock Origin Lite would bring in stage 4.
 - Zoom remembered per site, plus a default zoom. **Built on `feat/stage-2` (sleep slice):**
   per host (not eTLD+1, as Safari and Chrome do) in the profile's `site-permissions.json`
   (a private window's overlay keeps changes in memory); ⌘+/⌘- in Safari's steps (50–300%)

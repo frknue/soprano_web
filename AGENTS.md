@@ -121,7 +121,21 @@ no linter or formatter; match surrounding style.
   running). Tabs made before the action loop (the first window's start tab)
   sit in the harness's undrained top-level autorelease pool, so their
   replaced web views stay alive; open tabs to sleep with `--cli "new-tab
-  <url>"`. Layer backgrounds
+  <url>"`. Content blocker flags: `--filter-list <url>` (repeatable; the
+  lists instead of EasyList and EasyPrivacy, named after the file — without
+  it the harness has no lists and never reaches the network), and the
+  actions `--blocker-update` (Update Now, waiting for the download and
+  compile; launch already starts one for lists never downloaded),
+  `--blocking on|off` (the Settings switch), `--site-blocking on|off` (opens
+  the lock's connection sheet on the selected tab and presses its "Block
+  ads on this site" switch) and `--print-blocker` (one JSON line: setting,
+  status, each list's validators, check/update times, filter and rule
+  counts, skipped filters by reason, compile seconds and list names, the
+  compiled files' size, and every tab of every window with its kind, pop-up
+  flag, lists attached, whether `.ad-banner` is hidden and whether an ad
+  script set `window.adBannerLoaded`). With `--support-dir` a second run
+  looks up the compiled lists and checks them with their `ETag`. Layer
+  backgrounds
   on views unhidden after first display may not appear in the cached AppKit
   pass; that is a harness limitation, not the app.
 - Verify real navigation and the agent surface against a running dev app:
@@ -279,6 +293,31 @@ no linter or formatter; match surrounding style.
   window, `navigate`). `BrowserWindowController+Zoom` — ⌘+/⌘-/⌘0 per site,
   `siteZoom(for:)` (applied on commit), `applySiteZooms` (store or default
   changed) and the address-field chip.
+- `Browser/BrowserFilterConverter.swift` — Adblock Plus / EasyList filters
+  to WebKit content rules (pure, our own MIT code): network filters and
+  options, `@@` exceptions (`$document`/`$elemhide`/`$generichide` become
+  `ignore-previous-rules` with `if-top-url` in the lists they apply to),
+  element hiding (generic selectors batched into `css-display-none` rules,
+  `domain##` with `if-domain`, `#@#`), and `BrowserFilterSkipReason` for
+  what WebKit can't express. Each network list ends with a rule that lets
+  top-level pages through. `BrowserContentRule.swift` — the rule, its JSON
+  and `BrowserRuleChunker` (≤150,000 rules per list, exceptions copied into
+  each list). `BrowserContentRuleRegex.swift` — the check every emitted
+  `url-filter`/`if-top-url` passes (WebKit's `URLFilterParser` subset).
+  `BrowserFilterLists.swift` — the sources (EasyList, EasyPrivacy), the
+  conditional fetcher and `content-blocking.json`.
+  `BrowserContentBlocker.swift` — the manager-owned blocker: launch looks
+  up the last compiled lists (`WKContentRuleListStore(url:)` in
+  `<support>/ContentBlocking/`), downloads when on and stale (7 days;
+  checked at launch and daily), recompiles only changed text under new
+  identifiers, bisects a list WebKit rejects (`compileBisecting`), and
+  publishes `activeLists` through `changes`. `BrowserWindowController+ContentBlocking`
+  — `applyContentBlocking(to:pageURL:)` (every new web view, then each
+  main-frame navigation, redirect and commit), `applyContentBlockingToTabs`
+  (setting and list changes: no reload; the site switch: reloads the
+  site's tabs) and the lock sheet's "Block ads on this site" accessory.
+  `BrowserContentBlockingPolicy` documents why a switched-off site loses
+  the lists per tab instead of getting a compiled exceptions list.
 - `Browser/BrowserPageScripts.swift` — every injected page script and the
   `sopranoWeb` message channel; messages are accepted only from the world (page or
   isolated) their type was written for.
@@ -370,3 +409,12 @@ drag session calls; a real-mouse drag between windows still needs a person at
 the Mac. A window whose address field was edited stays in memory after it
 closes (AppKit's `SPSafariPlatformSupport` keeps the last autofill control), so
 `--print-windows` reports it in `closedWindowsStillAlive`; its tabs are gone.
+
+The content blocker skips filters WebKit can't express (`$csp`,
+`$redirect`, `$removeparam`, `$rewrite`, scriptlets, procedural and extended
+CSS, snippets, HTML filters, `example.*` domains, regular expressions outside
+WebKit's subset; `content-blocking.json` counts them by reason) and shows no
+blocked-request count: WebKit has no public callback for blocked loads. A
+generic selector WebKit's CSS parser rejects drops its whole
+`css-display-none` batch silently (no compile error), so the converter
+refuses unknown pseudo-classes up front.

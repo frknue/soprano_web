@@ -196,6 +196,17 @@ app.
   field shows a site's zoom when it differs from the default; click it to
   reset. Settings ▸ Websites lists each site's zoom with Remove. Private
   windows keep zoom changes until they close.
+- A built-in ad and tracker blocker: Settings ▸ Block ads and trackers (on by
+  default) downloads EasyList and EasyPrivacy, keeps them up to date (checked
+  at launch and daily, downloaded again when a week old) and blocks their ads
+  and trackers in every tab of every window, private windows and pop-ups
+  included. The row shows the rule count and when the lists were last
+  updated, and Update Now checks right away. Turning it off or on applies to
+  new page loads; open pages don't reload.
+- Click the lock in the address bar ▸ Block ads on this site turns the blocker
+  off (or back on) for that site and reloads its open tabs. Settings ▸ Websites
+  lists those sites ("Ad blocking: Off") with Remove; private windows keep the
+  switch until they close, and each profile has its own.
 
 ### Changed
 - History lives in a SQLite database (`History.sqlite`) instead of

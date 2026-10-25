@@ -111,7 +111,8 @@ family, not notarized.
    items**: after one day, one week, two weeks, one month, one year — the
    default — or manually), **Default page zoom** (50–300%), **Put inactive
    tabs to sleep** (never, after 15 minutes, after 1 hour — the default — or
-   after 4 hours), downloads, autoplay, notifications, profiles
+   after 4 hours), downloads, autoplay, notifications, **Block ads and
+   trackers** (on by default, with Update Now), profiles
    (**Profiles**: add, rename, color, delete), per-site decisions
    (**Websites**), stored site data and the default browser. Websites and
    Website Data show the current window's profile and switch profiles with a
@@ -130,7 +131,42 @@ early. Tabs playing audio, using the camera, microphone or screen, loading,
 showing a prompt or holding unsaved input never sleep; right-click a tab ▸
 **Keep This Site Awake** to exempt a site (listed in Settings ▸ Websites).
 `⇧⌘B` toggles the sidebar. Click the lock in the address bar for the
-connection details and certificate.
+connection details and certificate, and for **Block ads on this site**.
+
+## Ad and tracker blocking
+
+Soprano Web blocks ads and trackers itself, with no extension: requests to ad
+and tracking servers (scripts, images, frames, pixels, beacons, pop-ups) never
+leave the browser, and ad slots on pages are hidden. The rules come from
+[EasyList](https://easylist.to/) (ads) and EasyPrivacy (trackers), which are
+downloaded from easylist.to at runtime — the app bundles none of their text
+(EasyList and EasyPrivacy are dual-licensed GPLv3 / CC BY-SA 3.0 by the
+EasyList authors). Soprano Web converts them with its own MIT-licensed
+converter into WebKit content rule lists (`WKContentRuleList`), which WebKit
+enforces in every tab of every window, private windows and pop-ups included.
+
+- **Settings ▸ Block ads and trackers** (on by default) downloads both lists
+  the first time it is on, checks them at launch and once a day, and
+  downloads them again when they are a week old (conditionally, so an
+  unchanged list costs one small request and no recompile). The row shows
+  the rule count and the last update; **Update Now** checks right away.
+  Turning it off or on applies to the next page loads; open pages don't
+  reload. Launch never waits for the network or a compile: the last compiled
+  lists are used until new ones are ready.
+- **Block ads on this site** (click the lock in the address bar) turns
+  blocking off for one site — per host and per profile; a private window keeps
+  it until it closes — and reloads that site's open tabs. Everything on those
+  pages loads, third-party requests and frames included. Settings ▸ Websites
+  lists such sites with Remove.
+
+WebKit can't express every filter: `$csp`, `$redirect`, `$removeparam` and
+`$rewrite` filters, uBlock Origin scriptlets (`##+js(…)`), procedural and
+extended CSS (`:-abp-has(…)`, `:has-text(…)`, `#?#`), snippets (`#$#`), HTML
+filters, `example.*` domains and regular-expression filters outside WebKit's
+subset (alternation, `{n}`, `\d`) are skipped (about 680 of roughly 142,000
+filters in October 2026). WebKit reports nothing about what it blocked, so there is
+no blocked-request count. uBlock Origin Lite through `WKWebExtension` stays a
+later option (`docs/ROADMAP.md` stage 4).
 
 ## Vimium keys
 
@@ -260,9 +296,16 @@ automation model, matching Soprano's browser pane.
   **Settings ▸ Remove history items** are removed from every profile at launch
   and once a day; a damaged database is kept as `History.sqlite.corrupt` and
   History starts over.
-- Per-site zoom and Keep This Site Awake are saved with the other site
-  decisions in the profile's `site-permissions.json` (`"zoom": "1.25"`,
-  `"keepAwake": "allow"`). A sleeping tab's snapshot stays in memory.
+- Per-site zoom, Keep This Site Awake and Block ads on this site are saved
+  with the other site decisions in the profile's `site-permissions.json`
+  (`"zoom": "1.25"`, `"keepAwake": "allow"`, `"contentBlocking": "deny"`). A
+  sleeping tab's snapshot stays in memory.
+- Ad and tracker blocking: `ContentBlocking/` in the support folder holds the
+  downloaded `easylist.txt` and `easyprivacy.txt`, `content-blocking.json`
+  (`ETag`/`Last-Modified`, check and update times, rule counts, skipped
+  filters by reason, the compiled list names) and WebKit's compiled lists
+  (`ContentRuleList-…`, about 70 MB for both lists). Deleting the folder makes
+  the app download and compile the lists again; one set serves every profile.
 - A private window writes none of these files: its cookies and site data live
   in a WebKit store that is never written to disk and goes with the window,
   its new site decisions, favicons, closed tabs and download list entries stay
@@ -284,14 +327,17 @@ The Dev build (`com.soprano.web.dev`) uses `Soprano Web Dev` and
 
 The `Settings ▸ Downloads` row shows the resolved path. History (SQLite) and
 bookmarks (JSON) are local; nothing leaves the machine. Search suggestions, when on, send what
-you type to the search engine without cookies.
+you type to the search engine without cookies. The blocker's only requests are
+the two list downloads from easylist.to, without cookies.
 
 ## Scope
 
 Soprano Web saves and restores every window, moves tabs between them and has
-private windows and profiles. Deliberately not built yet: Arc's Spaces (which
+private windows and profiles, and blocks ads and trackers with EasyList and
+EasyPrivacy. Deliberately not built yet: Arc's Spaces (which
 will pick a profile), per-profile extensions, Chrome/Safari
-extension installation, a password manager, and tab groups/sync. Web
+extension installation (uBlock Origin Lite among them), a password manager,
+and tab groups/sync. Web
 notifications work while their tab is open (no Web Push, and never in private
 windows), and tab mute doesn't reach WebAudio. `docs/ROADMAP.md` lists what
 comes next and in which order;
@@ -318,7 +364,11 @@ drop positions, paths, the last-used folder), what a private window keeps
 (site-decision overlay, in-memory favicons and downloads, suggestion sources,
 the tab-move rule), profiles (`profiles.json`, each profile's folder and data
 store, windows and closed tabs reopening in their profile, the move rule across
-profiles, `new-window --profile`) and every WebKit delegate selector (a nearly
+profiles, `new-window --profile`), the content blocker (the EasyList →
+WebKit converter for every filter syntax it takes and the skip reasons for
+the rest, the WebKit regular-expression check, list chunking, conditional
+downloads, recompiling only changed lists, bisecting a list WebKit rejects,
+the per-site switch) and every WebKit delegate selector (a nearly
 matching Swift signature is accepted by the compiler but never called by
 WebKit, so the selectors are checked directly).
 
