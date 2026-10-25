@@ -16,10 +16,46 @@ enum BrowserAutomationError: LocalizedError {
     }
 }
 
-struct BrowserCommandRequest: Equatable {
+struct BrowserCommandRequest: Codable, Equatable, Sendable {
+    static let defaultWaitTimeout: TimeInterval = 10
+    static let maxWaitTimeout: TimeInterval = 120
+    /// How long any other command may take in the app.
+    static let commandTimeout: TimeInterval = 15
+    static let waitKinds = ["selector", "url", "text"]
+
     let command: String
     let arguments: [String]
     let tabIndex: Int?
+    /// Seconds a `wait-for-load` or `wait-for` request may wait; nil otherwise.
+    let timeout: TimeInterval?
+
+    enum CodingKeys: String, CodingKey {
+        case command, arguments, timeout
+        case tabIndex = "tab"
+    }
+
+    init(command: String, arguments: [String], tabIndex: Int?, timeout: TimeInterval? = nil) {
+        self.command = command
+        self.arguments = arguments
+        self.tabIndex = tabIndex
+        self.timeout = timeout
+    }
+
+    /// The app answers with a timeout error after this long; a wait gets a
+    /// moment more so its own, more specific timeout message wins.
+    var serverTimeout: TimeInterval {
+        timeout.map { $0 + 2 } ?? Self.commandTimeout
+    }
+
+    /// The CLI gives up after this long; it follows the wait so a long
+    /// `--timeout` is not cut short by the CLI.
+    var clientTimeout: TimeInterval {
+        (timeout ?? Self.commandTimeout) + 5
+    }
+
+    static func seconds(_ value: TimeInterval) -> String {
+        String(format: "%g", value)
+    }
 
     static func parse(
         _ commandLine: [String],
@@ -61,24 +97,76 @@ struct BrowserCommandRequest: Equatable {
             ).appendingPathComponent(path).standardizedFileURL.path
         }
 
-        return BrowserCommandRequest(command: command, arguments: arguments, tabIndex: tabIndex)
+        var timeout: TimeInterval?
+        if command == "wait-for-load" || command == "wait-for" {
+            timeout = try extractTimeout(from: &arguments) ?? defaultWaitTimeout
+        }
+        if command == "wait-for" {
+            let usage = "Usage: soprano-web browser wait-for <selector|url|text> <value> [--timeout s]"
+            guard let kind = arguments.first, waitKinds.contains(kind) else {
+                throw BrowserAutomationError.invalidArguments(usage)
+            }
+            let value = arguments.dropFirst().joined(separator: " ")
+            guard !value.isEmpty else {
+                throw BrowserAutomationError.invalidArguments(usage)
+            }
+            arguments = [kind, value]
+        }
+
+        return BrowserCommandRequest(
+            command: command,
+            arguments: arguments,
+            tabIndex: tabIndex,
+            timeout: timeout
+        )
+    }
+
+    private static func extractTimeout(from arguments: inout [String]) throws -> TimeInterval? {
+        guard let index = arguments.firstIndex(of: "--timeout") else { return nil }
+        guard index + 1 < arguments.count,
+              let value = TimeInterval(arguments[index + 1]),
+              value.isFinite, value > 0, value <= maxWaitTimeout
+        else {
+            throw BrowserAutomationError.invalidArguments(
+                "--timeout takes seconds, more than 0 and at most \(seconds(maxWaitTimeout))"
+            )
+        }
+        arguments.removeSubrange(index...(index + 1))
+        return value
+    }
+}
+
+struct BrowserAutomationResponse: Codable, Equatable, Sendable {
+    let ok: Bool
+    let output: String?
+    let error: String?
+
+    init(result: Result<String, Error>) {
+        switch result {
+        case .success(let output):
+            ok = true
+            self.output = output
+            error = nil
+        case .failure(let error):
+            ok = false
+            output = nil
+            self.error = error.localizedDescription
+        }
     }
 }
 
 /// CLI entry point. A shell invokes the app binary with `browser`; the request
-/// is routed to the running app and answered through a request-scoped
-/// distributed notification.
+/// goes to the running app over its user-only Unix socket
+/// (`BrowserAutomationSocket`), one JSON request and response per connection.
 enum BrowserCommand {
-    private static let requestPrefix = "com.soprano.web.browser-request"
-    private static let responsePrefix = "com.soprano.web.browser-response"
-    private static let bundleIdentifiers = ["com.soprano.web", "com.soprano.web.dev"]
-    private static let timeout: TimeInterval = 15
-
     static let help = """
     Usage:
       soprano-web browser open [url]
       soprano-web browser [--tab n] goto <url>
-      soprano-web browser [--tab n] wait-for-load
+      soprano-web browser [--tab n] wait-for-load [--timeout s]
+      soprano-web browser [--tab n] wait-for selector <css> [--timeout s]
+      soprano-web browser [--tab n] wait-for url <substring> [--timeout s]
+      soprano-web browser [--tab n] wait-for text <text> [--timeout s]
       soprano-web browser [--tab n] vimium <keys>
       soprano-web browser [--tab n] back|forward|reload|url|title
       soprano-web browser [--tab n] snapshot [--interactive]
@@ -93,19 +181,20 @@ enum BrowserCommand {
       soprano-web browser tabs
       soprano-web browser new-tab [url]
       soprano-web browser select-tab <n>
-      soprano-web browser close-tab [n]
+      soprano-web browser [--tab n] close-tab [n]
 
+    `--tab n` targets tab n (1-based, see `tabs`) without changing the selected
+    tab; without it the selected tab is used.
     `snapshot` assigns ephemeral refs such as `e1`; pass them back as `@e1`.
-    `--tab` targets a tab by its 1-based number; without it the selected tab is used.
+    `eval` runs an expression, or an async function body that uses `return`;
+    Promises are awaited and the result prints as JSON. A thrown error or a
+    rejection exits 1 with its message.
+    `wait-for-load` waits for the tab's navigation to finish. `wait-for`
+    waits until a CSS selector matches, the URL contains a substring, or the
+    page's visible text contains the text. Waits default to 10 seconds;
+    `--timeout` takes up to 120. Other commands time out after 15 seconds.
+    Requests go to the running app over a Unix socket only your user can open.
     """
-
-    static func requestName(appProcessId: String) -> Notification.Name {
-        Notification.Name("\(requestPrefix).\(appProcessId)")
-    }
-
-    static func responseName(requestId: String) -> Notification.Name {
-        Notification.Name("\(responsePrefix).\(requestId)")
-    }
 
     static func run(
         arguments: [String] = CommandLine.arguments,
@@ -127,82 +216,33 @@ enum BrowserCommand {
             return 0
         }
 
-        guard let app = runningApp() else {
-            write("Soprano Web is not running. Launch it first.", to: .standardError)
-            return 2
-        }
-
-        let appProcessId = String(app.processIdentifier)
-        let requestId = UUID().uuidString
-        let responseNotification = responseName(requestId: requestId)
-        let center = DistributedNotificationCenter.default()
-        let responseBox = BrowserCommandResponseBox()
-        let observer = center.addObserver(
-            forName: responseNotification,
-            object: nil,
-            queue: nil
-        ) { notification in
-            let response = notification.userInfo?.reduce(into: [String: String]()) {
-                guard let key = $1.key as? String, let value = $1.value as? String else { return }
-                $0[key] = value
-            }
-            responseBox.set(response)
-        }
-        defer { center.removeObserver(observer) }
-
-        let argumentData = (try? JSONEncoder().encode(request.arguments)) ?? Data("[]".utf8)
-        var userInfo: [String: String] = [
-            "requestId": requestId,
-            "command": request.command,
-            "arguments": String(data: argumentData, encoding: .utf8) ?? "[]",
-        ]
-        if let tabIndex = request.tabIndex {
-            userInfo["tab"] = String(tabIndex)
-        }
-
-        center.postNotificationName(
-            requestName(appProcessId: appProcessId),
-            object: nil,
-            userInfo: userInfo,
-            deliverImmediately: true
+        let variants = BrowserAutomationSocket.candidateVariants(
+            ownBundleIdentifier: Bundle.main.bundleIdentifier
         )
-
-        let deadline = Date().addingTimeInterval(timeout)
-        while responseBox.value == nil, Date() < deadline {
-            _ = RunLoop.current.run(
-                mode: .default,
-                before: min(deadline, Date().addingTimeInterval(0.05))
-            )
-        }
-
-        guard let response = responseBox.value else {
-            write("Timed out waiting for Soprano Web automation.", to: .standardError)
+        for variant in variants {
+            guard let path = BrowserAutomationSocket.path(for: variant) else { continue }
+            let response: BrowserAutomationResponse
+            do {
+                response = try BrowserAutomationClient.send(
+                    request,
+                    to: path,
+                    timeout: request.clientTimeout
+                )
+            } catch BrowserAutomationSocketError.notRunning {
+                continue
+            } catch {
+                write(error.localizedDescription, to: .standardError)
+                return 1
+            }
+            if response.ok {
+                write(response.output ?? "", to: .standardOutput)
+                return 0
+            }
+            write(response.error ?? "", to: .standardError)
             return 1
         }
-        let succeeded = response["ok"] == "1"
-        let output = response[succeeded ? "output" : "error"] ?? ""
-        write(output, to: succeeded ? .standardOutput : .standardError)
-        return succeeded ? 0 : 1
-    }
-
-    private static func runningApp() -> NSRunningApplication? {
-        // A CLI run from the Dev bundle must drive the Dev app, even when the
-        // installed release is also open with the user's real logins.
-        var identifiers: [String] = []
-        if let own = Bundle.main.bundleIdentifier, bundleIdentifiers.contains(own) {
-            identifiers.append(own)
-        }
-        for identifier in bundleIdentifiers where !identifiers.contains(identifier) {
-            identifiers.append(identifier)
-        }
-        for identifier in identifiers {
-            if let app = NSRunningApplication.runningApplications(withBundleIdentifier: identifier)
-                .first(where: { !$0.isTerminated })
-            {
-                return app
-            }
-        }
-        return nil
+        write(BrowserAutomationSocketError.notRunning.localizedDescription, to: .standardError)
+        return 2
     }
 
     private static func write(_ value: String, to handle: FileHandle) {
@@ -213,110 +253,72 @@ enum BrowserCommand {
     }
 }
 
-final class BrowserCommandResponseBox: @unchecked Sendable {
-    private let lock = NSLock()
-    private var storedValue: [String: String]?
-
-    var value: [String: String]? {
-        lock.lock()
-        defer { lock.unlock() }
-        return storedValue
-    }
-
-    func set(_ value: [String: String]?) {
-        lock.lock()
-        storedValue = value
-        lock.unlock()
-    }
-}
-
-struct BrowserAutomationNotificationPayload: Sendable {
-    let requestId: String
-    let command: String
-    let arguments: [String]
-    let tabIndex: Int?
-
-    init?(_ notification: Notification) {
-        guard let userInfo = notification.userInfo,
-              let requestId = userInfo["requestId"] as? String,
-              let command = userInfo["command"] as? String,
-              let encodedArguments = userInfo["arguments"] as? String,
-              let data = encodedArguments.data(using: .utf8),
-              let arguments = try? JSONDecoder().decode([String].self, from: data)
-        else {
-            return nil
-        }
-        self.requestId = requestId
-        self.command = command
-        self.arguments = arguments
-        self.tabIndex = (userInfo["tab"] as? String).flatMap(Int.init)
-    }
-}
-
-/// App-side receiver. It only routes requests addressed to this process, so a
-/// second instance never answers another instance's CLI call.
+/// App-side receiver: owns the automation socket for this app variant and
+/// routes each request to the window controller.
 @MainActor
-final class BrowserAutomationController: @unchecked Sendable {
+final class BrowserAutomationController {
     private let windowController: () -> BrowserWindowController?
-    private var observer: NSObjectProtocol?
+    private var server: BrowserAutomationServer?
+    private var terminationObserver: NSObjectProtocol?
 
-    init(windowController: @escaping () -> BrowserWindowController?) {
+    init(
+        windowController: @escaping () -> BrowserWindowController?,
+        socketPath: String? = BrowserAutomationSocket.path(for: BrowserAutomationSocket.current)
+    ) {
         self.windowController = windowController
-        let processId = String(ProcessInfo.processInfo.processIdentifier)
-        observer = DistributedNotificationCenter.default().addObserver(
-            forName: BrowserCommand.requestName(appProcessId: processId),
+        guard let socketPath else {
+            FileHandle.standardError.write(Data(
+                "Soprano Web automation is off: no socket path fits sun_path.\n".utf8
+            ))
+            return
+        }
+        do {
+            server = try BrowserAutomationServer(path: socketPath) { [weak self] request, reply in
+                guard let self else {
+                    reply(BrowserAutomationResponse(result: .failure(
+                        BrowserAutomationError.unavailable("Soprano Web is not ready.")
+                    )))
+                    return
+                }
+                self.handle(request, reply: reply)
+            }
+        } catch {
+            FileHandle.standardError.write(Data(
+                "Soprano Web automation is off: \(error.localizedDescription)\n".utf8
+            ))
+        }
+        terminationObserver = NotificationCenter.default.addObserver(
+            forName: NSApplication.willTerminateNotification,
             object: nil,
             queue: .main
-        ) { [weak self] notification in
-            guard let payload = BrowserAutomationNotificationPayload(notification) else { return }
+        ) { [weak self] _ in
             MainActor.assumeIsolated {
-                self?.handle(payload)
+                self?.server?.stop()
             }
         }
     }
 
-    private func handle(_ payload: BrowserAutomationNotificationPayload) {
+    private func handle(
+        _ request: BrowserCommandRequest,
+        reply: @escaping BrowserAutomationServer.Reply
+    ) {
         guard let controller = windowController() else {
-            respond(
-                requestId: payload.requestId,
-                result: .failure(BrowserAutomationError.unavailable("Soprano Web is not ready."))
-            )
+            reply(BrowserAutomationResponse(result: .failure(
+                BrowserAutomationError.unavailable("Soprano Web is not ready.")
+            )))
             return
         }
 
-        if payload.command == "open" || payload.command == "new-tab" {
-            let url = payload.arguments.first
+        if request.command == "open" || request.command == "new-tab" {
+            let url = request.arguments.first
             let tab = controller.newTab(url: url)
             controller.revealWindowIfNeeded()
-            respond(
-                requestId: payload.requestId,
-                result: .success(url ?? tab.state.url ?? "about:start")
-            )
+            reply(BrowserAutomationResponse(result: .success(url ?? tab.state.url ?? "about:start")))
             return
         }
 
-        controller.performAutomation(
-            command: payload.command,
-            arguments: payload.arguments,
-            tabIndex: payload.tabIndex
-        ) { [weak self] result in
-            self?.respond(requestId: payload.requestId, result: result)
+        controller.performAutomation(request) { result in
+            reply(BrowserAutomationResponse(result: result))
         }
-    }
-
-    private func respond(requestId: String, result: Result<String, Error>) {
-        let userInfo: [String: String]
-        switch result {
-        case .success(let output):
-            userInfo = ["ok": "1", "output": output]
-        case .failure(let error):
-            userInfo = ["ok": "0", "error": error.localizedDescription]
-        }
-        DistributedNotificationCenter.default().postNotificationName(
-            BrowserCommand.responseName(requestId: requestId),
-            object: nil,
-            userInfo: userInfo,
-            deliverImmediately: true
-        )
     }
 }

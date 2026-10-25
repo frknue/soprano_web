@@ -12,6 +12,7 @@ struct BrowserDelegateSelectorTests {
             "webView:decidePolicyForNavigationAction:decisionHandler:",
             "webView:decidePolicyForNavigationResponse:decisionHandler:",
             "webView:createWebViewWithConfiguration:forNavigationAction:windowFeatures:",
+            "webViewDidClose:",
             "webView:runJavaScriptAlertPanelWithMessage:initiatedByFrame:completionHandler:",
             "webView:runJavaScriptConfirmPanelWithMessage:initiatedByFrame:completionHandler:",
             "webView:runJavaScriptTextInputPanelWithPrompt:defaultText:initiatedByFrame:completionHandler:",
@@ -23,6 +24,7 @@ struct BrowserDelegateSelectorTests {
             "webView:didFailNavigation:withError:",
             "webView:didFailProvisionalNavigation:withError:",
             "webView:didReceiveServerRedirectForProvisionalNavigation:",
+            "webView:didReceiveAuthenticationChallenge:completionHandler:",
             "webViewWebContentProcessDidTerminate:",
             "webView:navigationAction:didBecomeDownload:",
             "webView:navigationResponse:didBecomeDownload:",
@@ -36,6 +38,25 @@ struct BrowserDelegateSelectorTests {
             #expect(
                 class_getInstanceMethod(BrowserWindowController.self, NSSelectorFromString(selector)) != nil,
                 "Missing WebKit delegate selector: \(selector)"
+            )
+        }
+    }
+
+    @Test func pageMessageHandlerExposesItsSelector() {
+        #expect(class_getInstanceMethod(
+            BrowserPageMessageHandler.self,
+            NSSelectorFromString("userContentController:didReceiveScriptMessage:")
+        ) != nil)
+    }
+
+    @Test func notificationCenterExposesItsDelegateSelectors() {
+        for selector in [
+            "userNotificationCenter:willPresentNotification:withCompletionHandler:",
+            "userNotificationCenter:didReceiveNotificationResponse:withCompletionHandler:",
+        ] {
+            #expect(
+                class_getInstanceMethod(BrowserNotificationCenter.self, NSSelectorFromString(selector)) != nil,
+                "Missing notification delegate selector: \(selector)"
             )
         }
     }

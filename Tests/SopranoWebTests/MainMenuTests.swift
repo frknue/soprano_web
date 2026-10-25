@@ -24,4 +24,21 @@ struct MainMenuTests {
             .filter { $0.keyEquivalent == "l" && $0.keyEquivalentModifierMask == [.command] }
         #expect(matches.map(\.title) == ["Open Location…"])
     }
+
+    @Test func printPaletteAndStopShortcuts() {
+        _ = NSApplication.shared
+        let menu = MainMenuController { nil }
+        menu.install()
+        let items = (NSApp.mainMenu?.items ?? []).compactMap(\.submenu).flatMap(\.items)
+        func titles(_ key: String, _ modifiers: NSEvent.ModifierFlags) -> [String] {
+            items.filter { $0.keyEquivalent == key && $0.keyEquivalentModifierMask == modifiers }.map(\.title)
+        }
+        #expect(titles("p", [.command]) == ["Print…"])
+        #expect(titles("p", [.command, .shift]) == ["Command Palette…"])
+        #expect(titles("s", [.command, .shift]) == ["Save As…"])
+        let stop = items.first { $0.title == "Stop" }
+        #expect(stop?.keyEquivalent == ".")
+        #expect(stop?.action == NSSelectorFromString("stop"))
+        #expect(items.first { $0.title == "Reload" }?.action != stop?.action)
+    }
 }

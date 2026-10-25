@@ -266,18 +266,6 @@ enum VimiumPageScripts {
         """
     }
 
-    static func mute() -> String {
-        """
-        (() => {
-          window.__sopranoMuted = !window.__sopranoMuted;
-          document.querySelectorAll('audio, video').forEach((media) => {
-            media.muted = window.__sopranoMuted;
-          });
-          return window.__sopranoMuted;
-        })()
-        """
-    }
-
     static func scrollPosition() -> String {
         """
         JSON.stringify({

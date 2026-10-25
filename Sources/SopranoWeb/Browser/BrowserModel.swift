@@ -52,6 +52,55 @@ enum JSONFile {
     }
 }
 
+/// The file shape of a list store: `{ "version": 1, "entries": [...] }`.
+/// Reading also accepts the legacy bare array; an element that does not
+/// decode is skipped instead of dropping the whole list.
+struct JSONList<Element: Codable>: Codable {
+    static var currentVersion: Int { 1 }
+
+    var version: Int
+    var entries: [Element]
+
+    init(_ entries: [Element]) {
+        self.version = Self.currentVersion
+        self.entries = entries
+    }
+
+    init(from decoder: Decoder) throws {
+        if let c = try? decoder.container(keyedBy: CodingKeys.self) {
+            version = (try? c.decodeIfPresent(Int.self, forKey: .version)) ?? 1
+            entries = try c.decodeIfPresent(LossyArray<Element>.self, forKey: .entries)?.elements ?? []
+        } else {
+            version = 1
+            entries = try LossyArray<Element>(from: decoder).elements
+        }
+    }
+}
+
+/// Decodes a JSON array element by element and skips the ones that fail.
+struct LossyArray<Element: Decodable>: Decodable {
+    var elements: [Element]
+
+    init(from decoder: Decoder) throws {
+        var container = try decoder.unkeyedContainer()
+        var elements: [Element] = []
+        while !container.isAtEnd {
+            if let element = try? container.decode(Element.self) {
+                elements.append(element)
+            } else if (try? container.decode(Skipped.self)) == nil {
+                // A failed decode does not advance the container; stop
+                // rather than loop if even skipping fails.
+                break
+            }
+        }
+        self.elements = elements
+    }
+
+    private struct Skipped: Decodable {
+        init(from decoder: Decoder) throws {}
+    }
+}
+
 // MARK: - Settings
 
 enum AppearancePreference: String, Codable, CaseIterable, Sendable {
@@ -109,6 +158,7 @@ enum SearchEngine: String, Codable, CaseIterable, Sendable {
 }
 
 struct BrowserSettings: Codable, Equatable, Sendable {
+    var version: Int = 1
     var searchEngine: SearchEngine = .duckDuckGo
     /// Empty means the built-in start page.
     var homepage: String = ""
@@ -120,6 +170,16 @@ struct BrowserSettings: Codable, Equatable, Sendable {
     /// Nil means the default (on). Stored as an optional so older settings
     /// files without the key keep their other values and start vertical.
     var verticalTabs: Bool? = true
+    /// Ask the search engine for suggestions while typing in the address bar.
+    var includeSearchSuggestions: Bool = true
+    /// Settings ▸ Autoplay; applies to tabs opened afterwards.
+    var autoplay: AutoplayPolicy = .stopMediaWithSound
+    /// Settings ▸ "Allow websites to ask to send notifications". Off answers
+    /// every request from a site without a remembered decision with "denied".
+    var allowsNotificationRequests: Bool = true
+    /// Show a save panel for every download instead of saving to
+    /// `downloadDirectory`.
+    var askDownloadLocation: Bool = false
 
     static let `default` = BrowserSettings()
 
@@ -136,18 +196,56 @@ struct BrowserSettings: Codable, Equatable, Sendable {
     }
 }
 
+extension BrowserSettings {
+    /// Decodes key by key: a missing key, a wrong type or an unknown enum
+    /// value falls back to that key's default and keeps the others. A new
+    /// setting adds one line here.
+    init(from decoder: Decoder) throws {
+        self.init()
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        version = (try? c.decodeIfPresent(Int.self, forKey: .version)) ?? version
+        searchEngine = (try? c.decodeIfPresent(SearchEngine.self, forKey: .searchEngine)) ?? searchEngine
+        homepage = (try? c.decodeIfPresent(String.self, forKey: .homepage)) ?? homepage
+        themeID = (try? c.decodeIfPresent(String.self, forKey: .themeID)) ?? themeID
+        appearance = (try? c.decodeIfPresent(AppearancePreference.self, forKey: .appearance)) ?? appearance
+        restoreSession = (try? c.decodeIfPresent(Bool.self, forKey: .restoreSession)) ?? restoreSession
+        downloadDirectory = (try? c.decodeIfPresent(String.self, forKey: .downloadDirectory)) ?? downloadDirectory
+        // Missing stays nil, which `usesVerticalTabs` reads as on.
+        verticalTabs = try? c.decodeIfPresent(Bool.self, forKey: .verticalTabs)
+        includeSearchSuggestions = (try? c.decodeIfPresent(Bool.self, forKey: .includeSearchSuggestions)) ?? includeSearchSuggestions
+        autoplay = (try? c.decodeIfPresent(AutoplayPolicy.self, forKey: .autoplay)) ?? autoplay
+        allowsNotificationRequests = (try? c.decodeIfPresent(Bool.self, forKey: .allowsNotificationRequests))
+            ?? allowsNotificationRequests
+        askDownloadLocation = (try? c.decodeIfPresent(Bool.self, forKey: .askDownloadLocation)) ?? askDownloadLocation
+    }
+}
+
 @MainActor
 final class BrowserSettingsStore {
     private(set) var settings: BrowserSettings
     let url: URL
     var onChange: ((BrowserSettings) -> Void)?
+    /// Set when `settings.json` exists but cannot be read; the first write
+    /// moves it to `unreadableURL` instead of overwriting it.
+    private var preservesUnreadableFile = false
 
     init(
         url: URL = BrowserFiles.configURL(),
         settings: BrowserSettings? = nil
     ) {
         self.url = url
-        self.settings = settings ?? JSONFile.read(BrowserSettings.self, at: url) ?? .default
+        if let settings {
+            self.settings = settings
+        } else if let saved = JSONFile.read(BrowserSettings.self, at: url) {
+            self.settings = saved
+        } else {
+            self.settings = .default
+            preservesUnreadableFile = FileManager.default.fileExists(atPath: url.path)
+        }
+    }
+
+    var unreadableURL: URL {
+        url.appendingPathExtension("unreadable")
     }
 
     var displayPath: String {
@@ -162,11 +260,23 @@ final class BrowserSettingsStore {
         change(&next)
         guard next != settings else { return }
         settings = next
-        try? JSONFile.write(next, to: url)
+        write(next)
         onChange?(next)
     }
 
     func save() {
+        write(settings)
+    }
+
+    private func write(_ settings: BrowserSettings) {
+        if preservesUnreadableFile {
+            let fileManager = FileManager.default
+            try? fileManager.removeItem(at: unreadableURL)
+            guard (try? fileManager.moveItem(at: url, to: unreadableURL)) != nil
+                || !fileManager.fileExists(atPath: url.path)
+            else { return }
+            preservesUnreadableFile = false
+        }
         try? JSONFile.write(settings, to: url)
     }
 }
@@ -243,12 +353,45 @@ struct BrowserTabState: Codable, Equatable, Sendable {
     var url: String?
     var title: String = ""
     var zoom: Double = 1
+    /// WebKit's archived back/forward list (`WKWebView.interactionState`).
+    /// Nil in files written before it was saved; the tab then restores its
+    /// URL only.
+    var interactionState: Data?
+}
+
+extension BrowserTabState {
+    init(from decoder: Decoder) throws {
+        self.init()
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        url = try? c.decodeIfPresent(String.self, forKey: .url)
+        title = (try? c.decodeIfPresent(String.self, forKey: .title)) ?? title
+        zoom = (try? c.decodeIfPresent(Double.self, forKey: .zoom)) ?? zoom
+        interactionState = try? c.decodeIfPresent(Data.self, forKey: .interactionState)
+    }
 }
 
 struct BrowserSession: Codable, Equatable, Sendable {
+    var version: Int = 1
     var tabs: [BrowserTabState]
     var selectedIndex: Int
     var savedAt: Date
+    /// Most recently closed last; see `BrowserClosedTabStack`.
+    var closedTabs: [BrowserTabState] = []
+}
+
+extension BrowserSession {
+    /// Files written before `version` existed are version 1; a tab that does
+    /// not decode is skipped instead of dropping the session.
+    init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        self.init(
+            version: (try? c.decodeIfPresent(Int.self, forKey: .version)) ?? 1,
+            tabs: (try? c.decodeIfPresent(LossyArray<BrowserTabState>.self, forKey: .tabs))?.elements ?? [],
+            selectedIndex: (try? c.decodeIfPresent(Int.self, forKey: .selectedIndex)) ?? 0,
+            savedAt: (try? c.decodeIfPresent(Date.self, forKey: .savedAt)) ?? .distantPast,
+            closedTabs: (try? c.decodeIfPresent(LossyArray<BrowserTabState>.self, forKey: .closedTabs))?.elements ?? []
+        )
+    }
 }
 
 @MainActor

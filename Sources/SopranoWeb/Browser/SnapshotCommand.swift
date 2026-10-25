@@ -22,6 +22,32 @@ enum SnapshotCommand {
         var showHints = false
         var showHelp = false
         var showPrompt = false
+        var allowPopups: String?
+        var extraTabs: [String] = []
+        var clicks: [Click] = []
+        var showSheet = false
+        var printTabs = false
+        var signIn: String?
+        var sheetButton: String?
+        var elementClicks: [String] = []
+        var showSecurityInfo = false
+        var session = SnapshotSessionOptions()
+        var tabAudio = false
+        var hoverSelector: String?
+        var backURL: String?
+        var address: String?
+        var focusAddress = false
+        /// `--site-permission host:permission=allow|deny`, seeded before the window.
+        var sitePermissions: [(host: String, permission: SitePermission, decision: SitePermissionDecision)] = []
+        var autoplay: AutoplayPolicy?
+        /// Toggles the selected tab's mute this many seconds after the load starts.
+        var muteAfter: Double?
+        /// Prints the selected tab's audio/mute state on every change.
+        var traceAudio = false
+        var showWebsites = false
+        var captureStatus: BrowserCaptureStatus?
+        var pageTools = SnapshotPageTools.Options()
+        var privacy = PrivacyOptions()
     }
 
     enum OptionError: Error, CustomStringConvertible {
@@ -45,6 +71,19 @@ enum SnapshotCommand {
                                [--theme folio-paper|folio-ink|<id>] [--wait <seconds>]
                                [--sidebar history|bookmarks|downloads] [--find] [--settings]
                                [--vertical-tabs] [--collapsed] [--hints] [--help] [--prompt]
+                               [--allow-popups <host>] [--tab <url>]... [--sheet] [--print-tabs]
+                               [--click [cmd-|shift-cmd-|middle-]X,Y]...
+                               [--sign-in <user:password>] [--sheet-button <title>]
+                               [--click-element <css selector>]... [--security-info]
+    \(SnapshotSessionOptions.usage)
+                               [--tabs <url>,<url>…] [--tab-audio] [--hover <css selector>]
+                               [--back-url <url>]
+                               [--address <text>] [--focus-address]
+                               [--site-permission host:permission=allow|deny] [--autoplay <policy>]
+                               [--mute-after <seconds>] [--trace-audio] [--websites]
+                               [--capture camera|microphone|camera-muted-mic|microphone-muted]
+    \(SnapshotPageTools.usage)
+    \(privacyUsage)
     """
 
     nonisolated static func parse(_ arguments: [String]) throws -> Options {
@@ -102,8 +141,88 @@ enum SnapshotCommand {
                 options.showHelp = true
             case "--prompt":
                 options.showPrompt = true
+            case "--allow-popups":
+                options.allowPopups = try value(option)
+            case "--tab":
+                options.extraTabs.append(try value(option))
+            case "--click":
+                let value = try value(option)
+                guard let click = Click.parse(value) else {
+                    throw OptionError.unknownOption("--click \(value)")
+                }
+                options.clicks.append(click)
+            case "--sheet":
+                options.showSheet = true
+            case "--print-tabs":
+                options.printTabs = true
+            case "--sign-in":
+                options.signIn = try value(option)
+            case "--sheet-button":
+                options.sheetButton = try value(option)
+            case "--click-element":
+                options.elementClicks.append(try value(option))
+            case "--security-info":
+                options.showSecurityInfo = true
+            case let flag where SnapshotSessionOptions.flags.contains(flag):
+                try options.session.parse(flag) { try value(flag) }
+            case "--tabs":
+                options.extraTabs += try value(option)
+                    .split(separator: ",")
+                    .map { $0.trimmingCharacters(in: .whitespaces) }
+                    .filter { !$0.isEmpty }
+            case "--tab-audio":
+                options.tabAudio = true
+            case "--hover":
+                options.hoverSelector = try value(option)
+            case "--back-url":
+                options.backURL = try value(option)
+            case "--address":
+                options.address = try value(option)
+            case "--focus-address":
+                options.focusAddress = true
+            case "--site-permission":
+                let value = try value(option)
+                let parts = value.split(separator: "=", maxSplits: 1).map(String.init)
+                guard parts.count == 2,
+                      let colon = parts[0].firstIndex(of: ":"),
+                      let decision = SitePermissionDecision(rawValue: parts[1])
+                else {
+                    throw OptionError.unknownOption("--site-permission \(value)")
+                }
+                options.sitePermissions.append((
+                    String(parts[0][..<colon]),
+                    SitePermission(rawValue: String(parts[0][parts[0].index(after: colon)...])),
+                    decision
+                ))
+            case "--autoplay":
+                let value = try value(option)
+                guard let policy = AutoplayPolicy(rawValue: value) else {
+                    throw OptionError.unknownOption("--autoplay \(value)")
+                }
+                options.autoplay = policy
+            case "--mute-after":
+                guard let seconds = Double(try value(option)), seconds >= 0 else {
+                    throw OptionError.missingValue("--mute-after")
+                }
+                options.muteAfter = seconds
+            case "--trace-audio":
+                options.traceAudio = true
+            case "--websites":
+                options.showWebsites = true
+            case "--capture":
+                switch try value(option) {
+                case "camera": options.captureStatus = BrowserCaptureStatus(camera: .active, microphone: .active)
+                case "camera-muted-mic": options.captureStatus = BrowserCaptureStatus(camera: .active, microphone: .muted)
+                case "microphone": options.captureStatus = BrowserCaptureStatus(camera: .off, microphone: .active)
+                case "microphone-muted": options.captureStatus = BrowserCaptureStatus(camera: .off, microphone: .muted)
+                default: throw OptionError.unknownOption("--capture")
+                }
+            case _ where SnapshotPageTools.flags.contains(option):
+                SnapshotPageTools.parse(option, try value(option), into: &options.pageTools)
             default:
-                throw OptionError.unknownOption(option)
+                guard try parsePrivacy(option, value: { try value(option) }, into: &options.privacy) else {
+                    throw OptionError.unknownOption(option)
+                }
             }
             index += 1
         }
@@ -142,19 +261,35 @@ enum SnapshotCommand {
             homepage: "",
             themeID: options.theme,
             appearance: .system,
-            restoreSession: false,
+            restoreSession: options.session.restoresSession,
             downloadDirectory: temp.path,
-            verticalTabs: options.verticalTabs
+            verticalTabs: options.verticalTabs,
+            // Never reach a search engine from the harness; `--address`
+            // injects canned suggestions instead.
+            includeSearchSuggestions: false
         )
         let settingsStore = BrowserSettingsStore(
             url: temp.appendingPathComponent("settings.json"),
             settings: settings
         )
+        if let autoplay = options.autoplay {
+            settingsStore.update { $0.autoplay = autoplay }
+        }
         let themeManager = ThemeManager(themeId: options.theme, appearance: .system)
         let history = BrowserHistoryStore(url: temp.appendingPathComponent("history.json"))
         let bookmarks = BrowserBookmarkStore(url: temp.appendingPathComponent("bookmarks.json"))
         let downloads = BrowserDownloadStore(url: temp.appendingPathComponent("downloads.json"))
+        let sitePermissions = BrowserSitePermissionStore(
+            url: temp.appendingPathComponent("site-permissions.json")
+        )
+        if let host = options.allowPopups {
+            sitePermissions.set(.popups, .allow, host: host)
+        }
+        for seed in options.sitePermissions {
+            sitePermissions.set(seed.permission, seed.decision, host: seed.host)
+        }
         let session = BrowserSessionStore(url: temp.appendingPathComponent("session.json"))
+        options.session.prepare(sessionURL: session.url)
 
         let defaultsSuite = "com.soprano.web.snapshot.\(UUID().uuidString)"
         let defaults = UserDefaults(suiteName: defaultsSuite)!
@@ -166,6 +301,8 @@ enum SnapshotCommand {
             history: history,
             bookmarks: bookmarks,
             downloads: downloads,
+            sitePermissions: sitePermissions,
+            faviconStore: BrowserFaviconStore(directory: temp.appendingPathComponent("Favicons", isDirectory: true)),
             sessionStore: session,
             persistsSession: false,
             frame: NSRect(origin: .zero, size: options.size),
@@ -176,19 +313,75 @@ enum SnapshotCommand {
             exit(1)
         }
         window.setContentSize(options.size)
-        window.setFrameOrigin(NSPoint(x: 120, y: 120))
+        (window as? BrowserWindow)?.allowsOffscreenFrame = true
+        window.setFrameOrigin(NSPoint(x: -20_000, y: -20_000))
         window.orderBack(nil)
         window.displayIfNeeded()
 
+        if options.focusAddress {
+            // Focused but not edited: the field must follow the navigation.
+            controller.focusAddressBar()
+        }
         if let value = options.url,
            let url = BrowserAddressResolver.resolve(value, searchEngine: .duckDuckGo)
         {
             if BrowserAddressResolver.isStartPage(url) {
                 // Already on the start page.
             } else if let tab = controller.selectedTab {
+                if let back = options.backURL,
+                   let backURL = BrowserAddressResolver.resolve(back, searchEngine: .duckDuckGo)
+                {
+                    // Load a first page so Back has somewhere to go.
+                    controller.navigate(tab, to: backURL)
+                    let backDeadline = Date().addingTimeInterval(5)
+                    repeat {
+                        wait(0.05)
+                    } while (tab.webView.isLoading || tab.webView.url != backURL) && Date() < backDeadline
+                }
                 controller.navigate(tab, to: url)
             }
         }
+        for value in options.extraTabs {
+            controller.newTab(url: value, select: false)
+        }
+        if options.tabAudio {
+            // The second tab plays audio, the third is muted (or the
+            // selected tab plays when there is only one).
+            let tabs = controller.tabs
+            let playing = tabs.count > 1 ? tabs[1] : tabs.first
+            playing?.isPlayingAudio = true
+            if let playing { controller.metadataChanged(playing) }
+            if tabs.count > 2 {
+                tabs[2].isMuted = true
+                controller.metadataChanged(tabs[2])
+            }
+        }
+        if let tab = controller.selectedTab {
+            if let muteAfter = options.muteAfter {
+                Timer.scheduledTimer(withTimeInterval: muteAfter, repeats: false) { _ in
+                    MainActor.assumeIsolated { controller.toggleMute(tab) }
+                }
+            }
+            if options.traceAudio {
+                let start = Date()
+                var last: (Bool, Bool)?
+                Timer.scheduledTimer(withTimeInterval: 0.05, repeats: true) { _ in
+                    MainActor.assumeIsolated {
+                        let state = (tab.isPlayingAudio, tab.isMuted)
+                        guard last.map({ $0 != state }) ?? true else { return }
+                        last = state
+                        print(String(
+                            format: "audio t=%.2fs playing=%@ muted=%@",
+                            Date().timeIntervalSince(start),
+                            state.0 ? "true" : "false",
+                            state.1 ? "true" : "false"
+                        ))
+                    }
+                }
+            }
+        }
+
+        runPrivacyScenario(options.privacy, controller: controller, wait: options.wait)
 
         if let section = options.sidebar {
             if history.entries.isEmpty {
@@ -223,9 +416,14 @@ enum SnapshotCommand {
         if options.showFind {
             controller.showFindBar()
         }
-        if options.showSettings {
-            controller.showSettings()
-        }
+        // Settings and Websites are built but never ordered in, so the
+        // harness puts nothing on screen.
+        let settingsPreview = options.showSettings
+            ? SettingsWindowController(settingsStore: settingsStore, themeManager: themeManager)
+            : nil
+        let websitesSheet = options.showWebsites
+            ? BrowserWebsitesSheet(store: sitePermissions, theme: themeManager.currentTheme)
+            : nil
 
         let deadline = Date().addingTimeInterval(options.wait)
         while Date() < deadline {
@@ -234,6 +432,37 @@ enum SnapshotCommand {
                 before: min(deadline, Date().addingTimeInterval(0.05))
             )
         }
+        if let credentials = options.signIn {
+            submitSignIn(credentials, controller: controller)
+            wait(options.wait)
+        }
+        for selector in options.elementClicks {
+            click(selector, controller: controller)
+            wait(options.wait)
+        }
+        if options.showSecurityInfo {
+            controller.showConnectionInfo()
+            wait(0.35)
+        }
+        if let title = options.sheetButton {
+            pressSheetButton(title, window: window)
+            wait(options.wait)
+        }
+        options.session.run(controller, wait: options.wait)
+
+        if options.focusAddress, let tab = controller.selectedTab {
+            let editor = controller.toolbar.addressEditor
+            let shown = editor?.string ?? controller.toolbar.addressField.stringValue
+            let page = tab.failedURL ?? tab.webView.url?.absoluteString ?? ""
+            let follows = editor != nil && shown == page && !page.isEmpty
+            print("address-field: \(shown) (focused: \(editor != nil ? "yes" : "no"))")
+            print("address-follows-navigation: \(follows ? "yes" : "no") (page \(page))")
+        }
+        if let address = options.address {
+            AddressBarSnapshot.type(address, into: controller, history: history, bookmarks: bookmarks)
+            wait(0.3)
+        }
+        SnapshotPageTools.run(options.pageTools, controller: controller)
 
         if options.showHints {
             controller.selectedTab?.vimium?.startHintsForSnapshot()
@@ -253,10 +482,36 @@ enum SnapshotCommand {
             controller.presentVimiumPrompt(initialText: "", newTab: false)
             wait(0.35)
         }
+        for click in options.clicks {
+            if let webView = controller.selectedTab?.webView {
+                perform(click, in: webView)
+            }
+            wait(options.wait)
+        }
+        if let selector = options.hoverSelector,
+           let webView = controller.selectedTab?.webView,
+           let argument = try? JSONSerialization.data(withJSONObject: [selector]),
+           let literal = String(data: argument, encoding: .utf8)
+        {
+            // A synthetic mouseover runs the real link-hover script.
+            webView.evaluateJavaScript(
+                "document.querySelector(\(literal)[0])?.dispatchEvent(new MouseEvent('mouseover', {bubbles: true}))"
+            ) { _, _ in }
+            wait(0.5)
+        }
+        if let status = options.captureStatus {
+            controller.toolbar.captureIndicator.update(status)
+        }
+        if options.printTabs {
+            printTabs(controller)
+        }
 
         let captureWindow: NSWindow
-        if options.showSettings {
-            captureWindow = NSApp.windows.first { $0.title == "Settings" } ?? window
+        let privacySheet = makePrivacySheet(options.privacy, controller: controller)
+        if let privacySheet {
+            captureWindow = privacySheet
+        } else if options.showSettings {
+            captureWindow = settingsPreview?.window ?? window
         } else if options.showHelp {
             captureWindow = NSApp.windows.first { $0.title == "Vimium Help" } ?? window
         } else if options.showPrompt {
@@ -264,7 +519,24 @@ enum SnapshotCommand {
         } else {
             captureWindow = window
         }
-        guard let captureContent = captureWindow.contentView else {
+        if options.showSheet, let sheet = captureWindow.attachedSheet {
+            // NSAlert draws through a visual effect view the cached pass
+            // leaves blank, so the prompt is printed instead.
+            var texts: [String] = []
+            var queue = sheet.contentView.map { [$0] } ?? []
+            while !queue.isEmpty {
+                let view = queue.removeFirst()
+                if let field = view as? NSTextField, !field.stringValue.isEmpty {
+                    texts.append(field.stringValue)
+                } else if let button = view as? NSButton, !button.title.isEmpty {
+                    texts.append("[\(button.title)]")
+                }
+                queue.append(contentsOf: view.subviews)
+            }
+            print("sheet: " + texts.joined(separator: " | "))
+        }
+        let captured = websitesSheet?.window ?? captureWindow
+        guard let captureContent = captured.contentView else {
             FileHandle.standardError.write(Data("Snapshot could not find the window to capture.\n".utf8))
             exit(1)
         }
@@ -280,8 +552,10 @@ enum SnapshotCommand {
         base.addRepresentation(baseRep)
 
         var pageImage: NSImage?
-        if !options.showSettings, !options.showHelp, !options.showPrompt,
-           !options.showFind, let webView = controller.selectedTab?.webView {
+        if privacySheet == nil, !options.showSettings, !options.showHelp, !options.showPrompt,
+           websitesSheet == nil, !options.showFind, captureWindow === window,
+           controller.selectedTab?.lifecycle.crashView == nil,
+           let webView = controller.selectedTab?.webView {
             var finished = false
             webView.takeSnapshot(with: nil) { image, _ in
                 pageImage = image
@@ -304,6 +578,27 @@ enum SnapshotCommand {
         if let pageImage, let webView = controller.selectedTab?.webView {
             let frame = webView.convert(webView.bounds, to: captureContent)
             pageImage.draw(in: frame)
+        }
+        // The page snapshot covers the web area; draw the link bubble over it.
+        let status = controller.linkStatus
+        if !status.isHidden, status.window === captureWindow,
+           let rep = status.bitmapImageRepForCachingDisplay(in: status.bounds)
+        {
+            status.cacheDisplay(in: status.bounds, to: rep)
+            let image = NSImage(size: status.bounds.size)
+            image.addRepresentation(rep)
+            image.draw(in: status.convert(status.bounds, to: captureContent))
+        }
+        let dropdown = controller.addressBar.dropdown
+        if !dropdown.isHidden, let rep = dropdown.bitmapImageRepForCachingDisplay(in: dropdown.bounds) {
+            // The dropdown floats over the page, which is drawn after the chrome.
+            dropdown.cacheDisplay(in: dropdown.bounds, to: rep)
+            let image = NSImage(size: dropdown.bounds.size)
+            image.addRepresentation(rep)
+            image.draw(in: dropdown.convert(dropdown.bounds, to: captureContent))
+        }
+        if options.showSheet {
+            drawAttachedSheet(of: window, in: captureContent)
         }
         output.unlockFocus()
 

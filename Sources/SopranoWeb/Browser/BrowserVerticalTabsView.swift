@@ -2,17 +2,23 @@ import AppKit
 
 /// Arc-style vertical tab rail. Tabs stack down the left edge, with the new-tab
 /// button in the header; the rail keeps the window controls clear at the top.
+/// Dragging a row reorders the rail live and commits the move on release.
 @MainActor
 final class BrowserVerticalTabsView: NSView {
     var onSelect: ((UUID) -> Void)?
     var onClose: ((UUID) -> Void)?
     var onNewTab: (() -> Void)?
+    var onReorder: ((UUID, Int) -> Void)?
+    var onToggleMute: ((UUID) -> Void)?
+    var contextMenuProvider: ((UUID) -> NSMenu?)?
 
     private var theme: AppTheme
     private var buttons: [UUID: BrowserTabButton] = [:]
     private var order: [UUID] = []
     private var rowWidthConstraints: [UUID: NSLayoutConstraint] = [:]
     private var selectedID: UUID?
+    /// The dragged tab and the rail's live order while a row is dragged.
+    private var drag: (id: UUID, order: [UUID])?
     private let headerLabel = NSTextField(labelWithString: "")
     private let newTabButton: ChromeIconButton
     private let scrollView = NSScrollView()
@@ -22,6 +28,7 @@ final class BrowserVerticalTabsView: NSView {
 
     static let preferredWidth: CGFloat = 232
     private static let controlsTop: CGFloat = 46
+    private static let rowHeight: CGFloat = 32
 
     init(theme: AppTheme) {
         self.theme = theme
@@ -103,14 +110,21 @@ final class BrowserVerticalTabsView: NSView {
         fatalError("init(coder:) is not supported")
     }
 
-    func update(tabs: [(id: UUID, title: String)], selectedID: UUID) {
+    func update(tabs: [BrowserTabItem], selectedID: UUID) {
         let ids = tabs.map(\.id)
         if ids != order {
-            rebuild(tabs: tabs)
-        } else {
-            for tab in tabs {
-                buttons[tab.id]?.title = tab.title
+            if ids.count == order.count, Set(ids) == Set(buttons.keys) {
+                // A reorder: keep the rows (one may be mid-drag).
+                order = ids
+                if drag == nil {
+                    arrange(ids)
+                }
+            } else {
+                rebuild(tabs: tabs)
             }
+        }
+        for tab in tabs {
+            buttons[tab.id]?.item = tab
         }
         self.selectedID = selectedID
         for (id, button) in buttons {
@@ -135,6 +149,7 @@ final class BrowserVerticalTabsView: NSView {
         buttons.removeAll()
         order.removeAll()
         selectedID = nil
+        drag = nil
     }
 
     func apply(theme: AppTheme) {
@@ -152,7 +167,7 @@ final class BrowserVerticalTabsView: NSView {
         needsDisplay = true
     }
 
-    private func rebuild(tabs: [(id: UUID, title: String)]) {
+    private func rebuild(tabs: [BrowserTabItem]) {
         for constraint in rowWidthConstraints.values {
             constraint.isActive = false
         }
@@ -162,23 +177,68 @@ final class BrowserVerticalTabsView: NSView {
             button.removeFromSuperview()
         }
         buttons.removeAll()
+        drag = nil
         order = tabs.map(\.id)
 
         for tab in tabs {
-            let button = BrowserTabButton(id: tab.id, title: tab.title, theme: theme)
+            let button = BrowserTabButton(item: tab, theme: theme)
             button.translatesAutoresizingMaskIntoConstraints = false
             button.onSelect = { [weak self] id in self?.onSelect?(id) }
             button.onClose = { [weak self] id in self?.onClose?(id) }
+            button.onToggleMute = { [weak self] id in self?.onToggleMute?(id) }
+            button.contextMenuProvider = { [weak self] id in self?.contextMenuProvider?(id) }
+            button.onDrag = { [weak self] id, phase, event in self?.handleDrag(id, phase, event) }
             stack.addArrangedSubview(button)
             let width = button.widthAnchor.constraint(equalTo: stack.widthAnchor)
             NSLayoutConstraint.activate([
-                button.heightAnchor.constraint(equalToConstant: 32),
+                button.heightAnchor.constraint(equalToConstant: Self.rowHeight),
                 width,
             ])
             rowWidthConstraints[tab.id] = width
             buttons[tab.id] = button
         }
         needsLayout = true
+    }
+
+    /// Puts the rows in `ids` order without rebuilding them.
+    private func arrange(_ ids: [UUID]) {
+        let current = stack.arrangedSubviews.compactMap { ($0 as? BrowserTabButton)?.tabID }
+        guard current != ids else { return }
+        for (index, id) in ids.enumerated() {
+            guard let button = buttons[id] else { continue }
+            stack.removeArrangedSubview(button)
+            stack.insertArrangedSubview(button, at: index)
+        }
+    }
+
+    private func handleDrag(_ id: UUID, _ phase: BrowserTabButton.DragPhase, _ event: NSEvent) {
+        switch phase {
+        case .began:
+            drag = (id, order)
+        case .moved:
+            guard var drag, drag.id == id else { return }
+            let y = stack.convert(event.locationInWindow, from: nil).y
+            let slot = BrowserTabReorder.slot(
+                at: y,
+                pitch: Self.rowHeight + stack.spacing,
+                count: drag.order.count
+            )
+            let moved = BrowserTabReorder.moving(id, to: slot, in: drag.order)
+            guard moved != drag.order else { return }
+            drag.order = moved
+            self.drag = drag
+            arrange(moved)
+            buttons[id]?.scrollToVisible(buttons[id]?.bounds ?? .zero)
+        case .ended:
+            guard let drag, drag.id == id else { return }
+            self.drag = nil
+            guard drag.order != order, let index = drag.order.firstIndex(of: id) else {
+                arrange(order)
+                return
+            }
+            order = drag.order
+            onReorder?(id, index)
+        }
     }
 
     @objc private func newTabPressed() {
