@@ -12,17 +12,19 @@ Space's visits land only in its own `History.sqlite`.
 
 ## Goal
 
-Stage 3 of `docs/ROADMAP.md`: Arc's organization model (Spaces, pinned tabs, Favorites,
-folders, Today and Archive, Command Bar, shortcuts, custom search engines) and import from
-Arc, Chrome and Safari. Arc stops opening on 2026-12-22. The design contract, including
-Furkan's final decisions (pinned tabs replace bookmarks; a Space's color is a mark only),
-is `docs/STAGE-3-PLAN.md`.
+Stage 4 of `docs/ROADMAP.md`: Arc's extras (extensions with 1Password, Little Arc, Peek,
+Split View, Site Control Center, Boosts, Capture, Mini Player, Reader and Translation,
+GitHub live folder, AppleScript). Arc stops opening on 2026-12-22. The design contract,
+with Furkan's decisions (macOS 26 floor; passwords through the 1Password extension), is
+`docs/STAGE-4-PLAN.md`; phases P0–P12 run in its order on `feat/stage-4`. Stage 3's
+contract is `docs/STAGE-3-PLAN.md`.
 
 ## Branches
 
 | Branch | Base | State |
 |---|---|---|
 | `feat/stage-3` | `main` | Squash-merged as #3. 518 tests green in debug and release. |
+| `feat/stage-4` | `main` | In progress: P0 next. |
 | `feat/stage-3-search`, `feat/stage-3-import` | — | Merged into `feat/stage-3`; no further work there. |
 
 ## Done
@@ -51,12 +53,10 @@ second import creates nothing.
    presses, ⌃Tab release, shifted-punctuation remaps in the menu bar, a real drag in the
    rail outline, the Command Bar's rounded corners in Folio Ink, Delete Space from the
    switcher's menu (the CLI has no Space create/delete).
-2. Stage 4 (`docs/ROADMAP.md` §4).
+2. Stage 4: the next open phase of `docs/STAGE-4-PLAN.md`.
 
-Known, not stage 3: resuming or retrying a download uses the current Space's web view,
-not the profile it came from (download records carry no profile). A History row keeps
-the host as its title when the page sets its title after the load finished. Each tab
-change rebuilds every rail row (~40 ms with 20+ tabs); batch closes do it once.
+Known, not planned: each tab change rebuilds every rail row (~40 ms with 20+ tabs); batch
+closes do it once.
 
 Not built from ROADMAP §3: Arc's `Arc Data Export.md` lossy fallback (the real files
 read fine), Arc's `defaultDestination` link rule (Little Arc is §4).
