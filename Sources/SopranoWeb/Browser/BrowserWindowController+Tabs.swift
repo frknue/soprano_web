@@ -344,6 +344,9 @@ extension BrowserWindowController {
                        !title.isEmpty
                     {
                         tab.title = title
+                        if !tab.dataContext.kind.recordsHistory, let url = tab.webView.url?.absoluteString {
+                            tab.dataContext.sessionVisits.updateTitle(url: url, title: title)
+                        }
                     }
                     self.metadataChanged(tab)
                 }
@@ -424,6 +427,7 @@ extension BrowserWindowController {
             other.webView.isHidden = other !== tab
         }
         tabWasUsed(tab)
+        recentTabs.touch(tab.id)
         if let previous, previous.id != tab.id {
             previousSelectedTabID = previous.id
             previous.lifecycle.lastActiveAt = tab.lifecycle.lastActiveAt

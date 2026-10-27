@@ -253,8 +253,38 @@ app.
   Archive opens it. Clear Browsing Data ▸ History also clears the profile's
   Archive for the chosen time range, and deleting a profile deletes its
   Archive.
+- The Command Bar: `⌘T` opens it inside the window; type an address or a
+  search and press Return for a new Today tab in the current Space. `⌘L`
+  opens it with the page's address, and Return loads the edit in the same
+  tab. Results are grouped: open tabs of every Space (choosing one switches
+  Space), pinned tabs and favorites, History, Spaces, actions and settings
+  pages; type `/` to list only actions (`⇧⌘P`). A search engine's keyword
+  then `Tab` enters site search with the engine's name as a chip. `↑`/`↓`,
+  `⌃N`/`⌃P` and `Esc` work as you'd expect. A private window's Command Bar
+  remembers its own pages in memory only.
+- Settings ▸ Keyboard shortcuts ▸ Customize… (also Help ▸ Keyboard
+  Shortcuts): every menu command by menu; click a shortcut and press a new
+  one (`⌫` removes it), Reset, Reset All. A shortcut another command has
+  offers Swap or Cancel; Quit, Copy and the other system shortcuts can't be
+  taken. Each shortcut has a priority for when a page has focus: App wins,
+  Site wins (the command runs only if the page doesn't use the key) or Press
+  twice (a second press within a second). Saved under `shortcuts` in
+  `settings.json`.
+- `⌃Tab` shows your five most recent tabs while `⌃` is held; press `Tab`
+  again to move on, release to switch (`⌃⇧Tab` goes back).
+- Edit ▸ Copy URL (`⇧⌘C`) and Copy URL as Markdown (`⌥⇧⌘C`, `[title](url)`).
+- View ▸ Hide Toolbar (`⇧⌘D`) hides the address toolbar in every window.
 
 ### Changed
+- Shortcuts moved for Arc's: Window ▸ Next Tab and Previous Tab are now
+  `⌥⌘↓`/`⌥⌘↑` and walk the rail's favorites, pinned tabs and Today tabs
+  (they were `⌃Tab`/`⌃⇧Tab`, now the recent-tab switcher); `⌘T` and `⌘L`
+  open the Command Bar; View ▸ Command Palette… (`⇧⌘P`) is Search
+  Actions… in the Command Bar; Spaces ▸ Bookmark This Page is Pin This
+  Page (`⌘D`); Help ▸ Keyboard Shortcuts opens Settings ▸ Keyboard
+  shortcuts.
+- The start page says Pinned Tabs instead of Bookmarks, and its footer lists
+  `⌘T` Command Bar, `⌘L` Edit address and `⌘D` Pin tab.
 - Bookmarks are the current Space's pinned tabs in the rail now; the right
   sidebar keeps History, Archive and Downloads. Spaces ▸ Show Pinned Tabs (`⌥⌘B`)
   shows the rail. Close Other Tabs and Close Tabs Below / to the Right leave

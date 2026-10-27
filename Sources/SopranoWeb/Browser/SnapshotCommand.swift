@@ -52,6 +52,8 @@ enum SnapshotCommand {
         var sleep = SnapshotSleepOptions()
         var blocker = SnapshotBlockerOptions()
         var searchEngines = SnapshotSearchEngineOptions()
+        /// `--shortcuts-sheet`: capture Settings ▸ Keyboard shortcuts.
+        var showsShortcutsSheet = false
     }
 
     enum OptionError: Error, CustomStringConvertible {
@@ -173,6 +175,17 @@ enum SnapshotCommand {
                 options.showSecurityInfo = true
             case let flag where SnapshotSessionOptions.flags.contains(flag):
                 try options.session.parse(flag) { try value(flag) }
+            case let flag where SnapshotCommandBarAction.flags.contains(flag):
+                if let action = try SnapshotCommandBarAction.parse(
+                    flag,
+                    value: { try value(flag) },
+                    peek: { index + 1 < arguments.count ? arguments[index + 1] : nil },
+                    skip: { index += 1 }
+                ) {
+                    options.session.actions.append(.commandBar(action))
+                }
+            case "--shortcuts-sheet":
+                options.showsShortcutsSheet = true
             case "--tabs":
                 options.extraTabs += try value(option)
                     .split(separator: ",")
@@ -275,7 +288,7 @@ enum SnapshotCommand {
         let temp = options.sleep.supportDirectory ?? FileManager.default.temporaryDirectory
             .appendingPathComponent("soprano-web-snapshot-\(UUID().uuidString)", isDirectory: true)
         try? FileManager.default.createDirectory(at: temp, withIntermediateDirectories: true)
-        let settings = BrowserSettings(
+        var settings = BrowserSettings(
             searchEngine: .duckDuckGo,
             homepage: "",
             themeID: options.theme,
@@ -287,10 +300,13 @@ enum SnapshotCommand {
             // injects canned suggestions instead.
             includeSearchSuggestions: false
         )
-        let settingsStore = BrowserSettingsStore(
-            url: temp.appendingPathComponent("settings.json"),
-            settings: settings
-        )
+        let settingsURL = temp.appendingPathComponent("settings.json")
+        // `--support-dir`: a second run reads the shortcuts the first saved
+        // (Settings ▸ Keyboard shortcuts), decoded as the app decodes them.
+        if let saved = JSONFile.read(BrowserSettings.self, at: settingsURL) {
+            settings.shortcuts = saved.shortcuts
+        }
+        let settingsStore = BrowserSettingsStore(url: settingsURL, settings: settings)
         if let autoplay = options.autoplay {
             settingsStore.update { $0.autoplay = autoplay }
         }
@@ -342,6 +358,10 @@ enum SnapshotCommand {
             filterLists: options.blocker.sources
         )
         options.sleep.apply(to: manager)
+        // ⇧⌘C and ⌥⇧⌘C copy to a pasteboard of the harness's own, never
+        // the user's general one.
+        let pasteboard = NSPasteboard(name: NSPasteboard.Name("com.soprano.web.snapshot.\(UUID().uuidString)"))
+        manager.pasteboard = pasteboard
         let history = manager.defaultContext.history
         let sitePermissions = manager.defaultContext.sitePermissions
         if let host = options.allowPopups {
@@ -518,7 +538,14 @@ enum SnapshotCommand {
             settingsStore: settingsStore,
             theme: themeManager.currentTheme
         )
-        if settingsPreview != nil || websitesSheet != nil || profilesSheet != nil || searchEnginesSheet != nil {
+        let shortcutsSheet = options.showsShortcutsSheet ? SnapshotCommandBarAction.sheet(for: manager) : nil
+        if let shortcutsSheet {
+            shortcutsSheet.apply(theme: themeManager.currentTheme)
+            shortcutsSheet.dump.forEach { print("shortcuts: \($0)") }
+        }
+        if settingsPreview != nil || websitesSheet != nil || profilesSheet != nil || searchEnginesSheet != nil
+            || shortcutsSheet != nil
+        {
             wait(0.3)
         }
 
@@ -611,7 +638,7 @@ enum SnapshotCommand {
             print("sheet: " + texts.joined(separator: " | "))
         }
         let captured = websitesSheet?.window ?? profilesSheet?.window ?? searchEnginesSheet?.window
-            ?? spaceSheet?.window ?? captureWindow
+            ?? shortcutsSheet?.window ?? spaceSheet?.window ?? captureWindow
         guard let captureContent = captured.contentView else {
             FileHandle.standardError.write(Data("Snapshot could not find the window to capture.\n".utf8))
             exit(1)
@@ -629,7 +656,8 @@ enum SnapshotCommand {
 
         var pageImage: NSImage?
         if privacySheet == nil, !options.showSettings, !options.showHelp, !options.showPrompt,
-           websitesSheet == nil, profilesSheet == nil, searchEnginesSheet == nil, spaceSheet == nil, !options.showFind,
+           websitesSheet == nil, profilesSheet == nil, searchEnginesSheet == nil, shortcutsSheet == nil, spaceSheet == nil,
+           !options.showFind,
            captureWindow === window,
            controller.selectedTab?.lifecycle.crashView == nil,
            let webView = controller.selectedTab?.webView {
@@ -674,8 +702,11 @@ enum SnapshotCommand {
             image.addRepresentation(rep)
             image.draw(in: dropdown.convert(dropdown.bounds, to: captureContent))
         }
-        for overlay in [bookmarkPopover, pinPreview].compactMap({ $0 })
-            where overlay.window === captureWindow && spaceSheet == nil
+        // The Command Bar and ⌃Tab's switcher float over the page too.
+        let commandBarSurface = controller.commandBar.isOpen ? controller.commandBar.view.surface : nil
+        let recentTabs = controller.recentTabsOverlay?.superview == nil ? nil : controller.recentTabsOverlay
+        for overlay in [bookmarkPopover, pinPreview, commandBarSurface, recentTabs].compactMap({ $0 })
+            where overlay.window === captureWindow && spaceSheet == nil && shortcutsSheet == nil
         {
             // Popovers hang over the page, which is drawn after the chrome.
             guard let rep = overlay.bitmapImageRepForCachingDisplay(in: overlay.bounds) else { continue }
@@ -737,6 +768,7 @@ enum SnapshotCommand {
             open.window?.orderOut(nil)
         }
         defaults.removePersistentDomain(forName: defaultsSuite)
+        pasteboard.releaseGlobally()
         if options.sleep.supportDirectory == nil {
             try? FileManager.default.removeItem(at: temp)
         }

@@ -111,6 +111,8 @@ struct SnapshotSessionOptions {
         case rail(SnapshotRailAction)
         /// Archive flags (`SnapshotArchiveAction`).
         case archive(SnapshotArchiveAction)
+        /// Command Bar and shortcut flags (`SnapshotCommandBarAction`).
+        case commandBar(SnapshotCommandBarAction)
     }
 
     static let flags: Set<String> = Set([
@@ -142,6 +144,7 @@ struct SnapshotSessionOptions {
                                [--space <n|name>] [--swipe-rail next|previous] [--print-spaces]
     \(SnapshotRailAction.usage)
     \(SnapshotArchiveAction.usage)
+    \(SnapshotCommandBarAction.usage)
     """
 
     var restoreFrom: URL?
@@ -318,6 +321,9 @@ struct SnapshotSessionOptions {
         case .blocker(let action):
             action.perform(in: manager)
             return
+        case .commandBar(let action):
+            action.perform(in: manager)
+            return
         case let .newWindow(value, profileName):
             let start = value == "start" || BrowserAddressResolver.isStartPage(URL(string: value))
             var profileID: UUID?
@@ -479,7 +485,7 @@ struct SnapshotSessionOptions {
             Self.swipeRail(next: next, in: controller, manager: manager)
         case .newWindow, .newPrivateWindow, .deleteProfile, .activateWindow, .moveTab, .dropTab, .dropOutside,
              .mergeWindows, .cli, .waitDownloads, .printWindows, .printSpaces, .reopenClosed, .sleep, .blocker, .rail,
-             .archive:
+             .archive, .commandBar:
             break
         }
     }

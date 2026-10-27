@@ -65,6 +65,9 @@ final class BrowserDataContext {
     let sitePermissions: BrowserSitePermissionStore
     let faviconStore: BrowserFaviconStore
     let connectionSecurity: BrowserConnectionSecurity
+    /// A private window's pages, in memory only (its Command Bar's
+    /// history); a normal context records into `history` instead.
+    let sessionVisits = BrowserSessionVisits()
 
     init(
         kind: BrowserWindowKind,
@@ -104,5 +107,43 @@ final class BrowserDataContext {
     /// normal context, whose records are saved.
     var downloadContextID: UUID? {
         kind.savesDownloadRecords ? nil : id
+    }
+}
+
+/// Pages visited in a private context, kept in memory for its Command Bar:
+/// one entry per address, with visit counts and a frecency from them. Gone
+/// with the context; nothing is written.
+@MainActor
+final class BrowserSessionVisits {
+    static let limit = 500
+    private(set) var pages: [String: BrowserHistoryPage] = [:]
+
+    func record(url: String, title: String, kind: BrowserVisitKind, at date: Date = Date()) {
+        let key = AddressURLText.key(url)
+        var page = pages[key] ?? BrowserHistoryPage(url: url, title: title, visits: 0, lastVisit: date)
+        page.url = url
+        if !title.isEmpty { page.title = title }
+        page.visits += 1
+        if kind == .typed { page.typedVisits += 1 }
+        page.lastVisit = date
+        page.frecency = 100 * Double(page.visits + 2 * page.typedVisits)
+        pages[key] = page
+        if pages.count > Self.limit, let oldest = pages.min(by: { $0.value.lastVisit < $1.value.lastVisit }) {
+            pages.removeValue(forKey: oldest.key)
+        }
+    }
+
+    /// The page's title arrived after its load finished.
+    func updateTitle(url: String, title: String) {
+        let key = AddressURLText.key(url)
+        guard !title.isEmpty, var page = pages[key] else { return }
+        page.title = title
+        pages[key] = page
+    }
+
+    /// The pages matching `query`, as History's candidates are.
+    func candidates(for query: String) -> [BrowserHistoryPage] {
+        let matcher = AddressQueryMatcher(query: query.trimmingCharacters(in: .whitespacesAndNewlines))
+        return pages.values.filter { matcher.tier(url: $0.url, title: $0.title) != nil }
     }
 }

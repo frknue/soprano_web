@@ -95,33 +95,40 @@ enum AddressSuggestionEngine {
     static let maxTabRows = 3
     static let reservedSuggestionRows = 3
 
-    static func suggestions(for input: AddressSuggestionInput) -> AddressSuggestionResult {
-        let query = input.query.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !query.isEmpty else { return .empty }
-        let matcher = AddressQueryMatcher(query: query)
+    /// A History page or pin matching a query, ranked as the address bar
+    /// ranks them (the Command Bar's pins and history).
+    struct PageMatch: Equatable, Sendable {
+        var url: String
+        var title: String
+        /// The page is one of the pins passed in (its History merged in).
+        var isPinned: Bool
+        var tier: AddressQueryMatcher.Tier
+        var score: Double
+    }
 
-        // Local candidates, deduplicated by URL key; open tabs win, then
-        // bookmarks absorb the history of the same page.
-        var tabCandidates: [Candidate] = []
-        var tabKeys: Set<String> = []
-        for tab in input.tabs {
-            let key = AddressURLText.key(tab.url)
-            guard !key.isEmpty, !tabKeys.contains(key) else { continue }
-            tabKeys.insert(key)
-            tabCandidates.append(Candidate(
-                key: key,
-                url: tab.url,
-                title: tab.title,
-                kind: .switchToTab,
-                tabID: tab.id,
-                frecency: 0,
-                lastVisit: nil,
-                isBookmarked: false
-            ))
+    /// History and pins matching `query`, best first: the match tier (host
+    /// prefix > title word start > substring), then frecency plus the pin
+    /// bonus. One row per page (URL key).
+    static func rankedPages(query: String, history: [BrowserHistoryPage], pins: [BrowserPin]) -> [PageMatch] {
+        let trimmed = query.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return [] }
+        let candidates = Array(pageCandidates(history: history, pins: pins).values)
+        return rank(candidates, matcher: AddressQueryMatcher(query: trimmed)).map { ranked in
+            PageMatch(
+                url: ranked.candidate.url,
+                title: ranked.candidate.title,
+                isPinned: ranked.candidate.isBookmarked,
+                tier: ranked.tier,
+                score: ranked.score
+            )
         }
+    }
 
+    /// History pages and pins by URL key; a pin absorbs the History of the
+    /// same page.
+    fileprivate static func pageCandidates(history: [BrowserHistoryPage], pins: [BrowserPin]) -> [String: Candidate] {
         var pages: [String: Candidate] = [:]
-        for page in input.history {
+        for page in history {
             let key = AddressURLText.key(page.url)
             guard !key.isEmpty else { continue }
             let title = page.title.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -148,7 +155,7 @@ enum AddressSuggestionEngine {
                 )
             }
         }
-        for pin in input.pins {
+        for pin in pins {
             let key = AddressURLText.key(pin.url)
             guard !key.isEmpty else { continue }
             if var existing = pages[key] {
@@ -170,10 +177,39 @@ enum AddressSuggestionEngine {
                 )
             }
         }
-        let pageCandidates = pages.values.filter { !tabKeys.contains($0.key) }
+        return pages
+    }
+
+    static func suggestions(for input: AddressSuggestionInput) -> AddressSuggestionResult {
+        let query = input.query.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !query.isEmpty else { return .empty }
+        let matcher = AddressQueryMatcher(query: query)
+
+        // Local candidates, deduplicated by URL key; open tabs win, then
+        // bookmarks absorb the history of the same page.
+        var tabCandidates: [Candidate] = []
+        var tabKeys: Set<String> = []
+        for tab in input.tabs {
+            let key = AddressURLText.key(tab.url)
+            guard !key.isEmpty, !tabKeys.contains(key) else { continue }
+            tabKeys.insert(key)
+            tabCandidates.append(Candidate(
+                key: key,
+                url: tab.url,
+                title: tab.title,
+                kind: .switchToTab,
+                tabID: tab.id,
+                frecency: 0,
+                lastVisit: nil,
+                isBookmarked: false
+            ))
+        }
+
+        let pages = Self.pageCandidates(history: input.history, pins: input.pins).values
+            .filter { !tabKeys.contains($0.key) }
 
         let rankedTabs = rank(tabCandidates, matcher: matcher)
-        var rankedPages = rank(pageCandidates, matcher: matcher)
+        var rankedPages = rank(Array(pages), matcher: matcher)
 
         // The first row is what Return opens without touching the arrows.
         let searchRow = AddressSuggestion(

@@ -78,14 +78,14 @@ mark, reset on icon click, ⌘-click keeps the page, Replace Pin with Current Pa
 unloads to the pin, searchable folder preview on hover); custom search engines with `%s`
 templates and keywords; the Archive (Today tabs archive after idle time per profile:
 never, 30 days, 7 days, 24 h, 12 h by default, 6 h, 1 h; ⌘W and ⇧⌘K archive; a searchable
-Archive section in the right sidebar restores a tab into its original Space).
+Archive section in the right sidebar restores a tab into its original Space); the
+Command Bar on ⌘T (open tabs of every Space, pins and favorites, History, Spaces, `/`
+actions, settings pages, site search on Tab after a keyword) and ⌘L (edits the current
+URL in the same bar); one command registry feeding the menu bar, Settings ▸ Keyboard
+shortcuts (remapping, conflicts with Swap, App wins / Site wins / Press twice) and the
+Command Bar; ⌃Tab recent-tab switcher, ⌥⌘↑/↓ rail walk, ⇧⌘C / ⌥⇧⌘C copy URL and
+Markdown, ⇧⌘D toggles the toolbar.
 
-- Command Bar on ⌘T (tabs, history, Spaces, actions behind `/`, settings, site search on
-  Tab); ⌘L edits the current URL in the same bar. One command registry feeds the menu bar,
-  remappable shortcuts (with a site-wins / app-wins / press-twice priority) and the Command
-  Bar, as Arc's menu-item metadata does.
-- ⌃Tab switches between recent tabs; ⌥⌘↑/↓ walks the sidebar; ⇧⌘C copies the URL, ⌥⇧⌘C
-  as Markdown; ⇧⌘D toggles the toolbar.
 - Import from Arc: `StorableSidebar.json` (Spaces with their profiles, Favorites per
   profile, pinned trees, Today tabs), `StorableArchiveItems.json`, the favicon caches,
   each profile's Chromium `History`, `StorableLinkRouting.json`. Read Arc's folder in

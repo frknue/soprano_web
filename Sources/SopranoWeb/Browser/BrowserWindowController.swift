@@ -81,8 +81,28 @@ final class BrowserWindowController: NSWindowController {
     private var webLeadingToRoot: NSLayoutConstraint!
     private var webLeadingToSidebar: NSLayoutConstraint!
 
+    /// Vimium's `b` (pins) and `T` (tabs) lists.
     lazy var palette = CommandPalettePanel(themeManager: themeManager)
+    lazy var commandBar = BrowserCommandBarController(theme: theme)
     lazy var addressBar = BrowserAddressBarController(toolbar: toolbar, theme: theme)
+    /// The window's tabs by when they were last selected (⌃Tab).
+    var recentTabs = BrowserRecentTabs()
+    /// ⌃Tab's switcher while ⌃ is held, its overlay and the ⌃-release
+    /// monitor.
+    var recentTabSwitcher: BrowserRecentTabSwitcher?
+    var recentTabsOverlay: BrowserRecentTabsOverlay?
+    var recentTabsMonitor: Any?
+    /// Site wins and Press twice state for shortcuts pressed in a page.
+    var shortcutGate = BrowserShortcutGate()
+    /// The key handed to the page under Site wins or Press twice, until
+    /// WebKit or the page answers.
+    var forwardedKey: (event: NSEvent, token: Int)?
+    var keyTokens = 0
+    /// ⇧⌘D: the toolbar is hidden in every window (UI state in
+    /// `UserDefaults`).
+    var isToolbarHidden: Bool {
+        defaults.bool(forKey: Self.toolbarHiddenKey)
+    }
 
     var previousSelectedTabID: UUID?
     var lastFindQuery = ""
@@ -102,6 +122,7 @@ final class BrowserWindowController: NSWindowController {
     var zoomChip: ChromeButton?
 
     static let verticalSidebarCollapsedKey = "verticalSidebarCollapsed"
+    static let toolbarHiddenKey = "toolbarHidden"
 
     /// An empty window at `frame` (screen coordinates the window really
     /// uses) showing Space `spaceID` (a normal window; `dataContext` is that
@@ -174,6 +195,7 @@ final class BrowserWindowController: NSWindowController {
         wireCallbacks()
         installTabChrome()
         installAddressBar()
+        installCommandBar()
         sidebar.privateDownloadContextID = dataContext.downloadContextID
         syncContextObservations()
         applyWindowMark()
@@ -409,18 +431,24 @@ final class BrowserWindowController: NSWindowController {
         webLeadingToRoot.isActive = true
     }
 
-    private func applyTabsLayout() {
+    func applyTabsLayout() {
         let compact = isPopup
         let vertical = usesVerticalTabs && !compact
         let collapsed = vertical && isVerticalSidebarCollapsed
         let railShown = vertical && !collapsed
         let stripShown = !vertical && !compact
+        // ⇧⌘D hides the toolbar (never a pop-up's, its only chrome).
+        let toolbarShown = compact || !isToolbarHidden
         verticalTabsView.isHidden = !railShown
         tabStrip.isHidden = !stripShown
+        toolbar.isHidden = !toolbarShown
         tabStripHeight.constant = stripShown ? BrowserTabStripView.preferredHeight : 0
-        topBarHeight.constant = stripShown
-            ? BrowserToolbarView.preferredHeight + BrowserTabStripView.preferredHeight
-            : BrowserToolbarView.preferredHeight
+        topBarHeight.constant = (stripShown ? BrowserTabStripView.preferredHeight : 0)
+            + (toolbarShown ? BrowserToolbarView.preferredHeight : 0)
+        topBar.isHidden = topBarHeight.constant == 0
+        if !toolbarShown {
+            addressBar.close()
+        }
 
         topBarLeadingToRoot.isActive = !railShown
         topBarLeadingToSidebar.isActive = railShown
@@ -630,6 +658,8 @@ final class BrowserWindowController: NSWindowController {
         verticalTabsView.apply(theme: theme)
         toolbar.apply(theme: theme)
         addressBar.apply(theme: theme)
+        commandBar.apply(theme: theme)
+        recentTabsOverlay?.apply(theme: theme)
         findBar.apply(theme: theme)
         sidebar.apply(theme: theme)
         linkStatus.apply(theme: theme)

@@ -32,6 +32,15 @@ final class SettingsWindowController: NSWindowController, NSTextFieldDelegate {
     var onShowProfiles: ((NSWindow) -> Void)?
     /// Settings ▸ Search engine ▸ Manage…, while shown.
     private var searchEnginesSheet: BrowserSearchEnginesSheet?
+    /// Settings ▸ Keyboard shortcuts ▸ Customize…, while shown.
+    private var shortcutsSheet: BrowserShortcutsSheet?
+    private lazy var shortcutsButton: ChromeButton = {
+        let button = ChromeButton(title: "Customize…", theme: theme, kind: .standard)
+        button.target = self
+        button.action = #selector(shortcutsPressed)
+        button.widthAnchor.constraint(equalToConstant: 200).isActive = true
+        return button
+    }()
     private lazy var searchEnginesButton: ChromeButton = {
         let button = ChromeButton(title: "Manage…", theme: theme, kind: .standard)
         button.target = self
@@ -181,7 +190,7 @@ final class SettingsWindowController: NSWindowController, NSTextFieldDelegate {
         self.websiteDataButton = ChromeButton(title: "Manage…", theme: theme, kind: .standard)
         self.defaultBrowserButton = ChromeButton(title: "Make Default", theme: theme, kind: .standard)
         let window = NSWindow(
-            contentRect: NSRect(x: 0, y: 0, width: 620, height: 860),
+            contentRect: NSRect(x: 0, y: 0, width: 620, height: 898),
             styleMask: [.titled, .closable, .fullSizeContentView],
             backing: .buffered,
             defer: false
@@ -193,7 +202,7 @@ final class SettingsWindowController: NSWindowController, NSTextFieldDelegate {
         window.titlebarAppearsTransparent = true
         window.isReleasedWhenClosed = false
         window.backgroundColor = theme.colors.bgBase
-        window.minSize = NSSize(width: 620, height: 860)
+        window.minSize = NSSize(width: 620, height: 898)
 
         rootView.wantsLayer = true
         window.contentView = rootView
@@ -275,6 +284,7 @@ final class SettingsWindowController: NSWindowController, NSTextFieldDelegate {
             [rowLabel("Autoplay"), autoplayButton],
             [rowLabel("Notifications"), notificationsRow()],
             [rowLabel("Block ads and trackers"), contentBlockingRow()],
+            [rowLabel("Keyboard shortcuts"), shortcutsButton],
             [rowLabel("Profiles"), profilesButton],
             [rowLabel("Websites"), websitesButton],
             [rowLabel("Website data"), websiteDataButton],
@@ -282,7 +292,7 @@ final class SettingsWindowController: NSWindowController, NSTextFieldDelegate {
         ]
         let grid = NSGridView(views: rows)
         grid.translatesAutoresizingMaskIntoConstraints = false
-        // 19 rows; the window stays under 900 pt for small displays.
+        // 20 rows; the window stays under 900 pt for small displays.
         grid.rowSpacing = 12
         grid.columnSpacing = 18
         grid.column(at: 0).xPlacement = .trailing
@@ -406,6 +416,8 @@ final class SettingsWindowController: NSWindowController, NSTextFieldDelegate {
         engineButton.apply(theme: theme)
         searchEnginesButton.apply(theme: theme)
         searchEnginesSheet?.apply(theme: theme)
+        shortcutsButton.apply(theme: theme)
+        shortcutsSheet?.apply(theme: theme)
         themeButton.apply(theme: theme)
         appearanceButton.apply(theme: theme)
         downloadButton.apply(theme: theme)
@@ -487,6 +499,31 @@ final class SettingsWindowController: NSWindowController, NSTextFieldDelegate {
             self?.searchEnginesSheet = nil
             // A deleted default engine fell back to DuckDuckGo.
             self?.refresh()
+        }
+    }
+
+    /// Opens Settings ▸ Keyboard shortcuts ▸ Customize… as a sheet on
+    /// Settings.
+    @objc func shortcutsPressed() {
+        guard let window, shortcutsSheet == nil else { return }
+        let sheet = BrowserShortcutsSheet(settingsStore: settingsStore, theme: theme)
+        guard let sheetWindow = sheet.window else { return }
+        shortcutsSheet = sheet
+        window.beginSheet(sheetWindow) { [weak self] _ in
+            self?.shortcutsSheet = nil
+        }
+    }
+
+    /// Shows `page`: the sheet it names on Settings (none for General).
+    func show(_ page: BrowserSettingsPage) {
+        guard let window, window.attachedSheet == nil else { return }
+        switch page {
+        case .general: break
+        case .searchEngines: searchEnginesPressed()
+        case .shortcuts: shortcutsPressed()
+        case .profiles: onShowProfiles?(window)
+        case .websites: onShowWebsites?(window)
+        case .websiteData: onShowWebsiteData?(window)
         }
     }
 

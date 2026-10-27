@@ -155,11 +155,20 @@ struct BrowserSettings: Codable, Equatable, Sendable {
     var defaultZoom: Double = 1
     /// Settings ▸ "Block ads and trackers" (EasyList and EasyPrivacy).
     var blockAdsAndTrackers: Bool = true
+    /// Settings ▸ Keyboard shortcuts: remapped shortcuts and their
+    /// priority, by command id.
+    var shortcuts = BrowserShortcutSettings()
 
     static let `default` = BrowserSettings()
 
     var usesVerticalTabs: Bool {
         verticalTabs ?? true
+    }
+
+    /// The shortcuts in effect (the registry's defaults, then `shortcuts`).
+    var keymap: BrowserKeymap {
+        get { BrowserKeymap(shortcuts) }
+        set { shortcuts = newValue.settings }
     }
 
     /// Every engine and the default (an unknown default reads as DuckDuckGo).
@@ -231,6 +240,7 @@ extension BrowserSettings {
             .flatMap(BrowserZoom.validated)
             .map(BrowserZoom.nearestStep) ?? defaultZoom
         blockAdsAndTrackers = (try? c.decodeIfPresent(Bool.self, forKey: .blockAdsAndTrackers)) ?? blockAdsAndTrackers
+        shortcuts = (try? c.decodeIfPresent(BrowserShortcutSettings.self, forKey: .shortcuts)) ?? shortcuts
     }
 }
 

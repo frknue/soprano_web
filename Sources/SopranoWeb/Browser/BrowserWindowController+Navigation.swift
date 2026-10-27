@@ -265,13 +265,18 @@ extension BrowserWindowController: WKNavigationDelegate {
         tab.sameDocumentTimer = nil
         if tab.suppressNextHistoryRecord {
             tab.suppressNextHistoryRecord = false
-        } else if tab.dataContext.kind.recordsHistory,
-                  !tab.isStartPage,
+        } else if !tab.isStartPage,
                   let address = webView.url?.absoluteString,
                   ["http", "https", "file"].contains(webView.url?.scheme?.lowercased() ?? "")
         {
-            // The tab's own profile, even while its Space is hidden.
-            tab.dataContext.history.record(url: address, title: tab.displayTitle, kind: visitKind)
+            if tab.dataContext.kind.recordsHistory {
+                // The tab's own profile, even while its Space is hidden.
+                tab.dataContext.history.record(url: address, title: tab.displayTitle, kind: visitKind)
+            } else {
+                // A private window's Command Bar remembers its pages in
+                // memory only.
+                tab.dataContext.sessionVisits.record(url: address, title: tab.displayTitle, kind: visitKind)
+            }
         }
         if tab.id == selectedTab?.id {
             updateChrome()

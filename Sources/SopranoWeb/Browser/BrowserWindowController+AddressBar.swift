@@ -76,7 +76,9 @@ extension BrowserWindowController {
         }
     }
 
-    private func openAddress(_ address: String, typed: Bool, newTab: Bool) {
+    /// Opens `address` in a new Today tab of the current Space or the
+    /// selected tab; `typed` counts it as a typed visit.
+    func openAddress(_ address: String, typed: Bool, newTab: Bool) {
         if newTab {
             let tab = self.newTab(url: address)
             if typed { tab.typedNavigationPending = true }

@@ -75,6 +75,9 @@ final class BrowserWindowManager {
     let persistsSession: Bool
     let placement: BrowserWindowPlacement
     let defaults: UserDefaults
+    /// Where ⇧⌘C and ⌥⇧⌘C copy: the general pasteboard; the harness uses
+    /// a private named one.
+    var pasteboard: NSPasteboard = .general
     /// Expanded pin folders and ⌘D's last folder per Space, for every window.
     let pinUIState: BrowserPinUIState
     /// Theme changes for every window (`ThemeManager` has one callback).
@@ -650,6 +653,12 @@ final class BrowserWindowManager {
     }
 
     func showSettings() {
+        showSettings(page: .general)
+    }
+
+    /// Settings, and the sheet for `page` on it (Help ▸ Keyboard Shortcuts,
+    /// the Command Bar's settings rows).
+    func showSettings(page: BrowserSettingsPage) {
         let controller = settingsWindowController ?? {
             let controller = SettingsWindowController(
                 settingsStore: settingsStore,
@@ -665,6 +674,7 @@ final class BrowserWindowManager {
         guard !placement.isOffscreen else { return }
         controller.showWindow(nil)
         controller.window?.makeKeyAndOrderFront(nil)
+        controller.show(page)
     }
 
     /// Settings ▸ Websites, as a sheet on Settings, showing the active

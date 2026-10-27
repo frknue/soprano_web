@@ -45,7 +45,10 @@ struct BrowserStartPageTests {
             pins: BrowserPinTree(),
             history: []
         )
-        #expect(html.contains("Bookmark a page with ⌘D"))
+        #expect(html.contains("Pin a page with ⌘D"))
+        #expect(html.contains("Pinned Tabs"))
+        #expect(html.contains("⌘T Command Bar"))
+        #expect(!html.contains("Bookmark"))
         #expect(html.contains("Pages you visit appear here."))
     }
 
@@ -62,9 +65,9 @@ struct BrowserStartPageTests {
         let html = BrowserStartPage.html(theme: .folioPaper, settings: .default, pins: tree, history: [])
         #expect(html.contains("<details class=\"card folder\">"))
         #expect(html.contains("Work &amp; &lt;Play&gt;"))
-        #expect(html.contains("Folder · 2 bookmarks"))
+        #expect(html.contains("Folder · 2 pinned tabs"))
         #expect(html.contains("Docs · b.example"))
         #expect(html.contains("href=\"https://top.example/\""))
-        #expect(!html.contains("Bookmark a page with ⌘D"))
+        #expect(!html.contains("Pin a page with ⌘D"))
     }
 }

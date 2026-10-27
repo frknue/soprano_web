@@ -1,5 +1,10 @@
 import AppKit
 
+/// The menu bar, built from the command registry (`BrowserAppCommand.all`):
+/// every item's title, shortcut (the user's keymap), validation and action
+/// come from its registry row; the menus add only their dynamic parts
+/// (New Window With Profile, Share, Recently Closed, the Spaces and their
+/// pins, the system's Edit submenus and Services).
 @MainActor
 final class MainMenuController: NSObject, NSMenuItemValidation {
     static let newWindowWithProfileTitle = "New Window With Profile"
@@ -12,7 +17,8 @@ final class MainMenuController: NSObject, NSMenuItemValidation {
     /// File ▸ New Window With Profile, shown while more than one profile
     /// exists.
     private var profileWindowItem: NSMenuItem?
-    private var profilesObservation: BrowserObservation?
+    private var observations: [BrowserObservation] = []
+    private var shownKeymap: BrowserKeymap?
 
     init(windowManager: @escaping () -> BrowserWindowManager?) {
         self.windowManager = windowManager
@@ -21,8 +27,12 @@ final class MainMenuController: NSObject, NSMenuItemValidation {
 
     func install() {
         NSApp.mainMenu = buildMenu()
-        profilesObservation = windowManager()?.profiles.changes.observe { [weak self] in
-            self?.refreshProfileWindowItem()
+        if let manager = windowManager() {
+            observations = [
+                manager.profiles.changes.observe { [weak self] in self?.refreshProfileWindowItem() },
+                // Settings ▸ Keyboard shortcuts: the items follow a remap.
+                manager.settingsStore.changes.observe { [weak self] _ in self?.applyKeymap() },
+            ]
         }
         refreshProfileWindowItem()
     }
@@ -31,50 +41,27 @@ final class MainMenuController: NSObject, NSMenuItemValidation {
         profileWindowItem?.isHidden = !(windowManager()?.profiles.hasSeveral ?? false)
     }
 
+    private var keymap: BrowserKeymap {
+        windowManager()?.settingsStore.settings.keymap ?? BrowserKeymap()
+    }
+
     /// The main menu; `install` makes it the app's (the harness only reads
     /// it).
     func buildMenu() -> NSMenu {
         let main = NSMenu()
+        let keymap = keymap
+        shownKeymap = keymap
 
-        let appMenu = NSMenu(title: "Soprano Web")
-        appMenu.addItem(
-            withTitle: "About Soprano Web",
-            action: #selector(NSApplication.orderFrontStandardAboutPanel(_:)),
-            keyEquivalent: ""
-        )
-        appMenu.addItem(.separator())
-        appMenu.addItem(item("Settings…", #selector(openSettings), "comma"))
+        let appMenu = NSMenu(title: BrowserAppCommand.Menu.app.rawValue)
+        addSections([0, 1], of: .app, to: appMenu, keymap: keymap)
         appMenu.addItem(.separator())
         appMenu.addItem(StandardMenus.services())
         appMenu.addItem(.separator())
-        appMenu.addItem(
-            withTitle: "Hide Soprano Web",
-            action: #selector(NSApplication.hide(_:)),
-            keyEquivalent: "h"
-        )
-        let hideOthers = appMenu.addItem(
-            withTitle: "Hide Others",
-            action: #selector(NSApplication.hideOtherApplications(_:)),
-            keyEquivalent: "h"
-        )
-        hideOthers.keyEquivalentModifierMask = [.command, .option]
-        appMenu.addItem(
-            withTitle: "Show All",
-            action: #selector(NSApplication.unhideAllApplications(_:)),
-            keyEquivalent: ""
-        )
-        appMenu.addItem(.separator())
-        appMenu.addItem(
-            withTitle: "Quit Soprano Web",
-            action: #selector(NSApplication.terminate(_:)),
-            keyEquivalent: "q"
-        )
+        addSections([2, 3], of: .app, to: appMenu, keymap: keymap)
         add(appMenu, to: main)
 
-        let fileMenu = NSMenu(title: "File")
-        fileMenu.addItem(item("New Tab", #selector(newTab), "t"))
-        fileMenu.addItem(item("New Window", #selector(newWindow), "n"))
-        fileMenu.addItem(item("New Private Window", #selector(newPrivateWindow), "n", [.command, .shift]))
+        let fileMenu = NSMenu(title: BrowserAppCommand.Menu.file.rawValue)
+        addSections([0], of: .file, to: fileMenu, keymap: keymap)
         let profileMenu = NSMenu(title: Self.newWindowWithProfileTitle)
         let profileWindowUpdater = ProfileWindowMenuUpdater(windowManager: windowManager)
         profileMenu.delegate = profileWindowUpdater
@@ -83,36 +70,21 @@ final class MainMenuController: NSObject, NSMenuItemValidation {
         profileWindowItem.submenu = profileMenu
         self.profileWindowItem = profileWindowItem
         fileMenu.addItem(profileWindowItem)
-        fileMenu.addItem(item("Reopen Closed Tab", #selector(reopenClosedTab), "t", [.command, .shift]))
-        fileMenu.addItem(item("Open Location…", #selector(openLocation), "l"))
+        // Reopen Closed Tab and Open Location… follow without a separator.
+        commands(of: .file, section: 1).forEach { fileMenu.addItem(item(for: $0, keymap: keymap)) }
         fileMenu.addItem(.separator())
-        fileMenu.addItem(item("Close Tab", #selector(closeTab), "w"))
-        fileMenu.addItem(item("Close Window", #selector(closeWindow), "w", [.command, .shift]))
-        fileMenu.addItem(.separator())
-        fileMenu.addItem(item("Save As…", #selector(saveAs), "s", [.command, .shift]))
-        fileMenu.addItem(item("Export as PDF…", #selector(exportPDF), ""))
+        addSections([2, 3], of: .file, to: fileMenu, keymap: keymap)
         fileMenu.addItem(.separator())
         fileMenu.addItem(ShareMenuUpdater.placeholder())
         let shareUpdater = ShareMenuUpdater { [windowManager] in windowManager()?.activeController?.shareItems ?? [] }
         self.shareUpdater = shareUpdater
         fileMenu.delegate = shareUpdater
         fileMenu.addItem(.separator())
-        fileMenu.addItem(item("Print…", #selector(printPage), "p"))
+        addSections([4], of: .file, to: fileMenu, keymap: keymap)
         add(fileMenu, to: main)
 
-        let editMenu = NSMenu(title: "Edit")
-        editMenu.addItem(withTitle: "Undo", action: Selector(("undo:")), keyEquivalent: "z")
-        let redo = editMenu.addItem(withTitle: "Redo", action: Selector(("redo:")), keyEquivalent: "z")
-        redo.keyEquivalentModifierMask = [.command, .shift]
-        editMenu.addItem(.separator())
-        editMenu.addItem(withTitle: "Cut", action: #selector(NSText.cut(_:)), keyEquivalent: "x")
-        editMenu.addItem(withTitle: "Copy", action: #selector(NSText.copy(_:)), keyEquivalent: "c")
-        editMenu.addItem(withTitle: "Paste", action: #selector(NSText.paste(_:)), keyEquivalent: "v")
-        editMenu.addItem(withTitle: "Select All", action: #selector(NSText.selectAll(_:)), keyEquivalent: "a")
-        editMenu.addItem(.separator())
-        editMenu.addItem(item("Find…", #selector(find), "f"))
-        editMenu.addItem(item("Find Next", #selector(findNext), "g"))
-        editMenu.addItem(item("Find Previous", #selector(findPrevious), "g", [.command, .shift]))
+        let editMenu = NSMenu(title: BrowserAppCommand.Menu.edit.rawValue)
+        addSections([0, 1, 2, 3], of: .edit, to: editMenu, keymap: keymap)
         editMenu.addItem(.separator())
         editMenu.addItem(StandardMenus.spellingAndGrammar())
         editMenu.addItem(StandardMenus.substitutions())
@@ -120,35 +92,12 @@ final class MainMenuController: NSObject, NSMenuItemValidation {
         editMenu.addItem(StandardMenus.speech())
         add(editMenu, to: main)
 
-        let viewMenu = NSMenu(title: "View")
-        viewMenu.addItem(item("Command Palette…", #selector(showPalette), "p", [.command, .shift]))
-        viewMenu.addItem(.separator())
-        viewMenu.addItem(item("Back", #selector(back), "["))
-        viewMenu.addItem(item("Forward", #selector(forward), "]"))
-        viewMenu.addItem(item("Home", #selector(home), "h", [.command, .shift]))
-        viewMenu.addItem(.separator())
-        viewMenu.addItem(item("Reload", #selector(reload), "r"))
-        viewMenu.addItem(item("Stop", #selector(stop), "."))
-        viewMenu.addItem(.separator())
-        viewMenu.addItem(item("Zoom In", #selector(zoomIn), "="))
-        viewMenu.addItem(item("Zoom Out", #selector(zoomOut), "-"))
-        viewMenu.addItem(item("Actual Size", #selector(resetZoom), "0"))
-        viewMenu.addItem(.separator())
-        viewMenu.addItem(item("Toggle Sidebar", #selector(toggleSidebar), "b", [.command, .shift]))
-        viewMenu.addItem(item("Toggle Vertical Sidebar", #selector(toggleVerticalSidebar), "s"))
-        viewMenu.addItem(.separator())
-        let fullScreen = viewMenu.addItem(
-            withTitle: "Enter Full Screen",
-            action: #selector(NSWindow.toggleFullScreen(_:)),
-            keyEquivalent: "f"
-        )
-        fullScreen.keyEquivalentModifierMask = [.command, .control]
+        let viewMenu = NSMenu(title: BrowserAppCommand.Menu.view.rawValue)
+        addSections([0, 1, 2, 3, 4, 5], of: .view, to: viewMenu, keymap: keymap)
         add(viewMenu, to: main)
 
-        let historyMenu = NSMenu(title: "History")
-        historyMenu.addItem(item("Show All History", #selector(showHistory), "y"))
-        historyMenu.addItem(item("Show Archive", #selector(showArchive), ""))
-        historyMenu.addItem(item("Show Downloads", #selector(showDownloads), "l", [.command, .option]))
+        let historyMenu = NSMenu(title: BrowserAppCommand.Menu.history.rawValue)
+        addSections([0], of: .history, to: historyMenu, keymap: keymap)
         historyMenu.addItem(.separator())
         let recentlyClosed = NSMenu(title: "Recently Closed")
         let recentlyClosedUpdater = RecentlyClosedMenuUpdater(windowManager: windowManager)
@@ -158,55 +107,25 @@ final class MainMenuController: NSObject, NSMenuItemValidation {
         recentlyClosedItem.submenu = recentlyClosed
         historyMenu.addItem(recentlyClosedItem)
         historyMenu.addItem(.separator())
-        historyMenu.addItem(item("Clear Browsing Data…", #selector(clearBrowsingData), "\u{8}", [.command, .shift]))
+        addSections([1], of: .history, to: historyMenu, keymap: keymap)
         add(historyMenu, to: main)
 
-        let spacesMenu = NSMenu(title: "Spaces")
+        let spacesMenu = NSMenu(title: BrowserAppCommand.Menu.spaces.rawValue)
         self.spacesMenu = BrowserSpacesMenu(
             menu: spacesMenu,
-            commands: [
-                item("Bookmark This Page", #selector(bookmark), "d"),
-                item("Show Pinned Tabs", #selector(showPinnedTabs), "b", [.command, .option]),
-                item("Archive Today Tabs", #selector(archiveTodayTabs), "k", [.command, .shift]),
-            ],
+            stepCommands: commands(of: .spaces, section: 1).map { item(for: $0, keymap: keymap) },
+            commands: commands(of: .spaces, section: 2).map { item(for: $0, keymap: keymap) },
             windowManager: windowManager
         )
         add(spacesMenu, to: main)
 
-        let windowMenu = NSMenu(title: "Window")
-        windowMenu.addItem(
-            withTitle: "Minimize",
-            action: #selector(NSWindow.performMiniaturize(_:)),
-            keyEquivalent: "m"
-        )
-        windowMenu.addItem(
-            withTitle: "Zoom",
-            action: #selector(NSWindow.performZoom(_:)),
-            keyEquivalent: ""
-        )
-        windowMenu.addItem(.separator())
-        windowMenu.addItem(item("Next Tab", #selector(nextTab), "\t", [.control]))
-        windowMenu.addItem(item("Previous Tab", #selector(previousTab), "\t", [.control, .shift]))
-        windowMenu.addItem(item("Move Tab to New Window", #selector(moveTabToNewWindow), ""))
-        windowMenu.addItem(item("Merge All Windows", #selector(mergeAllWindows), ""))
-        windowMenu.addItem(.separator())
-        for number in 1...9 {
-            let title = number == 9 ? "Last Tab" : "Tab \(number)"
-            let select = item(title, #selector(selectTabNumber(_:)), "\(number)")
-            select.tag = number
-            windowMenu.addItem(select)
-        }
-        windowMenu.addItem(.separator())
-        windowMenu.addItem(
-            withTitle: "Bring All to Front",
-            action: #selector(NSApplication.arrangeInFront(_:)),
-            keyEquivalent: ""
-        )
+        let windowMenu = NSMenu(title: BrowserAppCommand.Menu.window.rawValue)
+        addSections([0, 1, 2, 3], of: .window, to: windowMenu, keymap: keymap)
         add(windowMenu, to: main)
         NSApp.windowsMenu = windowMenu
 
-        let helpMenu = NSMenu(title: "Help")
-        helpMenu.addItem(item("Keyboard Shortcuts", #selector(showShortcuts), ""))
+        let helpMenu = NSMenu(title: BrowserAppCommand.Menu.help.rawValue)
+        addSections([0], of: .help, to: helpMenu, keymap: keymap)
         add(helpMenu, to: main)
         NSApp.helpMenu = helpMenu
 
@@ -219,281 +138,78 @@ final class MainMenuController: NSObject, NSMenuItemValidation {
         main.addItem(item)
     }
 
-    private func item(
-        _ title: String,
-        _ action: Selector,
-        _ key: String,
-        _ modifiers: NSEvent.ModifierFlags = [.command]
-    ) -> NSMenuItem {
-        let item = NSMenuItem(title: title, action: action, keyEquivalent: key)
-        item.target = self
-        if key != "\t" {
-            item.keyEquivalentModifierMask = modifiers
-        } else {
-            item.keyEquivalentModifierMask = modifiers
+    private func commands(of menu: BrowserAppCommand.Menu, section: Int) -> [BrowserAppCommand] {
+        BrowserAppCommand.all.filter { $0.menu == menu && $0.section == section && $0.hasMenuItem }
+    }
+
+    /// The registry's items of `sections`, a separator between sections.
+    private func addSections(_ sections: [Int], of menu: BrowserAppCommand.Menu, to target: NSMenu, keymap: BrowserKeymap) {
+        for section in sections {
+            let items = commands(of: menu, section: section)
+            guard !items.isEmpty else { continue }
+            if let last = target.items.last, !last.isSeparatorItem {
+                target.addItem(.separator())
+            }
+            items.forEach { target.addItem(item(for: $0, keymap: keymap)) }
         }
+    }
+
+    /// A registry command's item: identifier = the command id; a system
+    /// command sends its standard action down the responder chain, every
+    /// other one runs through `runCommand(_:)`.
+    private func item(for command: BrowserAppCommand, keymap: BrowserKeymap) -> NSMenuItem {
+        let item = NSMenuItem(title: command.title, action: nil, keyEquivalent: "")
+        item.identifier = NSUserInterfaceItemIdentifier(command.id.rawValue)
+        if let action = command.systemAction {
+            item.action = NSSelectorFromString(action)
+        } else {
+            item.action = #selector(runCommand(_:))
+            item.target = self
+        }
+        Self.apply(keymap.shortcut(for: command.id), to: item)
         return item
     }
 
-    func validateMenuItem(_ menuItem: NSMenuItem) -> Bool {
-        guard let manager = windowManager() else { return false }
-        switch menuItem.action {
-        case #selector(newWindow), #selector(newPrivateWindow), #selector(newTab), #selector(openLocation),
-             #selector(openSettings):
-            return true
-        case #selector(reopenClosedTab):
-            // A private window reopens only its own closed tabs.
-            if let controller = manager.activeController, !controller.kind.usesAppRecentlyClosed {
-                menuItem.title = "Reopen Closed Tab"
-                return controller.canReopenClosedTab
+    private static func apply(_ shortcut: BrowserShortcut?, to item: NSMenuItem) {
+        item.keyEquivalent = shortcut?.keyEquivalent ?? ""
+        item.keyEquivalentModifierMask = shortcut?.modifierMask ?? []
+    }
+
+    /// Re-applies the keymap to every registry item after Settings ▸
+    /// Keyboard shortcuts changed it.
+    private func applyKeymap() {
+        let keymap = keymap
+        guard keymap != shownKeymap, let main = NSApp.mainMenu else { return }
+        shownKeymap = keymap
+        func walk(_ menu: NSMenu) {
+            for item in menu.items {
+                if let raw = item.identifier?.rawValue, let id = BrowserCommandID(rawValue: raw) {
+                    Self.apply(keymap.shortcut(for: id), to: item)
+                }
+                if let submenu = item.submenu { walk(submenu) }
             }
-            menuItem.title = manager.recentlyClosed.newest?.isWindow == true
-                ? "Reopen Closed Window"
-                : "Reopen Closed Tab"
-            return !manager.recentlyClosed.isEmpty
-        case #selector(closeWindow):
-            return NSApp.keyWindow != nil || manager.activeController != nil
-        default:
-            break
         }
-        guard let controller = manager.activeController else { return false }
-        switch menuItem.action {
-        case #selector(back):
-            return controller.selectedTab?.webView.canGoBack ?? false
-        case #selector(forward):
-            return controller.selectedTab?.webView.canGoForward ?? false
-        case #selector(closeTab), #selector(moveTabToNewWindow):
-            return !controller.tabs.isEmpty
-        case #selector(archiveTodayTabs):
-            return controller.canArchiveTodayTabs
-        case #selector(mergeAllWindows):
-            return manager.tabbedController.map { !manager.mergeSources(into: $0).isEmpty } ?? false
-        case #selector(bookmark):
-            guard let tab = controller.selectedTab, !tab.isStartPage, let url = tab.webView.url else { return false }
-            let isPinned = controller.pinSpaceID.map {
-                controller.spaces.isPinned(url.absoluteString, inSpace: $0)
-            } ?? false
-            menuItem.title = isPinned ? "Edit Bookmark" : "Bookmark This Page"
-            return true
-        case #selector(printPage), #selector(exportPDF), #selector(saveAs):
-            return controller.canUsePageTools
-        case #selector(stop):
-            return controller.isSelectedTabLoading
-        default:
-            return true
+        walk(main)
+        spacesMenu?.rebuild()
+    }
+
+    private func command(of item: NSMenuItem) -> BrowserAppCommand? {
+        item.identifier.flatMap { BrowserCommandID(rawValue: $0.rawValue) }?.command
+    }
+
+    func validateMenuItem(_ menuItem: NSMenuItem) -> Bool {
+        guard let command = command(of: menuItem) else { return true }
+        guard let manager = windowManager() else { return false }
+        let state = command.state(BrowserCommandContext(manager: manager))
+        if let title = state.title {
+            menuItem.title = title
         }
+        return state.isEnabled
     }
 
-    /// The window menu commands act on: the key browser window, else the
-    /// most recently active one.
-    private func controller() -> BrowserWindowController? {
-        windowManager()?.activeController
-    }
-
-    @objc private func newTab() {
-        guard let controller = controller() else {
-            windowManager()?.newWindow()
-            return
-        }
-        controller.newTab(focusAddress: true)
-        controller.revealWindowIfNeeded()
-    }
-
-    @objc private func newWindow() {
-        windowManager()?.newWindow()
-    }
-
-    @objc private func newPrivateWindow() {
-        windowManager()?.newPrivateWindow()
-    }
-
-    @objc private func openLocation() {
-        guard let manager = windowManager() else { return }
-        guard let controller = manager.activeController else {
-            manager.newWindow()
-            return
-        }
-        manager.present(controller)
-        controller.focusAddressBar()
-    }
-
-    @objc private func closeTab() {
-        controller()?.closeSelectedTab()
-    }
-
-    /// ⇧⌘T: in a private window its own last closed tab, otherwise the
-    /// newest entry of the app-wide stack.
-    @objc private func reopenClosedTab() {
-        guard let manager = windowManager() else { return }
-        if let controller = manager.activeController {
-            controller.reopenClosedTab()
-        } else {
-            manager.reopenMostRecent()
-        }
-    }
-
-    /// ⇧⌘W closes the key window: a browser window onto the recently-closed
-    /// stack, any other window (Settings) the usual way.
-    @objc private func closeWindow() {
-        guard let manager = windowManager() else { return }
-        if let key = NSApp.keyWindow, !manager.controllers.contains(where: { $0.window === key }) {
-            key.performClose(nil)
-        } else if let controller = manager.activeController {
-            manager.closeWindow(controller)
-        }
-    }
-
-    @objc private func back() {
-        controller()?.goBack()
-    }
-
-    @objc private func forward() {
-        controller()?.goForward()
-    }
-
-    @objc private func reload() {
-        controller()?.reloadOrStop()
-    }
-
-    @objc private func stop() {
-        controller()?.stopLoading()
-    }
-
-    @objc private func home() {
-        controller()?.goHome()
-    }
-
-    @objc private func find() {
-        controller()?.showFindBar()
-    }
-
-    @objc private func findNext() {
-        controller()?.findNext()
-    }
-
-    @objc private func findPrevious() {
-        controller()?.findPrevious()
-    }
-
-    @objc private func zoomIn() {
-        controller()?.zoomIn()
-    }
-
-    @objc private func zoomOut() {
-        controller()?.zoomOut()
-    }
-
-    @objc private func resetZoom() {
-        controller()?.resetZoom()
-    }
-
-    @objc private func toggleSidebar() {
-        controller()?.toggleSidebar()
-    }
-
-    @objc private func toggleVerticalSidebar() {
-        controller()?.toggleVerticalSidebar()
-    }
-
-    @objc private func showHistory() {
-        controller()?.showSidebar(section: .history)
-    }
-
-    @objc private func showPinnedTabs() {
-        controller()?.showRail()
-    }
-
-    @objc private func showArchive() {
-        controller()?.showSidebar(section: .archive)
-    }
-
-    /// ⇧⌘K: every Today tab of the active window's current Space.
-    @objc private func archiveTodayTabs() {
-        controller()?.archiveTodayTabs()
-    }
-
-    @objc private func showDownloads() {
-        controller()?.showSidebar(section: .downloads)
-    }
-
-    @objc private func clearBrowsingData() {
-        controller()?.showClearBrowsingData()
-    }
-
-    @objc private func bookmark() {
-        controller()?.bookmarkCurrentPage()
-    }
-
-    @objc private func nextTab() {
-        controller()?.selectNextTab()
-    }
-
-    @objc private func previousTab() {
-        controller()?.selectPreviousTab()
-    }
-
-    @objc private func moveTabToNewWindow() {
-        controller()?.moveSelectedTabToNewWindow()
-    }
-
-    @objc private func mergeAllWindows() {
-        windowManager()?.mergeAllWindows()
-    }
-
-    @objc private func selectTabNumber(_ sender: NSMenuItem) {
-        if sender.tag == 9 {
-            controller()?.selectLastTab()
-        } else {
-            controller()?.selectTab(number: sender.tag)
-        }
-    }
-
-    @objc private func openSettings() {
-        windowManager()?.showSettings()
-    }
-
-    @objc private func showPalette() {
-        controller()?.showCommandPalette()
-    }
-
-    @objc private func printPage() {
-        controller()?.printSelectedPage()
-    }
-
-    @objc private func exportPDF() {
-        controller()?.exportSelectedPageAsPDF()
-    }
-
-    @objc private func saveAs() {
-        controller()?.saveSelectedPageAs()
-    }
-
-    @objc private func showShortcuts() {
-        let alert = NSAlert()
-        alert.messageText = "Soprano Web Shortcuts"
-        alert.informativeText = """
-        ⌘L  Address bar
-        ⌘T  New tab            ⌘W  Close tab
-        ⌘N  New window         ⇧⌘N New private window
-        ⇧⌘W Close window
-        ⇧⌘T Reopen closed tab or window
-        ⌃Tab / ⌃⇧Tab  Next / previous tab
-        ⌃1–⌃9 Space by number
-        ⌥⌘→ / ⌥⌘←  Next / previous Space
-        ⌘[  Back               ⌘]  Forward
-        ⌘R  Reload             ⌘F  Find in page
-        ⌘D  Bookmark           ⌘Y  History
-        ⌥⌘B Pinned tabs        ⌥⌘L Downloads
-        ⌘= / ⌘- / ⌘0  Zoom in / out / reset
-        ⌘P  Print              ⇧⌘S Save as
-        ⇧⌘P Command palette    ⌘.  Stop loading
-        ⇧⌘B Right sidebar      ⌘S  Vertical sidebar
-        ⌘1–⌘8 Tab by number    ⌘9  Last tab
-        ⇧⌘K Archive Today tabs
-        ⇧⌘⌫ Clear browsing data
-        """
-        alert.addButton(withTitle: "OK")
-        alert.runModal()
+    @objc private func runCommand(_ sender: NSMenuItem) {
+        guard let command = command(of: sender), let manager = windowManager() else { return }
+        command.perform(in: BrowserCommandContext(manager: manager))
     }
 }
 

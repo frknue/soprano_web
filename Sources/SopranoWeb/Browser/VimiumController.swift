@@ -343,7 +343,7 @@ final class VimiumController: NSObject {
             windowController?.showVimiumTabs()
 
         case .commandPalette:
-            windowController?.showCommandPalette()
+            windowController?.showCommandBar(.actions)
 
         case .back:
             windowController?.goBack()

@@ -19,14 +19,14 @@ enum BrowserStartPage {
         kind: BrowserWindowKind = .normal
     ) -> String {
         let colors = theme.colors
-        let bookmarksHTML: String
+        let pinsHTML: String
         let cards = topLevelCards(pins)
         if cards.isEmpty {
-            bookmarksHTML = """
-            <p class="empty">Bookmark a page with ⌘D and it shows up here.</p>
+            pinsHTML = """
+            <p class="empty">Pin a page with ⌘D and it shows up here.</p>
             """
         } else {
-            bookmarksHTML = """
+            pinsHTML = """
             <div class="grid">
             \(cards.joined(separator: "\n"))
             </div>
@@ -225,14 +225,14 @@ enum BrowserStartPage {
               : "Search the web, or enter an address above.")</p>
           \(searchFormHTML(settings.defaultSearchEngine))
           <section>
-            <h2>Bookmarks</h2>
-            \(bookmarksHTML)
+            <h2>Pinned Tabs</h2>
+            \(pinsHTML)
           </section>
           \(recentSection)
           <footer>
-            <span>⌘L Address</span>
-            <span>⌘T New tab</span>
-            <span>⌘D Bookmark</span>
+            <span>⌘T Command Bar</span>
+            <span>⌘L Edit address</span>
+            <span>⌘D Pin tab</span>
           </footer>
         </main>
         </body>
@@ -281,14 +281,14 @@ enum BrowserStartPage {
         return cards
     }
 
-    /// A folder card; open, it spans the grid and lists every bookmark in
+    /// A folder card; open, it spans the grid and lists every pinned tab in
     /// the folder with the subfolder it sits in.
     private static func folderCard(_ folder: BrowserPinFolder) -> String {
         let entries = BrowserPinTree(children: folder.children).entries()
         let count = switch entries.count {
         case 0: "empty"
-        case 1: "1 bookmark"
-        default: "\(entries.count) bookmarks"
+        case 1: "1 pinned tab"
+        default: "\(entries.count) pinned tabs"
         }
         let list = entries.isEmpty
             ? "<p class=\"empty\">This folder is empty.</p>"

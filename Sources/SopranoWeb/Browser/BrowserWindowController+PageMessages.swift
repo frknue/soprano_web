@@ -48,6 +48,8 @@ extension BrowserWindowController {
             tab.webView.contextMenuTarget = BrowserContextMenuTarget(body: body)
         case ("sleepGuard", .page):
             receiveSleepGuard(body, tab: tab)
+        case ("keyReport", .isolated):
+            receiveKeyReport(body, tab: tab)
         default:
             return
         }

@@ -195,6 +195,28 @@ no linter or formatter; match surrounding style.
   `search-engines:` (every engine, `*` before the default). `--address
   "w cats"` with an engine keyed `w` shows the keyword row first in
   `address-rows`.
+  Command Bar and shortcut flags (actions, in order with the window flags,
+  on the active window): `--command-bar [text]` (⌘T, then types `text`;
+  the value is any next argument that isn't a flag), `--command-bar-location`
+  (⌘L), `--command-bar-actions` (⇧⌘P, `/`), `--command-bar-type <text>`,
+  `--command-bar-key <key>` (repeatable: `down`, `up`, `tab`, `enter`,
+  `esc`, `backspace`, `ctrl-n`, `ctrl-p`; `enter` prints the chosen row and
+  the selected tab), `--print-command-bar` (one `command-bar:` JSON line:
+  mode, text, site-search chip, selection, groups and rows with targets),
+  `--set-shortcut <command id>=<shortcut>[:app|site|twice]` (recorded in
+  Settings ▸ Keyboard shortcuts; prints the answer and `settings.json`'s
+  `shortcuts`; a conflict stays open, `--shortcut-swap` / `--shortcut-cancel`
+  press its buttons; with `--support-dir` a second run reads the saved
+  shortcuts), `--shortcuts-sheet` (captures the sheet and prints every row),
+  `--page-key "<shortcut>[ x2]"` (a key-down into the selected tab's focused
+  page as AppKit sends a key equivalent, twice 0.3 s apart with ` x2`;
+  prints the command, its priority, the page's `window.__keyLog` and the
+  pasteboard — the proof for Site wins and Press twice), `--recent-tabs <n>`
+  (⌃Tab n times, then ⌃ released) and `--recent-tabs-hold <n>` (overlay left
+  open for the capture), `--walk-rail down|up` (⌥⌘↓/↑), `--toggle-toolbar`
+  (⇧⌘D), `--copy-url` / `--copy-markdown` (print the pasteboard: the
+  harness's own named one, never the general pasteboard). The Command Bar
+  and the ⌃Tab overlay are drawn over the page in the capture.
 - Verify real navigation and the agent surface against a running dev app:
 
   ```bash
@@ -442,6 +464,45 @@ no linter or formatter; match surrounding style.
   Space on ⌥⌘→/⌥⌘←, then the active window's Space's pin tree, rebuilt on
   every change (`dump` prints it). ⌃1…⌃9 and ⌥⌘←/⌥⌘→ are Arc's Space
   shortcuts; ⌘1…⌘9 stay tabs of the current Space.
+- `Browser/BrowserCommands.swift` — the command registry: `BrowserCommandID`
+  (the stable ids `settings.json`, menu item identifiers and the harness
+  use) and `BrowserAppCommand.all`, one row per command in menu order
+  (title, menu and section, default shortcut, synonyms, symbol, state and
+  action closures over `BrowserCommandContext`; standard AppKit commands
+  carry their responder-chain selector and a fixed shortcut).
+  `App/MainMenu.swift` builds every menu item from it (identifier = id,
+  `runCommand:`), re-applies the keymap when settings change and validates
+  through the row's state; the Spaces menu takes its Space items' shortcuts
+  from `space-1`…`space-9`. `BrowserShortcuts.swift` is the pure part:
+  `BrowserShortcut` (`"shift+cmd+c"` / `⇧⌘C`, from an `NSEvent` or a page's
+  `KeyboardEvent.code`), `BrowserShortcutPriority`, `BrowserShortcutSettings`
+  (`shortcuts` in `settings.json`, decoded entry by entry, only differences
+  saved), `BrowserKeymap` (effective shortcuts, conflicts, swap, reset),
+  `BrowserShortcutGate`, `BrowserRecentTabs` / `BrowserRecentTabSwitcher`
+  and `BrowserRailWalk`. Priority mechanism: `BrowserWebView.performKeyEquivalent`
+  (and `keyDown` for ⌃/⌥ keys) calls `routePageShortcut` while the page has
+  focus — AppKit offers key equivalents to the window's views before the
+  menu. App wins runs the command there. Site wins and Press twice let
+  WebKit send the key to the page; WebKit hands back a key the page left
+  unhandled by sending the same `NSEvent` again (`forwardedKey`), and the
+  isolated-world `BrowserShortcutScripts.keyReport` posts each modified
+  `keydown`'s `defaultPrevented` on the `sopranoWeb` channel; the first
+  answer decides, the late one is swallowed. `App/BrowserShortcutsSheet.swift`
+  is Settings ▸ Keyboard shortcuts.
+  `BrowserCommandBar.swift` — the Command Bar's pure results
+  (`BrowserCommandBarEngine`: the default row — keyword search, address or
+  default-engine search —, open tabs, pins and favorites and History
+  ranked by `AddressSuggestionEngine.rankedPages` (the address bar's tiers
+  and frecency), Spaces, `/` actions and settings pages by prefix >
+  word start > substring; site search's engine for Tab).
+  `BrowserCommandBarView.swift` — `BrowserCommandBarController` (state and
+  keys) and the Folio panel, a view over the window's content (never a
+  window of its own). `BrowserWindowController+CommandBar` (sources,
+  choosing a row) and `+Shortcuts` (copy URL / Markdown on
+  `manager.pasteboard`, ⇧⌘D's `toolbarHidden` in `UserDefaults`, the rail
+  walk, ⌃Tab's switcher with `BrowserRecentTabsOverlay`, key routing).
+  A private context keeps its pages in `BrowserSessionVisits` (memory
+  only) for its Command Bar.
 - `Browser/BrowserDataStores.swift` — downloads JSON
   (`{version, entries}` envelopes, lossy decoding; a private window's download
   rows carry `privateContextID` and stay in memory);
