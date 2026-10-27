@@ -382,7 +382,10 @@ no linter or formatter; match surrounding style.
   sidebar's restore and Space mark.
   Its behavior lives in extension files
   by concern: `+Tabs` (`attachTab`/`detachTab`: everything that binds a tab to a
-  window), `+TabMove` (Move Tab to New Window, the drop and drag-out handlers
+  window; `detachTabs` removes many with the strip, rail, selection and
+  session work done once — each rail or strip update rebuilds its rows, so
+  ⇧⌘K, the idle pass, Close Other Tabs and Close Tabs Below go through it),
+  `+TabMove` (Move Tab to New Window, the drop and drag-out handlers
   the tab lists call, the find query a moved tab carries), `+Navigation`
   (`WKNavigationDelegate`), `+UIDelegate`
   (`WKUIDelegate`), `+Downloads` (hand-off to the download manager), `+Sidebar`,

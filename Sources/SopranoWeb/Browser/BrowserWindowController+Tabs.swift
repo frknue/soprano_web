@@ -277,6 +277,65 @@ extension BrowserWindowController {
         return true
     }
 
+    /// `detachTab` for many tabs at once, with the window's UI work done
+    /// once: one `tabs` change, one observation sync, one selection change,
+    /// one tab strip and rail update, one session save. (Each rail or strip
+    /// update rebuilds its rows, tens of milliseconds a time.) The result is
+    /// what detaching them one by one gives: a selected tab hands the
+    /// selection to the first remaining tab after it in the Space, else the
+    /// Space's last; a Space left without tabs gets a start tab. Returns the
+    /// tabs that were in the window.
+    @discardableResult
+    func detachTabs(_ leaving: [BrowserTab]) -> [BrowserTab] {
+        let present = leaving.filter { tab in tabs.contains { $0 === tab } }
+        guard present.count > 1 else {
+            present.forEach { detachTab($0) }
+            return present
+        }
+        let leavingIDs = Set(present.map(\.id))
+        let oldVisible = visibleTabs
+        let selected = selectedTab
+        let wasSelected = selected.map { leavingIDs.contains($0.id) } ?? false
+        // Where the selection goes: the first tab after it that stays.
+        let successor = selected.flatMap { selected in
+            oldVisible.firstIndex { $0 === selected }.flatMap { index in
+                oldVisible[(index + 1)...].first { !leavingIDs.contains($0.id) }?.id
+            }
+        }
+        if wasSelected, !findBar.isHidden {
+            selected?.webView.find("", configuration: WKFindConfiguration()) { _ in }
+        }
+        for tab in present {
+            unbindTab(tab)
+            removeWakeSnapshot(tab)
+            tab.webView.removeFromSuperview()
+            if let spaceID = tab.spaceID, spaceSelections[spaceID] == tab.id {
+                spaceSelections[spaceID] = nil
+            }
+        }
+        tabs.removeAll { leavingIDs.contains($0.id) }
+        syncContextObservations()
+
+        if tabs.isEmpty {
+            selectedIndex = 0
+            tabStrip.clear()
+            verticalTabsView.clear()
+            updateChrome()
+        } else if visibleTabs.isEmpty {
+            // The current Space's last tabs left; it shows a start tab.
+            selectedIndex = 0
+            newTab()
+        } else if wasSelected {
+            let target = successor.flatMap { id in visibleTabs.firstIndex { $0.id == id } } ?? visibleTabs.count - 1
+            selectTab(index: target, focus: true)
+        } else if let selectedID = selected?.id, let kept = visibleTabs.firstIndex(where: { $0.id == selectedID }) {
+            selectedIndex = kept
+            updateTabStrip()
+        }
+        saveSession()
+        return present
+    }
+
     private func bindTab(_ tab: BrowserTab) {
         let webView = tab.webView
         webView.navigationDelegate = self

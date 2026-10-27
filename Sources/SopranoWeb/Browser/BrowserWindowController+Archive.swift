@@ -67,15 +67,17 @@ extension BrowserWindowController {
         return stored
     }
 
-    /// Takes tabs already written to the Archive out of the window.
+    /// Takes tabs already written to the Archive out of the window, all at
+    /// once (`detachTabs`). Taking every tab first adds a start tab, so
+    /// archiving never closes a window.
     func removeArchivedTabs(_ archived: [BrowserTab]) {
-        for tab in archived where self.tabs.contains(where: { $0 === tab }) {
-            if self.tabs.count == 1 {
-                newTab(select: true)
-            }
-            detachTab(tab)
-            discardTab(tab)
+        let present = archived.filter { tab in self.tabs.contains { $0 === tab } }
+        guard !present.isEmpty else { return }
+        if present.count == self.tabs.count {
+            newTab(select: true)
         }
+        detachTabs(present)
+        present.forEach(discardTab)
     }
 
     /// ⇧⌘K (Spaces ▸ Archive Today Tabs): archives every Today tab of the

@@ -379,8 +379,10 @@ app.
 - A private window's sidebar no longer shows the profile's Archive, and
   Clear Browsing Data ▸ History there also clears its Command Bar pages.
 - `⌘L` in a pop-up window edits the pop-up's own address.
-- Archiving many tabs at once (`⇧⌘K`, tabs going idle) writes the Archive
-  once instead of once per tab.
+- Archiving or closing many tabs at once (`⇧⌘K`, tabs going idle, Close
+  Other Tabs, Close Tabs Below) writes the Archive and redraws the tab list
+  once instead of once per tab: `⇧⌘K` on 21 tabs went from about 1.9 s to
+  0.3 s.
 - `⌘L` (File → Open Location…) now focuses and selects the address bar; the
   shortcut was listed in Keyboard Shortcuts but never bound.
 - Settings, history, bookmarks and downloads no longer reset when their file has a

@@ -106,11 +106,34 @@ extension BrowserWindowController {
         closeTabs(closing, thenSelect: selected)
     }
 
+    /// Closes `ids` as ⌘W would one by one (each onto Recently Closed with
+    /// its place in its Space, Today tabs into the Archive), with one
+    /// Archive write and the window's UI work done once (`detachTabs`),
+    /// then selects `selection`. The caller keeps a tab open.
     private func closeTabs(_ ids: [UUID], thenSelect selection: UUID) {
         selectTab(id: selection, focus: false)
-        for closing in ids.reversed() {
-            closeTab(id: closing, archive: true)
+        // Last first, as one-by-one closing went: each tab's index in its
+        // Space counts only the tabs before it.
+        let closing = ids.reversed().compactMap { id in tabs.first { $0.id == id } }
+        var archived: [BrowserArchiveEntry] = []
+        for tab in closing {
+            let index = tabs.filter { $0.spaceID == tab.spaceID }.firstIndex { $0 === tab }
+            let entry = BrowserClosedEntry(
+                .tab(tab.state, windowID: self.id, index: index),
+                profileID: tab.dataContext.profileID
+            )
+            if kind.usesAppRecentlyClosed {
+                manager.recentlyClosed.push(entry)
+            } else {
+                closedTabs.push(entry)
+            }
+            if let archive = archiveEntry(for: tab, reason: .manual) {
+                archived.append(archive)
+            }
         }
+        manager.archive.archive(archived)
+        detachTabs(closing)
+        closing.forEach(discardTab)
         selectTab(id: selection, focus: true)
     }
 
