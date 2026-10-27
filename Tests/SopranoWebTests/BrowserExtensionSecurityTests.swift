@@ -179,4 +179,60 @@ struct BrowserExtensionSecurityTests {
         #expect(extensions.pendingAdditions[first.id] == BrowserExtensions.Additions(permissions: ["cookies"], matchPatterns: ["<all_urls>"]))
         await extensions.removeAllData()
     }
+
+    @Test func aSheetDecidesOnlyWhatItShowed() async throws {
+        let (extensions, directory) = makeExtensions()
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let folder = directory.appendingPathComponent("folder", isDirectory: true)
+        try writeFolder(folder, manifest: ["manifest_version": 3, "name": "Grows", "version": "1.0", "permissions": ["storage"]])
+        let first = try await extensions.install(folder.path)
+        try writeFolder(folder, manifest: ["manifest_version": 3, "name": "Grows", "version": "2.0", "permissions": ["storage", "cookies"]])
+        _ = try await extensions.install(folder.path)
+        let shown = try #require(extensions.pendingAdditions[first.id])
+        #expect(shown == BrowserExtensions.Additions(permissions: ["cookies"]))
+        // Another update lands while that sheet is open.
+        try writeFolder(folder, manifest: [
+            "manifest_version": 3, "name": "Grows", "version": "3.0",
+            "permissions": ["storage", "cookies"], "host_permissions": ["<all_urls>"],
+        ])
+        _ = try await extensions.install(folder.path)
+        #expect(extensions.pendingAdditions[first.id] == BrowserExtensions.Additions(permissions: ["cookies"], matchPatterns: ["<all_urls>"]))
+
+        extensions.decideAdditions(first.id, allowed: true, shown: shown)
+        let record = try #require(extensions.store.record(id: first.id))
+        #expect(record.grantedPermissions["cookies"] != nil)
+        #expect(record.grantedMatchPatterns["<all_urls>"] == nil)
+        #expect(extensions.pendingAdditions[first.id] == BrowserExtensions.Additions(matchPatterns: ["<all_urls>"]))
+        await extensions.removeAllData()
+    }
+
+    @Test func removingOrDisablingWhileTheUpdateSheetIsOpenSticks() async throws {
+        let (extensions, directory) = makeExtensions()
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let folder = directory.appendingPathComponent("folder", isDirectory: true)
+        let v1: [String: Any] = ["manifest_version": 3, "name": "Grows", "version": "1.0", "permissions": ["storage"]]
+        let v2: [String: Any] = ["manifest_version": 3, "name": "Grows", "version": "2.0", "permissions": ["storage", "cookies"]]
+        try writeFolder(folder, manifest: v1)
+        let first = try await extensions.install(folder.path)
+        try writeFolder(folder, manifest: v2)
+        await #expect(throws: BrowserExtensions.InstallError.self) {
+            try await extensions.install(folder.path) { _ in
+                try? await extensions.remove(first.id)
+                return true
+            }
+        }
+        #expect(extensions.store.record(id: first.id) == nil)
+
+        try writeFolder(folder, manifest: v1)
+        _ = try await extensions.install(folder.path)
+        try writeFolder(folder, manifest: v2)
+        let updated = try await extensions.install(folder.path) { _ in
+            try? await extensions.setEnabled(first.id, false)
+            return true
+        }
+        #expect(!updated.isEnabled)
+        #expect(updated.version == "2.0")
+        #expect(updated.grantedPermissions["cookies"] != nil)
+        await extensions.removeAllData()
+    }
 }

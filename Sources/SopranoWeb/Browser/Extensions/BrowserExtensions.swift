@@ -240,6 +240,8 @@ final class BrowserExtensions: NSObject {
         // prompt, the user is asked in the app, naming the extension.
         nativeHost.confirmNotifications = { [weak self] id in
             guard let self, let context = self.contexts[id] else { return false }
+            // Without a window nobody can answer: not a refusal.
+            guard self.manager?.activeController?.window != nil else { return nil }
             return await withCheckedContinuation { continuation in
                 self.prompt(context, tab: nil, lines: ["Show notifications"]) { allowed in
                     continuation.resume(returning: allowed)

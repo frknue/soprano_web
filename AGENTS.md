@@ -224,8 +224,18 @@ surrounding style.
   30% of History or finished; `--export-pins <file>` /
   `--export-all-pins <file>` run File ▸ Export Pinned Tabs… and print what
   the file reads back as; `--open-link <url>` (repeatable) is a link from
-  another app through the routing rules; `--link-routing-sheet` captures
-  Settings ▸ Links from other apps. With `--support-dir` an import keeps
+  another app (a matching rule, else "Open links from other apps in"; prints
+  the window, its role and the route); `--outside-links little|recent` sets
+  that choice first; `--link-routing-sheet` captures
+  Settings ▸ Links from other apps. Little Arc (`BrowserWindowRole.little`,
+  `BrowserLittleArc.swift`, `BrowserWindowManager+LittleArc.swift`,
+  `SnapshotCommand+LittleArc.swift`): `--little-arc <url|start>` opens one
+  (`start`: ⌥⌘N with the Command Bar) and makes it the captured window,
+  `--little-to-window` runs ⌘O, `--little-open-in <n|name>` its "Open in"
+  menu; `--print-windows` shows `role` and `littleSpace`. CLI: `browser
+  little [url] [--space]`, `browser little to-window`; `browser windows`
+  lines are `* n<TAB>kind<TAB>Space<TAB>tabs<TAB>title<TAB>per-Space`.
+  With `--support-dir` an import keeps
   its Spaces for the next run (only their WebKit data stores are
   removed), so a second run shows what a re-import skips.
   `--import-from-private` runs the import from a new private window;

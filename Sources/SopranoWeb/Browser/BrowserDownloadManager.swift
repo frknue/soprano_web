@@ -312,7 +312,7 @@ extension BrowserDownloadManager: WKDownloadDelegate {
             completionHandler(destination)
             return
         }
-        if let origin = origins[key], origin.privateContextID == nil, profileContext(origin.profileID) == nil {
+        if originProfileIsGone(key) {
             // Its Space was deleted while it started: it never gets a row.
             dropStartState(key)
             completionHandler(nil)
@@ -350,12 +350,25 @@ extension BrowserDownloadManager: WKDownloadDelegate {
                 completionHandler(nil)
                 return
             }
+            // Its Space was deleted while the panel was open: no row, no
+            // download into the deleted profile's store.
+            if self.originProfileIsGone(key) {
+                self.dropStartState(key)
+                completionHandler(nil)
+                return
+            }
             // The panel already asked to replace an existing file; WebKit
             // refuses to write over one.
             try? FileManager.default.removeItem(at: destination)
             self.track(download, address: address, destination: destination)
             completionHandler(destination)
         }
+    }
+
+    /// The download started in a normal Space whose profile is deleted now.
+    private func originProfileIsGone(_ key: ObjectIdentifier) -> Bool {
+        guard let origin = origins[key], origin.privateContextID == nil else { return false }
+        return profileContext(origin.profileID) == nil
     }
 
     func downloadDidFinish(_ download: WKDownload) {

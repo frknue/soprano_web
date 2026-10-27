@@ -99,8 +99,8 @@ and bookmarks HTML files, and File ▸ Export Pinned Tabs… as bookmarks HTML.
 
 ## 4. Arc extras
 
-- Little Arc: links from other apps, ⌥⌘N and a global hotkey open a small window; ⌘O moves
-  the page into a Space; archived after 6 h.
+- Little Arc: built in Stage 4 P3 (links from other apps default to it; ⌥⌘N, global
+  shortcut, ⌘O, "Open in", 6 h archive).
 - Peek: links to other sites from pinned tabs and Favorites, and ⇧-clicks, open in an
   overlay; ⌘O expands it to a tab.
 - Split View: up to 4 panes saved as one sidebar item; ⌃⇧= adds, ⌃⇧- closes, ⌃⇧1…4 focus.

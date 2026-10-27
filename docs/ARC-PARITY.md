@@ -80,7 +80,7 @@ Status of Soprano Web: **done**, **partial**, **missing**, **broken**. `BWC` =
 | Title tooltip, nav buttons | sidebar header holds back/forward/reload | missing | AppKit | 1 |
 | Split View | ≤4 panes | missing | several `WKWebView`s | 4 |
 | Peek | overlay | missing | overlay `WKWebView` sharing the data store | 4 |
-| Little Arc | small window for external links | missing: external URLs open as tabs (`App/AppDelegate.swift:58-90`) | `application(_:open:)` | 4 |
+| Little Arc | small window for external links | done (Stage 4 P3): links from other apps (unless a rule matches), ⌥⌘N, optional global shortcut, ⌘O, "Open in", 6 h archive (`BrowserLittleArc.swift`, `BrowserWindowManager+LittleArc.swift`) | `application(_:open:)`, Carbon `RegisterEventHotKey` | 4 |
 
 ### Address bar and commands
 

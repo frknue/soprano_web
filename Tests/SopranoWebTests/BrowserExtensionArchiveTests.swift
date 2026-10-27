@@ -189,4 +189,55 @@ struct BrowserExtensionArchiveTests {
         let attributes = try FileManager.default.attributesOfItem(atPath: destination.appendingPathComponent("run.sh").path)
         #expect((attributes[.posixPermissions] as? NSNumber)?.intValue == 0o644)
     }
+
+    /// Archives the way real tools write them: `ditto -c -k` (deflated
+    /// entries with data descriptors, bit 3, zeroed local CRC and sizes,
+    /// empty files as 2-byte deflate streams), `zip` to a file (empty files
+    /// stored) and `zip` to a pipe (data descriptors).
+    @Test func archivesFromDittoAndZipUnpackWhole() throws {
+        let root = F.temporaryURL().deletingLastPathComponent()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let source = root.appendingPathComponent("ext", isDirectory: true)
+        try FileManager.default.createDirectory(at: source.appendingPathComponent("js"), withIntermediateDirectories: true)
+        let script = Data(String(repeating: "console.log('hi');\n", count: 5_000).utf8)
+        try Data(F.manifest.utf8).write(to: source.appendingPathComponent("manifest.json"))
+        try script.write(to: source.appendingPathComponent("js/background.js"))
+        try Data().write(to: source.appendingPathComponent("empty.txt"))
+
+        func run(_ tool: String, _ arguments: [String], output: URL? = nil) throws {
+            let process = Process()
+            process.executableURL = URL(fileURLWithPath: tool)
+            process.arguments = arguments
+            process.currentDirectoryURL = source
+            if let output {
+                FileManager.default.createFile(atPath: output.path, contents: nil)
+                process.standardOutput = try FileHandle(forWritingTo: output)
+            }
+            try process.run()
+            process.waitUntilExit()
+            #expect(process.terminationStatus == 0)
+        }
+        let ditto = root.appendingPathComponent("ditto.zip")
+        try run("/usr/bin/ditto", ["-c", "-k", source.path, ditto.path])
+        let zipped = root.appendingPathComponent("zip.zip")
+        try run("/usr/bin/zip", ["-q", "-r", zipped.path, "."])
+        let piped = root.appendingPathComponent("piped.zip")
+        try run("/usr/bin/zip", ["-q", "-r", "-", "."], output: piped)
+
+        for archive in [ditto, zipped, piped] {
+            let destination = root.appendingPathComponent("out-\(archive.lastPathComponent)", isDirectory: true)
+            let manifest = try BrowserExtensionArchive.extract(Data(contentsOf: archive), to: destination)
+            #expect(manifest["name"] as? String == "Fixture", "\(archive.lastPathComponent)")
+            #expect(try Data(contentsOf: destination.appendingPathComponent("js/background.js")) == script)
+            #expect(try Data(contentsOf: destination.appendingPathComponent("empty.txt")).isEmpty)
+        }
+        // Data descriptors (general purpose bit 3) were really exercised.
+        func usesDescriptors(_ url: URL) throws -> Bool {
+            let bytes = [UInt8](try Data(contentsOf: url))
+            return bytes.indices.dropLast(8).contains { i in
+                bytes[i] == 0x50 && bytes[i + 1] == 0x4B && bytes[i + 2] == 3 && bytes[i + 3] == 4 && bytes[i + 6] & 0x08 != 0
+            }
+        }
+        #expect(try usesDescriptors(ditto) || usesDescriptors(piped))
+    }
 }

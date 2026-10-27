@@ -170,6 +170,49 @@ struct BrowserExtensionNativeHostTests {
         #expect(recorder.authorizationRequests == 0)
     }
 
+    @Test func noWindowToAskInIsNoRefusalAndForgetStartsOver() async {
+        let recorder = Recorder()
+        recorder.undetermined = true
+        let host = BrowserExtensionNativeHost(poster: recorder)
+        var answer: Bool? = nil
+        var asked = 0
+        host.confirmNotifications = { _ in
+            asked += 1
+            return answer
+        }
+        let unanswered = await call(host, "notifications.create", ["n", ["title": "x"]])
+        #expect((unanswered["error"] as? String)?.contains("window") == true)
+        answer = false
+        _ = await call(host, "notifications.create", ["n", ["title": "x"]])
+        #expect(asked == 2)
+        // Refused now; a reinstall (`forget`) asks again.
+        _ = await call(host, "notifications.create", ["n", ["title": "x"]])
+        #expect(asked == 2)
+        host.forget(one)
+        answer = true
+        let allowed = await call(host, "notifications.create", ["n", ["title": "x"]])
+        #expect(allowed["value"] as? String == "n")
+        #expect(asked == 3)
+    }
+
+    @Test func notificationsWhileTheQuestionIsUpWaitForOneAnswer() async {
+        let recorder = Recorder()
+        recorder.undetermined = true
+        let host = BrowserExtensionNativeHost(poster: recorder)
+        var asked = 0
+        host.confirmNotifications = { _ in
+            asked += 1
+            await Task.yield()
+            return true
+        }
+        let first = Task { @MainActor in (await call(host, "notifications.create", ["a", ["title": "x"]]))["value"] as? String }
+        let second = Task { @MainActor in (await call(host, "notifications.create", ["b", ["title": "y"]]))["value"] as? String }
+        let values = [await first.value, await second.value].compactMap { $0 }
+        #expect(values.sorted() == ["a", "b"])
+        #expect(asked == 1)
+        #expect(recorder.authorizationRequests == 1)
+    }
+
     @Test func beyondTheCapTheOldestNotificationIsTakenDown() async {
         let recorder = Recorder()
         let host = BrowserExtensionNativeHost(poster: recorder)

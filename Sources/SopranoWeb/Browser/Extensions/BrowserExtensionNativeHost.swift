@@ -108,11 +108,12 @@ final class BrowserExtensionNativeHost {
     /// the extension id is shown instead).
     var displayName: @MainActor (String) -> String? = { _ in nil }
     /// Asks the user, in the app, whether the extension may show
-    /// notifications. Asked before an extension's notification would bring
-    /// up macOS's own prompt (the app's permission still undetermined), so
-    /// an extension never triggers that prompt unannounced; once the app's
+    /// notifications: true or false, nil when nobody could answer (no
+    /// window). Asked before an extension's notification would bring up
+    /// macOS's own prompt (the app's permission still undetermined), so an
+    /// extension never triggers that prompt unannounced; once the app's
     /// permission is decided it isn't asked.
-    var confirmNotifications: @MainActor (_ extensionID: String) async -> Bool = { _ in false }
+    var confirmNotifications: @MainActor (_ extensionID: String) async -> Bool? = { _ in false }
     /// Live notifications: extension id → notification id → its options.
     private(set) var notifications: [String: [String: [String: Any]]] = [:]
     /// Live notification ids per extension, the oldest first.
@@ -120,9 +121,15 @@ final class BrowserExtensionNativeHost {
     /// Extensions the user refused notifications this session: not asked
     /// again, their notifications fail.
     private var refusedNotifications: Set<String> = []
-    /// Questions on screen: concurrent notifications of one extension wait
-    /// for the same answer.
-    private var confirmations: [String: Task<Bool, Never>] = [:]
+    /// Extensions the user allowed this session: not asked in the app again.
+    private var allowedNotifications: Set<String> = []
+    /// One authorization per extension while it runs (the in-app question
+    /// and then macOS's prompt): every notification meanwhile waits for it.
+    private var authorizations: [String: Task<Authorization, Never>] = [:]
+
+    private enum Authorization {
+        case allowed, refused, unanswered, systemDenied
+    }
     private var sinks: [String: Sink] = [:]
     private(set) var pendingEvents: [String: [[String: Any]]] = [:]
 
@@ -262,21 +269,37 @@ final class BrowserExtensionNativeHost {
     private func authorizeNotifications(extensionID: String) async throws {
         let refused = Failure(description: "Notifications were not allowed for this extension.")
         if refusedNotifications.contains(extensionID) { throw refused }
-        guard await poster.authorizationIsUndetermined() else { return }
-        let confirmation: Task<Bool, Never>
-        if let pending = confirmations[extensionID] {
-            confirmation = pending
+        let task: Task<Authorization, Never>
+        if let running = authorizations[extensionID] {
+            task = running
         } else {
-            confirmation = Task { await self.confirmNotifications(extensionID) }
-            confirmations[extensionID] = confirmation
+            guard await poster.authorizationIsUndetermined() else { return }
+            if let running = authorizations[extensionID] {
+                task = running
+            } else {
+                let allowedBefore = allowedNotifications.contains(extensionID)
+                task = Task {
+                    if !allowedBefore {
+                        guard let answer = await self.confirmNotifications(extensionID) else { return .unanswered }
+                        guard answer else { return .refused }
+                    }
+                    return await self.poster.requestAuthorization() ? .allowed : .systemDenied
+                }
+                authorizations[extensionID] = task
+            }
         }
-        let allowed = await confirmation.value
-        confirmations[extensionID] = nil
-        guard allowed else {
+        let result = await task.value
+        if authorizations[extensionID] == task { authorizations[extensionID] = nil }
+        switch result {
+        case .allowed:
+            allowedNotifications.insert(extensionID)
+        case .refused:
             refusedNotifications.insert(extensionID)
             throw refused
-        }
-        guard await poster.requestAuthorization() else {
+        case .unanswered:
+            throw Failure(description: "Notifications need a window to ask in; try again with one open.")
+        case .systemDenied:
+            allowedNotifications.insert(extensionID)
             throw BrowserNotificationCenter.PostError.notAuthorized
         }
     }
@@ -334,6 +357,8 @@ final class BrowserExtensionNativeHost {
         notificationOrder[extensionID] = nil
         sinks[extensionID] = nil
         pendingEvents[extensionID] = nil
+        refusedNotifications.remove(extensionID)
+        allowedNotifications.remove(extensionID)
     }
 }
 

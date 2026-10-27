@@ -10,6 +10,19 @@ app.
 ## [Unreleased]
 
 ### Added
+- Little Arc: a small one-tab window of one Space (compact toolbar with editable address,
+  Space mark, "Open in" Space menu, ⌘O "Open in Space Window"), cascaded from the screen's
+  top right. Links from other apps open in it unless a link rule matches (Settings ▸ Links
+  from other apps ▸ "Open links from other apps in": Little Arc or the most recent window;
+  an Arc import takes Arc's `defaultDestination`). ⌥⌘N opens one with the Command Bar;
+  Settings ▸ Keyboard shortcuts has an optional global shortcut (off by default). Its new
+  tabs go to its Space's window; 6 h idle closes it with its tab in the Archive; session
+  version 4 saves it. CLI `browser little [url]`, `browser little to-window`; `browser
+  windows` gains a kind column.
+- Extension review fixes: an update sheet decides only what it showed; every worker whose
+  policy could permit a socket gets the WebSocket stand-in; an update re-reads the record
+  after its sheet; notifications ask once per extension (no window is no refusal); a
+  download whose Space is deleted while its save panel is open is dropped.
 - A native Vimium keyboard layer for pages: counts, scrolling, link hints
   (open, new tab, copy, queue), find, omnibar, bookmarks, tab search, history,
   tab manipulation, marks, visual mode, zoom, mute, source view and a full

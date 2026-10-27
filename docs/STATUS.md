@@ -35,6 +35,7 @@ contract is `docs/STAGE-3-PLAN.md`.
 | Stage 4 P1 | `e57986c` and the commits after it | Web extensions on `WKWebExtension`: one app-wide controller, Chrome Web Store install with full CRX3 check, unpacked folders, daily updates, tab/window adapters, toolbar buttons and popups, permission sheets, site access, private access, commands, Settings ▸ Extensions, `browser extension` CLI |
 | Stage 4 P2 | `372331f` | 1Password 8.12.42.36 runs on native stand-ins (`BrowserExtensionShims`, data-driven by manifest): notifications → Notification Center, `webNavigation.onCreatedNavigationTarget` from the opener, empty `storage.managed`, Chrome user agent, port-less `permissions` origins, `.wasm` MIME, `clients.matchAll`, native WebSocket; missing native hosts answer "host not found"; `browser extension action` |
 | Stage 4 review fixes | `6e165fe` | P1/P2 security and P0 reviews: web pages can't open extension pages app-side; one load gate for extensions (no `file:`, other apps ask); install shows permissions, updates grant nothing new; folder id takeover refused; in-process ZIP extraction (no `ditto`); native-host allowlists; worker WebSocket policy (`connect-src`, local hosts need host access, caps); attributed, capped notifications; deleted-Space downloads never resume in Default and stop on delete |
+| Stage 4 P3 | see `git log` | Little Arc (window role normal/popup/little; links from other apps → rule, else Little Arc or most recent window; Arc `defaultDestination` import; ⌥⌘N + Carbon global shortcut; ⌘O and "Open in"; 6 h idle close into the Archive; session v4; CLI `little`, `windows` kind column) and review fixes P2-1, P2-2, P3-1, P3-2, P3-3 with tests (ditto/zip ZIP fixtures) |
 | P1 | `24c13c0` | Spaces model and store, bookmarks → per-Space pins, `bookmarks.json` migration |
 | P2 | `c886ddf`, `98d8d7a` | A window shows one Space; per-tab data context; session v3 |
 | P3 | `2f601a1`, `628c07c` | Rail (Space header, Favorites, pinned outline, Today, switcher), live pinned/favorite tabs, New/Edit Space sheet |
@@ -128,7 +129,7 @@ its welcome page, no update additions pending; only 1Password keeps `webSocket`.
    presses, ⌃Tab release, shifted-punctuation remaps in the menu bar, a real drag in the
    rail outline, the Command Bar's rounded corners in Folio Ink, Delete Space from the
    switcher's menu (the CLI has no Space create/delete).
-3. Stage 4 P3 (Little Arc) of `docs/STAGE-4-PLAN.md`.
+3. Stage 4 P4 (Peek) of `docs/STAGE-4-PLAN.md`.
 
 Known, not planned: each tab change rebuilds every rail row (~40 ms with 20+ tabs); batch
 closes do it once.
