@@ -697,7 +697,24 @@ surrounding style.
   `windowOpened`/`windowClosing`/`windowFocused`).
   `BrowserExtensions+Delegate.swift` — the controller delegate (new tabs and
   windows, options page, permission prompts, action, native messaging
-  handler tables for P2). `BrowserExtensionPopup.swift` (popups in our own
+  handler tables; a host nobody registered answers as Chrome does, "host not
+  found"). `BrowserExtensionShims.swift` — the stand-ins for Chrome APIs
+  WebKit lacks or gets wrong: a data-driven table (stand-in name → the
+  manifest permission or key that asks for it) decides which extensions get
+  `soprano-shim.js` (`BrowserExtensionShimScript.swift`), put first in the
+  installed copy's worker (`import` for a module, `importScripts` after "use
+  strict" for a classic one), background scripts and every HTML page,
+  after the CRX3 check, at install, update and (when the stamp
+  `.soprano-shim` differs) load; `nativeMessaging` is added when missing
+  (`.soprano-added`). The record's `standIns` lists what the copy carries:
+  `BrowserExtensionNativeHost.swift` answers the shim's
+  `sendNativeMessage("soprano", { api, args })` only for those (notifications
+  through `BrowserNotificationCenter`, `clients.pages`) and sends events over
+  the background's `soprano.events` port (held, and the worker woken, while
+  it is closed); `BrowserExtensionSocket.swift` runs a worker's WebSocket
+  (`soprano.socket` port; WebKit's never returns in an extension worker).
+  Add a stand-in only for a failure `browser extension errors` names, with
+  its trigger in the table. `BrowserExtensionPopup.swift` (popups in our own
   popover, sized to the page's max-content), `BrowserExtensionPermissionSheet.swift`,
   `BrowserExtensionActionButton.swift` (toolbar button with badge),
   `BrowserExtensionCommands.swift` (the CLI). `BrowserWindowController+Extensions`
@@ -729,8 +746,11 @@ surrounding style.
   tab's Vimium controller for verification. `browser extensions` lists the
   installed extensions (state, private, site access, source, error count);
   `browser extension install <store link|id|folder>` (waits until it runs,
-  up to 120 s), `enable|disable|remove|errors <id>` and `update` (check the
-  Web Store now) drive them.
+  up to 120 s), `enable|disable|remove|errors <id>`, `update` (check the
+  Web Store now) and `action <id> [png]` (clicks the toolbar button in the
+  default window; prints the popup's address, size and text and saves its
+  capture, or "no popup") drive them. `errors` includes the background's
+  uncaught exceptions and the console errors WebKit records.
 - `Browser/VimiumController.swift`, `VimiumKeyMap.swift`, `VimiumPageScripts.swift`,
   `VimiumPanels.swift`, `BrowserWebView.swift` — the native Vimium mode layer.
 - `Browser/SnapshotCommand*.swift`, `SnapshotPageTools.swift` — offscreen UI harness.

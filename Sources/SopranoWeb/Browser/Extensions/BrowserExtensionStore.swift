@@ -55,6 +55,9 @@ struct BrowserExtensionRecord: Codable, Equatable, Sendable {
     var requestedOptionalAccessToAllHosts = false
     var installedAt: Date
     var lastUpdateCheck: Date?
+    /// The stand-ins (`BrowserExtensionShims`) its installed copy carries;
+    /// the app answers the shim's native messages only for these.
+    var standIns: [String] = []
 
     init(id: String, source: Source, name: String, version: String, installedAt: Date = Date()) {
         self.id = id
@@ -67,7 +70,7 @@ struct BrowserExtensionRecord: Codable, Equatable, Sendable {
     private enum CodingKeys: String, CodingKey {
         case id, source, folder, name, version, enabled, privateAccess, siteAccess, allowedSites
         case grantedPermissions, deniedPermissions, grantedMatchPatterns, deniedMatchPatterns
-        case optionalAllHosts, installedAt, lastUpdateCheck
+        case optionalAllHosts, installedAt, lastUpdateCheck, standIns
     }
 
     /// A record needs a valid id and a known source; everything else falls
@@ -103,6 +106,7 @@ struct BrowserExtensionRecord: Codable, Equatable, Sendable {
         requestedOptionalAccessToAllHosts = ((try? c.decodeIfPresent(Bool.self, forKey: .optionalAllHosts)) ?? nil) ?? false
         installedAt = ((try? c.decodeIfPresent(Date.self, forKey: .installedAt)) ?? nil) ?? Date(timeIntervalSince1970: 0)
         lastUpdateCheck = (try? c.decodeIfPresent(Date.self, forKey: .lastUpdateCheck)) ?? nil
+        standIns = ((try? c.decodeIfPresent([String].self, forKey: .standIns)) ?? nil) ?? []
     }
 
     func encode(to encoder: Encoder) throws {
@@ -128,6 +132,7 @@ struct BrowserExtensionRecord: Codable, Equatable, Sendable {
         try c.encode(requestedOptionalAccessToAllHosts, forKey: .optionalAllHosts)
         try c.encode(installedAt, forKey: .installedAt)
         try c.encodeIfPresent(lastUpdateCheck, forKey: .lastUpdateCheck)
+        if !standIns.isEmpty { try c.encode(standIns, forKey: .standIns) }
     }
 
     /// A `{ name: date }` map; entries that don't read are dropped.

@@ -79,6 +79,9 @@ enum BrowserExtensionCommands {
                 case "update":
                     let updated = await extensions.checkForUpdates(force: true)
                     completion(.success(updated.isEmpty ? "Everything is up to date." : "updated \(updated.joined(separator: " "))"))
+                case "action":
+                    let screenshot = arguments.count > 2 ? arguments[2] : nil
+                    completion(.success(try await clickAction(id, screenshot: screenshot, in: extensions)))
                 default:
                     throw BrowserAutomationError.invalidArguments(BrowserCommandRequest.extensionUsage)
                 }
@@ -86,5 +89,42 @@ enum BrowserExtensionCommands {
                 completion(.failure(error))
             }
         }
+    }
+
+    /// `extension action <id> [png]`: clicks the extension's toolbar button
+    /// in the window commands use. A popup that opens is waited for (its
+    /// page loaded, 2 s to build) and reported with its address, size and
+    /// text; the PNG is its capture.
+    static func clickAction(_ id: String, screenshot: String?, in extensions: BrowserExtensions) async throws -> String {
+        guard extensions.store.record(id: id) != nil else { throw BrowserExtensions.InstallError.notInstalled(id) }
+        guard extensions.context(id: id) != nil else { throw BrowserAutomationError.unavailable("\(id) is not running.") }
+        guard let window = extensions.manager?.keyController ?? extensions.manager?.activeController else {
+            throw BrowserAutomationError.unavailable("No window is open.")
+        }
+        extensions.closePopup()
+        window.performExtensionAction(id)
+        try await Task.sleep(for: .seconds(1))
+        guard let popup = extensions.popup, popup.extensionID == id else {
+            return "action ran (no popup)"
+        }
+        for _ in 0..<50 where popup.webView.isLoading {
+            try await Task.sleep(for: .milliseconds(100))
+        }
+        try await Task.sleep(for: .seconds(2))
+        popup.fitToContent()
+        try await Task.sleep(for: .milliseconds(300))
+        let text = (try? await popup.webView.evaluateJavaScript("document.body ? document.body.innerText : ''") as? String) ?? ""
+        let size = popup.popover.contentSize
+        var lines = ["popup \(popup.webView.url?.absoluteString ?? popup.url.absoluteString) \(Int(size.width))x\(Int(size.height)) shown \(popup.popover.isShown)"]
+        if let screenshot {
+            let image = try await popup.webView.takeSnapshot(configuration: nil)
+            guard let tiff = image.tiffRepresentation, let bitmap = NSBitmapImageRep(data: tiff),
+                  let png = bitmap.representation(using: .png, properties: [:])
+            else { throw BrowserAutomationError.screenshot("WebKit could not encode the screenshot") }
+            try png.write(to: URL(fileURLWithPath: screenshot), options: .atomic)
+            lines.append("screenshot \(screenshot)")
+        }
+        lines.append(text.trimmingCharacters(in: .whitespacesAndNewlines))
+        return lines.joined(separator: "\n")
     }
 }

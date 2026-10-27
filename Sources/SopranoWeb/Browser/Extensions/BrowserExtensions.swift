@@ -83,6 +83,12 @@ final class BrowserExtensions: NSObject {
     private(set) var busy: Set<String> = []
     var nativeMessageHandlers: [String: NativeMessageHandler] = [:]
     var nativePortHandlers: [String: NativePortHandler] = [:]
+    /// The stand-ins' native side (`BrowserExtensionShims`).
+    let nativeHost: BrowserExtensionNativeHost
+    /// Each shimmed background's open `soprano.events` port, kept alive here.
+    private var eventPorts: [String: WKWebExtension.MessagePort] = [:]
+    /// Workers' WebSockets (`soprano.socket` ports), kept alive while open.
+    private var sockets: [ObjectIdentifier: BrowserExtensionSocket] = [:]
 
     private let checksForUpdates: Bool
     private var updateTimer: Timer?
@@ -108,10 +114,79 @@ final class BrowserExtensions: NSObject {
         // The Default Space's store, the one `defaultContext` uses.
         configuration.defaultWebsiteDataStore = .default()
         controller = WKWebExtensionController(configuration: configuration)
+        nativeHost = BrowserExtensionNativeHost(poster: BrowserNotificationCenter.shared)
         self.checksForUpdates = checksForUpdates
         super.init()
         controller.delegate = self
         observeContextNotifications()
+        installNativeHost()
+    }
+
+    /// The shim's application id and ports, answered only for an extension
+    /// whose installed copy carries the shim (and, for a socket, the
+    /// `webSocket` stand-in).
+    private func installNativeHost() {
+        nativeHost.wake = { [weak self] id in
+            self?.contexts[id]?.loadBackgroundContent { _ in }
+        }
+        nativeHost.pages = { [weak self] id in
+            self?.openPages(of: id) ?? []
+        }
+        BrowserNotificationCenter.shared.onExtensionResponse = { [weak self] id, notificationID, response in
+            self?.nativeHost.respond(response, extensionID: id, notificationID: notificationID)
+        }
+        nativeMessageHandlers[BrowserExtensionShims.application] = { [weak self] message, context in
+            guard let self else { return nil }
+            let id = self.id(of: context) ?? ""
+            return await self.nativeHost.answer(message, extensionID: id, standIns: self.store.record(id: id)?.standIns ?? [])
+        }
+        nativePortHandlers[BrowserExtensionShims.eventsPort] = { [weak self] port, context in
+            guard let self, let id = self.id(of: context), self.store.record(id: id)?.standIns.isEmpty == false else {
+                throw Self.refusal("No native messaging host \(BrowserExtensionShims.eventsPort).")
+            }
+            self.eventPorts[id]?.disconnect()
+            self.eventPorts[id] = port
+            port.messageHandler = { _, _ in }
+            port.disconnectHandler = { [weak self, weak port] _ in
+                guard let self, let port, self.eventPorts[id] === port else { return }
+                self.eventPorts[id] = nil
+                self.nativeHost.detach(extensionID: id)
+            }
+            self.nativeHost.attach(extensionID: id) { [weak port] message in
+                port?.sendMessage(message, completionHandler: nil)
+            }
+        }
+        nativePortHandlers[BrowserExtensionShims.socketPort] = { [weak self] port, context in
+            guard let self, let id = self.id(of: context),
+                  self.store.record(id: id)?.standIns.contains("webSocket") == true
+            else {
+                throw Self.refusal("No native messaging host \(BrowserExtensionShims.socketPort).")
+            }
+            let socket = BrowserExtensionSocket(port: port, extensionID: id)
+            let key = ObjectIdentifier(socket)
+            socket.onFinish = { [weak self] in self?.sockets[key] = nil }
+            self.sockets[key] = socket
+        }
+    }
+
+    /// The extension's pages open now, as `clients.matchAll` lists them:
+    /// its popup and its pages in tabs (visible when shown in a visible
+    /// window; focused in the key window).
+    func openPages(of id: String) -> [[String: Any]] {
+        var pages: [[String: Any]] = []
+        if let popup, popup.extensionID == id {
+            let url = popup.webView.url ?? popup.url
+            pages.append(["url": url.absoluteString, "visible": popup.popover.isShown, "focused": popup.popover.isShown])
+        }
+        let prefix = "\(Self.scheme)://\(id)/"
+        for window in manager?.mostRecentlyActiveFirst(where: { _ in true }) ?? [] {
+            for tab in window.tabs {
+                guard let url = tab.webView.url?.absoluteString, url.hasPrefix(prefix) else { continue }
+                let visible = window.selectedTab === tab && window.window?.isVisible == true
+                pages.append(["url": url, "visible": visible, "focused": visible && window.window?.isKeyWindow == true])
+            }
+        }
+        return pages
     }
 
     /// Loads every enabled extension and starts the update check.
@@ -171,7 +246,14 @@ final class BrowserExtensions: NSObject {
     func load(_ id: String) async {
         guard contexts[id] == nil, let record = store.record(id: id), record.isEnabled else { return }
         do {
-            let webExtension = try await WKWebExtension(resourceBaseURL: store.folder(for: id))
+            let folder = store.folder(for: id)
+            // A package from before this shim (or before P2) gets it now; one
+            // that carries it is left alone (its stamp matches).
+            let standIns = try await Task.detached {
+                try BrowserExtensionShims.prepare(folder, fresh: false)
+            }.value
+            store.update(id: id) { Self.adopt(standIns: standIns, into: &$0) }
+            let webExtension = try await WKWebExtension(resourceBaseURL: folder)
             // The record may have changed (disabled, removed) meanwhile.
             guard contexts[id] == nil, let current = store.record(id: id), current.isEnabled else { return }
             let context = WKWebExtensionContext(for: webExtension)
@@ -211,8 +293,22 @@ final class BrowserExtensions: NSObject {
         guard let context = contexts.removeValue(forKey: id) else { return }
         backgroundErrors[id] = nil
         if popup?.extensionID == id { closePopup() }
+        eventPorts.removeValue(forKey: id)?.disconnect()
+        nativeHost.detach(extensionID: id)
+        for socket in sockets.values where socket.extensionID == id { socket.close() }
         try? controller.unload(context)
         changes.notify()
+    }
+
+    /// Records the stand-ins a package carries; the shim reaches the app
+    /// through native messaging, so a shimmed extension is granted it
+    /// (unless the user denied it).
+    static func adopt(standIns: [String], into record: inout BrowserExtensionRecord) {
+        record.standIns = standIns
+        let permission = WKWebExtension.Permission.nativeMessaging.rawValue
+        if !standIns.isEmpty, record.deniedPermissions[permission] == nil, record.grantedPermissions[permission] == nil {
+            record.grantedPermissions[permission] = .distantFuture
+        }
     }
 
     /// The record's saved grants and choices, applied before `load`.
@@ -364,12 +460,18 @@ final class BrowserExtensions: NSObject {
         }.value
     }
 
-    /// Moves a checked package in as `id`, reads it with WebKit, saves its
-    /// record (a new one granted what it asks for: installing is consent,
-    /// as in Chrome) and loads it.
+    /// Moves a checked package in as `id` with the stand-ins it asks for
+    /// (`BrowserExtensionShims`, put in after the package's signatures or
+    /// folder were checked), reads it with WebKit, saves its record (a new
+    /// one granted what it asks for: installing is consent, as in Chrome)
+    /// and loads it.
     private func adopt(_ staged: URL, id: String, source: BrowserExtensionRecord.Source) async throws -> BrowserExtensionRecord {
         let webExtension: WKWebExtension
+        let standIns: [String]
         do {
+            standIns = try await Task.detached {
+                try BrowserExtensionShims.prepare(staged, fresh: true)
+            }.value
             webExtension = try await WKWebExtension(resourceBaseURL: staged)
         } catch {
             try? FileManager.default.removeItem(at: staged)
@@ -388,6 +490,7 @@ final class BrowserExtensions: NSObject {
         record.source = source
         record.name = webExtension.displayName ?? record.name
         record.version = webExtension.version ?? record.version
+        Self.adopt(standIns: standIns, into: &record)
         if store.record(id: id) != nil {
             // An update may ask for more: what it newly requests is granted
             // unless the user narrowed site access.
@@ -433,6 +536,7 @@ final class BrowserExtensions: NSObject {
             await load(id)
         } else {
             unload(id)
+            nativeHost.forget(id)
             loadErrors[id] = nil
         }
         changes.notify()
@@ -529,6 +633,7 @@ final class BrowserExtensions: NSObject {
     func remove(_ id: String) async throws {
         guard store.record(id: id) != nil else { throw InstallError.notInstalled(id) }
         unload(id)
+        nativeHost.forget(id)
         let records = await controller.dataRecords(ofTypes: WKWebExtensionController.allExtensionDataTypes)
         let own = records.filter { $0.uniqueIdentifier == id }
         if !own.isEmpty {

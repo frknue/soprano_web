@@ -114,12 +114,13 @@ and bookmarks HTML files, and File ▸ Export Pinned Tabs… as bookmarks HTML.
 - Boosts: per-site CSS and JavaScript in an isolated content world, a Zap element picker.
   An agent can write one through the `browser` CLI.
 - Capture: area and full-page screenshots (`takeSnapshot(with:)`).
-- Web extensions, what is left (stage 4 P2): 1Password, through native stand-ins for the
-  Chrome APIs WebKit lacks (`notifications`, `storage.managed`, `webNavigation` events)
-  answered over the native-messaging handlers P1 left ready. Built in P1: the runtime on
-  `WKWebExtension` (tabs and windows, Chrome Web Store install with full CRX3 check, daily
-  updates, unpacked folders, site access, private windows, toolbar buttons and popups,
-  commands, Settings ▸ Extensions, the `browser extension` CLI).
+- Web extensions, what is left: 1Password signed in (stage 4 P2 runs it up to its sign-in
+  page; the signed-in popup, inline menu and notifier socket await the user's sign-in,
+  see `docs/STATUS.md`). Built in P1/P2: the runtime on `WKWebExtension` (tabs and
+  windows, Chrome Web Store install with full CRX3 check, daily updates, unpacked folders,
+  site access, private windows, toolbar buttons and popups, commands, Settings ▸
+  Extensions, the `browser extension` CLI) and the native stand-ins for Chrome APIs
+  WebKit lacks or gets wrong (`BrowserExtensionShims`).
 - Page translation with Apple's Translation framework (`TranslationSession` outside SwiftUI
   from macOS 26); Reader view with Readability.js (Apache-2.0).
 - GitHub pull requests as a live folder through `gh`.

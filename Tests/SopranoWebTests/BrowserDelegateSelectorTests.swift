@@ -100,6 +100,7 @@ struct BrowserDelegateSelectorTests {
         for selector in [
             "windowForWebExtensionContext:",
             "indexInWindowForWebExtensionContext:",
+            "parentTabForWebExtensionContext:",
             "webViewForWebExtensionContext:",
             "titleForWebExtensionContext:",
             "isPinnedForWebExtensionContext:",

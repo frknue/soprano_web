@@ -33,6 +33,14 @@ final class BrowserExtensionTab: NSObject, WKWebExtensionTab {
         return window.tabs.firstIndex { $0 === tab } ?? NSNotFound
     }
 
+    /// The tab whose page opened this one (a link with a target, ⌘-click,
+    /// `window.open`): Chrome's `openerTabId`, which the webNavigation
+    /// stand-in reports as `onCreatedNavigationTarget`.
+    func parentTab(for context: WKWebExtensionContext) -> (any WKWebExtensionTab)? {
+        guard let openerID = tab?.links.openerID, let opener = extensions.manager?.tab(id: openerID)?.tab else { return nil }
+        return extensions.tabAdapter(for: opener)
+    }
+
     func webView(for context: WKWebExtensionContext) -> WKWebView? {
         tab?.webView
     }

@@ -212,6 +212,15 @@ struct BrowserCommandRequest: Codable, Equatable, Sendable {
             }
         case "update":
             guard arguments.count == 1 else { throw BrowserAutomationError.invalidArguments(extensionUsage) }
+        case "action":
+            guard arguments.count == 2 || arguments.count == 3, BrowserExtensionID.isValid(arguments[1]) else {
+                throw BrowserAutomationError.invalidArguments(extensionUsage)
+            }
+            if arguments.count == 3, !arguments[2].hasPrefix("/") {
+                let directory = environment["PWD"] ?? FileManager.default.currentDirectoryPath
+                arguments[2] = URL(fileURLWithPath: directory, isDirectory: true)
+                    .appendingPathComponent(arguments[2]).standardizedFileURL.path
+            }
         default:
             throw BrowserAutomationError.invalidArguments(extensionUsage)
         }
@@ -237,6 +246,7 @@ struct BrowserCommandRequest: Codable, Equatable, Sendable {
     static let extensionUsage = """
     Usage: soprano-web browser extension install <chrome web store url|id|folder>
            soprano-web browser extension enable|disable|remove|errors <id>
+           soprano-web browser extension action <id> [<popup.png>]
            soprano-web browser extension update
     """
 }
@@ -296,6 +306,7 @@ enum BrowserCommand {
       soprano-web browser extensions
       soprano-web browser extension install <chrome web store url|id|folder>
       soprano-web browser extension enable|disable|remove|errors <id>
+      soprano-web browser extension action <id> [<popup.png>]
       soprano-web browser extension update
 
     `windows` lists the open windows (1-based) with their current Space,
@@ -315,7 +326,11 @@ enum BrowserCommand {
     source and how many errors WebKit reported. `extension install` takes a
     Chrome Web Store link or id (downloaded, its signatures checked as
     Chrome checks a store install) or an unpacked folder (copied), and
-    waits until it runs; `errors` prints what WebKit reported; `update`
+    waits until it runs; `errors` prints what WebKit reported (the
+    background's uncaught errors and console errors included); `action`
+    clicks the extension's toolbar button in the window commands use and,
+    when its popup opens, prints the popup's address, size and text (and
+    saves its capture to the PNG); `update`
     checks the Web Store extensions for updates now.
     `new-window` opens on Space n or the Space named by `--space` (any
     case), else on the current Space of the window commands use by

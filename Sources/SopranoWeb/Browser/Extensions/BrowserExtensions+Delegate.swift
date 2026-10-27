@@ -225,7 +225,8 @@ extension BrowserExtensions: WKWebExtensionControllerDelegate {
     // MARK: Native messaging
 
     /// `runtime.sendNativeMessage`: the handler registered for the
-    /// application identifier (P2's stand-ins); none is an error.
+    /// application identifier (the stand-ins'); none is Chrome's "host not
+    /// found".
     func webExtensionController(
         _ controller: WKWebExtensionController,
         sendMessage message: Any,
@@ -234,7 +235,7 @@ extension BrowserExtensions: WKWebExtensionControllerDelegate {
         replyHandler: @escaping (Any?, (any Error)?) -> Void
     ) {
         guard let handler = nativeMessageHandlers[applicationIdentifier ?? ""] else {
-            replyHandler(nil, Self.refusal("No native messaging host \(applicationIdentifier ?? "(none)")."))
+            replyHandler(nil, Self.refusal("Specified native messaging host not found."))
             return
         }
         let box = BrowserExtensionMessage(value: message)
@@ -248,7 +249,11 @@ extension BrowserExtensions: WKWebExtensionControllerDelegate {
     }
 
     /// `runtime.connectNative`: the port handler registered for the
-    /// application identifier; none is an error.
+    /// application identifier. With none, the port opens and closes at
+    /// once with Chrome's "host not found" (`onDisconnect` and
+    /// `runtime.lastError`), as Chrome answers an app that isn't installed:
+    /// a refused connect is a thrown error in WebKit, which an extension
+    /// probing for its desktop app (1Password) doesn't expect.
     func webExtensionController(
         _ controller: WKWebExtensionController,
         connectUsing port: WKWebExtension.MessagePort,
@@ -256,7 +261,10 @@ extension BrowserExtensions: WKWebExtensionControllerDelegate {
         completionHandler: @escaping ((any Error)?) -> Void
     ) {
         guard let handler = nativePortHandlers[port.applicationIdentifier ?? ""] else {
-            completionHandler(Self.refusal("No native messaging host \(port.applicationIdentifier ?? "(none)")."))
+            completionHandler(nil)
+            DispatchQueue.main.async {
+                port.disconnect(throwing: Self.refusal("Specified native messaging host not found."))
+            }
             return
         }
         do {

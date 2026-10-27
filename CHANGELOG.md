@@ -317,10 +317,18 @@ app.
   popups, their context-menu items appear in the page menu, their keyboard
   shortcuts work (never over the app's own), and the Extensions menu and
   the Command Bar list their commands. When an extension asks for more
-  access, a sheet asks once and remembers the answer. uBlock Origin Lite
-  and Wappalyzer run; 1Password does not yet.
+  access, a sheet asks once and remembers the answer. uBlock Origin Lite,
+  Wappalyzer and 1Password run.
+- 1Password: install it from the Chrome Web Store (Settings ▸ Extensions)
+  and sign in from its toolbar button. Soprano Web fills in the Chrome
+  features WebKit lacks for it and other extensions: notifications (in
+  Notification Center, with their buttons; macOS asks for permission the
+  first time an extension posts one), new-tab tracking, managed storage,
+  Chrome's user agent for extensions that require a Chrome version, and
+  WebSockets in extension workers.
 - `browser extensions` and `browser extension install|enable|disable|remove|errors|update`
-  let scripts and agents manage extensions.
+  let scripts and agents manage extensions; `browser extension action <id> [png]`
+  clicks an extension's toolbar button and prints (and captures) its popup.
 
 ### Changed
 - Soprano Web requires macOS 26 or later.
