@@ -14,7 +14,6 @@ enum BrowserSettingsPage: String, CaseIterable, Sendable {
     case general
     case searchEngines = "search-engines"
     case shortcuts
-    case profiles
     case websites
     case websiteData = "website-data"
 
@@ -23,7 +22,6 @@ enum BrowserSettingsPage: String, CaseIterable, Sendable {
         case .general: "Settings"
         case .searchEngines: "Search Engines"
         case .shortcuts: "Keyboard Shortcuts"
-        case .profiles: "Profiles"
         case .websites: "Websites"
         case .websiteData: "Website Data"
         }
@@ -34,7 +32,6 @@ enum BrowserSettingsPage: String, CaseIterable, Sendable {
         case .general: ["preferences", "theme", "homepage", "downloads"]
         case .searchEngines: ["keywords", "site search", "default search"]
         case .shortcuts: ["keys", "remap", "hotkeys"]
-        case .profiles: ["archive after"]
         case .websites: ["permissions", "camera", "microphone", "notifications"]
         case .websiteData: ["cookies", "storage"]
         }
@@ -120,7 +117,7 @@ struct BrowserCommandBarInput: Sendable {
     var tabs: [Tab] = []
     /// The current Space's pins.
     var pins: [BrowserPin] = []
-    /// The profile's favorites.
+    /// The current Space's favorites.
     var favorites: [BrowserPin] = []
     /// History's candidates for the query (a private window's in-memory
     /// visits).

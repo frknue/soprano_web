@@ -93,7 +93,7 @@ struct BrowserImportPlanTests {
             spaces: list,
             archiveIDs: archiveIDs,
             routingRules: [],
-            targetSpaceID: list.firstSpace(ofProfile: BrowserProfile.defaultID)?.id
+            targetSpaceID: list.space(ofProfile: BrowserProfile.defaultID)?.id
         )
     }
 
@@ -104,8 +104,9 @@ struct BrowserImportPlanTests {
         values.mapValues { BrowserImportSourceData.HistoryCounts(visits: $0 + 1, importable: $0, kept: $0) }
     }
 
-    @Test func arcProfilesMapToDefaultOrNewProfilesNamedAfterTheirFirstSpace() {
-        let plan = BrowserImportPlanner.arc(arc(), historyCounts: counts(["Default": 10, "Profile 1": 20, "Profile 2": 3]), context: context())
+    @Test func arcProfilesHaveHomeSpaces() {
+        let stores = context()
+        let plan = BrowserImportPlanner.arc(arc(), historyCounts: counts(["Default": 10, "Profile 1": 20, "Profile 2": 3]), context: stores)
         #expect(plan.profiles.map(\.key) == ["Default", "Profile 1", "Profile 2"])
         #expect(plan.profiles[0].target == .existing(BrowserProfile.defaultID))
         #expect(plan.profiles[1].target == .new(name: "Work"))
@@ -117,6 +118,27 @@ struct BrowserImportPlanTests {
         #expect(plan.spaces[0].icon == .emoji("🦅"))
         // Arc's built-in icon names aren't SF Symbols.
         #expect(plan.spaces[1].icon == BrowserSpaceIcon.none)
+        // The untouched Default Space is taken over by Default's first
+        // Space; every other Arc Space becomes a Space of its own.
+        let defaultSpace = stores.spaces.defaultSpace?.id
+        #expect(plan.profiles[0].adoptableSpaceID == defaultSpace)
+        #expect(plan.spaces.map { plan.adoptedSpaceID(by: $0) } == [defaultSpace, nil, nil])
+        // History and favorites go to each profile's first Space.
+        #expect(plan.homeName(ofProfile: "Default") == "“Default”")
+        #expect(plan.homeName(ofProfile: "Profile 1") == "“Work”")
+        #expect(plan.homeName(ofProfile: "Profile 2") == "new Space “Private”")
+    }
+
+    @Test func aDefaultSpaceWithPinsIsNotTakenOver() {
+        var list = BrowserSpaceList()
+        list.reconcile(with: [.defaultProfile])
+        let home = list.defaultSpace?.id ?? UUID()
+        list.updatePins(in: home) { $0.insert(.pin(BrowserPin(url: "https://mine.example/", title: "Mine")), into: BrowserPinTree.rootID) }
+        let plan = BrowserImportPlanner.arc(arc(), historyCounts: [:], context: context(spaces: list))
+        #expect(plan.profiles[0].adoptableSpaceID == nil)
+        #expect(plan.spaces.allSatisfy { plan.adoptedSpaceID(by: $0) == nil })
+        let rows = BrowserImportChecklist.rows(for: plan).filter { $0.section == "Spaces" }
+        #expect(rows.allSatisfy { $0.detail.hasSuffix("→ a Space of its own") })
     }
 
     @Test func historyOnlyProfilesAreOfferedUnchecked() {
@@ -127,13 +149,16 @@ struct BrowserImportPlanTests {
         #expect(plan.includedVisitCount == 30)
     }
 
-    @Test func spacesImportedBeforeAreSkippedAndTheirProfileReused() {
-        let work = BrowserProfile(name: "Work", color: .green)
+    @Test func spacesImportedBeforeAreSkippedAndTheirHomeReused() {
+        // An earlier import made Work from Arc's Space B, as Profile 1's
+        // home (its profile is marked).
+        let work = BrowserProfile(name: "Work", color: .green, importedFrom: BrowserImportPlanner.arcProfileSource("Profile 1"))
         var list = BrowserSpaceList()
-        list.reconcile(with: [.defaultProfile, work])
+        list.reconcile(with: [.defaultProfile])
         let earlier = list.create(name: "Work", color: .green, profileID: work.id, importedFrom: spaceB)
         let plan = BrowserImportPlanner.arc(arc(), historyCounts: [:], context: context(profiles: [.defaultProfile, work], spaces: list))
         #expect(plan.profile(key: "Profile 1")?.target == .existing(work.id))
+        #expect(plan.profile(key: "Profile 1")?.adoptableSpaceID == nil)
         #expect(plan.spaces[1].existingSpaceID == earlier?.id)
         #expect(plan.spaces[1].isIncluded == false)
         #expect(plan.spaces[2].isIncluded)

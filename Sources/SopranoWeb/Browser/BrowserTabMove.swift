@@ -3,15 +3,15 @@ import WebKit
 
 /// Which windows may exchange live tabs. A tab's web view keeps its data
 /// store for life, so a tab only moves into a window whose current Space
-/// uses the tab's data context (its profile's; a private window's own
-/// context is shared only with the windows its tabs moved into), and it
-/// lands there as a Today tab of that Space. A pop-up window holds only the
-/// tab its page opened.
+/// uses the tab's data context — every Space has its own, so that is the
+/// tab's own Space (a private window's own context is shared only with
+/// the windows its tabs moved into) — and it lands there in that Space. A
+/// pop-up window holds only the tab its page opened.
 enum BrowserTabMoveRule {
     struct Window: Equatable, Sendable {
         var id: UUID
         /// The window's current `BrowserDataContext.id` (its current
-        /// Space's profile; a private or pop-up window's fixed one).
+        /// Space's; a private or pop-up window's fixed one).
         var context: UUID
         var isPopup: Bool
         /// A normal window, which holds every Space.

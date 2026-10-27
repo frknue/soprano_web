@@ -324,11 +324,6 @@ enum SnapshotCommand {
         let themeManager = ThemeManager(themeId: options.theme, appearance: .system)
         let downloads = BrowserDownloadStore(url: temp.appendingPathComponent("downloads.json"))
         let profiles = BrowserProfileStore(url: temp.appendingPathComponent("profiles.json"))
-        // `--add-profile`: the profiles exist before any window opens.
-        for name in options.session.profilesToAdd {
-            let profile = profiles.add(name: name)
-            print("profile: added \(profile.name) \(profile.id.uuidString) (\(profile.color.rawValue))")
-        }
         let bookmarksURL = temp.appendingPathComponent("bookmarks.json")
         prepareBookmarksFile(options.pins, at: bookmarksURL)
         let spaces = BrowserSpaceStore(
@@ -336,8 +331,14 @@ enum SnapshotCommand {
             profiles: profiles.profiles,
             bookmarksURL: bookmarksURL
         )
+        // Spaces that shared a profile in the support folder's files were
+        // separated on load (the manager adds their profiles).
+        for separation in spaces.separations {
+            let name = spaces.space(id: separation.spaceID)?.displayName ?? "?"
+            print("spaces: separated \(name) from \(separation.from?.uuidString ?? "a missing profile") -> profile \(separation.spaceID.uuidString)")
+        }
         if options.pins.seedTree {
-            seedPinTree(spaces, inSpace: spaces.firstSpace(ofProfile: BrowserProfile.defaultID)?.id)
+            seedPinTree(spaces, inSpace: spaces.space(ofProfile: BrowserProfile.defaultID)?.id)
         }
         // `--create-space`: the Spaces exist before any window opens.
         options.session.createSpaces(in: spaces, profiles: profiles)
@@ -534,9 +535,9 @@ enum SnapshotCommand {
             FileHandle.standardError.write(Data("Snapshot has no window to capture.\n".utf8))
             exit(1)
         }
-        // Settings, Websites and Profiles are built but never ordered in, so
-        // the harness puts nothing on screen. Websites shows the captured
-        // window's profile.
+        // Settings and its sheets are built but never ordered in, so the
+        // harness puts nothing on screen. Websites shows the captured
+        // window's Space.
         let settingsPreview = options.showSettings
             ? SettingsWindowController(
                 settingsStore: settingsStore,
@@ -548,9 +549,8 @@ enum SnapshotCommand {
             ? manager.makeWebsitesSheet(selected: controller.profileID)
             : nil
         if let websitesSheet {
-            print("websites: profile picker \(websitesSheet.pickerTitle ?? "hidden")")
+            print("websites: space picker \(websitesSheet.pickerTitle ?? "hidden")")
         }
-        let profilesSheet = options.session.showProfilesSheet ? manager.makeProfilesSheet() : nil
         let searchEnginesSheet = options.searchEngines.makeSheet(
             settingsStore: settingsStore,
             theme: themeManager.currentTheme
@@ -560,7 +560,7 @@ enum SnapshotCommand {
             shortcutsSheet.apply(theme: themeManager.currentTheme)
             shortcutsSheet.dump.forEach { print("shortcuts: \($0)") }
         }
-        if settingsPreview != nil || websitesSheet != nil || profilesSheet != nil || searchEnginesSheet != nil
+        if settingsPreview != nil || websitesSheet != nil || searchEnginesSheet != nil
             || shortcutsSheet != nil
         {
             wait(0.3)
@@ -654,7 +654,7 @@ enum SnapshotCommand {
             }
             print("sheet: " + texts.joined(separator: " | "))
         }
-        let settingsSheetWindow: NSWindow? = websitesSheet?.window ?? profilesSheet?.window ?? searchEnginesSheet?.window
+        let settingsSheetWindow: NSWindow? = websitesSheet?.window ?? searchEnginesSheet?.window
         let otherSheetWindow: NSWindow? = shortcutsSheet?.window ?? spaceSheet?.window ?? importOutcome.window
         let captured: NSWindow = settingsSheetWindow ?? otherSheetWindow ?? captureWindow
         guard let captureContent = captured.contentView else {
@@ -674,7 +674,7 @@ enum SnapshotCommand {
 
         var pageImage: NSImage?
         if privacySheet == nil, !options.showSettings, !options.showHelp, !options.showPrompt,
-           websitesSheet == nil, profilesSheet == nil, searchEnginesSheet == nil, shortcutsSheet == nil, spaceSheet == nil,
+           websitesSheet == nil, searchEnginesSheet == nil, shortcutsSheet == nil, spaceSheet == nil,
            importOutcome.window == nil,
            !options.showFind,
            captureWindow === window,
@@ -761,18 +761,18 @@ enum SnapshotCommand {
         // An import's sheet finishes (or cancels) before anything goes.
         SnapshotImportOptions.finish(importOutcome)
 
-        // The profiles' data stores live outside the temporary folder
-        // (WebKit's own); delete every profile so none is left behind. A
-        // window kept here would keep its profile's data store in use, so
-        // the captured one is swapped for a Default window first. An import
-        // into `--support-dir` keeps its profiles for the next run and
-        // removes only the data stores its windows made.
+        // The Spaces' data stores live outside the temporary folder
+        // (WebKit's own); delete every Space's profile so none is left
+        // behind. A window kept here would keep its Space's data store in
+        // use, so the captured one is swapped for a Default Space window
+        // first. A `--support-dir` run keeps its Spaces for the next run
+        // and removes only the data stores its windows made.
         if controller.profileID != BrowserProfile.defaultID || controller.kind.isPrivate {
             controller = manager.controllers.first { $0.profileID == BrowserProfile.defaultID && !$0.kind.isPrivate }
-                ?? manager.newWindow(profileID: BrowserProfile.defaultID)
+                ?? manager.newWindow(spaceID: manager.spaces.defaultSpace?.id)
             window = controller.window ?? window
         }
-        let keepsProfiles = options.sleep.supportDirectory != nil && options.imports.imports
+        let keepsProfiles = options.sleep.supportDirectory != nil
         for profile in manager.profiles.profiles where !profile.isDefault {
             if keepsProfiles, manager.profileContexts[profile.id] == nil {
                 continue

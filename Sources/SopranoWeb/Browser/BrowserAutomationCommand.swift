@@ -31,11 +31,11 @@ struct BrowserCommandRequest: Codable, Equatable, Sendable {
     let windowIndex: Int?
     /// Seconds a `wait-for-load` or `wait-for` request may wait; nil otherwise.
     let timeout: TimeInterval?
-    /// `new-window --profile <name>`: the profile the window opens in.
-    let profile: String?
+    /// `new-window --space <n|name>`: the Space the window opens on.
+    let space: String?
 
     enum CodingKeys: String, CodingKey {
-        case command, arguments, timeout, profile
+        case command, arguments, timeout, space
         case tabIndex = "tab"
         case windowIndex = "window"
     }
@@ -46,14 +46,14 @@ struct BrowserCommandRequest: Codable, Equatable, Sendable {
         tabIndex: Int?,
         windowIndex: Int? = nil,
         timeout: TimeInterval? = nil,
-        profile: String? = nil
+        space: String? = nil
     ) {
         self.command = command
         self.arguments = arguments
         self.tabIndex = tabIndex
         self.windowIndex = windowIndex
         self.timeout = timeout
-        self.profile = profile
+        self.space = space
     }
 
     /// The app answers with a timeout error after this long; a wait gets a
@@ -145,9 +145,9 @@ struct BrowserCommandRequest: Codable, Equatable, Sendable {
         if command == "space", arguments.joined(separator: " ").trimmingCharacters(in: .whitespaces).isEmpty {
             throw BrowserAutomationError.invalidArguments(spaceUsage)
         }
-        var profile: String?
+        var space: String?
         if command == "new-window" {
-            profile = try extractProfile(from: &arguments)
+            space = try extractSpace(from: &arguments)
             guard arguments.count <= 1 else {
                 throw BrowserAutomationError.invalidArguments(newWindowUsage)
             }
@@ -159,22 +159,22 @@ struct BrowserCommandRequest: Codable, Equatable, Sendable {
             tabIndex: tabIndex,
             windowIndex: windowIndex,
             timeout: timeout,
-            profile: profile
+            space: space
         )
     }
 
-    /// `--profile <name>` (the name may contain spaces when quoted).
-    private static func extractProfile(from arguments: inout [String]) throws -> String? {
-        guard let index = arguments.firstIndex(of: "--profile") else { return nil }
+    /// `--space <n|name>` (a name may contain spaces when quoted).
+    private static func extractSpace(from arguments: inout [String]) throws -> String? {
+        guard let index = arguments.firstIndex(of: "--space") else { return nil }
         guard index + 1 < arguments.count else {
-            throw BrowserAutomationError.invalidArguments("--profile requires a profile name")
+            throw BrowserAutomationError.invalidArguments("--space requires a Space number or name")
         }
-        let name = arguments[index + 1].trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !name.isEmpty else {
-            throw BrowserAutomationError.invalidArguments("--profile requires a profile name")
+        let value = arguments[index + 1].trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !value.isEmpty else {
+            throw BrowserAutomationError.invalidArguments("--space requires a Space number or name")
         }
         arguments.removeSubrange(index...(index + 1))
-        return name
+        return value
     }
 
     private static func extractTimeout(from arguments: inout [String]) throws -> TimeInterval? {
@@ -192,7 +192,7 @@ struct BrowserCommandRequest: Codable, Equatable, Sendable {
     }
 
     static let moveToWindowUsage = "Usage: soprano-web browser [--window n] [--tab m] move-to-window <k|new>"
-    static let newWindowUsage = "Usage: soprano-web browser new-window [url] [--profile <name>]"
+    static let newWindowUsage = "Usage: soprano-web browser new-window [url] [--space <n|name>]"
     static let spaceUsage = "Usage: soprano-web browser [--window n] space <n|name>"
 }
 
@@ -243,32 +243,32 @@ enum BrowserCommand {
       soprano-web browser [--window n] select-tab <n>
       soprano-web browser [--window n] [--tab n] close-tab [n]
       soprano-web browser windows
-      soprano-web browser new-window [url] [--profile <name>]
+      soprano-web browser new-window [url] [--space <n|name>]
       soprano-web browser [--window n] close-window [n]
       soprano-web browser [--window n] [--tab m] move-to-window <k|new>
       soprano-web browser [--window n] spaces
       soprano-web browser [--window n] space <n|name>
 
     `windows` lists the open windows (1-based) with their current Space,
-    its tab count, its profile, the selected tab's title and every Space's
-    tab count; `*` marks the window commands use by default: the key
+    its tab count, the selected tab's title and every Space's tab count;
+    `*` marks the window commands use by default: the key
     window, else the most recently active one. `--window n` targets window n
     and `--tab n` tab n of its current Space (1-based, see `windows` and
     `tabs`); neither selects a tab or brings a window forward. Tab commands
     work on the window's current Space. Private windows are never listed,
     numbered or targeted.
-    `spaces` lists every Space (1-based, as ⌃1…⌃9 count them) with its
-    profile and the window's tab count in it; `*` marks the window's
-    current Space. `space` switches the window to Space n or the Space
-    named (any case).
-    `new-window` opens on the first Space of the profile named by
-    `--profile` (any case), else on the current Space of the window
-    commands use by default (Default's first Space when none is open); an
-    unknown name is an error.
+    `spaces` lists every Space (1-based, as ⌃1…⌃9 count them) with the
+    window's tab count in it; `*` marks the window's current Space.
+    `space` switches the window to Space n or the Space named (any case).
+    Every Space keeps its own cookies, History and Archive.
+    `new-window` opens on Space n or the Space named by `--space` (any
+    case), else on the current Space of the window commands use by
+    default (the Default Space when none is open); an unknown Space is an
+    error.
     `close-window` puts the window on History ▸ Recently Closed, like ⇧⌘W.
     `move-to-window` moves the selected tab (or tab m) of the window into
-    window k, after the tabs of its current Space, when that Space uses the
-    tab's profile, or into a new window on the tab's Space (`new`); the tab
+    window k, after the tabs of its current Space, when that is the tab's
+    Space, or into a new window on the tab's Space (`new`); the tab
     keeps its page and history. It selects nothing and brings no window
     forward; a window left without tabs closes.
     `snapshot` assigns ephemeral refs such as `e1`; pass them back as `@e1`.
@@ -418,22 +418,17 @@ enum BrowserAutomationRouter {
             return
         case "new-window":
             let controller: BrowserWindowController
-            if let name = request.profile {
-                guard let profile = manager.profiles.profile(named: name) else {
-                    let known = manager.profiles.profiles.map(\.name).joined(separator: ", ")
-                    completion(.failure(BrowserAutomationError.invalidArguments(
-                        "No profile named \(name). Profiles: \(known)."
-                    )))
+            if let value = request.space {
+                switch resolveSpace(value, in: manager) {
+                case .success(let index):
+                    controller = manager.newWindow(url: url, spaceID: manager.spaces.spaces[index].id)
+                case .failure(let error):
+                    completion(.failure(error))
                     return
                 }
-                controller = manager.newWindow(url: url, profileID: profile.id)
             } else {
-                let active = manager.automationActiveController
-                controller = manager.newWindow(
-                    url: url,
-                    profileID: active?.profileID ?? BrowserProfile.defaultID,
-                    spaceID: active?.currentSpaceID
-                )
+                let active = manager.automationActiveController.flatMap(manager.space(of:))
+                controller = manager.newWindow(url: url, spaceID: active?.id)
             }
             completion(.success("window \(manager.number(of: controller) ?? manager.automationControllers.count)"))
             return
@@ -454,7 +449,7 @@ enum BrowserAutomationRouter {
         } else if let active = manager.automationActiveController {
             target = active
         } else if request.command == "open" || request.command == "new-tab" {
-            let controller = manager.newWindow(url: url, profileID: BrowserProfile.defaultID)
+            let controller = manager.newWindow(url: url, spaceID: manager.spaces.defaultSpace?.id)
             completion(.success(url ?? controller.selectedTab?.state.url ?? "about:start"))
             return
         } else {
@@ -533,10 +528,9 @@ enum BrowserAutomationRouter {
             }
             guard manager.canMoveTab(tab, from: source, to: target) else {
                 guard target.dataContext.profileID == tab.dataContext.profileID else {
-                    let space = target.currentSpaceID.flatMap(manager.spaces.space(id:))?.displayName ?? "its Space"
-                    let name = manager.profile(of: target).name
+                    let space = target.currentSpaceID.flatMap(manager.spaces.space(id:))?.displayName ?? "another Space"
                     return .failure(BrowserAutomationError.invalidArguments(
-                        "Window \(number) shows \(space) of the \(name) profile; a tab moves only into a Space of its own profile."
+                        "Window \(number) shows \(space); a tab moves only into a window showing its own Space."
                     ))
                 }
                 return .failure(BrowserAutomationError.invalidArguments("Window \(number) can't take tabs."))
@@ -548,36 +542,49 @@ enum BrowserAutomationRouter {
         return .success("window \(window) tab \(index)")
     }
 
-    /// `* 1\tWork2\t2 tabs\tWork\tExample Domain\tDefault 3, Work2 2`, one
-    /// line per normal window: its current Space (`-` for a pop-up), that
-    /// Space's tab count, its profile, the selected tab's title and every
-    /// Space's tab count in the window.
+    /// `* 1\tWork\t2 tabs\tExample Domain\tDefault 3, Work 2`, one line per
+    /// normal window: its current Space (`-` for a pop-up), that Space's
+    /// tab count, the selected tab's title and every Space's tab count in
+    /// the window.
     static func windowList(_ manager: BrowserWindowManager) -> String {
         let active = manager.automationActiveController
         return manager.automationControllers.enumerated().map { index, controller in
             let mark = controller === active ? "*" : " "
             let count = controller.visibleTabs.count
-            let profile = manager.profile(of: controller).name
             let title = controller.selectedTab?.displayTitle ?? "New Tab"
             let space = controller.currentSpaceID.flatMap(manager.spaces.space(id:))?.displayName ?? "-"
             let perSpace = manager.spaces.spaces.compactMap { space -> String? in
                 let inSpace = controller.tabs.filter { $0.spaceID == space.id }.count
                 return inSpace == 0 ? nil : "\(space.displayName) \(inSpace)"
             }.joined(separator: ", ")
-            return "\(mark) \(index + 1)\t\(space)\t\(count) \(count == 1 ? "tab" : "tabs")\t\(profile)\t\(title)\t\(perSpace)"
+            return "\(mark) \(index + 1)\t\(space)\t\(count) \(count == 1 ? "tab" : "tabs")\t\(title)\t\(perSpace)"
         }.joined(separator: "\n")
     }
 
-    /// `* 1\tDefault\tDefault\t3 tabs`, one line per Space: its number, name,
-    /// profile and how many of `window`'s tabs are in it; `*` marks the
-    /// window's current Space.
+    /// `* 1\tDefault\t3 tabs`, one line per Space: its number, name and how
+    /// many of `window`'s tabs are in it; `*` marks the window's current
+    /// Space.
     static func spaceList(for window: BrowserWindowController, in manager: BrowserWindowManager) -> String {
         manager.spaces.spaces.enumerated().map { index, space in
             let mark = space.id == window.currentSpaceID ? "*" : " "
-            let profile = manager.profiles.profile(id: space.profileID)?.name ?? "Default"
             let count = window.tabs.filter { $0.spaceID == space.id }.count
-            return "\(mark) \(index + 1)\t\(space.displayName)\t\(profile)\t\(count) \(count == 1 ? "tab" : "tabs")"
+            return "\(mark) \(index + 1)\t\(space.displayName)\t\(count) \(count == 1 ? "tab" : "tabs")"
         }.joined(separator: "\n")
+    }
+
+    /// Space n (1-based) or the Space named (any case, surrounding spaces
+    /// ignored), as its index in display order.
+    static func resolveSpace(_ value: String, in manager: BrowserWindowManager) -> Result<Int, Error> {
+        let all = manager.spaces.spaces
+        let trimmed = value.trimmingCharacters(in: .whitespaces)
+        let wanted = trimmed.lowercased()
+        guard let index = Int(trimmed).map({ $0 - 1 }).flatMap({ all.indices.contains($0) ? $0 : nil })
+            ?? all.firstIndex(where: { $0.displayName.lowercased() == wanted })
+        else {
+            let known = all.map(\.displayName).joined(separator: ", ")
+            return .failure(BrowserAutomationError.invalidArguments("No Space \(value). Spaces: \(known)."))
+        }
+        return .success(index)
     }
 
     /// `space <n|name>`: switches `window` to Space n (1-based) or the Space
@@ -594,16 +601,13 @@ enum BrowserAutomationRouter {
         guard window.hasSpaces else {
             return .failure(BrowserAutomationError.invalidArguments("This window has no Spaces."))
         }
-        let all = manager.spaces.spaces
-        let trimmed = value.trimmingCharacters(in: .whitespaces)
-        let wanted = trimmed.lowercased()
-        guard let index = Int(trimmed).map({ $0 - 1 }).flatMap({ all.indices.contains($0) ? $0 : nil })
-            ?? all.firstIndex(where: { $0.displayName.lowercased() == wanted })
-        else {
-            let known = all.map(\.displayName).joined(separator: ", ")
-            return .failure(BrowserAutomationError.invalidArguments("No Space \(value). Spaces: \(known)."))
+        switch resolveSpace(value, in: manager) {
+        case .success(let index):
+            let space = manager.spaces.spaces[index]
+            window.switchToSpace(space.id, focus: false)
+            return .success("space \(index + 1) \(space.displayName)")
+        case .failure(let error):
+            return .failure(error)
         }
-        window.switchToSpace(all[index].id, focus: false)
-        return .success("space \(index + 1) \(all[index].displayName)")
     }
 }

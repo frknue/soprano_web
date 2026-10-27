@@ -2,8 +2,8 @@
 import AppKit
 import Testing
 
-/// Profiles: `profiles.json`, where each profile's data lives, and what a
-/// window's chrome says about its profile.
+/// Profiles, every Space's data container: `profiles.json`, where each
+/// Space's data lives, and what a window's chrome says about its Space.
 @MainActor
 struct BrowserProfilesTests {
     private func temporaryFile() -> URL {
@@ -15,29 +15,30 @@ struct BrowserProfilesTests {
     @Test func aMissingFileIsJustTheDefaultProfile() {
         let store = BrowserProfileStore(url: temporaryFile())
         #expect(store.profiles == [.defaultProfile])
-        #expect(!store.hasSeveral)
         #expect(store.profiles.first?.isDefault == true)
     }
 
-    @Test func profilesRoundTripThroughTheFile() throws {
+    @Test func profilesRoundTripAndFollowTheirSpaces() throws {
         let url = temporaryFile()
         defer { try? FileManager.default.removeItem(at: url.deletingLastPathComponent()) }
         let store = BrowserProfileStore(url: url)
-        let work = store.add(name: "Work", color: .green)
-        let side = store.add(name: "Side Project")
-        store.rename(id: BrowserProfile.defaultID, to: "Personal")
-        store.setColor(id: side.id, .red)
+        let work = BrowserProfile(name: "Work", color: .green)
+        #expect(store.add(work))
+        #expect(!store.add(BrowserProfile(id: work.id, name: "Again", color: .red)))
+        // A profile's name and color follow its Space's.
+        store.follow([
+            BrowserSpace(name: "Personal", color: .cyan, profileID: BrowserProfile.defaultID),
+            BrowserSpace(name: "  Day Job ", color: .red, profileID: work.id),
+        ])
 
         let reloaded = BrowserProfileStore(url: url)
-        #expect(reloaded.profiles.map(\.name) == ["Personal", "Work", "Side Project"])
-        #expect(reloaded.profile(id: work.id)?.color == .green)
-        #expect(reloaded.profile(id: side.id)?.color == .red)
+        #expect(reloaded.profiles.map(\.name) == ["Personal", "Day Job"])
+        #expect(reloaded.profile(id: work.id)?.color == .red)
         #expect(reloaded.profiles.first?.id == BrowserProfile.defaultID)
-        #expect(reloaded.hasSeveral)
 
         let json = try JSONSerialization.jsonObject(with: Data(contentsOf: url)) as? [String: Any]
         #expect(json?["version"] as? Int == BrowserProfileList.currentVersion)
-        #expect((json?["profiles"] as? [[String: Any]])?.count == 3)
+        #expect((json?["profiles"] as? [[String: Any]])?.count == 2)
     }
 
     @Test func decodingIsTolerant() throws {
@@ -101,30 +102,16 @@ struct BrowserProfilesTests {
         #expect(BrowserProfileStore(url: url).profiles == [.defaultProfile])
     }
 
-    @Test func namesStayUniqueAndColorsSpread() {
+    @Test func defaultCanBeFollowedButNotRemoved() {
         var list = BrowserProfileList()
-        let work = list.add(name: "Work")
-        let second = list.add(name: "work")
-        let blank = list.add(name: "   ")
-        #expect(work.name == "Work")
-        #expect(second.name == "work 2")
-        #expect(blank.name == "Profile")
-        // Default is blue; new profiles take the colors nobody uses yet.
-        #expect(work.color == .cyan)
-        #expect(second.color == .green)
-        list.rename(id: second.id, to: "WORK")
-        #expect(list.profile(id: second.id)?.name == "WORK 2")
-        list.rename(id: second.id, to: "  ")
-        #expect(list.profile(id: second.id)?.name == "WORK 2")
-        #expect(list.profile(named: " work ")?.id == work.id)
-    }
-
-    @Test func defaultCanBeRenamedButNotRemoved() {
-        var list = BrowserProfileList()
-        list.rename(id: BrowserProfile.defaultID, to: "Personal")
+        let personal = [BrowserSpace(name: "Personal", color: .blue, profileID: BrowserProfile.defaultID)]
+        let changed = list.follow(personal)
+        let changedAgain = list.follow(personal)
+        #expect(changed && !changedAgain)
         list.remove(id: BrowserProfile.defaultID)
         #expect(list.profiles.map(\.name) == ["Personal"])
-        let work = list.add(name: "Work")
+        let work = BrowserProfile(name: "Work", color: .green)
+        list.add(work)
         list.remove(id: work.id)
         #expect(list.profile(id: work.id) == nil)
         // A window or closed tab of the removed profile opens in Default.
@@ -161,38 +148,42 @@ struct BrowserProfilesTests {
         #expect(defaultHistory.databaseURL.deletingLastPathComponent().standardizedFileURL == support.standardizedFileURL)
     }
 
-    @Test func windowMarkNamesPrivateProfileAndSpace() {
-        let work = BrowserProfile(name: "Work", color: .green)
-        #expect(BrowserWindowMark(kind: .normal, profile: nil).text == nil)
-        #expect(BrowserWindowMark(kind: .private, profile: nil).text == "Private")
-        #expect(BrowserWindowMark(kind: .normal, profile: work).text == "Work")
-        let both = BrowserWindowMark(kind: .private, profile: work)
+    @Test func windowMarkNamesTheSpace() {
+        #expect(BrowserWindowMark(kind: .normal, space: nil).text == nil)
+        #expect(BrowserWindowMark(kind: .private, space: nil).text == "Private")
+        let work = BrowserSpace(name: "Work", color: .green, profileID: UUID())
+        let both = BrowserWindowMark(kind: .private, space: work)
         #expect(both.text == "Private · Work")
         #expect(both.color == .green)
-        // A normal window shows its Space: emoji, name and the Space's
-        // color; the profile goes into the tooltip.
-        let space = BrowserSpace(name: "Research", icon: .emoji("🔬"), color: .blue, profileID: work.id)
-        let spaceMark = BrowserWindowMark(space: space, profile: work)
+        #expect(both.toolTip?.hasPrefix("Space: Work\nPrivate window") == true)
+        // A normal window shows its Space: emoji, name and color.
+        let space = BrowserSpace(name: "Research", icon: .emoji("🔬"), color: .blue, profileID: UUID())
+        let spaceMark = BrowserWindowMark(kind: .normal, space: space)
         #expect(spaceMark.text == "🔬 Research")
         #expect(spaceMark.color == .blue)
-        #expect(spaceMark.toolTip == "Space: Research\nProfile: Work")
-        let plain = BrowserSpace(name: "Home", icon: .symbol("house"), color: .yellow, profileID: work.id)
-        #expect(BrowserWindowMark(space: plain, profile: nil).text == "Home")
+        #expect(spaceMark.toolTip == "Space: Research")
+        let plain = BrowserSpace(name: "Home", icon: .symbol("house"), color: .yellow, profileID: UUID())
+        #expect(BrowserWindowMark(kind: .normal, space: plain).text == "Home")
     }
 
-    @Test func deleteConfirmationSaysWhatGoes() {
-        let none = BrowserProfilesSheet.deleteConfirmation(name: "Work", tabCount: 0)
-        #expect(none.title == "Delete the profile “Work”?")
+    @Test func deleteSpaceConfirmationSaysWhatGoes() {
+        let none = BrowserWindowController.deleteSpaceConfirmation(name: "Work", tabCount: 0)
+        #expect(none.title == "Delete the Space “Work”?")
         #expect(!none.message.contains("tab closes"))
-        #expect(none.message.contains("Spaces, pinned tabs"))
-        #expect(BrowserProfilesSheet.deleteConfirmation(name: "Work", tabCount: 1).message.hasPrefix("Its open tab closes."))
-        #expect(BrowserProfilesSheet.deleteConfirmation(name: "Work", tabCount: 3).message.hasPrefix("Its 3 open tabs close."))
+        #expect(none.message.contains("cookies"))
+        #expect(none.message.contains("History"))
+        #expect(none.message.contains("pinned tabs"))
+        #expect(none.message.contains("Archive"))
+        let one = BrowserWindowController.deleteSpaceConfirmation(name: "Work", tabCount: 1)
+        #expect(one.message.hasPrefix("Its open tab closes."))
+        let three = BrowserWindowController.deleteSpaceConfirmation(name: "Work", tabCount: 3)
+        #expect(three.message.hasPrefix("Its 3 open tabs close"))
     }
 
-    @Test func clearBrowsingDataNamesTheProfile() {
-        #expect(BrowserClearBrowsingDataSheet.title(profileName: nil) == "Clear Browsing Data")
-        #expect(BrowserClearBrowsingDataSheet.title(profileName: "Work") == "Clear Browsing Data of “Work”")
-        #expect(!BrowserClearBrowsingDataSheet.message(profileName: nil).contains("profile"))
-        #expect(BrowserClearBrowsingDataSheet.message(profileName: "Work").contains("the Work profile"))
+    @Test func clearBrowsingDataNamesTheSpace() {
+        #expect(BrowserClearBrowsingDataSheet.title(spaceName: nil) == "Clear Browsing Data")
+        #expect(BrowserClearBrowsingDataSheet.title(spaceName: "Work") == "Clear Browsing Data of “Work”")
+        #expect(!BrowserClearBrowsingDataSheet.message(spaceName: nil).contains("Space"))
+        #expect(BrowserClearBrowsingDataSheet.message(spaceName: "Work").contains("the Work Space"))
     }
 }

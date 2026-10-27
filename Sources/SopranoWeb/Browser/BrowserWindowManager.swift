@@ -39,11 +39,12 @@ struct BrowserWindowPlacement {
 }
 
 /// Owns every browser window and the app-wide pieces they share: the stores,
-/// profiles, downloads, Settings, the recently-closed stack, Vimium's global
-/// marks, notification clicks and the session file. The normal windows of
-/// one profile share its `BrowserDataContext` (`context(for:)`); each
-/// private window gets its own. `AppDelegate` (or the snapshot harness) owns
-/// the one manager.
+/// Spaces with their profiles, downloads, Settings, the recently-closed
+/// stack, Vimium's global marks, notification clicks and the session file.
+/// Every Space has a profile of its own; the normal windows showing a Space
+/// share its `BrowserDataContext` (`context(for:)`); each private window
+/// gets its own. `AppDelegate` (or the snapshot harness) owns the one
+/// manager.
 @MainActor
 final class BrowserWindowManager {
     static let windowMinSize = NSSize(width: 760, height: 520)
@@ -56,13 +57,14 @@ final class BrowserWindowManager {
 
     let themeManager: ThemeManager
     let settingsStore: BrowserSettingsStore
+    /// Every Space's data container (`profiles.json`), one per Space.
     let profiles: BrowserProfileStore
     /// The support folder: the Default profile's files, and `Profiles/<id>/`
     /// for the others.
     let supportDirectory: URL
-    /// Every Space with its pins, and every profile's favorites.
+    /// Every Space with its pins and favorites.
     let spaces: BrowserSpaceStore
-    /// Every profile's archived tabs (`archive.json`).
+    /// Every Space's archived tabs (`archive.json`).
     let archive: BrowserArchiveStore
     let downloads: BrowserDownloadStore
     let downloadManager: BrowserDownloadManager
@@ -107,10 +109,9 @@ final class BrowserWindowManager {
     /// Every profile's History, opened on first use (a window, the daily
     /// retention pass).
     var historyStores: [UUID: BrowserHistoryStore] = [:]
-    /// Settings sheets: Websites, Website Data and Profiles.
+    /// Settings sheets: Websites and Website Data.
     var websitesSheet: BrowserWebsitesSheet?
     var websiteDataSheet: BrowserWebsiteDataSheet?
-    var profilesSheet: BrowserProfilesSheet?
     /// Settings ▸ Links from other apps, while shown.
     var linkRoutingSheet: BrowserLinkRoutingSheet?
     /// File ▸ Import Browser Data…, while shown.
@@ -173,14 +174,23 @@ final class BrowserWindowManager {
         themeManager.onThemeChanged = { [weak self] theme in
             self?.websitesSheet?.apply(theme: theme)
             self?.websiteDataSheet?.apply(theme: theme)
-            self?.profilesSheet?.apply(theme: theme)
             self?.linkRoutingSheet?.apply(theme: theme)
             self?.importSheet?.apply(theme: theme)
             self?.themeChanges.notify(theme)
         }
-        // Every profile keeps a Space: a new profile gets one, a deleted
-        // profile's go (`deleteProfile` also removes them first).
+        // Every Space has a profile of its own: Spaces the Space store
+        // separated from a shared profile get theirs (once; a later launch
+        // finds them), their Archive entries follow them, and every
+        // profile keeps a Space.
+        for profile in spaces.separatedProfiles {
+            profiles.add(profile)
+        }
         spaces.reconcile(with: profiles.profiles)
+        archive.moveEntries(toProfileOfSpace: Dictionary(
+            spaces.spaces.map { ($0.id, $0.profileID) },
+            uniquingKeysWith: { first, _ in first }
+        ))
+        profiles.follow(spaces.spaces)
         observations = [
             settingsStore.changes.observe { [weak self] settings in
                 self?.applyTheme(of: settings)
@@ -190,6 +200,11 @@ final class BrowserWindowManager {
             profiles.changes.observe { [weak self] in
                 guard let self else { return }
                 self.spaces.reconcile(with: self.profiles.profiles)
+            },
+            // A profile's name and color follow its Space's.
+            spaces.changes.observe { [weak self] in
+                guard let self else { return }
+                self.profiles.follow(self.spaces.spaces)
             },
         ]
         downloadManager.fallbackWindow = { [weak self] in self?.activeController?.window }
@@ -322,26 +337,24 @@ final class BrowserWindowManager {
         }
     }
 
-    /// The profile new windows open in: the key (else most recently active)
-    /// window's current Space's, Default when none is open.
+    /// The profile private windows open over: the key (else most recently
+    /// active) window's current Space's, Default's when none is open.
     var activeProfileID: UUID {
         activeController?.profileID ?? BrowserProfile.defaultID
     }
 
     /// File ▸ New Window (⌘N): a start tab (or `url`), one step down and
-    /// right of the key window. It shows `spaceID`, else the first Space of
-    /// `profileID` (File ▸ New Window With Profile, `new-window
-    /// --profile`), else the key window's current Space (a private or
-    /// pop-up key window: its profile's first Space).
+    /// right of the key window. It shows Space `spaceID` (`new-window
+    /// --space`), else the key window's current Space (a private or pop-up
+    /// key window: the Space it was opened over), else the Default Space.
     @discardableResult
-    func newWindow(url: String? = nil, profileID: UUID? = nil, spaceID: UUID? = nil) -> BrowserWindowController {
+    func newWindow(url: String? = nil, spaceID: UUID? = nil) -> BrowserWindowController {
         let space = spaceID.flatMap(spaces.space(id:))
-            ?? profileID.flatMap { spaces.firstSpace(ofProfile: profiles.resolvedID($0)) }
-            ?? activeController?.currentSpaceID.flatMap(spaces.space(id:))
-            ?? spaces.firstSpace(ofProfile: activeProfileID)
+            ?? activeController.flatMap(space(of:))
+            ?? spaces.defaultSpace
         let controller = makeWindow(
             frame: frameForNewWindow(),
-            context: context(for: space?.profileID ?? profileID ?? activeProfileID),
+            context: context(for: space?.profileID ?? BrowserProfile.defaultID),
             spaceID: space?.id
         )
         controller.newTab(url: url, focusAddress: url == nil)
@@ -352,8 +365,7 @@ final class BrowserWindowManager {
 
     /// File ▸ New Private Window (⇧⌘N): a window with its own
     /// non-persistent data store and a start tab (or `url`), over the
-    /// profile of the window it was opened from (its current Space's;
-    /// Default when none).
+    /// Space of the window it was opened from (Default's when none).
     @discardableResult
     func newPrivateWindow(url: String? = nil) -> BrowserWindowController {
         let base = context(for: activeProfileID)
@@ -405,9 +417,9 @@ final class BrowserWindowManager {
     /// A new, empty window at `frame` (session coordinates). A private
     /// `context` or a pop-up gets a window of that context without Spaces;
     /// otherwise the window shows Space `spaceID` (when it exists), else
-    /// the first Space of `context`'s profile (nil: Default), and uses that
-    /// Space's profile context. `activate` makes it the window commands go
-    /// to by default.
+    /// the Space of `context`'s profile (nil: Default), and uses that
+    /// Space's context. `activate` makes it the window commands go to by
+    /// default.
     func makeWindow(
         id: UUID = UUID(),
         frame: NSRect,
@@ -420,7 +432,7 @@ final class BrowserWindowManager {
         var space: BrowserSpace?
         if !isPopup, !windowContext.kind.isPrivate {
             space = spaceID.flatMap(spaces.space(id:))
-                ?? spaces.firstSpace(ofProfile: windowContext.profileID)
+                ?? spaces.space(ofProfile: windowContext.profileID)
                 ?? spaces.ensureSpace(forProfile: profiles.profile(id: windowContext.profileID) ?? .defaultProfile)
             if let space {
                 windowContext = self.context(for: space.profileID)
@@ -454,7 +466,7 @@ final class BrowserWindowManager {
 
     /// Opens a saved window (restore or reopen) with its tabs, lazily, on
     /// its Space with each tab in its own (`placedInSpaces`; a version 2
-    /// window's tabs join its profile's first Space, a profile that is gone
+    /// window's tabs join its profile's Space, a profile that is gone
     /// counts as Default).
     @discardableResult
     private func openWindow(_ state: BrowserWindowState, fallbackFrame: NSRect? = nil) -> BrowserWindowController {
@@ -550,8 +562,8 @@ final class BrowserWindowManager {
     }
 
     /// Entries only ever go back into normal windows (every one holds every
-    /// Space): a tab into its Space (the first Space of its profile when
-    /// that one is gone; Default's when the profile is gone too), switching
+    /// Space): a tab into its Space (its profile's Space when that one is
+    /// gone; the Default Space when the profile is gone too), switching
     /// the window to it.
     private func reopen(_ entry: BrowserClosedEntry) {
         var entry = entry
@@ -581,11 +593,11 @@ final class BrowserWindowManager {
     }
 
     /// A closed tab's state with the Space it reopens in: its own while it
-    /// exists, else the first Space of `profileID`.
+    /// exists, else the Space of `profileID`.
     private func placedInSpace(_ state: BrowserTabState, profileID: UUID) -> BrowserTabState {
         var state = state
         state.spaceID = state.spaceID.flatMap(spaces.space(id:))?.id
-            ?? spaces.firstSpace(ofProfile: profileID)?.id
+            ?? spaces.space(ofProfile: profileID)?.id
         return state
     }
 
@@ -647,12 +659,12 @@ final class BrowserWindowManager {
     }
 
     /// `tab`'s start page: the app theme, the pins of its Space (a private
-    /// or pop-up tab's: its profile's first Space) and its profile's
+    /// or pop-up tab's: the Space it was opened over) and its Space's
     /// recent pages; a private tab's in Folio Ink without recent pages.
     func startPageHTML(for tab: BrowserTab?) -> String {
         let context = tab?.dataContext ?? defaultContext
         let kind = context.kind
-        let space = tab?.spaceID.flatMap(spaces.space(id:)) ?? spaces.firstSpace(ofProfile: context.profileID)
+        let space = tab?.spaceID.flatMap(spaces.space(id:)) ?? spaces.space(ofProfile: context.profileID)
         return BrowserStartPage.html(
             theme: kind.isPrivate ? .folioInk : themeManager.currentTheme,
             settings: settingsStore.settings,
@@ -677,7 +689,6 @@ final class BrowserWindowManager {
             )
             controller.onShowWebsites = { [weak self] parent in self?.showWebsites(on: parent) }
             controller.onShowWebsiteData = { [weak self] parent in self?.showWebsiteData(on: parent) }
-            controller.onShowProfiles = { [weak self] parent in self?.showProfiles(on: parent) }
             controller.onShowLinkRouting = { [weak self] parent in self?.showLinkRouting(on: parent) }
             settingsWindowController = controller
             return controller
@@ -689,7 +700,7 @@ final class BrowserWindowManager {
     }
 
     /// Settings ▸ Websites, as a sheet on Settings, showing the active
-    /// window's profile (a picker switches when there are several).
+    /// window's Space (a picker switches when there are several).
     func showWebsites(on parent: NSWindow) {
         let sheet = websitesSheet ?? makeWebsitesSheet()
         websitesSheet = sheet
@@ -701,10 +712,11 @@ final class BrowserWindowManager {
         }
     }
 
+    /// `selected`: the profile of the Space shown first.
     func makeWebsitesSheet(selected: UUID? = nil) -> BrowserWebsitesSheet {
         BrowserWebsitesSheet(
-            picker: BrowserProfilePicker(
-                profiles: profiles,
+            picker: BrowserSpacePicker(
+                spaces: spaces,
                 selected: selected ?? activeProfileID,
                 theme: themeManager.currentTheme
             ),
@@ -715,7 +727,7 @@ final class BrowserWindowManager {
     }
 
     /// Settings ▸ Website Data, as a sheet on Settings, showing the active
-    /// window's profile (a picker switches when there are several).
+    /// window's Space (a picker switches when there are several).
     func showWebsiteData(on parent: NSWindow) {
         guard websiteDataSheet == nil else { return }
         let sheet = makeWebsiteDataSheet()
@@ -725,36 +737,18 @@ final class BrowserWindowManager {
         }
     }
 
+    /// `selected`: the profile of the Space shown first.
     func makeWebsiteDataSheet(selected: UUID? = nil) -> BrowserWebsiteDataSheet {
         BrowserWebsiteDataSheet(
             theme: themeManager.currentTheme,
-            picker: BrowserProfilePicker(
-                profiles: profiles,
+            picker: BrowserSpacePicker(
+                spaces: spaces,
                 selected: selected ?? activeProfileID,
                 theme: themeManager.currentTheme
             )
         ) { [weak self] id in
             self?.context(for: id).websiteDataStore
         }
-    }
-
-    /// Settings ▸ Profiles, as a sheet on Settings.
-    func showProfiles(on parent: NSWindow) {
-        let sheet = profilesSheet ?? makeProfilesSheet()
-        profilesSheet = sheet
-        guard let window = sheet.window, window.sheetParent == nil else { return }
-        parent.beginSheet(window) { [weak self] _ in
-            self?.profilesSheet = nil
-        }
-    }
-
-    func makeProfilesSheet() -> BrowserProfilesSheet {
-        let sheet = BrowserProfilesSheet(profiles: profiles, theme: themeManager.currentTheme)
-        sheet.tabCount = { [weak self] id in
-            self?.openTabCount(ofProfile: id) ?? 0
-        }
-        sheet.onDelete = { [weak self] id in self?.deleteProfile(id) }
-        return sheet
     }
 
     /// Links from other apps: the first Settings ▸ Links from other apps

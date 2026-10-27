@@ -232,7 +232,7 @@ final class BrowserWindowController: NSWindowController {
     /// write: the current Space; a private or pop-up window's profile's
     /// first Space.
     var pinSpaceID: UUID? {
-        currentSpaceID ?? spaces.firstSpace(ofProfile: profileID)?.id
+        currentSpaceID ?? spaces.space(ofProfile: profileID)?.id
     }
 
     /// The pin Space's pinned tree; empty without one.

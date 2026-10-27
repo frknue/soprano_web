@@ -2,15 +2,15 @@ import AppKit
 import WebKit
 
 /// Settings ▸ Website Data…: every site with stored data
-/// (`WKWebsiteDataStore.fetchDataRecords`) of one profile, searchable, with
-/// Remove and Remove All. A picker switches profiles when there are
+/// (`WKWebsiteDataStore.fetchDataRecords`) of one Space, searchable, with
+/// Remove and Remove All. A picker switches Spaces when there are
 /// several.
 @MainActor
 final class BrowserWebsiteDataSheet: NSWindowController, NSTableViewDataSource, NSTableViewDelegate,
     NSTextFieldDelegate
 {
-    private let picker: BrowserProfilePicker
-    /// The data store of a profile (nil once the manager is gone).
+    private let picker: BrowserSpacePicker
+    /// The data store of a Space's profile (nil once the manager is gone).
     private let dataStoreFor: (UUID) -> WKWebsiteDataStore?
     private var dataStore: WKWebsiteDataStore?
     private var theme: AppTheme
@@ -38,7 +38,7 @@ final class BrowserWebsiteDataSheet: NSWindowController, NSTableViewDataSource, 
 
     init(
         theme: AppTheme,
-        picker: BrowserProfilePicker,
+        picker: BrowserSpacePicker,
         dataStoreFor: @escaping (UUID) -> WKWebsiteDataStore?
     ) {
         self.theme = theme
@@ -75,8 +75,8 @@ final class BrowserWebsiteDataSheet: NSWindowController, NSTableViewDataSource, 
         }
     }
 
-    /// The profile shown (the harness prints it).
-    var profileName: String { picker.selectedProfile.name }
+    /// The Space shown (the harness prints it).
+    var spaceName: String { picker.selectedName }
 
     @available(*, unavailable)
     required init?(coder: NSCoder) {

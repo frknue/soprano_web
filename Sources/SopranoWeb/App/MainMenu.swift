@@ -3,20 +3,14 @@ import AppKit
 /// The menu bar, built from the command registry (`BrowserAppCommand.all`):
 /// every item's title, shortcut (the user's keymap), validation and action
 /// come from its registry row; the menus add only their dynamic parts
-/// (New Window With Profile, Share, Recently Closed, the Spaces and their
+/// (Share, Recently Closed, the Spaces and their
 /// pins, the system's Edit submenus and Services).
 @MainActor
 final class MainMenuController: NSObject, NSMenuItemValidation {
-    static let newWindowWithProfileTitle = "New Window With Profile"
-
     private let windowManager: () -> BrowserWindowManager?
     private var shareUpdater: ShareMenuUpdater?
     private var recentlyClosedUpdater: RecentlyClosedMenuUpdater?
-    private var profileWindowUpdater: ProfileWindowMenuUpdater?
     private(set) var spacesMenu: BrowserSpacesMenu?
-    /// File ▸ New Window With Profile, shown while more than one profile
-    /// exists.
-    private var profileWindowItem: NSMenuItem?
     private var observations: [BrowserObservation] = []
     private var shownKeymap: BrowserKeymap?
 
@@ -29,16 +23,10 @@ final class MainMenuController: NSObject, NSMenuItemValidation {
         NSApp.mainMenu = buildMenu()
         if let manager = windowManager() {
             observations = [
-                manager.profiles.changes.observe { [weak self] in self?.refreshProfileWindowItem() },
                 // Settings ▸ Keyboard shortcuts: the items follow a remap.
                 manager.settingsStore.changes.observe { [weak self] _ in self?.applyKeymap() },
             ]
         }
-        refreshProfileWindowItem()
-    }
-
-    private func refreshProfileWindowItem() {
-        profileWindowItem?.isHidden = !(windowManager()?.profiles.hasSeveral ?? false)
     }
 
     private var keymap: BrowserKeymap {
@@ -62,14 +50,6 @@ final class MainMenuController: NSObject, NSMenuItemValidation {
 
         let fileMenu = NSMenu(title: BrowserAppCommand.Menu.file.rawValue)
         addSections([0], of: .file, to: fileMenu, keymap: keymap)
-        let profileMenu = NSMenu(title: Self.newWindowWithProfileTitle)
-        let profileWindowUpdater = ProfileWindowMenuUpdater(windowManager: windowManager)
-        profileMenu.delegate = profileWindowUpdater
-        self.profileWindowUpdater = profileWindowUpdater
-        let profileWindowItem = NSMenuItem(title: profileMenu.title, action: nil, keyEquivalent: "")
-        profileWindowItem.submenu = profileMenu
-        self.profileWindowItem = profileWindowItem
-        fileMenu.addItem(profileWindowItem)
         // Reopen Closed Tab and Open Location… follow without a separator.
         commands(of: .file, section: 1).forEach { fileMenu.addItem(item(for: $0, keymap: keymap)) }
         fileMenu.addItem(.separator())
@@ -247,31 +227,5 @@ private final class RecentlyClosedMenuUpdater: NSObject, NSMenuDelegate {
     @objc private func reopen(_ sender: NSMenuItem) {
         guard let id = sender.representedObject as? UUID else { return }
         windowManager()?.reopen(entryID: id)
-    }
-}
-
-/// Fills File ▸ New Window With Profile each time it opens: one item per
-/// profile.
-@MainActor
-private final class ProfileWindowMenuUpdater: NSObject, NSMenuDelegate {
-    private let windowManager: () -> BrowserWindowManager?
-
-    init(windowManager: @escaping () -> BrowserWindowManager?) {
-        self.windowManager = windowManager
-    }
-
-    func menuNeedsUpdate(_ menu: NSMenu) {
-        menu.removeAllItems()
-        for profile in windowManager()?.profiles.profiles ?? [] {
-            let item = NSMenuItem(title: profile.name, action: #selector(newWindow(_:)), keyEquivalent: "")
-            item.target = self
-            item.representedObject = profile.id
-            menu.addItem(item)
-        }
-    }
-
-    @objc private func newWindow(_ sender: NSMenuItem) {
-        guard let id = sender.representedObject as? UUID else { return }
-        windowManager()?.newWindow(profileID: id)
     }
 }

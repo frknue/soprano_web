@@ -17,20 +17,30 @@ swift-testing rules, harness, CHANGELOG, conventions), then `docs/ROADMAP.md` §
 - **Search keywords**: built-in engines (DuckDuckGo, Google, Bing) have no keyword by
   default, so "g string" or "b tree" never jump to another engine; the user can give any
   engine a keyword.
+- **Every Space is isolated**: its own cookies, website data, History, site decisions,
+  favicons decisions, certificate exceptions, Archive and Favorites. There is no option to
+  share a profile between Spaces; Settings ▸ Profiles is gone and the profile is only the
+  internal data container behind a Space (deviates from Arc, which shares a Profile across
+  Spaces).
 
 ## Model
 - `BrowserSpace { id: UUID, name: String, icon: BrowserSpaceIcon (.none | .emoji(String) |
   .symbol(String)), color: BrowserProfileColor, profileID: UUID, pinned: <pin root folder>,
-  importedFrom: String? }`. Several Spaces may share a profile. Every profile has ≥1 Space
-  (creating a profile creates one; deleting a profile deletes its Spaces; deleting a
-  profile's last Space is refused). Order = display order.
+  importedFrom: String? }`. The Space is the isolation unit: every Space has a profile of its
+  own (creating a Space creates its profile, id = the Space's id; its name and color follow
+  the Space). The Default profile (default data store) belongs to the Default Space, which
+  can't be deleted; deleting any other Space deletes its profile and all its data. Order =
+  display order. Spaces that shared a profile (files written before this rule) are separated
+  on load: the first keeps the profile, every other one gets a new one (signed out; its open
+  tabs reopen there, its Archive entries move with it, Favorites stay with the first).
 - Pins: the stage-2 `BrowserBookmarkTree` operations (insert/move/rename/edit/remove,
   outline, drop math) are kept and renamed to pin vocabulary (`BrowserPin`,
   `BrowserPinFolder`, `BrowserPinNode`, `BrowserPinTree`, `BrowserPinOutline`, …).
   One tree per Space. Pin = `{id, url, title, addedAt}`; title is user-editable.
-- Favorites: per profile, ordered list of pins, max 12 (`BrowserFavorites`).
-- Archive timing per profile: `BrowserProfile.archiveAfter` (`never, days30, days7, hours24,
-  hours12 (default), hours6, hour1`), tolerant decoding in `profiles.json`.
+- Favorites: per Space (kept by its profile), ordered list of pins, max 12 (`BrowserFavorites`).
+- Archive timing per Space: `BrowserProfile.archiveAfter` of its profile (`never, days30,
+  days7, hours24, hours12 (default), hours6, hour1`), set in Edit Space, tolerant decoding in
+  `profiles.json`.
 - Store: `BrowserSpaceStore` (MainActor, `changes` observable, synchronous atomic JSON
   writes like the other stores) owns `<support>/spaces.json`:
   `{ "version": 1, "spaces": [...], "favorites": [{ "profileID", "items": [pins] }] }`.
@@ -58,10 +68,11 @@ swift-testing rules, harness, CHANGELOG, conventions), then `docs/ROADMAP.md` §
 - Switching Space: ⌃1…⌃9, ⌥⌘←/⌥⌘→, two-finger horizontal swipe on the rail, Spaces menu,
   rail switcher, CLI. Tabs of hidden Spaces stay alive (sleep policy unchanged).
 - Tab move rule: a tab may move into a window iff the target window's current Space uses
-  the same data context; it lands in that window's current Space. It keeps its pin or
-  favorite link only when that pin is in the target's current Space (a favorite: of its
-  profile) and the target window has no live tab for it yet; otherwise it lands as a
-  Today tab (drops, Move Tab to New Window, Merge All Windows, restore).
+  the same data context — with one profile per Space, that means the tab's own Space; it
+  lands there. It keeps its pin or favorite link only when that pin is in the target's
+  current Space and the target window has no live tab for it yet; otherwise it lands as a
+  Today tab (drops, Move Tab to New Window, restore). Merge All Windows keeps every tab in
+  its Space.
 - Pinned/favorite live tabs are per window: clicking a pin selects its live tab in this
   window or opens one linked to the pin. ⌘W on a pinned tab unloads it back to the pin
   (Arc). A pinned tab that navigated to another URL shows a "/" mark; clicking the pin's
@@ -107,15 +118,17 @@ Readers (pure, no AppKit/WebKit): Arc (`StorableSidebar.json`, `StorableArchiveI
 favicon caches, `User Data/<profile>/History`, `StorableLinkRouting.json`), Chrome
 (`Bookmarks` JSON, `History`), Safari export ZIP (`Bookmarks.html`, `History.json`),
 Netscape bookmarks HTML import and export. Chromium SQLite opened read-only with
-`file:…?immutable=1`. Arc mapping: Arc profile default → Default, `Profile N` → a new
-Soprano profile named after its first Space; Spaces → Spaces (emoji, nearest Folio color);
-pinned trees → pinned (splitView flattened); favorites → profile favorites (first 12, rest
-appended to the first Space's pinned); Today tabs → unloaded Today tabs of that Space in
-the importing window; archive → archive (reason imported); history → that profile's
-History (off main thread, bulk); link routing → Air Traffic Control rules applied to links
-from other apps. Re-import skips Spaces already imported (`importedFrom`). Creating a
-profile already gives it a Space (the manager reconciles on every profile change), so the
-importer renames or reuses that Space instead of adding another.
+`file:…?immutable=1`. Arc mapping: every Arc Space → its own Space with its own profile
+(emoji, nearest Folio color); an Arc profile's History and favorites go to its home Space:
+Arc Default → the Default Space (taken over by Default's first Space while it is untouched),
+`Profile N` → the first of its Spaces (its profile marked `arc:Profile N`), or a new Space
+named after it when only its History or favorites come in (History-only profiles unchecked);
+pinned trees → pinned (splitView flattened); favorites → the home's favorites (first 12, rest
+appended to the home's pinned); Today tabs → unloaded Today tabs of that Space in the
+importing window; archive → archive (reason imported; Spaceless → the Default Space);
+history → the home's History (off main thread, bulk); link routing → Air Traffic Control
+rules applied to links from other apps. Re-import skips Spaces already imported
+(`importedFrom`). Chrome, Safari and bookmark files go into the Space chosen in the sheet.
 
 Real Arc data (checked 2026-10-25, Arc 1.169): the archive is `StorableArchiveItems.json`
 (`StorableArchive.<date>.json` files only hold `autoArchiveStartTime`); Space color is

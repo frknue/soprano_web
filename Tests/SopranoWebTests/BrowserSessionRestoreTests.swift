@@ -110,15 +110,13 @@ struct BrowserSessionRestoreTests {
         #expect(odd.spaceID == nil)
     }
 
-    @Test func versionTwoMigratesIntoTheFirstSpaceOfEachWindowsProfile() throws {
+    @Test func versionTwoMigratesIntoTheSpaceOfEachWindowsProfile() throws {
         let (store, directory) = temporaryStore()
         defer { try? FileManager.default.removeItem(at: directory) }
         let work = BrowserProfile(name: "Work", color: .green)
         var list = BrowserSpaceList()
         let defaultSpace = list.ensureSpace(for: .defaultProfile)
         let workSpace = list.ensureSpace(for: work)
-        let created = list.create(name: "Research", color: .blue, profileID: work.id)
-        let research = try #require(created)
         let original = """
         {"version": 2, "activeWindowIndex": 1, "savedAt": "2026-10-01T10:00:00Z", "windows": [
           {"tabs": [{"url": "https://example.com", "title": "E"}, {"url": "https://webkit.org", "title": "W"}], "selectedIndex": 1},
@@ -137,9 +135,8 @@ struct BrowserSessionRestoreTests {
         #expect(placed[0].selectedIndex == 1)
         #expect(placed[1].tabs.map(\.spaceID) == [workSpace.id])
         #expect(placed[1].profileID == work.id)
-        #expect(research.profileID == work.id)
         // A closed tab of the version 2 file has no Space; reopening puts it
-        // in its profile's first Space.
+        // in its profile's Space.
         guard case let .tab(state, _, _) = loaded.recentlyClosed.first?.content else {
             Issue.record("a closed tab")
             return
@@ -189,7 +186,7 @@ struct BrowserSessionRestoreTests {
         #expect(placed.tabs.map(\.origin) == [.pinned(pinned.id), .today, .today])
         #expect(placed.spaceSelections == [BrowserSpaceSelection(spaceID: workSpace.id, index: 0)])
 
-        // A window whose Space is gone opens on its profile's first Space.
+        // A window whose Space is gone opens on its profile's Space.
         var orphan = window
         orphan.currentSpaceID = gone
         orphan.profileID = work.id
@@ -200,8 +197,10 @@ struct BrowserSessionRestoreTests {
         let (store, directory) = temporaryStore()
         defer { try? FileManager.default.removeItem(at: directory) }
         var profiles = BrowserProfileList()
-        let work = profiles.add(name: "Work")
-        let gone = profiles.add(name: "Gone")
+        let work = BrowserProfile(name: "Work", color: .green)
+        let gone = BrowserProfile(name: "Gone", color: .red)
+        profiles.add(work)
+        profiles.add(gone)
         let workWindow = BrowserWindowState(tabs: [BrowserTabState(url: "https://work.example", title: "W")], profileID: work.id)
         let goneWindow = BrowserWindowState(tabs: [BrowserTabState(url: "https://gone.example", title: "G")], profileID: gone.id)
         let defaultWindow = BrowserWindowState(tabs: [BrowserTabState(url: nil)])

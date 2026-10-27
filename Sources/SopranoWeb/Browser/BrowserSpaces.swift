@@ -9,9 +9,10 @@ enum BrowserSpaceIcon: Equatable, Sendable {
     case symbol(String)
 }
 
-/// One Space (Arc's model): a name, an icon, a color mark and the profile
-/// its tabs use, with its own pinned tree. Several Spaces may share a
-/// profile; every profile has at least one.
+/// One Space: a name, an icon, a color mark and its pinned tree, with a
+/// profile of its own (`profileID`, never shared with another Space) that
+/// holds its cookies, website data, History, site decisions, Archive and
+/// Favorites. The profile is the Space's data container, never shown.
 struct BrowserSpace: Identifiable, Equatable, Sendable {
     static let defaultName = "Space"
 
@@ -51,8 +52,8 @@ struct BrowserSpace: Identifiable, Equatable, Sendable {
 
 // MARK: - Favorites
 
-/// A profile's favorites: an ordered list of at most `limit` pins, shared
-/// by every Space of the profile. Operations are pure; one that can't
+/// A Space's favorites, kept by its profile: an ordered list of at most
+/// `limit` pins. Operations are pure; one that can't
 /// apply (the 13th favorite, a repeated id, an unknown id) returns false or
 /// nil and changes nothing.
 struct BrowserFavorites: Equatable, Sendable {
@@ -118,7 +119,8 @@ struct BrowserFavorites: Equatable, Sendable {
 // MARK: - Archive timing
 
 /// How long a Today tab may sit unused before it is archived
-/// (`BrowserProfile.archiveAfter`, per profile).
+/// (`BrowserProfile.archiveAfter`: per Space, kept by its profile; Edit
+/// Space sets it).
 enum BrowserArchiveAfter: String, Codable, CaseIterable, Sendable {
     case never
     case days30
@@ -160,11 +162,21 @@ enum BrowserArchiveAfter: String, Codable, CaseIterable, Sendable {
 
 // MARK: - List
 
-/// Every Space in display order and every profile's favorites, with the
-/// pure operations `BrowserSpaceStore` applies. Ids stay unique; the rule
-/// that every profile keeps a Space is enforced by `delete` and
-/// `setProfile`, and restored by `ensureSpace(for:)`.
+/// Every Space in display order and every Space's favorites (kept by its
+/// profile), with the pure operations `BrowserSpaceStore` applies. Ids
+/// stay unique, and so does each Space's profile: `create` refuses a
+/// profile another Space has, `isolate` separates Spaces that share one
+/// (an older `spaces.json`) and `reconcile(with:)` gives every profile its
+/// Space.
 struct BrowserSpaceList: Equatable, Sendable {
+    /// A Space `isolate` gave a profile of its own: `id` is the Space's id
+    /// and its new profile's (named after it, in its color), `from` the
+    /// profile it shared (nil when the profile is only missing).
+    struct Separation: Equatable, Sendable {
+        var spaceID: UUID
+        var from: UUID?
+    }
+
     private(set) var spaces: [BrowserSpace]
     /// One entry per profile with favorites, in the order they were made.
     private(set) var favorites: [BrowserFavorites]
@@ -183,12 +195,15 @@ struct BrowserSpaceList: Equatable, Sendable {
         spaces.first { $0.id == id }
     }
 
-    func spaces(ofProfile profileID: UUID) -> [BrowserSpace] {
-        spaces.filter { $0.profileID == profileID }
+    /// The Space whose data profile `profileID` holds.
+    func space(ofProfile profileID: UUID) -> BrowserSpace? {
+        spaces.first { $0.profileID == profileID }
     }
 
-    func firstSpace(ofProfile profileID: UUID) -> BrowserSpace? {
-        spaces.first { $0.profileID == profileID }
+    /// The Space of the Default profile (the default data store): it can't
+    /// be deleted.
+    var defaultSpace: BrowserSpace? {
+        space(ofProfile: BrowserProfile.defaultID)
     }
 
     func favorites(ofProfile profileID: UUID) -> BrowserFavorites {
@@ -197,7 +212,8 @@ struct BrowserSpaceList: Equatable, Sendable {
 
     // MARK: Spaces
 
-    /// Appends a Space; an empty name becomes "Space".
+    /// Appends a Space; an empty name becomes "Space". Refused (nil) when
+    /// `id` is taken or another Space has `profileID`.
     @discardableResult
     mutating func create(
         name: String,
@@ -208,7 +224,7 @@ struct BrowserSpaceList: Equatable, Sendable {
         importedFrom: String? = nil,
         id: UUID = UUID()
     ) -> BrowserSpace? {
-        guard space(id: id) == nil else { return nil }
+        guard space(id: id) == nil, space(ofProfile: profileID) == nil else { return nil }
         let trimmed = name.trimmingCharacters(in: .whitespacesAndNewlines)
         let space = BrowserSpace(
             id: id,
@@ -224,10 +240,10 @@ struct BrowserSpaceList: Equatable, Sendable {
     }
 
     /// Gives `profile` a Space named after it, in its color, when it has
-    /// none; returns its first Space.
+    /// none; returns its Space.
     @discardableResult
     mutating func ensureSpace(for profile: BrowserProfile) -> BrowserSpace {
-        if let existing = firstSpace(ofProfile: profile.id) {
+        if let existing = space(ofProfile: profile.id) {
             return existing
         }
         let space = BrowserSpace(name: profile.name, color: profile.color, profileID: profile.id)
@@ -235,8 +251,34 @@ struct BrowserSpaceList: Equatable, Sendable {
         return space
     }
 
-    /// An import takes over Space `id` (the Space a new profile was given)
-    /// as the source's Space: name, icon, color, pinned tree and
+    /// Every Space gets a profile of its own. A Space whose profile an
+    /// earlier Space (in display order) already has moves to a new profile
+    /// whose id is the Space's own; so does a Space whose profile is
+    /// missing from `known` while its id is that profile's (a separation an
+    /// interrupted launch wrote here but not into `profiles.json`). Returns
+    /// the separations, in Space order, so the caller makes their
+    /// profiles; running it again finds none.
+    mutating func isolate(known: Set<UUID>) -> [Separation] {
+        var claimed: Set<UUID> = []
+        var separations: [Separation] = []
+        for index in spaces.indices {
+            let space = spaces[index]
+            if claimed.contains(space.profileID) {
+                // A profile with that id may exist already: a launch that
+                // wrote `profiles.json` but not this file.
+                spaces[index].profileID = space.id
+                separations.append(Separation(spaceID: space.id, from: space.profileID))
+            } else if !known.contains(space.profileID), space.profileID == space.id {
+                separations.append(Separation(spaceID: space.id, from: nil))
+            }
+            claimed.insert(spaces[index].profileID)
+        }
+        return separations
+    }
+
+    /// An import takes over Space `id` (an untouched Space: the Default
+    /// Space, or one made for a History-only profile) as the source's
+    /// Space: name, icon, color, pinned tree and
     /// `importedFrom` become the import's. Refused when the Space was
     /// imported already or holds pins.
     @discardableResult
@@ -281,16 +323,6 @@ struct BrowserSpaceList: Equatable, Sendable {
         update(id) { $0.color = color }
     }
 
-    /// Moves a Space to another profile; refused when it is its profile's
-    /// last Space.
-    @discardableResult
-    mutating func setProfile(_ id: UUID, _ profileID: UUID) -> Bool {
-        guard let space = space(id: id) else { return false }
-        guard space.profileID != profileID else { return true }
-        guard spaces(ofProfile: space.profileID).count > 1 else { return false }
-        return update(id) { $0.profileID = profileID }
-    }
-
     /// Moves `id` before the Space now at `index` (the drop gap, counted
     /// before it leaves its place; clamped).
     @discardableResult
@@ -305,16 +337,9 @@ struct BrowserSpaceList: Equatable, Sendable {
         return true
     }
 
-    /// Deletes a Space with its pins; refused for its profile's last one.
-    @discardableResult
-    mutating func delete(_ id: UUID) -> Bool {
-        guard let space = space(id: id), spaces(ofProfile: space.profileID).count > 1 else { return false }
-        spaces.removeAll { $0.id == id }
-        return true
-    }
-
-    /// A deleted profile's Spaces and favorites.
-    mutating func deleteSpaces(ofProfile profileID: UUID) {
+    /// A deleted profile's Space and favorites (deleting a Space deletes
+    /// its profile: `BrowserWindowManager.deleteSpace`).
+    mutating func deleteSpace(ofProfile profileID: UUID) {
         spaces.removeAll { $0.profileID == profileID }
         favorites.removeAll { $0.profileID == profileID }
     }

@@ -2,15 +2,20 @@ import Foundation
 
 // MARK: - Store
 
-/// Every Space with its pinned tree, and every profile's favorites, shared
-/// by every window and saved to `spaces.json` (`BrowserSpacesFile`) after
-/// each change. Every profile it is told about keeps at least one Space.
+/// Every Space with its pinned tree, and every Space's favorites (kept by
+/// its profile), shared by every window and saved to `spaces.json`
+/// (`BrowserSpacesFile`) after each change. Every Space has a profile of
+/// its own, and every profile it is told about keeps its Space.
 ///
 /// When `spaces.json` is missing (or unreadable, which is kept as
 /// `spaces.json.corrupt`) the store starts with one Space per profile —
 /// the profile's name and color, no icon — and stage 2's `bookmarks.json`
 /// (version 1 or 2), when present, becomes the Default profile's Space's
-/// pinned tree and is kept as `bookmarks.json.migrated`.
+/// pinned tree and is kept as `bookmarks.json.migrated`. Spaces that share
+/// a profile (stage 3's files) are separated on load
+/// (`BrowserSpaceList.isolate`): the first keeps the profile, every other
+/// one gets a new profile, listed in `separatedProfiles` for the profile
+/// store, and the file is written once.
 @MainActor
 final class BrowserSpaceStore {
     let url: URL
@@ -18,6 +23,12 @@ final class BrowserSpaceStore {
     let bookmarksURL: URL
     let changes = BrowserObservers<Void>()
     private(set) var list: BrowserSpaceList
+    /// The Spaces the load separated from a shared profile (or whose new
+    /// profile an interrupted launch never saved), in Space order.
+    private(set) var separations: [BrowserSpaceList.Separation] = []
+    /// The profiles those Spaces need: id = the Space's, its name and
+    /// color, the shared profile's archive time.
+    private(set) var separatedProfiles: [BrowserProfile] = []
     /// Every Space's pins with their folder paths, in tree order.
     private var entryCache: [UUID: [BrowserPinEntry]] = [:]
 
@@ -47,7 +58,22 @@ final class BrowserSpaceStore {
             migratedBookmarks = bookmarks != nil
             needsWrite = true
         }
-        if list.reconcile(with: profiles) {
+        separations = list.isolate(known: Set(profiles.map(\.id)))
+        separatedProfiles = separations.compactMap { separation in
+            guard let space = list.space(id: separation.spaceID) else { return nil }
+            let shared = separation.from.flatMap { id in profiles.first { $0.id == id } }
+            return BrowserProfile(
+                id: space.profileID,
+                name: space.displayName,
+                color: space.color,
+                archiveAfter: shared?.archiveAfter ?? .default
+            )
+        }
+        if !separations.isEmpty {
+            needsWrite = true
+        }
+        let known = Set(profiles.map(\.id))
+        if list.reconcile(with: profiles + separatedProfiles.filter { !known.contains($0.id) }) {
             needsWrite = true
         }
         rebuildEntries()
@@ -82,40 +108,58 @@ final class BrowserSpaceStore {
     var spaces: [BrowserSpace] { list.spaces }
 
     func space(id: UUID) -> BrowserSpace? { list.space(id: id) }
-    func spaces(ofProfile profileID: UUID) -> [BrowserSpace] { list.spaces(ofProfile: profileID) }
-    func firstSpace(ofProfile profileID: UUID) -> BrowserSpace? { list.firstSpace(ofProfile: profileID) }
+    /// The Space whose data profile `profileID` holds.
+    func space(ofProfile profileID: UUID) -> BrowserSpace? { list.space(ofProfile: profileID) }
+    /// The Space of the default data store; it can't be deleted.
+    var defaultSpace: BrowserSpace? { list.defaultSpace }
 
-    /// Appends a Space (nil when `id` is taken); an empty name becomes
-    /// "Space". Importers pass `importedFrom` and the pinned tree.
+    /// A new Space with a profile of its own: the Space is saved first,
+    /// then its profile (id = the Space's id, so a launch interrupted in
+    /// between makes it again: `BrowserSpaceList.isolate`), named after
+    /// the Space, in its color, archiving after `archiveAfter`.
+    /// `profileImportedFrom` marks the profile an import maps a source
+    /// profile to (`arc:Profile 3`). An empty name becomes "Space".
     @discardableResult
     func createSpace(
         name: String,
         icon: BrowserSpaceIcon = .none,
         color: BrowserProfileColor,
-        profileID: UUID,
         pinned: BrowserPinTree = BrowserPinTree(),
-        importedFrom: String? = nil
+        importedFrom: String? = nil,
+        archiveAfter: BrowserArchiveAfter = .default,
+        profileImportedFrom: String? = nil,
+        profiles: BrowserProfileStore
     ) -> BrowserSpace? {
+        let id = UUID()
         var created: BrowserSpace?
         update { list in
             created = list.create(
                 name: name,
                 icon: icon,
                 color: color,
-                profileID: profileID,
+                profileID: id,
                 pinned: pinned,
-                importedFrom: importedFrom
+                importedFrom: importedFrom,
+                id: id
             )
             return created != nil
         }
+        guard let created else { return nil }
+        profiles.add(BrowserProfile(
+            id: id,
+            name: created.displayName,
+            color: color,
+            archiveAfter: archiveAfter,
+            importedFrom: profileImportedFrom
+        ))
         return created
     }
 
-    /// The profile's first Space, made (named after it, in its color) when
-    /// it has none: a new profile's Space.
+    /// The profile's Space, made (named after it, in its color) when it
+    /// has none.
     @discardableResult
     func ensureSpace(forProfile profile: BrowserProfile) -> BrowserSpace {
-        if let existing = list.firstSpace(ofProfile: profile.id) {
+        if let existing = list.space(ofProfile: profile.id) {
             return existing
         }
         var space = BrowserSpace(name: profile.name, color: profile.color, profileID: profile.id)
@@ -126,8 +170,8 @@ final class BrowserSpaceStore {
         return space
     }
 
-    /// An importer's first Space of a profile it just made: takes over
-    /// the Space the profile was given instead of adding a second one
+    /// An import takes over an untouched Space (the Default Space, or a
+    /// History-only profile's) as a source's Space instead of adding one
     /// (see `BrowserSpaceList.adopt`).
     @discardableResult
     func adoptSpace(
@@ -164,29 +208,18 @@ final class BrowserSpaceStore {
         update { $0.setColor(id, color) }
     }
 
-    /// Refused for its profile's last Space.
-    @discardableResult
-    func setSpaceProfile(_ id: UUID, _ profileID: UUID) -> Bool {
-        update { $0.setProfile(id, profileID) }
-    }
-
     /// Moves `id` before the Space now at `index` (counted before it leaves).
     @discardableResult
     func moveSpace(_ id: UUID, to index: Int) -> Bool {
         update { $0.move(id, to: index) }
     }
 
-    /// Deletes a Space and its pins; refused for its profile's last Space.
-    @discardableResult
-    func deleteSpace(_ id: UUID) -> Bool {
-        update { $0.delete(id) }
-    }
-
-    /// A deleted profile's Spaces and favorites.
-    func deleteSpaces(ofProfile profileID: UUID) {
+    /// A deleted profile's Space and favorites
+    /// (`BrowserWindowManager.deleteSpace` deletes the profile's data).
+    func deleteSpace(ofProfile profileID: UUID) {
         update { list in
             let before = list
-            list.deleteSpaces(ofProfile: profileID)
+            list.deleteSpace(ofProfile: profileID)
             return list != before
         }
     }
@@ -303,7 +336,7 @@ final class BrowserSpaceStore {
         list.space(id: spaceID).map(list.linkTargets(of:)) ?? BrowserPinLinks.Targets()
     }
 
-    // MARK: Favorites (per profile, at most 12)
+    // MARK: Favorites (per Space, kept by its profile; at most 12)
 
     func favorites(ofProfile profileID: UUID) -> [BrowserPin] {
         list.favorites(ofProfile: profileID).items

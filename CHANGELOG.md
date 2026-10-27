@@ -309,6 +309,31 @@ app.
   recent window's Space), with Delete.
 
 ### Changed
+- Every Space keeps its own cookies and website data, History, site
+  decisions, Archive and Favorites; Spaces never share them. New Space
+  makes a Space that starts signed out everywhere, and Delete Space… (right-click
+  a Space's icon; the Default Space stays) closes its tabs and removes all of
+  its data from this Mac after asking.
+- Settings ▸ Profiles, File ▸ New Window With Profile and the Dock's New
+  Window With Profile are gone: ⌘N opens in the current window's Space.
+  "Archive Today tabs after" moved into the Space's Edit Space… sheet.
+- Spaces that shared a profile are separated on first launch: the first keeps
+  its cookies, History, site decisions and Favorites, every other one gets
+  its own and starts signed out; its open tabs reopen in it and its archived
+  tabs move with it.
+- Settings ▸ Websites and Website Data pick a Space instead of a profile, History ▸
+  Clear Browsing Data… names the Space it clears, and a private window says
+  "Private · <Space>".
+- `browser new-window --space <n|name>` replaces `--profile`; `browser
+  windows` and `spaces` no longer list profiles.
+- Import Browser Data… makes every Arc Space a Space of its own; an Arc
+  profile's History and favorites go to its first Space (Arc's Default
+  profile's to the Default Space, whose name and pins Arc's first Space
+  takes over while it's empty). A Chrome, Safari or bookmarks-file import
+  goes into the Space chosen at the top of the sheet.
+- Tabs move only into a window showing their own Space: dragging and
+  `move-to-window` refuse a window on another Space, and Merge All Windows
+  keeps every tab in its Space.
 - Shortcuts moved for Arc's: Window ▸ Next Tab and Previous Tab are now
   `⌥⌘↓`/`⌥⌘↑` and walk the rail's favorites, pinned tabs and Today tabs
   (they were `⌃Tab`/`⌃⇧Tab`, now the recent-tab switcher); `⌘T` and `⌘L`

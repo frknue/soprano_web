@@ -28,8 +28,6 @@ final class SettingsWindowController: NSWindowController, NSTextFieldDelegate {
     var onShowWebsites: ((NSWindow) -> Void)?
     /// Presents Settings ▸ Website Data as a sheet on the given window.
     var onShowWebsiteData: ((NSWindow) -> Void)?
-    /// Presents Settings ▸ Profiles as a sheet on the given window.
-    var onShowProfiles: ((NSWindow) -> Void)?
     /// Presents Settings ▸ Links from other apps as a sheet on the given window.
     var onShowLinkRouting: ((NSWindow) -> Void)?
     /// Settings ▸ Search engine ▸ Manage…, while shown.
@@ -95,13 +93,6 @@ final class SettingsWindowController: NSWindowController, NSTextFieldDelegate {
         let button = ChromeButton(title: "Manage…", theme: theme, kind: .standard)
         button.target = self
         button.action = #selector(websitesPressed)
-        button.widthAnchor.constraint(equalToConstant: 200).isActive = true
-        return button
-    }()
-    private lazy var profilesButton: ChromeButton = {
-        let button = ChromeButton(title: "Manage…", theme: theme, kind: .standard)
-        button.target = self
-        button.action = #selector(profilesPressed)
         button.widthAnchor.constraint(equalToConstant: 200).isActive = true
         return button
     }()
@@ -199,7 +190,7 @@ final class SettingsWindowController: NSWindowController, NSTextFieldDelegate {
         self.websiteDataButton = ChromeButton(title: "Manage…", theme: theme, kind: .standard)
         self.defaultBrowserButton = ChromeButton(title: "Make Default", theme: theme, kind: .standard)
         let window = NSWindow(
-            contentRect: NSRect(x: 0, y: 0, width: 620, height: 898),
+            contentRect: NSRect(x: 0, y: 0, width: 620, height: 846),
             styleMask: [.titled, .closable, .fullSizeContentView],
             backing: .buffered,
             defer: false
@@ -211,7 +202,7 @@ final class SettingsWindowController: NSWindowController, NSTextFieldDelegate {
         window.titlebarAppearsTransparent = true
         window.isReleasedWhenClosed = false
         window.backgroundColor = theme.colors.bgBase
-        window.minSize = NSSize(width: 620, height: 898)
+        window.minSize = NSSize(width: 620, height: 846)
 
         rootView.wantsLayer = true
         window.contentView = rootView
@@ -294,7 +285,6 @@ final class SettingsWindowController: NSWindowController, NSTextFieldDelegate {
             [rowLabel("Notifications"), notificationsRow()],
             [rowLabel("Block ads and trackers"), contentBlockingRow()],
             [rowLabel("Keyboard shortcuts"), shortcutsButton],
-            [rowLabel("Profiles"), profilesButton],
             [rowLabel("Websites"), websitesButton],
             [rowLabel("Website data"), websiteDataButton],
             [rowLabel("Default browser"), defaultBrowserRow()],
@@ -302,7 +292,7 @@ final class SettingsWindowController: NSWindowController, NSTextFieldDelegate {
         ]
         let grid = NSGridView(views: rows)
         grid.translatesAutoresizingMaskIntoConstraints = false
-        // 21 rows; the window stays under 900 pt for small displays.
+        // 20 rows; the window stays under 900 pt for small displays.
         grid.rowSpacing = 10
         grid.column(at: 0).xPlacement = .trailing
         grid.column(at: 1).xPlacement = .fill
@@ -443,7 +433,6 @@ final class SettingsWindowController: NSWindowController, NSTextFieldDelegate {
         notificationsSwitch.apply(theme: theme)
         notificationsLabel.textColor = theme.colors.textPrimary
         websitesButton.apply(theme: theme)
-        profilesButton.apply(theme: theme)
         linkRoutingButton.apply(theme: theme)
         askDownloadSwitch.apply(theme: theme)
         blockAdsSwitch.apply(theme: theme)
@@ -531,7 +520,6 @@ final class SettingsWindowController: NSWindowController, NSTextFieldDelegate {
         case .general: break
         case .searchEngines: searchEnginesPressed()
         case .shortcuts: shortcutsPressed()
-        case .profiles: onShowProfiles?(window)
         case .websites: onShowWebsites?(window)
         case .websiteData: onShowWebsiteData?(window)
         }
@@ -783,11 +771,6 @@ extension SettingsWindowController {
     @objc private func websitesPressed() {
         guard let window else { return }
         onShowWebsites?(window)
-    }
-
-    @objc private func profilesPressed() {
-        guard let window else { return }
-        onShowProfiles?(window)
     }
 
     @objc private func linkRoutingPressed() {

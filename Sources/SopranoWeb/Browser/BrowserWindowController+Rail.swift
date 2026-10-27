@@ -31,8 +31,7 @@ extension BrowserWindowController {
     /// window with Spaces, else the window's mark.
     var railMark: BrowserWindowMark {
         if let space = currentSpaceID.flatMap(spaces.space(id:)) {
-            let profile = manager.profiles.hasSeveral ? manager.profile(of: self) : nil
-            return BrowserWindowMark(space: space, profile: profile)
+            return BrowserWindowMark(kind: kind, space: space)
         }
         return manager.windowMark(for: self)
     }
@@ -410,18 +409,12 @@ extension BrowserWindowController {
         menu.autoenablesItems = false
         menu.addItem(menuItem("Edit Space…", #selector(editSpaceFromMenu(_:)), id))
         menu.addItem(.separator())
-        let delete = menuItem("Delete Space", #selector(deleteSpaceFromMenu(_:)), id, enabled: canDeleteSpace(id))
+        let delete = menuItem("Delete Space…", #selector(deleteSpaceFromMenu(_:)), id, enabled: manager.canDeleteSpace(id))
         if !delete.isEnabled {
-            delete.toolTip = "A profile keeps at least one Space."
+            delete.toolTip = "The Default Space keeps this Mac's default website data, so it stays."
         }
         menu.addItem(delete)
         return menu
-    }
-
-    /// A profile's last Space can't be deleted.
-    func canDeleteSpace(_ id: UUID) -> Bool {
-        guard let space = spaces.space(id: id) else { return false }
-        return spaces.spaces(ofProfile: space.profileID).count > 1
     }
 
     @objc private func editSpaceFromMenu(_ sender: NSMenuItem) {
@@ -434,34 +427,55 @@ extension BrowserWindowController {
         deleteSpace(id, confirmed: false)
     }
 
-    /// Delete Space: asks first (its pins go, its open tabs close onto
-    /// Recently Closed); refused for a profile's last Space. Returns
-    /// whether it was deleted (always false while asking).
+    /// Delete Space's confirmation: its tabs close, and its cookies,
+    /// History, pinned tabs and Archive go with it.
+    nonisolated static func deleteSpaceConfirmation(name: String, tabCount: Int) -> (title: String, message: String) {
+        let tabs: String
+        switch tabCount {
+        case 0: tabs = ""
+        case 1: tabs = "Its open tab closes. "
+        default: tabs = "Its \(tabCount) open tabs close in every window. "
+        }
+        return (
+            "Delete the Space “\(name)”?",
+            tabs + "Its cookies and website data, History, site decisions, pinned tabs, Favorites and "
+                + "Archive are removed from this Mac. This can't be undone."
+        )
+    }
+
+    /// Delete Space: asks first (`deleteSpaceConfirmation`), then deletes
+    /// the Space with all its data (`BrowserWindowManager.deleteSpace`);
+    /// refused for the Default Space. `confirmed` skips the question (the
+    /// harness; `completion` gets the data store removal's outcome).
+    /// Returns whether it started deleting (always false while asking).
     @discardableResult
-    func deleteSpace(_ id: UUID, confirmed: Bool) -> Bool {
-        guard let space = spaces.space(id: id), canDeleteSpace(id) else {
+    func deleteSpace(
+        _ id: UUID,
+        confirmed: Bool,
+        completion: (@MainActor (Error?) -> Void)? = nil
+    ) -> Bool {
+        guard let space = spaces.space(id: id), manager.canDeleteSpace(id) else {
             NSSound.beep()
             return false
         }
         if confirmed {
-            return spaces.deleteSpace(id)
+            manager.deleteSpace(id, completion: completion)
+            return true
         }
         guard let window else { return false }
-        let pins = spaces.pinTree(inSpace: id).root.allPins.count
-        let open = manager.controllers.reduce(0) { count, controller in
-            count + controller.tabs.filter { $0.spaceID == id }.count
-        }
+        let text = Self.deleteSpaceConfirmation(
+            name: space.displayName,
+            tabCount: manager.openTabCount(ofProfile: space.profileID)
+        )
         let alert = NSAlert()
-        alert.messageText = "Delete the Space “\(space.displayName)”?"
-        let pinsText = pins == 0 ? "It has no pinned tabs." : "Its \(pins == 1 ? "pinned tab goes" : "\(pins) pinned tabs go")."
-        let openText = open == 0 ? "" : " \(open == 1 ? "Its open tab closes" : "Its \(open) open tabs close") in every window."
-        alert.informativeText = pinsText + openText + " This can't be undone."
+        alert.messageText = text.title
+        alert.informativeText = text.message
         alert.alertStyle = .warning
         alert.addButton(withTitle: "Delete Space")
         alert.addButton(withTitle: "Cancel")
         alert.beginSheetModal(for: window) { [weak self] response in
             guard response == .alertFirstButtonReturn else { return }
-            self?.spaces.deleteSpace(id)
+            self?.manager.deleteSpace(id)
         }
         return false
     }
@@ -479,21 +493,15 @@ extension BrowserWindowController {
         sheetWindow.makeFirstResponder(sheet.nameField)
     }
 
-    /// The New Space / Edit Space sheet, wired to the Space store; the
-    /// harness fills and captures it without presenting it.
+    /// The New Space / Edit Space sheet, wired to the manager; the harness
+    /// fills and captures it without presenting it.
     func makeSpaceSheet(editing id: UUID?) -> BrowserSpaceSheet {
         let space = id.flatMap(spaces.space(id:))
         let used = Set(spaces.spaces.map(\.color))
         let color = BrowserProfileColor.allCases.first { !used.contains($0) }
             ?? BrowserProfileColor.allCases[spaces.spaces.count % BrowserProfileColor.allCases.count]
-        let sheet = BrowserSpaceSheet(
-            space: space,
-            profileID: profileID,
-            color: color,
-            profileLocked: space.map { spaces.spaces(ofProfile: $0.profileID).count <= 1 } ?? false,
-            profiles: manager.profiles,
-            theme: theme
-        )
+        let archiveAfter = space.flatMap { manager.profiles.profile(id: $0.profileID)?.archiveAfter } ?? .default
+        let sheet = BrowserSpaceSheet(space: space, color: color, archiveAfter: archiveAfter, theme: theme)
         sheet.onSave = { [weak self] values in
             guard let self else { return "The window closed." }
             return self.saveSpace(values, editing: id)
@@ -501,26 +509,21 @@ extension BrowserWindowController {
         return sheet
     }
 
-    /// Creates the Space (and shows it in this window) or saves the edit;
-    /// returns why not when refused.
+    /// Creates the Space with its own profile (and shows it in this
+    /// window) or saves the edit; returns why not when refused.
     private func saveSpace(_ values: BrowserSpaceSheetValues, editing id: UUID?) -> String? {
         guard let id else {
-            guard let space = spaces.createSpace(
-                name: values.name,
-                icon: values.icon,
-                color: values.color,
-                profileID: values.profileID
-            ) else { return "The Space could not be created." }
+            guard let space = manager.createSpace(name: values.name, icon: values.icon, color: values.color) else {
+                return "The Space could not be created."
+            }
             switchToSpace(space.id)
             return nil
         }
         guard let space = spaces.space(id: id) else { return "The Space is gone." }
-        if values.profileID != space.profileID, !spaces.setSpaceProfile(id, values.profileID) {
-            return "“\(space.displayName)” is its profile's only Space, so it stays in that profile."
-        }
         spaces.renameSpace(id, to: values.name)
         spaces.setSpaceIcon(id, values.icon)
         spaces.setSpaceColor(id, values.color)
+        manager.profiles.setArchiveAfter(id: space.profileID, values.archiveAfter)
         return nil
     }
 }

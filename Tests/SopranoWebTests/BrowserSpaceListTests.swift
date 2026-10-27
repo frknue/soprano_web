@@ -11,28 +11,53 @@ struct BrowserSpaceListTests {
 
     // MARK: Spaces
 
-    @Test func aProfilesLastSpaceCannotBeDeletedOrMovedAway() throws {
+    @Test func everySpaceHasAProfileOfItsOwn() throws {
         var list = BrowserSpaceList()
         let home = list.ensureSpace(for: .defaultProfile)
-        let deletedLast = list.delete(home.id)
-        let movedLast = list.setProfile(home.id, work.id)
-        #expect(!deletedLast && !movedLast)
-        #expect(list.spaces.map(\.id) == [home.id])
-
-        let readingSpace = list.create(name: "Reading", color: .cyan, profileID: BrowserProfile.defaultID)
+        #expect(list.defaultSpace == home)
+        // A second Space can't share a profile.
+        #expect(list.create(name: "Reading", color: .cyan, profileID: BrowserProfile.defaultID) == nil)
+        let readingSpace = list.create(name: "Reading", color: .cyan, profileID: work.id)
         let reading = try #require(readingSpace)
-        // With two Spaces, one may go to another profile or be deleted.
-        let moved = list.setProfile(reading.id, work.id)
-        #expect(moved)
-        #expect(list.spaces(ofProfile: work.id).map(\.name) == ["Reading"])
-        let movedBack = list.setProfile(reading.id, BrowserProfile.defaultID)
-        #expect(!movedBack)
-        let secondSpace = list.create(name: "Second", color: .red, profileID: work.id)
-        let second = try #require(secondSpace)
-        let deleted = list.delete(reading.id)
-        let deletedSecond = list.delete(second.id)
-        #expect(deleted && !deletedSecond)
-        #expect(list.spaces.map(\.id) == [home.id, second.id])
+        #expect(list.space(ofProfile: work.id) == reading)
+        #expect(list.create(name: "Second", color: .red, profileID: work.id) == nil)
+        list.deleteSpace(ofProfile: work.id)
+        #expect(list.spaces.map(\.id) == [home.id])
+    }
+
+    @Test func isolateSeparatesSpacesThatShareAProfileOnce() throws {
+        let shared = UUID()
+        let first = BrowserSpace(name: "Work", color: .green, profileID: shared)
+        let second = BrowserSpace(name: "Side", color: .red, profileID: shared)
+        let third = BrowserSpace(name: "Home", color: .blue, profileID: BrowserProfile.defaultID)
+        let fourth = BrowserSpace(name: "Reading", color: .cyan, profileID: BrowserProfile.defaultID)
+        var list = BrowserSpaceList(spaces: [first, second, third, fourth])
+        let separations = list.isolate(known: [shared, BrowserProfile.defaultID])
+        // The first Space keeps the profile; every further one gets a new
+        // profile whose id is its own.
+        #expect(separations == [
+            BrowserSpaceList.Separation(spaceID: second.id, from: shared),
+            BrowserSpaceList.Separation(spaceID: fourth.id, from: BrowserProfile.defaultID),
+        ])
+        #expect(list.spaces.map(\.profileID) == [shared, second.id, BrowserProfile.defaultID, fourth.id])
+        #expect(list.defaultSpace?.id == third.id)
+        // Once their profiles exist, a second pass finds nothing.
+        #expect(list.isolate(known: [shared, BrowserProfile.defaultID, second.id, fourth.id]).isEmpty)
+    }
+
+    @Test func isolateFinishesAnInterruptedSeparation() {
+        // `spaces.json` was written but `profiles.json` wasn't: the Space's
+        // profile (its own id) is missing, so it is reported again and
+        // `reconcile` keeps the Space once that profile is made.
+        let id = UUID()
+        let separated = BrowserSpace(id: id, name: "Side", color: .red, profileID: id)
+        let orphan = BrowserSpace(name: "Gone", color: .gray, profileID: UUID())
+        var list = BrowserSpaceList(spaces: [separated, orphan])
+        let separations = list.isolate(known: [BrowserProfile.defaultID])
+        #expect(separations == [BrowserSpaceList.Separation(spaceID: id, from: nil)])
+        list.reconcile(with: [.defaultProfile, BrowserProfile(id: id, name: "Side", color: .red)])
+        #expect(list.space(id: id) != nil)
+        #expect(list.space(id: orphan.id) == nil)
     }
 
     @Test func ensureSpaceNamesItAfterTheProfileOnce() {
@@ -64,18 +89,16 @@ struct BrowserSpaceListTests {
         #expect(!changedAgain)
     }
 
-    @Test func deletingAProfilesSpacesTakesItsFavorites() throws {
+    @Test func deletingAProfilesSpaceTakesItsFavorites() throws {
         var list = BrowserSpaceList()
         list.ensureSpace(for: .defaultProfile)
         list.ensureSpace(for: work)
-        let extra = list.create(name: "Work 2", color: .red, profileID: work.id)
-        try #require(extra != nil)
         let a = pin("A")
         let b = pin("B")
         list.updateFavorites(ofProfile: work.id) { $0.add(a) }
         list.updateFavorites(ofProfile: BrowserProfile.defaultID) { $0.add(b) }
 
-        list.deleteSpaces(ofProfile: work.id)
+        list.deleteSpace(ofProfile: work.id)
         #expect(list.spaces.map(\.profileID) == [BrowserProfile.defaultID])
         #expect(list.favorites(ofProfile: work.id).isEmpty)
         #expect(list.favorites(ofProfile: BrowserProfile.defaultID).items.map(\.title) == ["B"])
@@ -83,11 +106,11 @@ struct BrowserSpaceListTests {
 
     @Test func spacesReorderByDropGapAndRenameRefusesBlank() throws {
         var list = BrowserSpaceList()
-        let aSpace = list.create(name: "A", color: .blue, profileID: work.id)
+        let aSpace = list.create(name: "A", color: .blue, profileID: UUID())
         let a = try #require(aSpace)
-        let bSpace = list.create(name: " ", color: .blue, profileID: work.id)
+        let bSpace = list.create(name: " ", color: .blue, profileID: UUID())
         let b = try #require(bSpace)
-        let cSpace = list.create(name: "C", color: .blue, profileID: work.id)
+        let cSpace = list.create(name: "C", color: .blue, profileID: UUID())
         let c = try #require(cSpace)
         #expect(b.name == "Space")
         list.move(a.id, to: 3)
@@ -102,7 +125,7 @@ struct BrowserSpaceListTests {
         list.setColor(c.id, .red)
         #expect(list.space(id: c.id)?.icon == .emoji("🚀"))
         #expect(list.space(id: c.id)?.color == .red)
-        let duplicate = list.create(name: "Dup", color: .blue, profileID: work.id, id: a.id)
+        let duplicate = list.create(name: "Dup", color: .blue, profileID: UUID(), id: a.id)
         #expect(duplicate == nil)
     }
 
@@ -110,7 +133,7 @@ struct BrowserSpaceListTests {
         var list = BrowserSpaceList()
         let aSpace = list.create(name: "A", color: .blue, profileID: work.id)
         let a = try #require(aSpace)
-        let bSpace = list.create(name: "B", color: .blue, profileID: work.id)
+        let bSpace = list.create(name: "B", color: .blue, profileID: UUID())
         let b = try #require(bSpace)
         let shared = pin("Shared")
         // The same pin id may sit in two Spaces' trees, once in each.

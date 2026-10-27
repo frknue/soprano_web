@@ -1,13 +1,14 @@
 import AppKit
 
 /// Settings ▸ Websites: every host with remembered decisions (camera,
-/// microphone, notifications, pop-ups, external apps) of one profile, each
-/// removable, and Remove All. A picker switches profiles when there are
+/// microphone, notifications, pop-ups, external apps) of one Space, each
+/// removable, and Remove All. A picker switches Spaces when there are
 /// several. Presented as a sheet on the Settings window.
 @MainActor
 final class BrowserWebsitesSheet: NSWindowController {
-    private let picker: BrowserProfilePicker
-    /// The site decisions of a profile (nil once the manager is gone).
+    private let picker: BrowserSpacePicker
+    /// The site decisions of a Space's profile (nil once the manager is
+    /// gone).
     private let storeFor: (UUID) -> BrowserSitePermissionStore?
     private var store: BrowserSitePermissionStore?
     private var storeObservation: BrowserObservation?
@@ -27,7 +28,7 @@ final class BrowserWebsitesSheet: NSWindowController {
     private var rowViews: [RowView] = []
 
     init(
-        picker: BrowserProfilePicker,
+        picker: BrowserSpacePicker,
         theme: AppTheme,
         storeFor: @escaping (UUID) -> BrowserSitePermissionStore?
     ) {
@@ -118,13 +119,13 @@ final class BrowserWebsitesSheet: NSWindowController {
             doneButton.widthAnchor.constraint(greaterThanOrEqualToConstant: 92),
         ])
 
-        picker.onChange = { [weak self] _ in self?.showSelectedProfile() }
+        picker.onChange = { [weak self] _ in self?.showSelectedSpace() }
         apply(theme: theme)
-        showSelectedProfile()
+        showSelectedSpace()
     }
 
-    /// Follows the picked profile's site decisions.
-    private func showSelectedProfile() {
+    /// Follows the picked Space's site decisions.
+    private func showSelectedSpace() {
         store = storeFor(picker.selectedID)
         storeObservation = store?.changes.observe { [weak self] in self?.reload() }
         reload()

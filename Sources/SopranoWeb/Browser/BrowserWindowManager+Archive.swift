@@ -48,7 +48,7 @@ extension BrowserWindowManager {
         guard let entry = archive.entry(id: id),
               profiles.profile(id: entry.profileID) != nil,
               let space = entry.spaceID.flatMap(spaces.space(id:)).flatMap({ $0.profileID == entry.profileID ? $0 : nil })
-                ?? spaces.firstSpace(ofProfile: entry.profileID)
+                ?? spaces.space(ofProfile: entry.profileID)
         else { return nil }
         let tab: BrowserTab?
         let target: BrowserWindowController

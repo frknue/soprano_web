@@ -8,11 +8,15 @@ import AppKit
 /// - `--import-arc [dir]` (default `~/Library/Application Support/Arc`),
 ///   `--import-chrome <dir>` (a Chromium user-data folder),
 ///   `--import-safari <zip>`, `--import-html <file>` (repeatable, in
-///   order): each prints `import-plan:` (one JSON line: profile mapping,
-///   Spaces with counts and create/skip, favorites, Archive, History
-///   visits per profile, rules, totals), applies the plan as the sheet
-///   checks it by default and prints `import-result:` (what was made,
-///   History added/skipped and seconds per profile).
+///   order): each prints `import-plan:` (one JSON line: each source
+///   profile's home Space, Spaces with counts and create/skip/take-over,
+///   favorites, Archive, History visits per home, rules, totals), applies
+///   the plan as the sheet checks it by default and prints
+///   `import-result:` (what was made, History added/skipped and seconds
+///   per Space).
+/// - `--import-space <name>`: a Chrome, Safari or bookmarks-file import
+///   goes into that Space (the sheet's Space menu) instead of the
+///   window's.
 /// - `--import-plan`: plans only, applies nothing.
 /// - `--import-sheet [checklist|progress|result]`: File ▸ Import Browser
 ///   Data… on the window, on the first source flag (else the first source
@@ -39,25 +43,25 @@ struct SnapshotImportOptions {
     var showsLinkRoutingSheet = false
     /// `--import-from-private`: the import runs from a new private window.
     var fromPrivateWindow = false
+    /// `--import-space`: the Space a non-Arc import goes into.
+    var targetSpace: String?
 
     static let flags: Set<String> = [
         "--import-arc", "--import-chrome", "--import-safari", "--import-html", "--import-plan", "--import-sheet",
         "--export-pins", "--export-all-pins", "--open-link", "--link-routing-sheet", "--import-from-private",
+        "--import-space",
     ]
 
     static let usage = """
                                [--import-arc [dir]] [--import-chrome <dir>] [--import-safari <zip>]
                                [--import-html <file>] [--import-plan] [--import-sheet [checklist|progress|result]]
                                [--export-pins <file>] [--export-all-pins <file>] [--open-link <url>]...
-                               [--link-routing-sheet] [--import-from-private]
+                               [--link-routing-sheet] [--import-from-private] [--import-space <name>]
     """
 
     var isActive: Bool {
         !requests.isEmpty || sheet != nil || !exports.isEmpty || !openLinks.isEmpty || showsLinkRoutingSheet
     }
-
-    /// Whether the run writes imported data (profiles to keep with `--support-dir`).
-    var imports: Bool { !requests.isEmpty && !planOnly || sheet == .progress || sheet == .result }
 
     /// `peek` is the next argument (for optional values), `skip` consumes it.
     mutating func parse(
@@ -99,6 +103,8 @@ struct SnapshotImportOptions {
             openLinks.append(try value())
         case "--import-from-private":
             fromPrivateWindow = true
+        case "--import-space":
+            targetSpace = try value()
         case "--link-routing-sheet":
             showsLinkRoutingSheet = true
         default:
@@ -166,7 +172,10 @@ struct SnapshotImportOptions {
             print("import-plan: error \(error)")
             return
         }
-        let plan = BrowserImportPlanner.plan(for: data, context: manager.importContext(for: controller))
+        var plan = BrowserImportPlanner.plan(for: data, context: manager.importContext(for: controller))
+        if let id = targetSpaceID(in: manager) {
+            BrowserImportPlanner.retarget(&plan, to: id, spaces: manager.spaces.list)
+        }
         print(String(format: "import-read: %@ %.2f s", request.kind.rawValue, Date().timeIntervalSince(readStart)))
         print("import-plan: \(Self.json(Self.planObject(plan)))")
         guard !planOnly else { return }
@@ -200,10 +209,21 @@ struct SnapshotImportOptions {
         for history in finished.history {
             print(String(
                 format: "import-history: %@ -> %@ added %d skipped %d in %.2f s%@",
-                history.id, history.profileName, history.count.added, history.count.skipped, history.seconds,
+                history.id, history.spaceName, history.count.added, history.count.skipped, history.seconds,
                 history.error.map { " error \($0)" } ?? ""
             ))
         }
+    }
+
+    /// `--import-space`'s Space, by name.
+    @MainActor
+    private func targetSpaceID(in manager: BrowserWindowManager) -> UUID? {
+        guard let targetSpace else { return nil }
+        let id = manager.spaces.spaces.first { $0.displayName == targetSpace }?.id
+        if id == nil {
+            print("import-space: no Space \(targetSpace)")
+        }
+        return id
     }
 
     /// A harness import's callbacks' state.
@@ -230,6 +250,9 @@ struct SnapshotImportOptions {
             sheet.select(request)
         }
         Self.spin(until: 120) { sheet.state != .loading }
+        if let id = targetSpaceID(in: manager) {
+            sheet.chooseTarget(id)
+        }
         if stage != .checklist, sheet.state == .ready {
             sheet.startImport()
             if stage == .progress {
@@ -283,10 +306,15 @@ struct SnapshotImportOptions {
             case .existing: "existing"
             case .new: "new"
             }
-            return ["key": profile.key, "name": profile.displayName, "target": target, "targetName": profile.targetName]
+            return [
+                "key": profile.key, "name": profile.displayName, "home": target, "homeName": plan.homeName(ofProfile: profile.key),
+                "homeTakenOver": profile.adoptableSpaceID != nil && plan.firstNewSpace(ofProfile: profile.key) != nil,
+            ]
         }
         let spaces: [[String: Any]] = plan.spaces.map { space in
-            let action = space.isSkipped ? "skip (imported before)" : (space.isIncluded ? "create" : "unchecked")
+            let action = space.isSkipped
+                ? "skip (imported before)"
+                : (space.isIncluded ? (plan.adoptedSpaceID(by: space) != nil ? "take over home" : "create") : "unchecked")
             return [
                 "name": space.name,
                 "profile": space.profileKey,
@@ -335,13 +363,14 @@ struct SnapshotImportOptions {
         var object: [String: Any] = [
             "source": plan.source.rawValue,
             "sourceName": plan.sourceName,
-            "profiles": profiles,
+            "sourceProfiles": profiles,
             "spaces": spaces,
             "favorites": favorites,
             "folders": folders,
             "history": history,
             "totals": totals,
             "summary": BrowserImportChecklist.summary(of: plan),
+            "targetSpace": plan.targetSpaceID?.uuidString ?? NSNull(),
         ]
         if let archive = plan.archive {
             object["archive"] = ["items": archive.items.count, "new": archive.newCount, "withoutSpace": archive.spacelessCount]
@@ -354,7 +383,6 @@ struct SnapshotImportOptions {
 
     static func resultObject(_ summary: BrowserImporter.Summary, seconds: Double) -> [String: Any] {
         [
-            "profilesCreated": summary.profilesCreated.count,
             "spacesCreated": summary.spacesCreated,
             "spacesSkipped": summary.spacesSkipped,
             "pinsAdded": summary.pinsAdded,

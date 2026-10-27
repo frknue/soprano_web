@@ -14,28 +14,26 @@ import WebKit
 ///   `--reload` (⌘R).
 /// - `--close-window`: ⇧⌘W on the active window.
 /// - `--new-window <url>`: File ▸ New Window, then load `url` (`start` for
-///   the start page). The window stays off every display. A `--profile
-///   <name>` before it opens it in that profile (File ▸ New Window With
-///   Profile); otherwise it opens in the active window's profile.
+///   the start page), in the active window's Space (switch it first with
+///   `--space` to open one in another Space). The window stays off every
+///   display.
 /// - `--new-private-window <url>`: File ▸ New Private Window, likewise, over
-///   the active window's profile.
-/// - `--add-profile <name>` (repeatable): create a profile before any
+///   the active window's Space.
+/// - `--create-space <name>` (repeatable): create a Space (with its own
+///   profile, the next unused color) through the Space store before any
 ///   window opens.
-/// - `--create-space <name>[:<profile>]` (repeatable): create a Space
-///   (in that profile, else Default; the profile's color) through the
-///   Space store before any window opens.
 /// - `--space <n|name>`: switch the active window to Space n (1-based, as
 ///   ⌃1…⌃9 count) or the Space named, as `browser space` does.
 /// - `--swipe-rail next|previous`: a two-finger sideways swipe over the
 ///   active window's rail (real scroll events with phases, fingers moving
 ///   left for next), through the rail's scroll handling.
-/// - `--print-spaces`: every Space (number, name, profile, color, icon,
+/// - `--print-spaces`: every Space (number, name, profile id, color, icon,
 ///   pins) with each window's current Space and tab count in it, as one
 ///   JSON line.
-/// - `--delete-profile <name>`: Settings ▸ Profiles ▸ Delete (confirmed):
-///   close its windows, remove its data store and folder; prints the
-///   result once the data store removal finished.
-/// - `--profiles-sheet`: capture Settings ▸ Profiles instead of a window.
+/// - `--delete-space <name>`: Delete Space on its switcher icon
+///   (confirmed): prints the confirmation, closes its tabs and windows,
+///   removes its data store and folder; prints the result once the data
+///   store removal finished (refused for the Default Space).
 /// - `--activate-window <n>`: make window n the active one.
 /// - `--move-tab <w>:<t>:<w2>`: detach tab t (of window w's current
 ///   Space) and attach it to window w2 (selected), the path moving a live
@@ -59,16 +57,16 @@ import WebKit
 ///   download to stop.
 /// - `--crash`: kill the selected tab's web content process.
 /// - `--crash-page`: show the crash page on the selected tab.
-/// - `--print-windows`: print every window (kind, profile, current Space
-///   and the mark its chrome shows, frame, tabs of every Space with their
-///   Space, pin or favorite link, profile and data store, the cookies and
-///   website data records of its current Space's data store), the default
-///   store's cookies and records, the history count, every profile
-///   (folder, History, site decisions, its data store's cookies once
-///   made), the `WKWebsiteDataStore.allDataStoreIdentifiers`, the favicon
-///   files, how many private data stores and web views of closed private
-///   windows are still alive, the recently-closed stack and the downloads
-///   as one JSON line.
+/// - `--print-windows`: print every window (kind, its Space and the mark
+///   its chrome shows, frame, tabs of every Space with their Space, pin or
+///   favorite link and data store, the cookies and website data records of
+///   its current Space's data store), the default store's cookies and
+///   records, the history count, every Space's data (folder, History, site
+///   decisions, its data store's cookies once made), the
+///   `WKWebsiteDataStore.allDataStoreIdentifiers`, the favicon files, how
+///   many private data stores and web views of closed private windows are
+///   still alive, the recently-closed stack and the downloads as one JSON
+///   line.
 /// - `--dump-tabs`: print the active window's tabs as one JSON line after
 ///   the actions.
 /// - `--save-session <file>`: write the session after the actions.
@@ -83,9 +81,9 @@ struct SnapshotSessionOptions {
         case goBack
         case reload
         case closeWindow
-        case newWindow(String, profile: String?)
+        case newWindow(String)
         case newPrivateWindow(String)
-        case deleteProfile(String)
+        case deleteSpace(String)
         case activateWindow(Int)
         case moveTab(from: Int, tab: Int, to: Int)
         case moveToNewWindow
@@ -123,8 +121,7 @@ struct SnapshotSessionOptions {
         "--find-text", "--cli",
         "--start-download", "--wait-downloads", "--crash", "--crash-page", "--print-windows",
         "--dump-tabs", "--save-session", "--capture-window",
-        "--add-profile", "--profile", "--delete-profile", "--profiles-sheet",
-        "--create-space", "--space", "--swipe-rail", "--print-spaces",
+        "--create-space", "--space", "--swipe-rail", "--print-spaces", "--delete-space",
     ]).union(SnapshotSleepAction.flags).union(SnapshotBlockerAction.flags).union(SnapshotRailAction.flags)
         .union(SnapshotArchiveAction.flags)
     static let usage = """
@@ -139,8 +136,7 @@ struct SnapshotSessionOptions {
                                [--start-download <url>]
                                [--wait-downloads] [--crash] [--crash-page] [--print-windows]
                                [--dump-tabs] [--save-session <file>] [--capture-window <n>]
-                               [--add-profile <name>]... [--profile <name>] [--delete-profile <name>]
-                               [--profiles-sheet] [--create-space <name>[:<profile>]]...
+                               [--create-space <name>]... [--delete-space <name>]
                                [--space <n|name>] [--swipe-rail next|previous] [--print-spaces]
     \(SnapshotRailAction.usage)
     \(SnapshotArchiveAction.usage)
@@ -152,13 +148,8 @@ struct SnapshotSessionOptions {
     var dumpTabs = false
     var saveTo: URL?
     var captureWindow: Int?
-    /// `--add-profile`: made before the first window.
-    var profilesToAdd: [String] = []
-    /// `--create-space`: made before the first window, after the profiles.
-    var spacesToCreate: [(name: String, profile: String?)] = []
-    /// `--profile`: the profile the next `--new-window` opens in.
-    private var pendingProfile: String?
-    var showProfilesSheet = false
+    /// `--create-space`: made before the first window.
+    var spacesToCreate: [String] = []
 
     var restoresSession: Bool { restoreFrom != nil }
 
@@ -185,9 +176,7 @@ struct SnapshotSessionOptions {
         case "--go-back": actions.append(.goBack)
         case "--reload": actions.append(.reload)
         case "--close-window": actions.append(.closeWindow)
-        case "--new-window":
-            actions.append(.newWindow(try value(), profile: pendingProfile))
-            pendingProfile = nil
+        case "--new-window": actions.append(.newWindow(try value()))
         case "--new-private-window": actions.append(.newPrivateWindow(try value()))
         case "--activate-window": actions.append(.activateWindow(try number()))
         case "--move-tab":
@@ -232,17 +221,13 @@ struct SnapshotSessionOptions {
         case "--dump-tabs": dumpTabs = true
         case "--save-session": saveTo = URL(fileURLWithPath: try value())
         case "--capture-window": captureWindow = try number()
-        case "--add-profile": profilesToAdd.append(try value())
-        case "--profile": pendingProfile = try value()
-        case "--delete-profile": actions.append(.deleteProfile(try value()))
-        case "--profiles-sheet": showProfilesSheet = true
+        case "--delete-space": actions.append(.deleteSpace(try value()))
         case "--create-space":
-            let raw = try value()
-            let parts = raw.split(separator: ":", maxSplits: 1).map(String.init)
-            guard let name = parts.first, !name.isEmpty else {
-                throw SnapshotCommand.OptionError.unknownOption("--create-space \(raw)")
+            let name = try value()
+            guard !name.trimmingCharacters(in: .whitespaces).isEmpty else {
+                throw SnapshotCommand.OptionError.unknownOption("--create-space \(name)")
             }
-            spacesToCreate.append((name, parts.count > 1 ? parts[1] : nil))
+            spacesToCreate.append(name)
         case "--space": actions.append(.space(try value()))
         case "--swipe-rail":
             let raw = try value()
@@ -324,20 +309,12 @@ struct SnapshotSessionOptions {
         case .commandBar(let action):
             action.perform(in: manager)
             return
-        case let .newWindow(value, profileName):
+        case let .newWindow(value):
             let start = value == "start" || BrowserAddressResolver.isStartPage(URL(string: value))
-            var profileID: UUID?
-            if let profileName {
-                guard let profile = manager.profiles.profile(named: profileName) else {
-                    print("snapshot: no profile named \(profileName)")
-                    return
-                }
-                profileID = profile.id
-            }
-            manager.newWindow(url: start ? nil : value, profileID: profileID)
+            manager.newWindow(url: start ? nil : value)
             return
-        case .deleteProfile(let name):
-            deleteProfile(named: name, in: manager)
+        case .deleteSpace(let name):
+            deleteSpace(named: name, in: manager)
             return
         case .newPrivateWindow(let value):
             let start = value == "start" || BrowserAddressResolver.isStartPage(URL(string: value))
@@ -483,28 +460,33 @@ struct SnapshotSessionOptions {
             }
         case .swipeRail(let next):
             Self.swipeRail(next: next, in: controller, manager: manager)
-        case .newWindow, .newPrivateWindow, .deleteProfile, .activateWindow, .moveTab, .dropTab, .dropOutside,
+        case .newWindow, .newPrivateWindow, .deleteSpace, .activateWindow, .moveTab, .dropTab, .dropOutside,
              .mergeWindows, .cli, .waitDownloads, .printWindows, .printSpaces, .reopenClosed, .sleep, .blocker, .rail,
              .archive, .commandBar:
             break
         }
     }
 
-    /// `--delete-profile`: what Settings ▸ Profiles ▸ Delete runs once
+    /// `--delete-space`: what Delete Space on the switcher runs once
     /// confirmed; waits for the data store removal.
     @MainActor
-    private func deleteProfile(named name: String, in manager: BrowserWindowManager) {
-        guard let profile = manager.profiles.profile(named: name) else {
-            print("snapshot: no profile named \(name)")
+    private func deleteSpace(named name: String, in manager: BrowserWindowManager) {
+        guard let space = manager.spaces.spaces.first(where: { $0.displayName == name }) else {
+            print("delete-space: no Space \(name)")
             return
         }
-        let confirmation = BrowserProfilesSheet.deleteConfirmation(
-            name: profile.name,
+        guard manager.canDeleteSpace(space.id), let controller = manager.activeController ?? manager.controllers.first else {
+            print("delete-space: \(space.displayName) refused (the Default Space stays)")
+            return
+        }
+        let profile = manager.profiles.profile(id: space.profileID) ?? .defaultProfile
+        let confirmation = BrowserWindowController.deleteSpaceConfirmation(
+            name: space.displayName,
             tabCount: manager.openTabCount(ofProfile: profile.id)
         )
-        print("delete-profile: \(confirmation.title) \(confirmation.message)")
+        print("delete-space: \(confirmation.title) \(confirmation.message)")
         let folder = profile.directory(in: manager.supportDirectory)
-        // The deleted profile's web views and data store must be released
+        // The deleted Space's web views and data store must be released
         // before WebKit lets its data store go; follow them weakly.
         var windows: [WeakController] = []
         var webViews: [WeakObject] = []
@@ -522,7 +504,7 @@ struct SnapshotSessionOptions {
                 .filter { $0.dataContext.profileID == profile.id }
                 .map { WeakObject(object: $0.webView) }
             store = WeakObject(object: manager.profileContexts[profile.id]?.websiteDataStore)
-            manager.deleteProfile(profile.id) { error in
+            controller.deleteSpace(space.id, confirmed: true) { error in
                 failure = error
                 finished = true
             }
@@ -531,7 +513,8 @@ struct SnapshotSessionOptions {
         Self.spin(15) { finished }
         let identifiers = Self.dataStoreIdentifiers()
         print(
-            "delete-profile: \(profile.name) data store removal \(failure.map { "failed: \($0.localizedDescription)" } ?? (finished ? "succeeded" : "timed out")),"
+            "delete-space: \(space.displayName) data store removal \(failure.map { "failed: \($0.localizedDescription)" } ?? (finished ? "succeeded" : "timed out")),"
+                + " Space still listed: \(manager.spaces.space(id: space.id) != nil),"
                 + " identifier still listed: \(identifiers.contains(profile.id)),"
                 + " folder still exists: \(FileManager.default.fileExists(atPath: folder.path)),"
                 + " windows still alive: \(windows.filter { $0.controller != nil }.count) of \(windows.count),"
@@ -610,13 +593,15 @@ struct SnapshotSessionOptions {
             "muted": tab.isMuted,
             // The tab's Space (nil in a private or pop-up window), whether
             // it is in the current Space, its pin or favorite link, and the
-            // profile and data store it reads and writes.
+            // data store it reads and writes.
             "space": tab.spaceID.flatMap(manager.spaces.space(id:))?.displayName ?? NSNull(),
             "spaceID": tab.spaceID?.uuidString ?? NSNull(),
             "visible": controller.visibleTabs.contains { $0 === tab },
             "pin": tab.origin.pinID?.uuidString ?? NSNull(),
             "favorite": tab.origin.favoriteID?.uuidString ?? NSNull(),
-            "profile": manager.profiles.profile(id: tab.dataContext.profileID)?.name ?? "Default",
+            // The Space whose data the tab reads and writes (a private
+            // tab's: the Space its window was opened over).
+            "dataSpace": manager.spaces.space(ofProfile: tab.dataContext.profileID)?.displayName ?? NSNull(),
             "dataStoreIdentifier": tab.dataContext.websiteDataStore.identifier?.uuidString
                 ?? (tab.dataContext.websiteDataStore.isPersistent ? "default" : "nonPersistent"),
         ]
@@ -648,21 +633,19 @@ struct SnapshotSessionOptions {
         (manager.controllers.firstIndex { $0 === controller } ?? -1) + 1
     }
 
-    /// `--create-space`: each Space in its profile (named, any case; else
-    /// Default), in the profile's color, through the store, before the
-    /// first window.
+    /// `--create-space`: each Space with a profile of its own, in the
+    /// next unused color, through the Space store, before the first
+    /// window.
     @MainActor
     func createSpaces(in store: BrowserSpaceStore, profiles: BrowserProfileStore) {
-        for (name, profileName) in spacesToCreate {
-            let profile = profileName.flatMap(profiles.profile(named:)) ?? .defaultProfile
-            if let profileName, profiles.profile(named: profileName) == nil {
-                print("snapshot: no profile named \(profileName); \(name) goes to Default")
-            }
-            guard let space = store.createSpace(name: name, color: profile.color, profileID: profile.id) else {
+        for name in spacesToCreate {
+            let used = Set(store.spaces.map(\.color))
+            let color = BrowserProfileColor.allCases.first { !used.contains($0) } ?? .gray
+            guard let space = store.createSpace(name: name, color: color, profiles: profiles) else {
                 print("snapshot: could not create Space \(name)")
                 continue
             }
-            print("space: created \(space.displayName) \(space.id.uuidString) in \(profile.name)")
+            print("space: created \(space.displayName) \(space.id.uuidString) (profile \(space.profileID.uuidString))")
         }
     }
 
@@ -690,7 +673,8 @@ struct SnapshotSessionOptions {
                 "number": index + 1,
                 "name": space.displayName,
                 "id": space.id.uuidString,
-                "profile": manager.profiles.profile(id: space.profileID)?.name ?? "Default",
+                "profileID": space.profileID.uuidString,
+                "archiveAfter": manager.profiles.profile(id: space.profileID)?.archiveAfter.rawValue ?? "-",
                 "color": space.color.rawValue,
                 "icon": icon,
                 "pins": manager.spaces.pinEntries(inSpace: space.id).count,
@@ -747,7 +731,9 @@ struct SnapshotSessionOptions {
                 "active": controller === active,
                 "popup": controller.isPopup,
                 "title": controller.window?.title ?? "",
-                "profile": manager.profile(of: controller).name,
+                // The Space whose data the window uses (a private window's:
+                // the one it was opened over) and that data's profile id.
+                "dataSpace": manager.space(of: controller)?.displayName ?? NSNull(),
                 "profileID": controller.profileID.uuidString,
                 // The Space the window shows (nil: private or pop-up) and
                 // each Space's remembered tab.
@@ -782,28 +768,31 @@ struct SnapshotSessionOptions {
             ]
         }
         let closed: [[String: Any]] = manager.recentlyClosed.newestFirst.map { entry in
-            let profile = manager.profiles.profile(id: entry.profileID)?.name ?? "(deleted)"
+            let dataSpace = manager.spaces.space(ofProfile: entry.profileID)?.displayName ?? "(deleted)"
             switch entry.content {
             case .tab(let state, _, let index):
                 return ["kind": "tab", "title": entry.title, "url": state.url ?? "about:start", "index": index ?? NSNull(),
-                        "profile": profile,
+                        "dataSpace": dataSpace,
                         "space": state.spaceID.flatMap(manager.spaces.space(id:))?.displayName ?? NSNull()]
             case .window(let state):
                 return ["kind": "window", "title": entry.title, "tabs": state.tabs.map { $0.url ?? "about:start" },
-                        "profile": profile]
+                        "dataSpace": dataSpace]
             }
         }
-        let profiles: [[String: Any]] = manager.profiles.profiles.map { profile in
+        // Every Space's data: its profile's folder, History, site
+        // decisions and data store.
+        let spaceData: [[String: Any]] = manager.profiles.profiles.map { profile in
             let folder = profile.directory(in: manager.supportDirectory)
             let history = manager.history(for: profile)
             // The hosts in the profile's saved `site-permissions.json`.
             let decisions = (try? Data(contentsOf: folder.appendingPathComponent("site-permissions.json")))
                 .flatMap { try? JSONSerialization.jsonObject(with: $0) as? [String: Any] }
                 .flatMap { $0["sites"] as? [String: Any] }
-            // The profile's data store's contents once a window made it
-            // (Default's is the default store).
+            // The data store's contents once a window made it (Default's is
+            // the default store).
             let context = profile.isDefault ? manager.defaultContext : manager.profileContexts[profile.id]
             return [
+                "space": manager.spaces.space(ofProfile: profile.id)?.displayName ?? NSNull(),
                 "name": profile.name,
                 "id": profile.id.uuidString,
                 "color": profile.color.rawValue,
@@ -844,7 +833,7 @@ struct SnapshotSessionOptions {
             "closedWindowsStillAlive": alive,
             "historyCount": manager.defaultContext.history.visitCount(),
             "historyURLs": manager.defaultContext.history.visits(limit: 50).map(\.url),
-            "profiles": profiles,
+            "spaceData": spaceData,
             "dataStoreIdentifiers": dataStoreIdentifiers().map(\.uuidString).sorted(),
             "profileFolders": (try? FileManager.default.contentsOfDirectory(
                 atPath: manager.supportDirectory.appendingPathComponent(BrowserProfile.folderName).path

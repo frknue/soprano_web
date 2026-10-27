@@ -71,14 +71,11 @@ struct MainMenuTests {
         #expect(main.item(withTitle: "History")?.submenu?.item(withTitle: "Recently Closed")?.submenu != nil)
     }
 
-    @Test func newWindowWithProfileIsHiddenWithOneProfile() {
+    @Test func fileHasNoNewWindowWithProfile() {
         _ = NSApplication.shared
-        let menu = MainMenuController { nil }
-        menu.install()
-        let file = NSApp.mainMenu?.item(withTitle: "File")?.submenu
-        let item = file?.item(withTitle: "New Window With Profile")
-        #expect(item?.submenu != nil)
-        #expect(item?.isHidden == true)
+        let file = MainMenuController { nil }.buildMenu().item(withTitle: "File")?.submenu
+        #expect(file?.item(withTitle: "New Window") != nil)
+        #expect(file?.items.contains { $0.title.contains("Profile") } == false)
     }
 
     @Test func spacesMenuHoldsTheSpaceCommands() {

@@ -2,31 +2,30 @@ import AppKit
 
 /// Archive flags for `SopranoWeb snapshot`, run in order with the session
 /// actions on the active window, through the handlers the menu, a click
-/// and the Settings sheet call:
+/// and the Edit Space sheet call:
 ///
 /// - `--archive-today`: ⇧⌘K (Spaces ▸ Archive Today Tabs).
 /// - `--restore-archived <n|title>`: a click on the Archive row n (1-based,
 ///   in the order the sidebar's Archive lists the active window's
-///   profile, under its search) or the first one titled so (or whose title
+///   Space, under its search) or the first one titled so (or whose title
 ///   contains it).
 /// - `--archive-search <text>`: shows the sidebar's Archive and types into
 ///   its search field; prints every row it lists.
-/// - `--archive-after <choice>[:<profile>]`: Settings ▸ Profiles ▸
-///   "Archive Today tabs after" for the profile (the active window's
-///   without one); `never`, `days30`, `days7`, `hours24`, `hours12`,
-///   `hours6`, `hour1`.
+/// - `--archive-after <choice>[:<space>]`: Edit Space ▸ "Archive Today
+///   tabs after" for the Space (the active window's without one), picked
+///   from the sheet's menu and saved; `never`, `days30`, `days7`,
+///   `hours24`, `hours12`, `hours6`, `hour1`.
 /// - `--print-archive`: one `archive:` JSON line: every entry (title,
-///   address, Space, profile, reason, time), newest first, and
-///   `archive.json`'s version and entry count.
+///   address, Space, the Space whose data holds it, reason, time), newest
+///   first, and `archive.json`'s version and entry count.
 ///
 /// `--sidebar archive` seeds a few entries over several days into the
-/// Default profile's Spaces when the Archive is empty, as `--sidebar`
-/// seeds History.
+/// Default Space when the Archive is empty, as `--sidebar` seeds History.
 enum SnapshotArchiveAction {
     case archiveToday
     case restore(String)
     case search(String)
-    case archiveAfter(BrowserArchiveAfter, profile: String?)
+    case archiveAfter(BrowserArchiveAfter, space: String?)
     case printArchive
     /// `--archive-seed <n>`: n entries through the importers' `insert`.
     case seed(Int)
@@ -41,7 +40,7 @@ enum SnapshotArchiveAction {
 
     static let usage = """
                                [--archive-today] [--restore-archived <n|title>] [--archive-search <text>]
-                               [--archive-after <choice>[:<profile>]] [--print-archive]
+                               [--archive-after <choice>[:<space>]] [--print-archive]
                                [--archive-seed <n>] [--archive-batch <n>]
     """
 
@@ -57,7 +56,7 @@ enum SnapshotArchiveAction {
             guard let choice = parts.first.flatMap(BrowserArchiveAfter.init(rawValue:)) else {
                 throw SnapshotCommand.OptionError.unknownOption("--archive-after \(raw)")
             }
-            return .archiveAfter(choice, profile: parts.count > 1 ? parts[1] : nil)
+            return .archiveAfter(choice, space: parts.count > 1 ? parts[1] : nil)
         case "--print-archive": return .printArchive
         case "--archive-seed", "--archive-batch":
             let raw = try value()
@@ -133,32 +132,33 @@ enum SnapshotArchiveAction {
                 print("archive-search: \(entry.displayTitle) — \(entry.host) [\(Self.spaceName(entry.spaceID, in: manager))]")
             }
             print("archive-search: \(text) -> \(listed.count) shown")
-        case let .archiveAfter(choice, profileName):
-            let profile = profileName.map { manager.profiles.profile(named: $0) }
-                ?? manager.profiles.profile(id: controller.profileID)
-            guard let profile else {
-                print("archive-after: no profile \(profileName ?? "-")")
+        case let .archiveAfter(choice, spaceName):
+            let space = spaceName.map { name in manager.spaces.spaces.first { $0.displayName == name } }
+                ?? controller.currentSpaceID.flatMap(manager.spaces.space(id:))
+            guard let space else {
+                print("archive-after: no Space \(spaceName ?? "-")")
                 return
             }
-            // What picking the choice in Settings ▸ Profiles runs.
-            let sheet = manager.makeProfilesSheet()
-            guard let item = sheet.archiveAfterMenu(for: profile.id)?.items.first(where: { $0.title == choice.title }) else {
+            // What picking the choice in Edit Space and saving runs.
+            let sheet = controller.makeSpaceSheet(editing: space.id)
+            guard let item = sheet.archiveAfterMenu().items.first(where: { $0.title == choice.title }) else {
                 print("archive-after: no choice \(choice.title)")
                 return
             }
             sheet.archiveAfterChosen(item)
-            let saved = manager.profiles.profile(id: profile.id)?.archiveAfter
-            print("archive-after: \(profile.name) -> \(saved?.rawValue ?? "-") (\(saved?.title ?? "-"))")
+            sheet.savePressed()
+            let saved = manager.profiles.profile(id: space.profileID)?.archiveAfter
+            print("archive-after: \(space.displayName) -> \(saved?.rawValue ?? "-") (\(saved?.title ?? "-"))")
         case .printArchive, .seed, .batch:
             break
         }
     }
 
-    /// `count` distinct Default-profile entries, newest first, over the
-    /// last days, titled "<prefix> <n>".
+    /// `count` distinct Default Space entries, newest first, over the last
+    /// days, titled "<prefix> <n>".
     @MainActor
     static func syntheticEntries(_ count: Int, manager: BrowserWindowManager, prefix: String) -> [BrowserArchiveEntry] {
-        let spaceID = manager.spaces.firstSpace(ofProfile: BrowserProfile.defaultID)?.id
+        let spaceID = manager.spaces.space(ofProfile: BrowserProfile.defaultID)?.id
         let now = manager.tabSleeper.now()
         return (0..<count).map { index in
             BrowserArchiveEntry(
@@ -192,7 +192,7 @@ enum SnapshotArchiveAction {
                 "title": entry.displayTitle,
                 "url": entry.url,
                 "space": spaceName(entry.spaceID, in: manager),
-                "profile": manager.profiles.profile(id: entry.profileID)?.name ?? entry.profileID.uuidString,
+                "dataSpace": manager.spaces.space(ofProfile: entry.profileID)?.displayName ?? entry.profileID.uuidString,
                 "reason": entry.reason.rawValue,
                 "archivedAt": entry.archivedAt.ISO8601Format(),
                 "faviconKey": entry.faviconKey ?? NSNull(),
@@ -212,12 +212,12 @@ enum SnapshotArchiveAction {
     }
 
     /// `--sidebar archive` on an empty Archive: entries over today,
-    /// yesterday, earlier this week and an older day, spread over the
-    /// Default profile's Spaces.
+    /// yesterday, earlier this week and an older day, in the Default
+    /// Space.
     @MainActor
     static func seed(_ archive: BrowserArchiveStore, spaces: BrowserSpaceStore, now: Date, calendar: Calendar = .current) {
         guard archive.entries.isEmpty else { return }
-        let spaceIDs = spaces.spaces(ofProfile: BrowserProfile.defaultID).map(\.id)
+        let spaceID = spaces.defaultSpace?.id
         let today = calendar.startOfDay(for: now)
         func day(_ offset: Int, hour: Int, minute: Int = 0) -> Date {
             let start = calendar.date(byAdding: .day, value: -offset, to: today) ?? today
@@ -235,7 +235,7 @@ enum SnapshotArchiveAction {
             BrowserArchiveEntry(
                 url: sample.0,
                 title: sample.1,
-                spaceID: spaceIDs.isEmpty ? nil : spaceIDs[index % spaceIDs.count],
+                spaceID: spaceID,
                 profileID: BrowserProfile.defaultID,
                 archivedAt: sample.2,
                 reason: index.isMultiple(of: 2) ? .auto : .manual,

@@ -97,8 +97,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         return true
     }
 
-    /// New Window, New Private Window and, with more than one profile,
-    /// New Window With Profile ▸ <name>.
+    /// New Window (in the active window's Space) and New Private Window.
     func applicationDockMenu(_ sender: NSApplication) -> NSMenu? {
         let menu = NSMenu()
         let item = NSMenuItem(title: "New Window", action: #selector(newWindowFromDock), keyEquivalent: "")
@@ -111,18 +110,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         )
         privateItem.target = self
         menu.addItem(privateItem)
-        if let profiles = windowManager?.profiles, profiles.hasSeveral {
-            let submenu = NSMenu(title: MainMenuController.newWindowWithProfileTitle)
-            for profile in profiles.profiles {
-                let entry = NSMenuItem(title: profile.name, action: #selector(newProfileWindowFromDock(_:)), keyEquivalent: "")
-                entry.target = self
-                entry.representedObject = profile.id
-                submenu.addItem(entry)
-            }
-            let parent = NSMenuItem(title: submenu.title, action: nil, keyEquivalent: "")
-            parent.submenu = submenu
-            menu.addItem(parent)
-        }
         return menu
     }
 
@@ -133,12 +120,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     @objc private func newPrivateWindowFromDock() {
         windowManager?.newPrivateWindow()
-        NSApp.activate(ignoringOtherApps: true)
-    }
-
-    @objc private func newProfileWindowFromDock(_ sender: NSMenuItem) {
-        guard let id = sender.representedObject as? UUID else { return }
-        windowManager?.newWindow(profileID: id)
         NSApp.activate(ignoringOtherApps: true)
     }
 
