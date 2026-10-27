@@ -124,45 +124,63 @@ roadmap item moved or deleted, `docs/STATUS.md` updated, committed on `feat/stag
   keeps its origin (pinned, favorite, Today); archiving archives its Today tabs.
 
 ### P6 — Site Control Center
+Code map and API facts for P6–P12: `docs/research/p6-p12.md`.
 - The lock / site chip opens a popover for the selected tab's site in its Space:
   connection (today's sheet behind a row), permissions (camera, microphone,
-  notifications, pop-ups, autoplay) with per-site values, zoom −/+/reset, "Block ads on
-  this site", Boosts (P7) and extensions' site access (P1), "Clear site data" (this site's
-  cookies and website data in the tab's profile, then reload). Replaces the lock's sheet.
+  notifications, pop-ups) with per-site values, zoom −/+/reset, "Block ads on this site",
+  Boosts (P7) and extensions' site access (P1), "Clear site data" (the site's
+  registrable domain's website data — WebKit keys records by domain — plus that host's
+  cookies, in the tab's profile, then reload). Replaces the lock's sheet; the harness's
+  `--security-info` / `--site-blocking` move to the popover.
+- No per-site autoplay: WebKit fixes autoplay per web view at creation, so a per-site
+  value would mean rebuilding the web view (losing back/forward). Settings ▸ Autoplay
+  stays global.
 
 ### P7 — Boosts
 - Per-host Boost: name, enabled, CSS (a `<style>` added at document start), JavaScript
-  (its own `WKContentWorld`), Zap list (selectors hidden). Editor sheet with monospace
-  text views; Zap mode: hover outlines elements, click hides, Esc ends.
+  (its own `WKContentWorld` with no `sopranoWeb` handler — user code never posts as ours;
+  every script checks `location.hostname` itself, user scripts can't be host-scoped),
+  Zap list (selectors hidden). Editor sheet with monospace text views; Zap mode: hover
+  outlines elements, click hides, Esc ends.
 - CLI: `browser boost list|show <host>|css <host> <file|->|js <host> <file|->|zap <host>
-  <selector>|enable|disable|remove <host>` so an agent can write one.
+  <selector>|enable|disable|remove <host>` so an agent can write one (the client reads
+  the file or stdin).
 
 ### P8 — Capture
 - ⇧⌘2: drag an area on the page, or click for the visible page; a menu offers full page
-  (`createPDF` of the whole page rendered to an image). Result: pasteboard plus a PNG in
-  `~/Downloads`, with a toast showing it. CLI `screenshot --full`.
+  (`createPDF` with the rect set to the document size, rendered to an image with the
+  height capped). Result: pasteboard plus a PNG in `~/Downloads`, with a toast showing it.
+  CLI `screenshot [--full] <path>`.
 
 ### P9 — Mini Player and media controls
 - A page script reports Media Session metadata and playback state per tab. Leaving a tab
   with a playing, visible video moves its web view into a floating non-activating panel
   (video fills it by injected CSS; returning to the tab or the panel's button moves it
   back; close pauses). Rail bottom: the playing tab's title, artwork, play/pause, next,
-  mute; click selects the tab.
+  mute; click selects the tab. Selection changes, Space switches and tab sleep leave the
+  panel's web view alone.
 
 ### P10 — Reader and Translation
-- Reader (⇧⌘R): vendored Readability.js (Apache-2.0, license file next to it) in an
-  isolated world; the article shows in a Folio reader page in the tab; toggles back.
-- Translate page: `NLLanguageRecognizer` detects the language; `TranslationSession` (26)
-  translates text nodes in batches from an isolated-world script; "Show original"
-  restores. Offered in the address field when the page's language isn't the user's.
+- Reader (⇧⌘R): vendored Readability.js 0.6.0 (Apache-2.0; `LICENSE` and `NOTICE` next
+  to it, shipped as resources) in an isolated world; the article shows in a Folio reader
+  page in the tab; toggles back.
+- Translate page: `NLLanguageRecognizer` detects the language;
+  `TranslationSession(installedSource:target:)` translates text nodes in batches from an
+  isolated-world script; "Show original" restores. Offered in the address field when the
+  page's language isn't the user's. A pair not installed on the Mac opens System Settings'
+  Translation Languages (downloading in-app needs SwiftUI's `.translationTask`; AppKit
+  only).
 
 ### P11 — GitHub pull requests as a live folder
-- A pinned folder kind "GitHub pull requests" (repo or search query) refreshed through
-  `gh pr list --json` every 5 minutes and on open; rows open the PR; read-only. Look at
-  Soprano Git's implementation for the `gh` calls before writing new ones.
+- A pinned folder with a `source` key (GitHub pull requests: a repo through `gh pr list`,
+  or a query through `gh search prs`), so older builds still read it as a folder; the
+  fetched PRs live in a runtime cache, never in `children`. Refreshed every 5 minutes and
+  on open; rows open the PR; read-only. Process running and `gh` path resolution after
+  Soprano Git's `GitProcess.swift` / `GitRunner.swift` (it has no `gh` code itself).
 
 ### P12 — AppleScript and Dock menu
 - `.sdef`: application → windows → tabs, spaces; properties URL, title, loading; commands
   make new tab/window, close, reload, select, `execute javascript` (only with Settings ▸
-  "Allow JavaScript from Apple Events"). Dock menu: New Window, New Private Window, New
-  Little Arc, the Spaces, the open windows.
+  "Allow JavaScript from Apple Events"; `@objc` scripting classes, the sdef copied into
+  `Contents/Resources` by `scripts/package-app.sh`). Dock menu: New Window, New Private
+  Window, New Little Arc, the Spaces (the Dock already lists open windows).

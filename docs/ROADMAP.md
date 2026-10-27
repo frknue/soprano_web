@@ -120,7 +120,7 @@ and bookmarks HTML files, and File ▸ Export Pinned Tabs… as bookmarks HTML.
   `webNavigation` events), which 1Password needs.
 - Page translation with Apple's Translation framework (`TranslationSession` outside SwiftUI
   from macOS 26); Reader view with Readability.js (Apache-2.0).
-- GitHub pull requests as a live folder through `gh`, as Soprano Git already does.
+- GitHub pull requests as a live folder through `gh`.
 - AppleScript (windows, tabs, Spaces, URL, JavaScript behind an opt-in) and a Dock menu.
 
 ## Needs a decision
