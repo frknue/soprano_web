@@ -1,0 +1,402 @@
+import AppKit
+
+/// Import and export flags for `SopranoWeb snapshot`. Imports run after the
+/// first window opens and before every other action, into the harness's
+/// support folder (a temporary one, or `--support-dir`); sources are only
+/// read (Chromium History opens `immutable`).
+///
+/// - `--import-arc [dir]` (default `~/Library/Application Support/Arc`),
+///   `--import-chrome <dir>` (a Chromium user-data folder),
+///   `--import-safari <zip>`, `--import-html <file>` (repeatable, in
+///   order): each prints `import-plan:` (one JSON line: profile mapping,
+///   Spaces with counts and create/skip, favorites, Archive, History
+///   visits per profile, rules, totals), applies the plan as the sheet
+///   checks it by default and prints `import-result:` (what was made,
+///   History added/skipped and seconds per profile).
+/// - `--import-plan`: plans only, applies nothing.
+/// - `--import-sheet [checklist|progress|result]`: File ▸ Import Browser
+///   Data… on the window, on the first source flag (else the first source
+///   found), captured with its checklist, mid-import (30% of History) or
+///   finished; prints `import-sheet:` lines.
+/// - `--export-pins <file>` / `--export-all-pins <file>`: File ▸ Export
+///   Pinned Tabs… for the window's Space / every Space; prints the counts
+///   the file reads back as.
+/// - `--open-link <url>` (repeatable): a link from another app (the
+///   routing rules apply); prints the window and Space it opened in.
+/// - `--link-routing-sheet`: captures Settings ▸ Links from other apps.
+struct SnapshotImportOptions {
+    enum SheetStage: String {
+        case checklist
+        case progress
+        case result
+    }
+
+    var requests: [BrowserImportLoader.Request] = []
+    var planOnly = false
+    var sheet: SheetStage?
+    var exports: [(url: URL, allSpaces: Bool)] = []
+    var openLinks: [String] = []
+    var showsLinkRoutingSheet = false
+    /// `--import-from-private`: the import runs from a new private window.
+    var fromPrivateWindow = false
+
+    static let flags: Set<String> = [
+        "--import-arc", "--import-chrome", "--import-safari", "--import-html", "--import-plan", "--import-sheet",
+        "--export-pins", "--export-all-pins", "--open-link", "--link-routing-sheet", "--import-from-private",
+    ]
+
+    static let usage = """
+                               [--import-arc [dir]] [--import-chrome <dir>] [--import-safari <zip>]
+                               [--import-html <file>] [--import-plan] [--import-sheet [checklist|progress|result]]
+                               [--export-pins <file>] [--export-all-pins <file>] [--open-link <url>]...
+                               [--link-routing-sheet] [--import-from-private]
+    """
+
+    var isActive: Bool {
+        !requests.isEmpty || sheet != nil || !exports.isEmpty || !openLinks.isEmpty || showsLinkRoutingSheet
+    }
+
+    /// Whether the run writes imported data (profiles to keep with `--support-dir`).
+    var imports: Bool { !requests.isEmpty && !planOnly || sheet == .progress || sheet == .result }
+
+    /// `peek` is the next argument (for optional values), `skip` consumes it.
+    mutating func parse(
+        _ option: String,
+        value: () throws -> String,
+        peek: () -> String?,
+        skip: () -> Void
+    ) throws {
+        func optional() -> String? {
+            guard let next = peek(), !next.hasPrefix("--") else { return nil }
+            skip()
+            return next
+        }
+        func file(_ path: String) -> URL {
+            URL(fileURLWithPath: (path as NSString).expandingTildeInPath)
+        }
+        switch option {
+        case "--import-arc":
+            requests.append(.arc(optional().map(file) ?? BrowserArcImportReader.defaultSupportDirectory))
+        case "--import-chrome":
+            requests.append(.chrome(file(try value())))
+        case "--import-safari":
+            requests.append(.safari(file(try value())))
+        case "--import-html":
+            requests.append(.html(file(try value())))
+        case "--import-plan":
+            planOnly = true
+        case "--import-sheet":
+            let raw = optional() ?? SheetStage.checklist.rawValue
+            guard let stage = SheetStage(rawValue: raw) else {
+                throw SnapshotCommand.OptionError.unknownOption("--import-sheet \(raw)")
+            }
+            sheet = stage
+        case "--export-pins":
+            exports.append((file(try value()), false))
+        case "--export-all-pins":
+            exports.append((file(try value()), true))
+        case "--open-link":
+            openLinks.append(try value())
+        case "--import-from-private":
+            fromPrivateWindow = true
+        case "--link-routing-sheet":
+            showsLinkRoutingSheet = true
+        default:
+            throw SnapshotCommand.OptionError.unknownOption(option)
+        }
+    }
+
+    /// What the import step leaves for the capture.
+    @MainActor
+    struct Outcome {
+        var sheet: BrowserImportSheet?
+        /// The sheet drawn the moment the stage was reached (progress
+        /// keeps moving afterwards).
+        var frozen: NSImage?
+        var linkRoutingSheet: BrowserLinkRoutingSheet?
+
+        var window: NSWindow? { linkRoutingSheet?.window ?? sheet?.window }
+    }
+
+    @MainActor
+    func run(manager: BrowserWindowManager, controller normal: BrowserWindowController) -> Outcome {
+        var outcome = Outcome()
+        let controller = fromPrivateWindow ? manager.newPrivateWindow() : normal
+        if let stage = sheet {
+            outcome.sheet = runSheet(stage, manager: manager, controller: controller, frozen: &outcome.frozen)
+        } else {
+            for request in requests {
+                runImport(request, manager: manager, controller: controller)
+            }
+        }
+        for export in exports {
+            exportPins(export.url, allSpaces: export.allSpaces, controller: controller)
+        }
+        for link in openLinks {
+            openLink(link, manager: manager)
+        }
+        if showsLinkRoutingSheet {
+            let routingSheet = manager.makeLinkRoutingSheet()
+            routingSheet.dump.forEach { print("link-routing: \($0)") }
+            if routingSheet.dump.isEmpty { print("link-routing: none") }
+            outcome.linkRoutingSheet = routingSheet
+        }
+        return outcome
+    }
+
+    /// Lets a sheet's import finish (cancelling a mid-import capture's)
+    /// before the harness removes anything.
+    @MainActor
+    static func finish(_ outcome: Outcome) {
+        guard let sheet = outcome.sheet, sheet.state == .importing else { return }
+        sheet.cancelImport()
+        spin(until: 120) { sheet.state != .importing }
+        print("import-sheet: after capture \(sheet.statusText)")
+    }
+
+    // MARK: Steps
+
+    @MainActor
+    private func runImport(_ request: BrowserImportLoader.Request, manager: BrowserWindowManager, controller: BrowserWindowController) {
+        let data: BrowserImportSourceData
+        let readStart = Date()
+        do {
+            data = try BrowserImportLoader.read(request, historyCutoff: manager.importHistoryCutoff)
+        } catch {
+            print("import-plan: error \(error)")
+            return
+        }
+        let plan = BrowserImportPlanner.plan(for: data, context: manager.importContext(for: controller))
+        print(String(format: "import-read: %@ %.2f s", request.kind.rawValue, Date().timeIntervalSince(readStart)))
+        print("import-plan: \(Self.json(Self.planObject(plan)))")
+        guard !planOnly else { return }
+        let state = RunState()
+        let started = Date()
+        manager.runImport(
+            plan,
+            in: controller,
+            cancellation: BrowserImportCancellation(),
+            progress: { progress in
+                let percent = Int(progress.fraction * 100)
+                guard percent / 25 != state.lastPrinted / 25 else { return }
+                state.lastPrinted = percent
+                print("import-progress: \(percent)% \(progress.handled)/\(progress.total) \(progress.item)")
+            },
+            completion: { state.summary = $0 }
+        )
+        Self.spin(until: 1_800) { state.summary != nil }
+        guard let finished = state.summary else {
+            print("import-result: timed out")
+            return
+        }
+        print("import-result: \(Self.json(Self.resultObject(finished, seconds: Date().timeIntervalSince(started))))")
+        for (spaceID, links) in finished.todayTabs {
+            let holders = manager.controllers.filter { window in window.tabs.contains { $0.spaceID == spaceID } }
+            let tabs = holders.reduce(0) { total, window in total + window.tabs.filter { $0.spaceID == spaceID }.count }
+            let kinds = holders.map { $0.kind.isPrivate ? "private" : "normal" }.joined(separator: ",")
+            let shown = holders.contains { $0.currentSpaceID == spaceID } ? "shown" : "hidden"
+            print("import-today: \(links.count) imported, \(tabs) tabs of the Space in \(holders.count) window(s) [\(kinds)], Space \(shown)")
+        }
+        for history in finished.history {
+            print(String(
+                format: "import-history: %@ -> %@ added %d skipped %d in %.2f s%@",
+                history.id, history.profileName, history.count.added, history.count.skipped, history.seconds,
+                history.error.map { " error \($0)" } ?? ""
+            ))
+        }
+    }
+
+    /// A harness import's callbacks' state.
+    @MainActor
+    private final class RunState {
+        var summary: BrowserImporter.Summary?
+        var lastPrinted = -1
+    }
+
+    @MainActor
+    private func runSheet(
+        _ stage: SheetStage,
+        manager: BrowserWindowManager,
+        controller: BrowserWindowController,
+        frozen: inout NSImage?
+    ) -> BrowserImportSheet {
+        var detected = BrowserImportLoader.detected()
+        for request in requests {
+            detected.removeAll { $0.kind == request.kind }
+        }
+        detected = requests.filter { $0.kind == .arc || $0.kind == .chrome } + detected
+        let sheet = BrowserImportSheet(manager: manager, controller: controller, detected: detected)
+        if let request = requests.first {
+            sheet.select(request)
+        }
+        Self.spin(until: 120) { sheet.state != .loading }
+        if stage != .checklist, sheet.state == .ready {
+            sheet.startImport()
+            if stage == .progress {
+                Self.spin(until: 1_800) {
+                    sheet.state != .importing || (sheet.progress?.fraction ?? 0) >= 0.3
+                }
+                frozen = Self.image(of: sheet.window)
+            } else {
+                Self.spin(until: 1_800) { sheet.state != .importing }
+            }
+        }
+        print("import-sheet: state \(sheet.state) | \(sheet.statusText)")
+        sheet.dump.forEach { print("import-sheet: \($0)") }
+        return sheet
+    }
+
+    @MainActor
+    private func exportPins(_ url: URL, allSpaces: Bool, controller: BrowserWindowController) {
+        do {
+            try controller.exportPinnedTabs(to: url, allSpaces: allSpaces)
+        } catch {
+            print("export-pins: error \(error)")
+            return
+        }
+        let data = (try? Data(contentsOf: url)) ?? Data()
+        let nodes = BrowserNetscapeBookmarks.parse(data: data)
+        let counts = BrowserImportPlanner.nodeCounts(nodes)
+        print("export-pins: \(url.lastPathComponent) \(data.count) bytes, reads back as \(counts.pins) pins in \(counts.folders) folders\(allSpaces ? " (every Space)" : "")")
+    }
+
+    @MainActor
+    private func openLink(_ link: String, manager: BrowserWindowManager) {
+        guard let url = URL(string: link) else {
+            print("open-link: bad URL \(link)")
+            return
+        }
+        let rule = manager.linkRouting.rule(for: link)
+        manager.open([url])
+        let window = manager.activeController
+        let number = window.flatMap { manager.controllers.firstIndex(of: $0) }.map { $0 + 1 } ?? 0
+        let space = window?.currentSpaceID.flatMap(manager.spaces.space(id:))?.displayName ?? "-"
+        let ruleText = rule.map { "rule \($0.match.rawValue) \($0.value)" } ?? "no rule"
+        print("open-link: \(link) -> window \(number), Space \(space) (\(ruleText)), \(window?.visibleTabs.count ?? 0) tabs")
+    }
+
+    // MARK: Output
+
+    static func planObject(_ plan: BrowserImportPlan) -> [String: Any] {
+        let profiles: [[String: Any]] = plan.profiles.map { profile in
+            let target: String = switch profile.target {
+            case .existing: "existing"
+            case .new: "new"
+            }
+            return ["key": profile.key, "name": profile.displayName, "target": target, "targetName": profile.targetName]
+        }
+        let spaces: [[String: Any]] = plan.spaces.map { space in
+            let action = space.isSkipped ? "skip (imported before)" : (space.isIncluded ? "create" : "unchecked")
+            return [
+                "name": space.name,
+                "profile": space.profileKey,
+                "color": space.color.rawValue,
+                "pins": space.pinCount,
+                "folders": space.folderCount,
+                "today": space.today.count,
+                "action": action,
+            ]
+        }
+        let favorites: [[String: Any]] = plan.favorites.map { favorites in
+            [
+                "profile": favorites.profileKey,
+                "new": favorites.links.count,
+                "toFavorites": favorites.toFavorites,
+                "overflowPinned": favorites.overflow,
+                "alreadyThere": favorites.alreadyThere,
+            ]
+        }
+        let folders: [[String: Any]] = plan.folders.map { folder in
+            ["name": folder.name, "pins": folder.pinCount, "folders": folder.folderCount, "skip": folder.alreadyThere]
+        }
+        let history: [[String: Any]] = plan.history.map { history in
+            [
+                "id": history.id, "title": history.title, "visits": history.visitCount, "checked": history.isIncluded,
+                "sourceVisits": history.sourceVisitCount, "olderThanRetention": history.olderCount,
+            ]
+        }
+        let pins: Int = plan.spaces.reduce(0) { $0 + $1.pinCount } + plan.folders.reduce(0) { $0 + $1.pinCount }
+        let folderCount: Int = plan.spaces.reduce(0) { $0 + $1.folderCount } + plan.folders.reduce(0) { $0 + $1.folderCount }
+        let totals: [String: Int] = [
+            "spaces": plan.spaces.count,
+            "spacesToCreate": plan.spaces.filter { $0.isIncluded && !$0.isSkipped }.count,
+            "spacesSkipped": plan.spaces.filter(\.isSkipped).count,
+            "pins": pins,
+            "folders": folderCount,
+            "today": plan.spaces.reduce(0) { $0 + $1.today.count },
+            "favorites": plan.favorites.reduce(0) { $0 + $1.links.count + $1.alreadyThere },
+            "favoritesNew": plan.favorites.reduce(0) { $0 + $1.links.count },
+            "archive": plan.archive?.items.count ?? 0,
+            "archiveNew": plan.archive?.newCount ?? 0,
+            "rules": plan.routing?.importable ?? 0,
+            "visits": plan.history.reduce(0) { $0 + $1.visitCount },
+            "visitsChecked": plan.includedVisitCount,
+        ]
+        var object: [String: Any] = [
+            "source": plan.source.rawValue,
+            "sourceName": plan.sourceName,
+            "profiles": profiles,
+            "spaces": spaces,
+            "favorites": favorites,
+            "folders": folders,
+            "history": history,
+            "totals": totals,
+            "summary": BrowserImportChecklist.summary(of: plan),
+        ]
+        if let archive = plan.archive {
+            object["archive"] = ["items": archive.items.count, "new": archive.newCount, "withoutSpace": archive.spacelessCount]
+        }
+        if let routing = plan.routing {
+            object["routing"] = ["rules": routing.rules.count, "importable": routing.importable, "unsupported": routing.unsupported]
+        }
+        return object
+    }
+
+    static func resultObject(_ summary: BrowserImporter.Summary, seconds: Double) -> [String: Any] {
+        [
+            "profilesCreated": summary.profilesCreated.count,
+            "spacesCreated": summary.spacesCreated,
+            "spacesSkipped": summary.spacesSkipped,
+            "pinsAdded": summary.pinsAdded,
+            "foldersAdded": summary.foldersAdded,
+            "favoritesAdded": summary.favoritesAdded,
+            "favoritesPinned": summary.favoritesPinned,
+            "archiveAdded": summary.archiveAdded,
+            "faviconsAdded": summary.faviconsAdded,
+            "rulesAdded": summary.rulesAdded,
+            "todayTabs": summary.todayTabs.reduce(0) { $0 + $1.links.count },
+            "visitsAdded": summary.visitsAdded,
+            "visitsSkipped": summary.visitsSkipped,
+            "cancelled": summary.cancelled,
+            "seconds": (seconds * 100).rounded() / 100,
+        ]
+    }
+
+    static func json(_ object: [String: Any]) -> String {
+        guard let data = try? JSONSerialization.data(withJSONObject: object, options: [.sortedKeys]) else { return "{}" }
+        return String(decoding: data, as: UTF8.self)
+    }
+
+    @MainActor
+    private static func image(of window: NSWindow?) -> NSImage? {
+        guard let content = window?.contentView else { return nil }
+        content.layoutSubtreeIfNeeded()
+        content.displayIfNeeded()
+        guard let rep = content.bitmapImageRepForCachingDisplay(in: content.bounds) else { return nil }
+        content.cacheDisplay(in: content.bounds, to: rep)
+        let image = NSImage(size: content.bounds.size)
+        image.addRepresentation(rep)
+        return image
+    }
+
+    /// Runs the loop until `done` or `seconds` pass.
+    @MainActor
+    private static func spin(until seconds: Double, _ done: () -> Bool) {
+        let deadline = Date().addingTimeInterval(seconds)
+        while !done(), Date() < deadline {
+            autoreleasepool {
+                _ = RunLoop.current.run(mode: .default, before: Date().addingTimeInterval(0.05))
+            }
+        }
+    }
+}

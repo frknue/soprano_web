@@ -28,7 +28,8 @@ extension BrowserWindowController {
         tabStrip.contextMenuProvider = { [weak self] id in
             self?.tabContextMenu(for: id, closeAfterTitle: "Close Tabs to the Right")
         }
-        verticalTabsView.onReorder = { [weak self] id, index in self?.moveTab(id: id, toIndex: index) }
+        // The rail lists the Today tabs; its indices count those.
+        verticalTabsView.onReorder = { [weak self] id, index in self?.moveTodayTab(id: id, toTodayIndex: index) }
         verticalTabsView.onToggleMute = { [weak self] id in self?.toggleMute(id: id) }
         verticalTabsView.contextMenuProvider = { [weak self] id in
             self?.tabContextMenu(for: id, closeAfterTitle: "Close Tabs Below")
@@ -38,11 +39,14 @@ extension BrowserWindowController {
         tabStrip.onDropTab = { [weak self] id, index in self?.dropTab(id: id, at: index) }
         tabStrip.onDragOut = { [weak self] id, point in self?.tabDraggedOut(id: id, to: point) }
         verticalTabsView.canAcceptTab = { [weak self] id in self?.canAcceptDroppedTab(id: id) ?? false }
-        verticalTabsView.onDropTab = { [weak self] id, index in self?.dropTab(id: id, at: index) }
+        verticalTabsView.onDropTab = { [weak self] id, index in
+            guard let self else { return }
+            self.dropTab(id: id, at: self.visibleGap(forTodayGap: index))
+        }
         verticalTabsView.onDragOut = { [weak self] id, point in self?.tabDraggedOut(id: id, to: point) }
 
         sidebar.faviconProvider = { [weak self] address in
-            self?.faviconStore.image(forAddress: address)
+            self?.dataContext.faviconStore.image(forAddress: address)
         }
     }
 
@@ -61,7 +65,7 @@ extension BrowserWindowController {
     /// The tab's address changed: show the host's cached icon right away
     /// (the page reports its own once parsed) and drop a stale link bubble.
     func tabURLChanged(_ tab: BrowserTab) {
-        let cached = faviconStore.image(for: tab.webView.url)
+        let cached = tab.dataContext.faviconStore.image(for: tab.webView.url)
         if tab.favicon !== cached {
             tab.favicon = cached
         }
@@ -85,7 +89,7 @@ extension BrowserWindowController {
                 base: pageURL
             )
         }
-        faviconStore.resolve(pageURL: pageURL, candidates: candidates) { [weak self, weak tab] image in
+        tab.dataContext.faviconStore.resolve(pageURL: pageURL, candidates: candidates) { [weak self, weak tab] image in
             guard let self, let tab,
                   BrowserFaviconSelection.key(for: tab.webView.url) == key,
                   tab.favicon !== image
@@ -124,7 +128,7 @@ extension BrowserWindowController {
             item.target = self
             item.representedObject = entry
             item.toolTip = entry.url.absoluteString
-            item.image = faviconStore.image(for: entry.url) ?? Self.placeholderMenuIcon
+            item.image = tab.dataContext.faviconStore.image(for: entry.url) ?? Self.placeholderMenuIcon
             menu.addItem(item)
         }
         return menu

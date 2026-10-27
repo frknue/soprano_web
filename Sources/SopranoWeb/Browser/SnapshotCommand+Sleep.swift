@@ -79,8 +79,9 @@ struct SnapshotSleepOptions {
 /// Tab sleep and zoom actions, run in order with the session flags on the
 /// active window:
 ///
-/// - `--advance-clock <seconds>`: moves the sleep clock forward, then runs
-///   the idle pass the timer runs.
+/// - `--advance-clock <seconds>`: moves the idle clock forward, then runs
+///   the idle pass the timer runs (archive, then sleep); prints the tabs
+///   archived (with their archive times) and falling asleep.
 /// - `--sleep-pass`: runs the idle pass now.
 /// - `--memory-pressure warning|critical`: what the memory pressure source
 ///   runs for that event.
@@ -142,11 +143,13 @@ enum SnapshotSleepAction {
         switch self {
         case .advanceClock(let seconds):
             Self.clockOffset += seconds
-            let falling = manager.tabSleeper.sleepIdleTabs()
-            print("sleep: clock +\(Int(Self.clockOffset))s, \(falling.count) tab(s) falling asleep: \(falling.map(\.displayTitle))")
+            let pass = manager.tabSleeper.idlePass()
+            print("archive: clock +\(Int(Self.clockOffset))s, \(pass.archived.count) tab(s) archived: \(SnapshotArchiveAction.describe(pass.archived))")
+            print("sleep: clock +\(Int(Self.clockOffset))s, \(pass.falling.count) tab(s) falling asleep: \(pass.falling.map(\.displayTitle))")
         case .sleepPass:
-            let falling = manager.tabSleeper.sleepIdleTabs()
-            print("sleep: pass, \(falling.count) tab(s) falling asleep: \(falling.map(\.displayTitle))")
+            let pass = manager.tabSleeper.idlePass()
+            print("archive: pass, \(pass.archived.count) tab(s) archived: \(SnapshotArchiveAction.describe(pass.archived))")
+            print("sleep: pass, \(pass.falling.count) tab(s) falling asleep: \(pass.falling.map(\.displayTitle))")
         case .memoryPressure(let level):
             Self.trackWebViews(in: manager)
             let before = Set(manager.controllers.flatMap(\.tabs).filter(\.isAsleep).map(\.id))
@@ -165,11 +168,11 @@ enum SnapshotSleepAction {
             let tab = controller.selectedTab
             print("zoom: \(tab.map { BrowserZoom.percent($0.zoom) } ?? "-") on \(tab?.webView.url?.host ?? "-")")
         case .keepAwake(let number):
-            guard let controller = manager.activeController, controller.tabs.indices.contains(number - 1) else {
+            guard let controller = manager.activeController, controller.visibleTabs.indices.contains(number - 1) else {
                 print("snapshot: no tab \(number)")
                 return
             }
-            let tab = controller.tabs[number - 1]
+            let tab = controller.visibleTabs[number - 1]
             guard let menu = controller.tabContextMenu(for: tab.id, closeAfterTitle: "Close Tabs Below"),
                   let item = menu.items.first(where: { $0.title == "Keep This Site Awake" }),
                   item.isEnabled
@@ -179,7 +182,7 @@ enum SnapshotSleepAction {
             }
             controller.toggleKeepAwakeFromMenu(item)
             let host = controller.keepAwakeKey(for: tab) ?? "-"
-            print("keep-awake: \(host) \(controller.sitePermissions.keepsAwake(host: host) ? "on" : "off")")
+            print("keep-awake: \(host) \(tab.dataContext.sitePermissions.keepsAwake(host: host) ? "on" : "off")")
         }
     }
 
@@ -235,8 +238,8 @@ enum SnapshotSleepAction {
             "awakeBecause": tab.isAsleep ? NSNull() : (controller.sleepExemption(tab)?.rawValue ?? "idle") as Any,
             "snapshotBytes": tab.lifecycle.sleep?.snapshot?.count ?? 0,
             "webContentPID": Int(processIdentifier(of: tab.webView)),
-            "siteZoom": host.flatMap { controller.sitePermissions.zoom(host: $0) } ?? NSNull(),
-            "keptAwake": controller.keepAwakeKey(for: tab).map(controller.sitePermissions.keepsAwake(host:)) ?? false,
+            "siteZoom": host.flatMap { tab.dataContext.sitePermissions.zoom(host: $0) } ?? NSNull(),
+            "keptAwake": controller.keepAwakeKey(for: tab).map(tab.dataContext.sitePermissions.keepsAwake(host:)) ?? false,
             "playingAudio": tab.isPlayingAudio,
         ]
     }

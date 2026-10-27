@@ -232,7 +232,7 @@ struct VimiumKeyMap {
             ("o / O", "open URL in this / new tab"),
             ("b / B", "open bookmark in this / new tab"),
             ("T", "search open tabs"),
-            (":", "command palette"),
+            (":", "Command Bar actions"),
             ("ge / gE", "edit URL in this / new tab"),
             ("H / L", "history back / forward"),
             ("gu / gU", "go up one level / to root"),

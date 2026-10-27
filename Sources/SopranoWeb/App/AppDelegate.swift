@@ -20,12 +20,18 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         themeManager.startDrivingApplicationAppearance()
 
         let support = BrowserFiles.supportDirectory()
+        let profiles = BrowserProfileStore(url: support.appendingPathComponent("profiles.json"))
         let manager = BrowserWindowManager(
             themeManager: themeManager,
             settingsStore: settingsStore,
-            profiles: BrowserProfileStore(url: support.appendingPathComponent("profiles.json")),
+            profiles: profiles,
             supportDirectory: support,
-            bookmarks: BrowserBookmarkStore(url: support.appendingPathComponent("bookmarks.json")),
+            spaces: BrowserSpaceStore(
+                url: support.appendingPathComponent("spaces.json"),
+                profiles: profiles.profiles,
+                bookmarksURL: support.appendingPathComponent("bookmarks.json")
+            ),
+            archive: BrowserArchiveStore(url: support.appendingPathComponent("archive.json")),
             downloads: BrowserDownloadStore(url: support.appendingPathComponent("downloads.json")),
             faviconStore: BrowserFaviconStore(),
             sessionStore: BrowserSessionStore(url: support.appendingPathComponent("session.json"))

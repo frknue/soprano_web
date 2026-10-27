@@ -96,7 +96,7 @@ enum SnapshotPageTools {
         if let selector = options.contextMenu {
             openContextMenu(on: selector, in: webView, window: window, pick: options.contextMenuPick)
             if options.contextMenuPick != nil {
-                let tabs = controller.tabs.map { $0.webView.url?.absoluteString ?? $0.pendingURL ?? "start page" }
+                let tabs = controller.visibleTabs.map { $0.webView.url?.absoluteString ?? $0.pendingURL ?? "start page" }
                 print("  tabs: \(tabs), selected index \(controller.selectedIndex)")
                 for record in controller.downloads.records {
                     print("  download \(record.filename) \(record.state) \(record.path ?? "-")")

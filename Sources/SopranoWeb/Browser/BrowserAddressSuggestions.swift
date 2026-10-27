@@ -11,7 +11,8 @@ struct AddressSuggestion: Equatable, Sendable {
         case bookmark
         /// The typed or inline-completed address itself.
         case url
-        /// `Search “query”` with the configured engine.
+        /// `Search “query”` with the configured engine, or `Search Engine
+        /// for “query”` for a "keyword query".
         case search
         /// A phrase from the search engine's suggestion service.
         case searchSuggestion
@@ -19,7 +20,10 @@ struct AddressSuggestion: Equatable, Sendable {
 
     enum Target: Equatable, Sendable {
         case url(String)
+        /// The default engine's search.
         case search(String)
+        /// "keyword query": that engine's search.
+        case keywordSearch(engine: BrowserSearchEngineID, query: String)
         case tab(UUID)
     }
 
@@ -52,10 +56,11 @@ struct AddressSuggestionInput: Sendable {
     var query: String
     /// History's candidates for the query (`BrowserHistoryStore.suggestionCandidates`).
     var history: [BrowserHistoryPage] = []
-    var bookmarks: [BrowserBookmark] = []
+    /// The window's current Space's pins.
+    var pins: [BrowserPin] = []
     /// Open tabs other than the selected one.
     var tabs: [AddressSuggestionTab] = []
-    var searchEngine: SearchEngine = .duckDuckGo
+    var searchEngines: BrowserSearchEngines = .default
     var remoteSuggestions: [String] = []
     /// False after a deletion, so backspace never re-completes.
     var allowsInlineCompletion = true
@@ -63,23 +68,23 @@ struct AddressSuggestionInput: Sendable {
 }
 
 extension AddressSuggestionInput {
-    /// A window's suggestion sources: bookmarks, its own open tabs and the
-    /// search engine, plus History unless the window keeps History out (a
-    /// private window).
+    /// A window's suggestion sources: its Space's pins, its own open tabs
+    /// and the search engine, plus History unless the window keeps History
+    /// out (a private window).
     init(
         query: String,
         kind: BrowserWindowKind,
         history: [BrowserHistoryPage],
-        bookmarks: [BrowserBookmark],
+        pins: [BrowserPin],
         tabs: [AddressSuggestionTab],
-        searchEngine: SearchEngine
+        searchEngines: BrowserSearchEngines
     ) {
         self.init(
             query: query,
             history: kind.suggestsHistory ? history : [],
-            bookmarks: bookmarks,
+            pins: pins,
             tabs: tabs,
-            searchEngine: searchEngine
+            searchEngines: searchEngines
         )
     }
 }
@@ -90,33 +95,40 @@ enum AddressSuggestionEngine {
     static let maxTabRows = 3
     static let reservedSuggestionRows = 3
 
-    static func suggestions(for input: AddressSuggestionInput) -> AddressSuggestionResult {
-        let query = input.query.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !query.isEmpty else { return .empty }
-        let matcher = AddressQueryMatcher(query: query)
+    /// A History page or pin matching a query, ranked as the address bar
+    /// ranks them (the Command Bar's pins and history).
+    struct PageMatch: Equatable, Sendable {
+        var url: String
+        var title: String
+        /// The page is one of the pins passed in (its History merged in).
+        var isPinned: Bool
+        var tier: AddressQueryMatcher.Tier
+        var score: Double
+    }
 
-        // Local candidates, deduplicated by URL key; open tabs win, then
-        // bookmarks absorb the history of the same page.
-        var tabCandidates: [Candidate] = []
-        var tabKeys: Set<String> = []
-        for tab in input.tabs {
-            let key = AddressURLText.key(tab.url)
-            guard !key.isEmpty, !tabKeys.contains(key) else { continue }
-            tabKeys.insert(key)
-            tabCandidates.append(Candidate(
-                key: key,
-                url: tab.url,
-                title: tab.title,
-                kind: .switchToTab,
-                tabID: tab.id,
-                frecency: 0,
-                lastVisit: nil,
-                isBookmarked: false
-            ))
+    /// History and pins matching `query`, best first: the match tier (host
+    /// prefix > title word start > substring), then frecency plus the pin
+    /// bonus. One row per page (URL key).
+    static func rankedPages(query: String, history: [BrowserHistoryPage], pins: [BrowserPin]) -> [PageMatch] {
+        let trimmed = query.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return [] }
+        let candidates = Array(pageCandidates(history: history, pins: pins).values)
+        return rank(candidates, matcher: AddressQueryMatcher(query: trimmed)).map { ranked in
+            PageMatch(
+                url: ranked.candidate.url,
+                title: ranked.candidate.title,
+                isPinned: ranked.candidate.isBookmarked,
+                tier: ranked.tier,
+                score: ranked.score
+            )
         }
+    }
 
+    /// History pages and pins by URL key; a pin absorbs the History of the
+    /// same page.
+    fileprivate static func pageCandidates(history: [BrowserHistoryPage], pins: [BrowserPin]) -> [String: Candidate] {
         var pages: [String: Candidate] = [:]
-        for page in input.history {
+        for page in history {
             let key = AddressURLText.key(page.url)
             guard !key.isEmpty else { continue }
             let title = page.title.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -143,48 +155,88 @@ enum AddressSuggestionEngine {
                 )
             }
         }
-        for bookmark in input.bookmarks {
-            let key = AddressURLText.key(bookmark.url)
+        for pin in pins {
+            let key = AddressURLText.key(pin.url)
             guard !key.isEmpty else { continue }
             if var existing = pages[key] {
                 existing.isBookmarked = true
                 existing.kind = .bookmark
-                let title = bookmark.title.trimmingCharacters(in: .whitespacesAndNewlines)
+                let title = pin.title.trimmingCharacters(in: .whitespacesAndNewlines)
                 if !title.isEmpty { existing.title = title }
                 pages[key] = existing
             } else {
                 pages[key] = Candidate(
                     key: key,
-                    url: bookmark.url,
-                    title: bookmark.title.trimmingCharacters(in: .whitespacesAndNewlines),
+                    url: pin.url,
+                    title: pin.title.trimmingCharacters(in: .whitespacesAndNewlines),
                     kind: .bookmark,
                     tabID: nil,
                     frecency: 0,
-                    lastVisit: bookmark.addedAt,
+                    lastVisit: pin.addedAt,
                     isBookmarked: true
                 )
             }
         }
-        let pageCandidates = pages.values.filter { !tabKeys.contains($0.key) }
+        return pages
+    }
+
+    static func suggestions(for input: AddressSuggestionInput) -> AddressSuggestionResult {
+        let query = input.query.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !query.isEmpty else { return .empty }
+        let matcher = AddressQueryMatcher(query: query)
+
+        // Local candidates, deduplicated by URL key; open tabs win, then
+        // bookmarks absorb the history of the same page.
+        var tabCandidates: [Candidate] = []
+        var tabKeys: Set<String> = []
+        for tab in input.tabs {
+            let key = AddressURLText.key(tab.url)
+            guard !key.isEmpty, !tabKeys.contains(key) else { continue }
+            tabKeys.insert(key)
+            tabCandidates.append(Candidate(
+                key: key,
+                url: tab.url,
+                title: tab.title,
+                kind: .switchToTab,
+                tabID: tab.id,
+                frecency: 0,
+                lastVisit: nil,
+                isBookmarked: false
+            ))
+        }
+
+        let pages = Self.pageCandidates(history: input.history, pins: input.pins).values
+            .filter { !tabKeys.contains($0.key) }
 
         let rankedTabs = rank(tabCandidates, matcher: matcher)
-        var rankedPages = rank(pageCandidates, matcher: matcher)
+        var rankedPages = rank(Array(pages), matcher: matcher)
 
         // The first row is what Return opens without touching the arrows.
         let searchRow = AddressSuggestion(
             kind: .search,
             title: "Search “\(query)”",
-            detail: input.searchEngine.name,
+            detail: input.searchEngines.defaultEngine.name,
             target: .search(query),
             fillText: query
         )
         var tabRows = rankedTabs.prefix(maxTabRows).map(\.candidate)
         var defaultRow: AddressSuggestion
         var completionText: String?
-        let looksLikeAddress = AddressQueryMatcher.looksLikeAddress(query, engine: input.searchEngine)
+        let keywordSearch = input.searchEngines.resolve(query)
+        let looksLikeAddress = keywordSearch == nil && AddressQueryMatcher.looksLikeAddress(query)
 
-        if input.allowsInlineCompletion,
-           let completion = hostCompletion(matcher: matcher, ranked: rankedTabs + rankedPages)
+        if let keywordSearch {
+            // "d cats": the keyword's engine. The default engine's search
+            // for the whole text stays below as the search row.
+            defaultRow = AddressSuggestion(
+                kind: .search,
+                title: "Search \(keywordSearch.engine.name) for “\(keywordSearch.query)”",
+                detail: "",
+                target: .keywordSearch(engine: keywordSearch.engine.id, query: keywordSearch.query),
+                fillText: query
+            )
+        } else if input.allowsInlineCompletion,
+                  let completion = hostCompletion(matcher: matcher, ranked: rankedTabs + rankedPages)
         {
             completionText = completion.fieldText
             let rootKey = AddressURLText.key(completion.url)
@@ -205,7 +257,7 @@ enum AddressSuggestionEngine {
             }
             defaultRow.fillText = completion.fieldText
         } else if looksLikeAddress,
-                  let resolved = BrowserAddressResolver.resolve(query, searchEngine: input.searchEngine)
+                  let resolved = BrowserAddressResolver.address(for: query)
         {
             let address = resolved.absoluteString
             let key = AddressURLText.key(address)
@@ -415,11 +467,10 @@ struct AddressQueryMatcher {
     }
 
     /// True when the address bar would open the query as an address rather
-    /// than search for it.
-    static func looksLikeAddress(_ query: String, engine: SearchEngine) -> Bool {
-        let trimmed = query.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard let resolved = BrowserAddressResolver.resolve(trimmed, searchEngine: engine) else { return false }
-        return resolved != engine.searchURL(for: trimmed)
+    /// than search for it ("keyword query" is a search, so callers check
+    /// keywords first).
+    static func looksLikeAddress(_ query: String) -> Bool {
+        BrowserAddressResolver.address(for: query) != nil
     }
 
     private static func words(_ text: String) -> [Substring] {
@@ -500,12 +551,13 @@ enum AddressInlineCompletion {
 
 // MARK: - Search engine suggestions
 
-extension SearchEngine {
-    /// The engine's OpenSearch-style suggestion endpoint for `query`.
+extension BrowserSearchEngine {
+    /// A built-in engine's OpenSearch-style suggestion endpoint for
+    /// `query`; custom engines have none.
     func suggestionURL(for query: String) -> URL? {
         var components = URLComponents()
         components.scheme = "https"
-        switch self {
+        switch id {
         case .duckDuckGo:
             components.host = "duckduckgo.com"
             components.path = "/ac/"
@@ -524,6 +576,8 @@ extension SearchEngine {
             components.host = "api.bing.com"
             components.path = "/osjson.aspx"
             components.queryItems = [URLQueryItem(name: "query", value: query)]
+        default:
+            return nil
         }
         // `+` survives URLComponents unescaped and would read as a space.
         components.percentEncodedQuery = components.percentEncodedQuery?

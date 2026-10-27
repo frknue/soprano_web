@@ -2,128 +2,6 @@ import AppKit
 import WebKit
 
 extension BrowserWindowController {
-    // MARK: - Palette
-
-    func showCommandPalette() {
-        guard let window else { return }
-        let commands: [CommandItem] = [
-            CommandItem(
-                id: "new-tab",
-                icon: "plus",
-                label: "New Tab",
-                description: "Open the start page in a new tab",
-                shortcut: ["⌘T"]
-            ) { [weak self] in
-                self?.newTab(focusAddress: true)
-            },
-            CommandItem(
-                id: "close-tab",
-                icon: "xmark",
-                label: "Close Tab",
-                description: "Close the selected tab",
-                shortcut: ["⌘W"]
-            ) { [weak self] in
-                self?.closeSelectedTab()
-            },
-            CommandItem(
-                id: "reopen-tab",
-                icon: "arrow.uturn.backward",
-                label: "Reopen Closed Tab",
-                description: "Bring back the last closed tab",
-                shortcut: ["⇧⌘T"]
-            ) { [weak self] in
-                self?.reopenClosedTab()
-            },
-            CommandItem(
-                id: "focus-address",
-                icon: "character.cursor.ibeam",
-                label: "Focus Address Bar",
-                description: "Type a URL or search",
-                shortcut: ["⌘L"]
-            ) { [weak self] in
-                self?.focusAddressBar()
-            },
-            CommandItem(
-                id: "reload",
-                icon: "arrow.clockwise",
-                label: "Reload Page",
-                description: "Reload the selected page",
-                shortcut: ["⌘R"]
-            ) { [weak self] in
-                self?.reload()
-            },
-            CommandItem(
-                id: "find",
-                icon: "magnifyingglass",
-                label: "Find in Page",
-                description: "Search the current page",
-                shortcut: ["⌘F"]
-            ) { [weak self] in
-                self?.showFindBar()
-            },
-            CommandItem(
-                id: "bookmark",
-                icon: "star",
-                label: "Bookmark This Page",
-                description: "Add the page to bookmarks, or edit its bookmark",
-                shortcut: ["⌘D"]
-            ) { [weak self] in
-                self?.bookmarkCurrentPage()
-            },
-            CommandItem(
-                id: "history",
-                icon: "clock",
-                label: "Show History",
-                description: "Browse and search visited pages",
-                shortcut: ["⌘Y"]
-            ) { [weak self] in
-                self?.showSidebar(section: .history)
-            },
-            CommandItem(
-                id: "bookmarks",
-                icon: "bookmark",
-                label: "Show Bookmarks",
-                description: "Open the bookmark list",
-                shortcut: ["⌥⌘B"]
-            ) { [weak self] in
-                self?.showSidebar(section: .bookmarks)
-            },
-            CommandItem(
-                id: "downloads",
-                icon: "arrow.down.circle",
-                label: "Show Downloads",
-                description: "Open the download list",
-                shortcut: ["⌥⌘L"]
-            ) { [weak self] in
-                self?.showSidebar(section: .downloads)
-            },
-            CommandItem(
-                id: "clear-browsing-data",
-                icon: "trash",
-                label: "Clear Browsing Data…",
-                description: "History, cookies, website data and cache by time range",
-                shortcut: ["⇧⌘⌫"]
-            ) { [weak self] in
-                self?.showClearBrowsingData()
-            },
-            CommandItem(
-                id: "settings",
-                icon: "gearshape",
-                label: "Settings…",
-                description: "Search engine, homepage, theme",
-                shortcut: ["⌘,"]
-            ) { [weak self] in
-                self?.showSettings()
-            },
-        ]
-        palette.show(
-            relativeTo: window,
-            commands: commands,
-            placeholder: "Search commands…",
-            searchShortcut: ["⇧⌘P"]
-        )
-    }
-
     // MARK: - Automation
 
     /// Commands that never read the target tab's page, so they leave a
@@ -133,7 +11,8 @@ extension BrowserWindowController {
         "select-tab", "close-tab", "focus-address",
     ]
 
-    /// Runs one CLI request. `--tab n` targets that tab without selecting it.
+    /// Runs one CLI request. `--tab n` targets tab n of the current Space
+    /// (as `tabs` numbers them) without selecting it.
     func performAutomation(
         _ request: BrowserCommandRequest,
         completion: @escaping (Result<String, Error>) -> Void
@@ -142,13 +21,13 @@ extension BrowserWindowController {
         let arguments = request.arguments
         let target: BrowserTab?
         if let tabIndex = request.tabIndex {
-            guard tabIndex > 0, tabs.indices.contains(tabIndex - 1) else {
+            guard tabIndex > 0, visibleTabs.indices.contains(tabIndex - 1) else {
                 completion(.failure(BrowserAutomationError.invalidArguments(
                     "No tab \(tabIndex). Use `tabs` to list them."
                 )))
                 return
             }
-            target = tabs[tabIndex - 1]
+            target = visibleTabs[tabIndex - 1]
         } else {
             target = selectedTab
         }
@@ -170,7 +49,7 @@ extension BrowserWindowController {
             }
             guard let url = BrowserAddressResolver.resolve(
                 input,
-                searchEngine: settingsStore.settings.searchEngine
+                searchEngines: settingsStore.settings.searchEngines
             ) else {
                 completion(.failure(BrowserAutomationError.invalidArguments(
                     "Invalid browser address: \(input)"
@@ -215,7 +94,7 @@ extension BrowserWindowController {
             }
 
         case "tabs":
-            let lines = tabs.enumerated().map { index, tab in
+            let lines = visibleTabs.enumerated().map { index, tab in
                 let selected = tab.id == selectedTab?.id ? "*" : " "
                 return "\(selected) \(index + 1)\t\(tab.displayTitle)\t\(tab.state.url ?? "about:start")"
             }
@@ -229,7 +108,7 @@ extension BrowserWindowController {
 
         case "select-tab":
             guard let value = arguments.first, let number = Int(value), number > 0,
-                  tabs.indices.contains(number - 1)
+                  visibleTabs.indices.contains(number - 1)
             else {
                 completion(.failure(BrowserAutomationError.invalidArguments(
                     "Usage: soprano-web browser select-tab <n>"
@@ -241,11 +120,11 @@ extension BrowserWindowController {
 
         case "close-tab":
             let number = arguments.first.flatMap(Int.init) ?? request.tabIndex ?? (selectedIndex + 1)
-            guard tabs.indices.contains(number - 1) else {
+            guard visibleTabs.indices.contains(number - 1) else {
                 completion(.failure(BrowserAutomationError.invalidArguments("No tab \(number).")))
                 return
             }
-            closeTab(id: tabs[number - 1].id)
+            closeTab(id: visibleTabs[number - 1].id, archive: true)
             completion(.success("closed tab \(number)"))
 
         case "vimium":

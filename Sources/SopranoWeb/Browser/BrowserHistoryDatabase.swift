@@ -161,6 +161,33 @@ final class BrowserHistoryDatabase {
         try refreshAllFrecency(now: now)
     }
 
+    /// Adds the visits History doesn't hold yet, in one transaction: a
+    /// visit to the same address at the same time is a duplicate (a
+    /// re-import), so running an import twice adds nothing. No merging and
+    /// no frecency refresh (the importer refreshes once at the end).
+    func importNewVisits(_ visits: [BrowserHistoryImport]) throws -> (added: Int, skipped: Int) {
+        guard !visits.isEmpty else { return (0, 0) }
+        return try sql.transaction {
+            var added = 0
+            var skipped = 0
+            for visit in visits {
+                let time = visit.visitedAt.timeIntervalSince1970
+                if let urlID = try sql.scalar("SELECT id FROM urls WHERE url = ?1", [.text(visit.url)]),
+                   try sql.scalar(
+                       "SELECT 1 FROM visits WHERE url_id = ?1 AND visited_at = ?2 LIMIT 1",
+                       [.int(urlID), .double(time)]
+                   ) != nil
+                {
+                    skipped += 1
+                    continue
+                }
+                _ = try insertVisit(url: visit.url, title: visit.title, time: time, kind: visit.kind)
+                added += 1
+            }
+            return (added, skipped)
+        }
+    }
+
     private func insertVisit(url: String, title: String, time: Double, kind: BrowserVisitKind) throws -> Int64 {
         let typed: Int64 = kind == .typed ? 1 : 0
         guard let urlID = try sql.scalar("""

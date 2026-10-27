@@ -106,7 +106,9 @@ extension BrowserWindowController: WKUIDelegate {
     ) async -> WKPermissionDecision {
         let ended = promptBegan(for: webView)
         defer { ended() }
-        return await decideMediaCapture(origin: origin, type: type)
+        // The asking tab's profile remembers the answer.
+        let context = tab(for: webView)?.dataContext ?? dataContext
+        return await decideMediaCapture(origin: origin, type: type, in: context)
     }
 
     private func presentDialog(

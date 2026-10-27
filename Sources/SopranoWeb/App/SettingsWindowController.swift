@@ -30,6 +30,26 @@ final class SettingsWindowController: NSWindowController, NSTextFieldDelegate {
     var onShowWebsiteData: ((NSWindow) -> Void)?
     /// Presents Settings ▸ Profiles as a sheet on the given window.
     var onShowProfiles: ((NSWindow) -> Void)?
+    /// Presents Settings ▸ Links from other apps as a sheet on the given window.
+    var onShowLinkRouting: ((NSWindow) -> Void)?
+    /// Settings ▸ Search engine ▸ Manage…, while shown.
+    private var searchEnginesSheet: BrowserSearchEnginesSheet?
+    /// Settings ▸ Keyboard shortcuts ▸ Customize…, while shown.
+    private var shortcutsSheet: BrowserShortcutsSheet?
+    private lazy var shortcutsButton: ChromeButton = {
+        let button = ChromeButton(title: "Customize…", theme: theme, kind: .standard)
+        button.target = self
+        button.action = #selector(shortcutsPressed)
+        button.widthAnchor.constraint(equalToConstant: 200).isActive = true
+        return button
+    }()
+    private lazy var searchEnginesButton: ChromeButton = {
+        let button = ChromeButton(title: "Manage…", theme: theme, kind: .standard)
+        button.target = self
+        button.action = #selector(searchEnginesPressed)
+        button.widthAnchor.constraint(equalToConstant: 92).isActive = true
+        return button
+    }()
     private lazy var autoplayButton: ChromeButton = {
         let button = ChromeButton(title: settingsStore.settings.autoplay.name, theme: theme, kind: .standard)
         button.target = self
@@ -85,6 +105,13 @@ final class SettingsWindowController: NSWindowController, NSTextFieldDelegate {
         button.widthAnchor.constraint(equalToConstant: 200).isActive = true
         return button
     }()
+    private lazy var linkRoutingButton: ChromeButton = {
+        let button = ChromeButton(title: "Manage…", theme: theme, kind: .standard)
+        button.target = self
+        button.action = #selector(linkRoutingPressed)
+        button.widthAnchor.constraint(equalToConstant: 200).isActive = true
+        return button
+    }()
     private lazy var blockAdsSwitch = ChromeSwitch(
         isOn: settingsStore.settings.blockAdsAndTrackers,
         theme: theme,
@@ -110,7 +137,7 @@ final class SettingsWindowController: NSWindowController, NSTextFieldDelegate {
         self.contentBlocker = contentBlocker
         self.theme = themeManager.currentTheme
         self.engineButton = ChromeButton(
-            title: settingsStore.settings.searchEngine.name,
+            title: settingsStore.settings.defaultSearchEngine.name,
             theme: theme,
             kind: .standard,
             target: nil,
@@ -172,7 +199,7 @@ final class SettingsWindowController: NSWindowController, NSTextFieldDelegate {
         self.websiteDataButton = ChromeButton(title: "Manage…", theme: theme, kind: .standard)
         self.defaultBrowserButton = ChromeButton(title: "Make Default", theme: theme, kind: .standard)
         let window = NSWindow(
-            contentRect: NSRect(x: 0, y: 0, width: 620, height: 860),
+            contentRect: NSRect(x: 0, y: 0, width: 620, height: 898),
             styleMask: [.titled, .closable, .fullSizeContentView],
             backing: .buffered,
             defer: false
@@ -184,7 +211,7 @@ final class SettingsWindowController: NSWindowController, NSTextFieldDelegate {
         window.titlebarAppearsTransparent = true
         window.isReleasedWhenClosed = false
         window.backgroundColor = theme.colors.bgBase
-        window.minSize = NSSize(width: 620, height: 860)
+        window.minSize = NSSize(width: 620, height: 898)
 
         rootView.wantsLayer = true
         window.contentView = rootView
@@ -251,7 +278,7 @@ final class SettingsWindowController: NSWindowController, NSTextFieldDelegate {
         pathLabel.setContentHuggingPriority(.defaultLow, for: .horizontal)
 
         let rows: [[NSView]] = [
-            [rowLabel("Search engine"), engineButton],
+            [rowLabel("Search engine"), searchEngineRow()],
             [rowLabel("Include search engine suggestions"), suggestionsSwitch],
             [rowLabel("Homepage"), homepageFrame],
             [rowLabel("Theme"), themeButton],
@@ -266,16 +293,17 @@ final class SettingsWindowController: NSWindowController, NSTextFieldDelegate {
             [rowLabel("Autoplay"), autoplayButton],
             [rowLabel("Notifications"), notificationsRow()],
             [rowLabel("Block ads and trackers"), contentBlockingRow()],
+            [rowLabel("Keyboard shortcuts"), shortcutsButton],
             [rowLabel("Profiles"), profilesButton],
             [rowLabel("Websites"), websitesButton],
             [rowLabel("Website data"), websiteDataButton],
             [rowLabel("Default browser"), defaultBrowserRow()],
+            [rowLabel("Links from other apps"), linkRoutingButton],
         ]
         let grid = NSGridView(views: rows)
         grid.translatesAutoresizingMaskIntoConstraints = false
-        // 19 rows; the window stays under 900 pt for small displays.
-        grid.rowSpacing = 12
-        grid.columnSpacing = 18
+        // 21 rows; the window stays under 900 pt for small displays.
+        grid.rowSpacing = 10
         grid.column(at: 0).xPlacement = .trailing
         grid.column(at: 1).xPlacement = .fill
         rootView.addSubview(grid)
@@ -354,6 +382,15 @@ final class SettingsWindowController: NSWindowController, NSTextFieldDelegate {
         return stack
     }
 
+    /// The default engine's menu and Manage… (custom engines and keywords).
+    private func searchEngineRow() -> NSView {
+        let stack = NSStackView(views: [engineButton, searchEnginesButton])
+        stack.orientation = .horizontal
+        stack.spacing = 8
+        stack.alignment = .centerY
+        return stack
+    }
+
     private func defaultBrowserRow() -> NSView {
         let stack = NSStackView(views: [defaultBrowserLabel, defaultBrowserButton])
         stack.orientation = .horizontal
@@ -386,6 +423,10 @@ final class SettingsWindowController: NSWindowController, NSTextFieldDelegate {
             label.textColor = theme.colors.textMuted
         }
         engineButton.apply(theme: theme)
+        searchEnginesButton.apply(theme: theme)
+        searchEnginesSheet?.apply(theme: theme)
+        shortcutsButton.apply(theme: theme)
+        shortcutsSheet?.apply(theme: theme)
         themeButton.apply(theme: theme)
         appearanceButton.apply(theme: theme)
         downloadButton.apply(theme: theme)
@@ -403,6 +444,7 @@ final class SettingsWindowController: NSWindowController, NSTextFieldDelegate {
         notificationsLabel.textColor = theme.colors.textPrimary
         websitesButton.apply(theme: theme)
         profilesButton.apply(theme: theme)
+        linkRoutingButton.apply(theme: theme)
         askDownloadSwitch.apply(theme: theme)
         blockAdsSwitch.apply(theme: theme)
         updateListsButton.apply(theme: theme)
@@ -423,7 +465,7 @@ final class SettingsWindowController: NSWindowController, NSTextFieldDelegate {
     }
 
     private func refresh() {
-        engineButton.title = settingsStore.settings.searchEngine.name
+        engineButton.title = settingsStore.settings.defaultSearchEngine.name
         themeButton.title = AppTheme.options.first { $0.id == settingsStore.settings.themeID }?.name
             ?? settingsStore.settings.themeID
         appearanceButton.title = settingsStore.settings.appearance.name
@@ -445,16 +487,54 @@ final class SettingsWindowController: NSWindowController, NSTextFieldDelegate {
     }
 
     @objc private func enginePressed() {
-        let current = settingsStore.settings.searchEngine
+        let engines = settingsStore.settings.searchEngines
         showMenu(
             from: engineButton,
-            items: SearchEngine.allCases.map { engine in
-                (engine.name, engine == current, { [weak self] in
-                    self?.settingsStore.update { $0.searchEngine = engine }
+            items: engines.all.map { engine in
+                (engine.name, engine.id == engines.defaultID, { [weak self] in
+                    self?.settingsStore.update { $0.searchEngines.setDefault(engine.id) }
                     self?.refresh()
                 })
             }
         )
+    }
+
+    /// Opens Settings ▸ Search engine ▸ Manage… as a sheet on Settings.
+    @objc func searchEnginesPressed() {
+        guard let window, searchEnginesSheet == nil else { return }
+        let sheet = BrowserSearchEnginesSheet(settingsStore: settingsStore, theme: theme)
+        guard let sheetWindow = sheet.window else { return }
+        searchEnginesSheet = sheet
+        window.beginSheet(sheetWindow) { [weak self] _ in
+            self?.searchEnginesSheet = nil
+            // A deleted default engine fell back to DuckDuckGo.
+            self?.refresh()
+        }
+    }
+
+    /// Opens Settings ▸ Keyboard shortcuts ▸ Customize… as a sheet on
+    /// Settings.
+    @objc func shortcutsPressed() {
+        guard let window, shortcutsSheet == nil else { return }
+        let sheet = BrowserShortcutsSheet(settingsStore: settingsStore, theme: theme)
+        guard let sheetWindow = sheet.window else { return }
+        shortcutsSheet = sheet
+        window.beginSheet(sheetWindow) { [weak self] _ in
+            self?.shortcutsSheet = nil
+        }
+    }
+
+    /// Shows `page`: the sheet it names on Settings (none for General).
+    func show(_ page: BrowserSettingsPage) {
+        guard let window, window.attachedSheet == nil else { return }
+        switch page {
+        case .general: break
+        case .searchEngines: searchEnginesPressed()
+        case .shortcuts: shortcutsPressed()
+        case .profiles: onShowProfiles?(window)
+        case .websites: onShowWebsites?(window)
+        case .websiteData: onShowWebsiteData?(window)
+        }
     }
 
     @objc private func themePressed() {
@@ -708,6 +788,11 @@ extension SettingsWindowController {
     @objc private func profilesPressed() {
         guard let window else { return }
         onShowProfiles?(window)
+    }
+
+    @objc private func linkRoutingPressed() {
+        guard let window else { return }
+        onShowLinkRouting?(window)
     }
 }
 

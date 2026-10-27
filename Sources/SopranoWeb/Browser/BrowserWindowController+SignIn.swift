@@ -11,12 +11,15 @@ extension BrowserWindowController {
         completionHandler: @escaping @MainActor @Sendable (URLSession.AuthChallengeDisposition, URLCredential?) -> Void
     ) {
         let space = challenge.protectionSpace
+        // The asking tab's profile's certificate exceptions and choices.
+        let context = tab(for: webView)?.dataContext ?? dataContext
+        let security = context.connectionSecurity
         switch BrowserChallengeRoute(authenticationMethod: space.authenticationMethod) {
         case .credentials:
             // The tab stays awake while its sign-in sheet waits.
             let ended = promptBegan(for: webView)
             credentialPrompts.requests.append(
-                BrowserConnectionSecurity.CredentialRequest(challenge: challenge) { disposition, credential in
+                BrowserConnectionSecurity.CredentialRequest(challenge: challenge, contextID: context.id) { disposition, credential in
                     ended()
                     completionHandler(disposition, credential)
                 }
@@ -25,10 +28,10 @@ extension BrowserWindowController {
                 presentNextCredentialSheet()
             }
         case .clientCertificate:
-            answerClientCertificateChallenge(challenge, completion: completionHandler)
+            answerClientCertificateChallenge(challenge, security: security, completion: completionHandler)
         case .serverTrust:
             if let trust = space.serverTrust,
-               connectionSecurity.exceptions.contains(host: space.host, trust: trust)
+               security.exceptions.contains(host: space.host, trust: trust)
             {
                 completionHandler(.useCredential, URLCredential(trust: trust))
             } else {
@@ -42,14 +45,15 @@ extension BrowserWindowController {
     // MARK: - HTTP sign-in sheet
 
     /// Shows the sheet for the oldest waiting challenge. Every waiting
-    /// challenge for the same protection space gets the same answer, so a
-    /// page and its subresources ask once.
+    /// challenge for the same protection space in the same data context
+    /// gets the same answer, so a page and its subresources ask once.
     private func presentNextCredentialSheet() {
         guard let request = credentialPrompts.requests.first else { return }
         let challenge = request.challenge
         let space = challenge.protectionSpace
+        let contextID = request.contextID
         guard let window else {
-            finishCredentialRequests(for: space, disposition: .performDefaultHandling, credential: nil)
+            finishCredentialRequests(for: space, in: contextID, disposition: .performDefaultHandling, credential: nil)
             return
         }
 
@@ -100,6 +104,7 @@ extension BrowserWindowController {
             if response == .alertFirstButtonReturn {
                 self.finishCredentialRequests(
                     for: space,
+                    in: contextID,
                     disposition: .useCredential,
                     credential: URLCredential(
                         user: userField.stringValue,
@@ -110,7 +115,7 @@ extension BrowserWindowController {
             } else {
                 // Continuing without a credential lets WebKit show the
                 // server's own 401 page instead of a dead load.
-                self.finishCredentialRequests(for: space, disposition: .useCredential, credential: nil)
+                self.finishCredentialRequests(for: space, in: contextID, disposition: .useCredential, credential: nil)
             }
             self.presentNextCredentialSheet()
         }
@@ -118,11 +123,15 @@ extension BrowserWindowController {
 
     private func finishCredentialRequests(
         for space: URLProtectionSpace,
+        in contextID: UUID,
         disposition: URLSession.AuthChallengeDisposition,
         credential: URLCredential?
     ) {
-        let matching = credentialPrompts.requests.filter { $0.challenge.protectionSpace == space }
-        credentialPrompts.requests.removeAll { $0.challenge.protectionSpace == space }
+        let answers = { (request: BrowserConnectionSecurity.CredentialRequest) in
+            request.challenge.protectionSpace == space && request.contextID == contextID
+        }
+        let matching = credentialPrompts.requests.filter(answers)
+        credentialPrompts.requests.removeAll(where: answers)
         for request in matching {
             request.completion(disposition, credential)
         }
@@ -136,11 +145,13 @@ extension BrowserWindowController {
 
     // MARK: - Client certificates
 
-    /// Uses the identity chosen for this host earlier in the session, or asks
-    /// with the system identity chooser. Without a matching identity in the
-    /// keychain the connection continues without one.
+    /// Uses the identity chosen for this host earlier in the session (in
+    /// the tab's profile, `security`), or asks with the system identity
+    /// chooser. Without a matching identity in the keychain the connection
+    /// continues without one.
     private func answerClientCertificateChallenge(
         _ challenge: URLAuthenticationChallenge,
+        security connectionSecurity: BrowserConnectionSecurity,
         completion: @escaping BrowserConnectionSecurity.ChallengeCompletion
     ) {
         let host = BrowserCertificateExceptions.normalized(challenge.protectionSpace.host)
@@ -161,8 +172,7 @@ extension BrowserWindowController {
         let panel = SFChooseIdentityPanel.shared()!
         panel.setAlternateButtonTitle("Continue Without")
         panel.setInformativeText("The certificate you choose is used for \(host) until Soprano Web quits.")
-        let target = BrowserSheetEndTarget { [weak self] returnCode in
-            guard let self else { return }
+        let target = BrowserSheetEndTarget { returnCode in
             let choice: BrowserConnectionSecurity.IdentityChoice
             if returnCode == NSApplication.ModalResponse.OK.rawValue,
                let identity = panel.identity()?.takeUnretainedValue()
@@ -171,8 +181,8 @@ extension BrowserWindowController {
             } else {
                 choice = .none
             }
-            self.connectionSecurity.identityChoices[host] = choice
-            let waiting = self.connectionSecurity.pendingIdentityRequests.removeValue(forKey: host) ?? []
+            connectionSecurity.identityChoices[host] = choice
+            let waiting = connectionSecurity.pendingIdentityRequests.removeValue(forKey: host) ?? []
             for completion in waiting {
                 Self.answer(choice, completion: completion)
             }
@@ -297,7 +307,7 @@ extension BrowserWindowController {
                   let trust = interstitial.trust,
                   let fingerprint = BrowserCertificateExceptions.fingerprint(of: trust)
             else { return }
-            connectionSecurity.exceptions.add(host: interstitial.host, fingerprint: fingerprint)
+            tab.dataContext.connectionSecurity.exceptions.add(host: interstitial.host, fingerprint: fingerprint)
             tab.certificateInterstitial = nil
             navigate(tab, to: interstitial.failedURL)
         }
@@ -351,7 +361,7 @@ extension BrowserWindowController {
             hasOnlySecureContent: webView.hasOnlySecureContent,
             hasServerTrust: webView.serverTrust != nil,
             isExcepted: url?.scheme?.lowercased() == "https"
-                && connectionSecurity.exceptions.contains(host: url?.host, trust: webView.serverTrust)
+                && tab.dataContext.connectionSecurity.exceptions.contains(host: url?.host, trust: webView.serverTrust)
         )
     }
 

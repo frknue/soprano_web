@@ -11,57 +11,6 @@ struct BrowserStoreTests {
         return url
     }
 
-    @Test func bookmarksAndFoldersPersist() {
-        let directory = temporaryDirectory()
-        defer { try? FileManager.default.removeItem(at: directory) }
-        let url = directory.appendingPathComponent("bookmarks.json")
-        let store = BrowserBookmarkStore(url: url)
-
-        let example = store.addBookmark(url: "https://example.com", title: "Example")
-        #expect(store.isBookmarked("https://example.com"))
-        store.remove(id: example.id)
-        #expect(store.bookmarks.isEmpty)
-
-        let work = store.addFolder(name: "Work")
-        store.addBookmark(url: "https://example.com", title: "Example", to: work.id)
-        let reloaded = BrowserBookmarkStore(url: url)
-        #expect(reloaded.bookmarks.map(\.title) == ["Example"])
-        #expect(reloaded.entries.first?.path == ["Work"])
-        #expect(reloaded.tree.folder(id: work.id)?.name == "Work")
-    }
-
-    @Test func bookmarkSearchMatchesTitlesAddressesAndFolderNames() {
-        let directory = temporaryDirectory()
-        defer { try? FileManager.default.removeItem(at: directory) }
-        let store = BrowserBookmarkStore(url: directory.appendingPathComponent("bookmarks.json"))
-        let work = store.addFolder(name: "Work")
-        let docs = store.addFolder(name: "Docs", in: work.id)
-        store.addBookmark(url: "https://developer.apple.com/documentation/webkit", title: "WebKit", to: docs.id)
-        store.addBookmark(url: "https://example.com", title: "Example")
-
-        #expect(store.matching("webkit").map(\.pathText) == ["Work › Docs"])
-        #expect(store.matching("example.com").map(\.pathText) == ["Bookmarks"])
-        #expect(store.matching("work").map(\.bookmark.title) == ["WebKit"])
-        #expect(store.matching(" ").count == 2)
-    }
-
-    @Test func bookmarkUIStateRemembersExpandedFoldersAndTheLastFolder() {
-        let suite = "SopranoWebTests-\(UUID().uuidString)"
-        let defaults = UserDefaults(suiteName: suite)!
-        defer { defaults.removePersistentDomain(forName: suite) }
-        let work = UUID()
-        let docs = UUID()
-        let state = BrowserBookmarkUIState(defaults: defaults)
-        state.setExpanded(true, folder: work)
-        state.setExpanded(true, folder: docs)
-        state.setExpanded(false, folder: docs)
-        state.lastFolderID = docs
-
-        let reopened = BrowserBookmarkUIState(defaults: defaults)
-        #expect(reopened.expandedFolders == [work])
-        #expect(reopened.lastFolderID == docs)
-    }
-
     @Test func downloadProgressIsInMemoryUntilFinished() {
         let directory = temporaryDirectory()
         defer { try? FileManager.default.removeItem(at: directory) }
@@ -91,8 +40,8 @@ struct BrowserStoreTests {
         return (object?["version"] as? Int, (object?["entries"] as? [Any])?.count)
     }
 
-    /// Bookmarks' bare arrays migrate to the version 2 tree
-    /// (`BrowserBookmarkFileTests`).
+    /// Stage 1's bookmark bare arrays migrate into a Space's pins
+    /// (`BrowserSpaceStoreTests`).
     @Test func legacyBareArrayListsLoadAndAreRewrittenAsEnvelopes() throws {
         let directory = temporaryDirectory()
         defer { try? FileManager.default.removeItem(at: directory) }

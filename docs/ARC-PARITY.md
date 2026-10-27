@@ -83,10 +83,10 @@ Status of Soprano Web: **done**, **partial**, **missing**, **broken**. `BWC` =
 | Feature | Arc | Soprano Web | WebKit path | Roadmap |
 |---|---|---|---|---|
 | Suggestions, inline completion | history, tabs, search suggestions; Tab enters site search | missing: plain `NSTextField`; stale text while focused (`BrowserToolbarView.swift:168-171`) | app; history needs visit/typed counts | 1 |
-| Command Bar | ⌘T, actions, Spaces, settings | partial: ⌘P palette and Vimium omnibar, separate from the address field | app; one command registry | 3 |
+| Command Bar | ⌘T, actions, Spaces, settings | done: ⌘T/⌘L Command Bar in the window (tabs, pins, History, Spaces, `/` actions, settings, site search) from one registry (`BrowserCommands.swift`) | app; one command registry | — |
 | Search engines | Chromium list, custom `%s` engines, site search | partial: 3 fixed engines | app | 3 |
-| Copy URL / as Markdown | ⇧⌘C / ⌥⇧⌘C | partial: Vimium `yy` | `NSPasteboard` | 3 |
-| Custom shortcuts | Settings › Shortcuts, conflict priority (Arc wins / site wins / press twice) | missing: hard-coded (`App/MainMenu.swift`) | app | 3 |
+| Copy URL / as Markdown | ⇧⌘C / ⌥⇧⌘C | done | `NSPasteboard` | — |
+| Custom shortcuts | Settings › Shortcuts, conflict priority (Arc wins / site wins / press twice) | done: Settings ▸ Keyboard shortcuts; Site wins via WebKit's unhandled-key hand-back plus a page `keydown` report | app | — |
 
 ### Page
 

@@ -41,7 +41,7 @@ no linter or formatter; match surrounding style.
 
   ```bash
   taskpolicy -b .build/debug/SopranoWeb snapshot --out /tmp/sw.png --size 1440x900 \
-      --theme folio-paper [--url <url>] [--sidebar history|bookmarks|downloads] \
+      --theme folio-paper [--url <url>] [--sidebar history|archive|downloads] \
       [--find] [--settings] [--vertical-tabs] [--collapsed] [--print-tabs] …
   ```
 
@@ -57,7 +57,7 @@ no linter or formatter; match surrounding style.
   sheets, session restore and crashes, address-bar typing, tab audio and hover,
   site permissions, print/PDF/save and context menus, Clear Browsing Data and
   downloads. Window flags run in order on the active window:
-  `--session <file>` restores a version 1 or 2 session (every window),
+  `--session <file>` restores a version 1, 2 or 3 session (every window),
   `--add-profile <name>` (repeatable) creates a profile before any window
   opens, `--new-window <url|start>` (repeatable) opens another window,
   cascaded, in the active window's profile or, after `--profile <name>`, in
@@ -76,9 +76,16 @@ no linter or formatter; match surrounding style.
   `--click-page [cmd-|shift-cmd-|middle-]X,Y` (a real click into the active
   window's page, e.g. to open a pop-up window or a background tab),
   `--find-text <text>`, `--cli "<browser arguments>"` (one CLI request
-  through the router), `--start-download <url>` / `--wait-downloads`, and
+  through the router), `--start-download <url>` / `--wait-downloads`,
+  `--create-space <name>[:<profile>]` (repeatable; made before the first
+  window, after the profiles), `--space <n|name>` (what `browser space`
+  runs), `--swipe-rail next|previous` (a two-finger swipe's scroll events
+  fed to the rail), `--print-spaces` (one JSON line: every Space with its
+  profile, color, icon, pin count and each window's tabs and selection in
+  it), and
   `--print-windows` prints every window (kind `normal`/`private`, profile
-  and the mark its chrome shows, CLI number, frame, page size, pop-up flag,
+  and the mark its chrome shows, current Space and each Space's remembered
+  selection, CLI number, frame, page size, pop-up flag,
   find query, tabs with back/forward lists and zoom, its own closed tabs, the
   cookies and website data records of its data store and the store's
   identifier), the default store's cookies and records, Default's history
@@ -93,26 +100,71 @@ no linter or formatter; match surrounding style.
   one; numbers count private windows, unlike the CLI's). The harness's
   support folder is a temporary one, so profile folders go with it; it
   deletes every profile it made before exiting, so no WebKit data store is
-  left behind. Bookmark flags: `--sidebar` seeds a bookmark tree (nested
-  folders, an empty one) when there are no bookmarks, `--bookmarks-tree`
-  seeds it before the first window (the start page's folder cards),
-  `--bookmarks-file <json>` starts from that `bookmarks.json` (a version 1
-  file migrates), `--expand-folder <name|all>` (repeatable) opens outline
-  folders, `--bookmark-drop <title>:on|above:<row>` (repeatable) runs the
-  outline's drop handler (`performBookmarkDrop`, what a real drop calls; rows
-  as `--print-bookmarks` numbers them; prints moved or refused),
-  `--bookmark-search <text>` types into the sidebar search,
-  `--bookmark-folder <name>` sets ⌘D's last-used folder,
-  `--bookmark-popover` runs ⌘D on the selected page and draws its popover
-  into the capture (built in the offscreen window, never a shown panel) and
-  `--print-bookmarks` prints the tree, the outline rows, Vimium's `b` lines,
-  the file version and the Bookmarks menu as text. Sleep and zoom flags:
+  left behind. Pin flags (every one works on the active window's current
+  Space and the rail's pinned outline; a private window's is its profile's
+  first): `--pins-tree` seeds a pinned tree (nested folders, an empty one)
+  into Default's Space before the first window (the start page's folder
+  cards), `--bookmarks-file <json>` starts from that stage 2
+  `bookmarks.json` (version 1 or 2; it migrates into Default's Space),
+  `--expand-folder <name|all>` (repeatable) opens the rail's outline folders,
+  `--pin-drop <title>:on|above:<row>` (repeatable) runs the outline's drop
+  handler (`performBookmarkDrop`, what a real drop on the rail calls; rows
+  as `--print-pins` numbers them; prints moved or refused), `--pin-preview
+  <folder>` opens the rail's hover preview of that folder and draws it into
+  the capture, `--pin-search <text>` types into the preview's search (the
+  first folder's without `--pin-preview`) and prints a `pin-search:` line
+  per match it shows (at most 10), `--pin-folder <name>` sets ⌘D's
+  last-used folder in the Space, `--pin-popover` runs ⌘D on the selected
+  page and draws its popover into the capture (built in the offscreen
+  window, never a shown panel), `--space-sheet new|<space>[=<name>|<icon>|<color>|<profile>]`
+  captures the New Space (or that Space's Edit Space) sheet, filled but not
+  saved, and `--print-pins` prints every Space
+  (`space:` with profile, color, icon and pin count), each profile's
+  favorites count and archive time, the current Space's tree, the rail's
+  outline rows, Vimium's `b` lines, `spaces.json`'s version and the migrated
+  `bookmarks.json` copy, and the Spaces menu as text. Rail actions (in order
+  with the window actions, through the handlers a real click calls):
+  `--click-pin <title>[:icon|:cmd-icon]` (the pin's row, its icon — reset —
+  or ⌘ on its icon — reset, keeping the page in a new Today tab; a folder's
+  title opens or closes it; prints the selected tab with its id and the
+  tab count before and after),
+  `--click-favorite <n|title>[:cmd]`, the selected tab's menu items
+  `--pin-tab`, `--unpin-tab`, `--add-favorite`, `--remove-favorite`,
+  `--replace-pin`, `--new-space "<name>|<icon>|<color>|<profile>"` (the
+  switcher's "+" sheet, filled, Create Space pressed; empty parts keep its
+  defaults), `--edit-space "<space>=<name>|<icon>|<color>|<profile>"`,
+  `--delete-space <name>` (confirmed; a profile's last Space is refused),
+  `--hover-folder <name>` (the folder preview resting on its row opens),
+  `--toggle-rail` (⌘S) and `--print-rail` (one `rail:` JSON line: header,
+  favorites, pinned rows and Today tabs with live, selected and "/" state,
+  the switcher and the Spaces in its More Spaces menu, every tab of the
+  Space with its link, the open folder preview and the Recently Closed
+  count). `--close-tab`
+  (⌘W) on a pinned or favorite tab unloads it to its pin; on a Today tab
+  it also archives it. Archive flags (actions, in order): `--archive-today`
+  (⇧⌘K), `--restore-archived <n|title>` (a click on Archive row n of the
+  active window's profile, or the one titled so; prints the window's Space
+  before and after and the selected tab), `--archive-search <text>` (shows
+  the sidebar's Archive and types into its search; prints each row with
+  its Space), `--archive-after <choice>[:<profile>]` (Settings ▸ Profiles ▸
+  "Archive Today tabs after", the menu item's action; `never`, `days30`,
+  `days7`, `hours24`, `hours12`, `hours6`, `hour1`) and `--print-archive`
+  (one `archive:` JSON line: every entry with Space, profile, reason, time
+  and favicon key, newest first, and `archive.json`'s version and count);
+  `--archive-seed <n>` (n entries through the importers' `insert`) and
+  `--archive-batch <n>` (n more in one `archive(_:)` call, ⇧⌘K's and the
+  idle pass's single write) print their time; `--archive-today` prints
+  its time too.
+  `--sidebar archive` seeds sample entries over several days into
+  Default's Spaces when the Archive is empty. Sleep and zoom flags:
   `--sleep-after <seconds>` (a test threshold; the idle pass runs on the
   real timer four times per threshold), `--tab-sleep <setting>`,
   `--default-zoom <percent>`, `--support-dir <dir>` (a support folder kept
   after the run, so a second run sees saved zoom), and the actions
-  `--advance-clock <seconds>` (the injectable sleep clock, then the idle
-  pass), `--sleep-pass`, `--memory-pressure warning|critical` (the pressure
+  `--advance-clock <seconds>` (the injectable idle clock, then the idle
+  pass: `archive:` lists the Today tabs archived with their times, then
+  `sleep:` the tabs falling asleep), `--sleep-pass` (the same pass now),
+  `--memory-pressure warning|critical` (the pressure
   source's path), `--zoom-in` / `--zoom-out` / `--zoom-reset` (⌘+ ⌘- ⌘0) and
   `--keep-awake <n>` (the tab menu item). `--print-windows` then shows per
   tab `asleep`, `awakeBecause` (the exemption or `idle`), `snapshotBytes`,
@@ -138,6 +190,61 @@ no linter or formatter; match surrounding style.
   backgrounds
   on views unhidden after first display may not appear in the cached AppKit
   pass; that is a harness limitation, not the app.
+  Search engine flags (before the first window): `--search-engine
+  "<name>|<keyword>|<url with %s>"` (repeatable; saved like Settings ▸
+  Search engine ▸ Manage… saves one, or `search-engine: refused` with the
+  reason), `--search-engine-keyword <name|id>=<keyword>` (repeatable; a
+  built-in's keyword), `--default-search-engine <keyword|name>` and
+  `--search-engines-sheet` (captures Manage…); each prints
+  `search-engines:` (every engine, `*` before the default). `--address
+  "w cats"` with an engine keyed `w` shows the keyword row first in
+  `address-rows`.
+  Import flags (run after the first window opens, before every other
+  action; sources are only read, Chromium History opens `immutable`):
+  `--import-arc [dir]` (default `~/Library/Application Support/Arc`),
+  `--import-chrome <dir>`, `--import-safari <zip>`, `--import-html <file>`
+  (repeatable) print `import-plan:` (one JSON line: profile mapping, Spaces
+  with counts and create/skip, favorites, Archive, History per profile with
+  `sourceVisits`, `visits` imported and `olderThanRetention`, rules,
+  totals), apply the plan as checked by default and print
+  `import-result:` and one `import-history:` line per profile (added,
+  skipped, seconds); `--import-plan` plans only; `--import-sheet
+  [checklist|progress|result]` captures File ▸ Import Browser Data… (on the
+  first source flag, else the first source found) with its checklist, at
+  30% of History or finished; `--export-pins <file>` /
+  `--export-all-pins <file>` run File ▸ Export Pinned Tabs… and print what
+  the file reads back as; `--open-link <url>` (repeatable) is a link from
+  another app through the routing rules; `--link-routing-sheet` captures
+  Settings ▸ Links from other apps. With `--support-dir` an import keeps
+  its profiles for the next run (only their WebKit data stores are
+  removed), so a second run shows what a re-import skips.
+  `--import-from-private` runs the import from a new private window;
+  `import-today:` lines show where each Space's Today tabs went (a normal
+  window, which shows the first imported Space).
+  Command Bar and shortcut flags (actions, in order with the window flags,
+  on the active window): `--command-bar [text]` (⌘T, then types `text`;
+  the value is any next argument that isn't a flag), `--command-bar-location`
+  (⌘L), `--command-bar-actions` (⇧⌘P, `/`), `--command-bar-type <text>`,
+  `--command-bar-key <key>` (repeatable: `down`, `up`, `tab`, `enter`,
+  `esc`, `backspace`, `ctrl-n`, `ctrl-p`; `enter` prints the chosen row and
+  the selected tab), `--print-command-bar` (one `command-bar:` JSON line:
+  mode, text, site-search chip, selection, groups and rows with targets),
+  `--set-shortcut <command id>=<shortcut>[:app|site|twice]` (recorded in
+  Settings ▸ Keyboard shortcuts; prints the answer and `settings.json`'s
+  `shortcuts`; a conflict stays open, `--shortcut-swap` / `--shortcut-cancel`
+  press its buttons; with `--support-dir` a second run reads the saved
+  shortcuts), `--shortcuts-sheet` (captures the sheet and prints every row),
+  `--page-key "<shortcut>[ x2]"` (a key-down into the selected tab's focused
+  page as AppKit sends a key equivalent; with ` x2` the second press
+  follows 0.05 s later, before the page answers the first; prints the
+  tab count before and after,
+  the command, its priority, the page's `window.__keyLog` and the
+  pasteboard — the proof for Site wins and Press twice), `--recent-tabs <n>`
+  (⌃Tab n times, then ⌃ released) and `--recent-tabs-hold <n>` (overlay left
+  open for the capture), `--walk-rail down|up` (⌥⌘↓/↑), `--toggle-toolbar`
+  (⇧⌘D), `--copy-url` / `--copy-markdown` (print the pasteboard: the
+  harness's own named one, never the general pasteboard). The Command Bar
+  and the ⌃Tab overlay are drawn over the page in the capture.
 - Verify real navigation and the agent surface against a running dev app:
 
   ```bash
@@ -165,36 +272,46 @@ no linter or formatter; match surrounding style.
   harness): creates and tracks every `BrowserWindowController` (key and most
   recently active window, ⌘N with cascade in the active window's profile,
   ⇧⌘N private windows over it, close onto the stack), owns the app-wide
-  stores, profiles, `BrowserDownloadManager`, Settings and its Websites,
+  stores (the Archive among them), profiles, `BrowserDownloadManager`, Settings and its Websites,
   Website Data and Profiles sheets, the recently-closed stack (entries reopen
-  in their profile's windows), Vimium's global marks, notification-click
+  in their Space, else their profile's first), Vimium's global marks, notification-click
   routing, links from other apps (`outsideTabbedController`: never a private
-  window) and the debounced `session.json` (restore every normal window in
-  its profile, frames clamped to today's screens). It runs every profile's
+  window) and the debounced `session.json` (restore every normal window on
+  its current Space, frames clamped to today's screens). It runs every profile's
   History retention pass (Settings ▸ Remove history items) at launch, once a
   day and when the setting changes. `BrowserWindowPlacement`
   keeps harness windows off-screen. `BrowserAutomationRouter` (in
   `BrowserAutomationCommand.swift`) picks the CLI's window from
   `automationControllers` (private windows excluded), opens `new-window
-  --profile` and runs `move-to-window`. `BrowserWindowManager+TabMove.swift`
+  --profile`, runs `move-to-window` and `spaces` / `space <n|name>`. `BrowserWindowManager+TabMove.swift`
   moves live tabs: `moveTab(_:from:to:at:select:)`, `moveTabToNewWindow`,
-  `mergeAllWindows`, `openPopupWindow`; `canMoveTab(from:to:)`
+  `mergeAllWindows` (tabs keep their Space), `openPopupWindow`; `canMoveTab(from:to:)`
   (`BrowserTabMoveRule`) is the one rule for which windows may exchange tabs:
-  the same data context (so the same profile), never into a pop-up.
+  the tab's data context is the target's current Space's (so the same
+  profile), never into a pop-up; a moved tab lands in the target's current
+  Space and keeps its pin or favorite link only while that is the Space's
+  and the target has no live tab for it (`linkAfterMove`), else as a Today
+  tab.
   `tabbedController` is the window menu commands' new tabs go to (never a
   pop-up window); `windowForNewTabs(from:)` the window a pop-up's tabs go to
   (same data context). `BrowserWindowManager+Profiles.swift` —
   `context(for:)` (a profile's data context, made on first use; Default's or
   a deleted profile's is `defaultContext`), `history(for:)`,
-  `windowMark(for:)` and `deleteProfile(_:completion:)` (closes the
-  profile's windows without Recently Closed, drops its closed entries,
-  removes it from `profiles.json`, then retries
-  `WKWebsiteDataStore.remove(forIdentifier:)` until its web views are
-  released and deletes its folder).
+  `windowMark(for:)` (the current Space when there are several),
+  `windowsClosing(onDeleteOf:)`, `openTabCount(ofProfile:)` and
+  `deleteProfile(_:completion:)` (closes the
+  profile's tabs in every window and Space — a window holding only its tabs
+  closes whole — without Recently Closed, drops its closed entries,
+  deletes its Spaces and favorites, removes it from `profiles.json`, then
+  retries `WKWebsiteDataStore.remove(forIdentifier:)` until its web views
+  are released and deletes its folder). The manager reconciles `spaces`
+  with the profile list at launch and on every profile change, so a new
+  profile gets its Space.
 - `Browser/BrowserProfiles.swift` — `BrowserProfile` (fixed Default id; its
-  folder, `<support>/Profiles/<id>/` for the others, and data-store
-  identifier), `BrowserProfileColor` (Folio tokens), `BrowserProfileList`
-  (`profiles.json`, tolerant decoding, unique names, next color),
+  folder, `<support>/Profiles/<id>/` for the others, data-store
+  identifier and `archiveAfter`), `BrowserProfileColor` (Folio tokens),
+  `BrowserProfileList` (`profiles.json`, tolerant decoding, unique names,
+  next color),
   `BrowserProfileStore` and `BrowserWindowMark` ("Private", the profile
   when there are several, or "Private · Work"). `BrowserWindowMarkView` draws
   the mark (color dot and eyebrow) in the rail header and before the address
@@ -214,14 +331,67 @@ no linter or formatter; match surrounding style.
 - `Browser/BrowserWindowController.swift` — one window: per-window stored state
   (its `dataContext` and `kind`, a private window's own `closedTabs`), init,
   layout, wiring, settings and theme (Folio Ink always for a private window).
+  A normal window shows one Space at a time: `currentSpaceID` (nil in
+  private and pop-up windows, `hasSpaces`), `tabs` holds every live tab of
+  every Space, `visibleTabs` the current Space's — favorite tabs, then
+  pinned tabs, then Today tabs (`BrowserPinLinks.order`; what
+  `selectedIndex`, ⌘1…⌘9, Vimium `gt`/`gT`/`<<`/`>>`, the strip and the
+  CLI's tab numbers count; `refreshVisibleTabs` keeps the selection),
+  `spaceSelections` each Space's selected tab. The
+  window's `dataContext` is the current Space's profile's; every per-tab
+  operation and WebKit callback uses the tab's own `BrowserTab.dataContext`
+  (history, site decisions, favicons, connection security and sign-in
+  answers, downloads, zoom, content blocking, sleep), so a tab of a hidden
+  Space in another profile never writes into the shown one.
+  `syncContextObservations` observes the stores of every context in use.
+  `pinSpaceID` is the Space whose pins every pin surface reads and writes
+  (the current Space; a private window's profile's first; `currentPinTree`
+  its tree).
+  `+Pins` — live pinned and favorite tabs: `liveTab(for:)`, `openPin` /
+  `openFavorite` (select the live tab, else open one linked to it; a
+  favorite's tab follows the window into another Space of its profile),
+  `pinIconPressed` / `resetLinkedTab` (back to the pinned address; ⌘ keeps
+  the page in a new Today tab), `unloadLinkedTab` (⌘W: no Recently
+  Closed), `isAway` (the "/" mark: the page is neither the pin's address
+  nor `BrowserTab.linkLanding`, where the pin's last load landed after
+  redirects — set on that load's commit, saved in the session), `tabItem`,
+  `replaceLink`, `pinTab` /
+  `unpinTab`, `addTabToFavorites` / `removeTabFromFavorites`; ⌘D makes the
+  tab the new pin's live tab. `+Rail` —
+  what the rail shows (`railMark`, `railOutlineRows`: the expanded
+  folders; opening a pin expands its folders once, `updateRail`,
+  `syncFolderPreview`) and its handlers: favorites, the
+  outline's clicks, menus and drops (`bookmarkDestination` /
+  `performBookmarkDrop`), the folder preview, the Today index mapping, and
+  the switcher's New Space / Edit Space sheet (`makeSpaceSheet`) and
+  Delete Space. `BrowserPinLinks.swift` is the pure part: link validation,
+  `originAfterMove`, `isAway`, the tab order and the icon field's parsing.
+  `+Spaces` — `switchToSpace` (⌃1…⌃9 via the Spaces menu, ⌥⌘←/⌥⌘→, the
+  rail's swipe, CLI; an empty Space opens a start-page Today tab, and ⌘W
+  doesn't close a Space's lone start tab), `spacesChanged` (deleted Space,
+  Space moved to another profile: its tabs reopen there; a tab whose pin
+  or favorite is gone becomes a Today tab) and
+  `closeTabs(ofProfile:)`. `BrowserSpaceSwitching.swift` is the pure
+  index/wrap and selection math and `BrowserSpaceSwipe`. `+Archive` —
+  `archiveCandidate` (what `BrowserArchivePolicy` reads, the sleep
+  candidate included), `recordArchive` (⌘W's: `closeTab(id:archive:)`
+  passes `archive: true` from the user's close paths only — ⌘W, close
+  buttons, Close Tab menus, the CLI; a page's `window.close()` and a
+  deleted Space's tabs don't archive), `archiveTab` (into the Archive and
+  out of the window, never closing it), `archiveTodayTabs` (⇧⌘K) and the
+  sidebar's restore and Space mark.
   Its behavior lives in extension files
   by concern: `+Tabs` (`attachTab`/`detachTab`: everything that binds a tab to a
-  window), `+TabMove` (Move Tab to New Window, the drop and drag-out handlers
+  window; `detachTabs` removes many with the strip, rail, selection and
+  session work done once — each rail or strip update rebuilds its rows, so
+  ⇧⌘K, the idle pass, Close Other Tabs and Close Tabs Below go through it),
+  `+TabMove` (Move Tab to New Window, the drop and drag-out handlers
   the tab lists call, the find query a moved tab carries), `+Navigation`
   (`WKNavigationDelegate`), `+UIDelegate`
   (`WKUIDelegate`), `+Downloads` (hand-off to the download manager), `+Sidebar`,
-  `+Bookmarks` (⌘D and the star's popover, the sidebar's Open All in Tabs,
-  New Folder, Edit/Rename and Delete with its confirmation),
+  `+Bookmarks` (⌘D and the star's popover, the rail's Open All in Tabs,
+  New Folder, Edit/Rename and Delete with its confirmation, all on the
+  current Space's pins),
   `+Vimium`, `+Session` (window state, lazy restore, crash recovery,
   `NSWindowDelegate`), `+PageMessages`, `+Links` (pop-ups, pop-up windows,
   modifier clicks, external apps), `+SignIn` (auth challenges, TLS
@@ -232,12 +402,55 @@ no linter or formatter; match surrounding style.
   browser). Each WebKit protocol conformance sits on the extension that holds its
   methods.
 - `Browser/BrowserTab.swift`, `BrowserModel.swift`, `BrowserSessionRestore.swift`
-  — tab state, settings (decoded key by key), address resolution, the version 2
-  session (`windows[]` with frames, `recentlyClosed`; a version 1 file migrates
-  to one window and is kept as `session.json.migrated`), the recently-closed
+  — tab state (`dataContext`, `spaceID`, `origin`: today, pinned or
+  favorite pin id), settings (decoded key by key), address resolution, the version 3
+  session (`windows[]` with frames, `currentSpaceID`, tabs with `spaceID`
+  and origin and `lastActiveAt` (idle time survives a relaunch; missing in
+  older files, then it counts from the restore), per-Space selection, `recentlyClosed` with `spaceID`; a
+  version 1 or 2 file migrates — tabs into the first Space of the
+  window's profile — and is kept as `session.json.migrated`), the recently-closed
   stack of tabs and windows, and window frame clamping/cascading (and where a
   dragged-out tab's window opens). `BrowserTabMove.swift` — the tab-move rule,
   Merge All Windows ordering and pop-up window frames from `WKWindowFeatures`.
+- `Browser/BrowserArchive.swift` — the Archive, pure: `BrowserArchiveEntry`
+  (id, url, title, spaceID, profileID, archivedAt, reason
+  `manual`/`auto`/`imported`, faviconKey; tolerant decoding),
+  `BrowserArchiveFile` (`archive.json`, bad entries skipped, repeated ids
+  dropped), `BrowserArchiveSearch` (every word in the folded title or
+  address, case and diacritics ignored) and `BrowserArchivePolicy` (which
+  Today tabs auto-archive: idle `archiveAfter` from `lastActiveAt`, never
+  in a private or pop-up window, never linked tabs or start pages, the
+  sleep policy's selection, pop-up, audio, capture and prompt exemptions).
+  `BrowserArchiveStore.swift` — the only way in or out of
+  `<support>/archive.json` (synchronous, atomic, `changes`; an unreadable
+  file is kept as `.corrupt`): `archive(_:)` (a batch with one write and
+  one `changes`; one entry per profile and address; the search index
+  changes only for added and replaced entries — ⇧⌘K and the idle pass
+  write through it), `archive(url:…)`, `insert(_:reason:)` (the importers'
+  entry point), `removeEntry(url:profileID:)` (⇧⌘T brought the tab back),
+  `search(_:inProfile:)` over an in-memory index, `remove(id:)`,
+  `removeEntries(ofProfile:)` (profile deletion) and
+  `removeEntries(ofProfile:archivedIn:)` (Clear Browsing Data ▸ History).
+  `BrowserWindowManager+Archive.swift` — `archiveIdleTabs(now:)` (the idle
+  pass's archive half) and `restoreArchived(_:preferring:)` (a Today tab in
+  the entry's Space, else the profile's first; the window switches to it;
+  a private window restores into a normal one).
+- `Browser/BrowserSearchEngines.swift` — search engines, pure:
+  `BrowserSearchEngine` (id, name, keyword, template with `%s` replaced by
+  the percent-encoded query; the built-ins DuckDuckGo, Google and Bing keep
+  their old ids, so `searchEngine` in `settings.json` still reads, and have
+  no keyword unless the user gives one — `searchEngineKeywords`, by id —
+  so "b tree" stays an ordinary search; `searchForm` is the start page's
+  GET form) and `BrowserSearchEngines`, the one API the address field,
+  Settings and the Command Bar share: built-ins plus `customSearchEngines`
+  (bad entries, repeated ids and keywords dropped), the default (unknown
+  falls back to DuckDuckGo), `engine(forKeyword:)`, `resolve(_:)` ("keyword
+  query": a keyword followed by a query, never a bare word),
+  `searchURL(engine:query:)` and the editing rules (`problem`, `save` — a
+  built-in's keyword only —, `remove`, `setDefault`).
+  `BrowserAddressResolver.resolve` tries a keyword first, then
+  `address(for:)`, then the default engine; the dropdown's first row for a
+  keyword is "Search <Engine> for …" (`.keywordSearch`).
 - `Browser/BrowserHistoryStore.swift` — History, the only way in or out of it:
   `BrowserHistoryStore(directory:)` opens `<directory>/History.sqlite` (WAL;
   a damaged file is kept as `.corrupt`), migrates `history.json` once
@@ -254,22 +467,114 @@ no linter or formatter; match surrounding style.
   `BrowserVisitKind`, `BrowserFrecency`, `BrowserHistoryRetention`,
   `BrowserHistoryDays` (the sidebar's day headers) and
   `BrowserSameDocumentVisits` (when a `pushState` URL change becomes a visit).
-- `Browser/BrowserBookmarks.swift` — the bookmark tree, the only way in or
-  out of `bookmarks.json`: `BrowserBookmarkTree` (one root with the fixed
-  `rootID`; pure insert, move — never into itself or a descendant, the index
-  is the drop gap counted before the item leaves —, rename, edit, remove,
-  `bookmarks(url:)`, `entries()` with folder paths, `folderEntries`,
-  `folderForNewBookmark(lastUsed:)`), `BrowserBookmarkFile` (version 2
-  `root`; version 1 lists migrate newest first, bad nodes skipped, repeated
-  ids dropped), `BrowserBookmarkStore` (shared by every profile; `insert` is
-  the importers' entry point; a version 1 file is kept as `.migrated`, an
-  unreadable one as `.corrupt`), `BrowserBookmarkUIState` (expanded folders
-  and ⌘D's last folder in `UserDefaults`) and `BrowserBookmarkOutline` (the
-  sidebar's visible rows and where a drop lands).
-  `BrowserBookmarkEditor.swift` is the Folio popover (⌘D, Edit Bookmark,
-  Rename, New Folder) and its child panel; `BrowserBookmarkOutlineCell.swift`
-  an outline row; `BrowserBookmarksMenu.swift` the Bookmarks menu's tree,
-  rebuilt on every change (`dump` prints it).
+- `Browser/BrowserPins.swift` — the pin model (stage 2's bookmarks):
+  `BrowserPin`, `BrowserPinFolder`, `BrowserPinNode`, `BrowserPinTree` (one
+  root with the fixed `rootID` per Space; pure insert, move — never into
+  itself or a descendant, the index is the drop gap counted before the item
+  leaves —, rename, edit, remove, `pins(url:)`, `entries()` with folder
+  paths, `folderEntries`, `folderForNewPin(lastUsed:)`), the node coding
+  (`"type": "pin"`; stage 2's `"bookmark"` reads too),
+  `BrowserBookmarksFile` (stage 2's `bookmarks.json`, read once for the
+  migration: version 2 `root`, version 1 lists newest first, bad nodes
+  skipped, repeated ids dropped) and `BrowserPinOutline` (an outline's
+  visible rows and where a drop lands). `BrowserSpaces.swift` —
+  `BrowserSpace` (name, `BrowserSpaceIcon`, color mark, profile, pinned
+  tree, `importedFrom`), `BrowserFavorites` (per profile, at most 12),
+  `BrowserArchiveAfter`, `BrowserSpaceList` (the pure operations: a
+  profile's last Space can't be deleted or moved away, `reconcile(with:)`
+  gives every profile a Space and drops orphans) and `BrowserSpacesFile`
+  (`spaces.json`, tolerant decoding). `BrowserSpaceStore.swift` —
+  `BrowserSpaceStore`, the only way in or out of `spaces.json` (Space
+  operations, per-Space pin operations with `inSpace:`, favorites with
+  `ofProfile:`; `insert(_:into:at:inSpace:)`, `createSpace(…importedFrom:)`
+  and `insertFavorite` are the importers' entry points; a missing file
+  starts with one Space per profile and migrates `bookmarks.json` into
+  Default's, kept as `bookmarks.json.migrated`; an unreadable one is kept
+  as `.corrupt`) and `BrowserPinUIState` (expanded folders and ⌘D's last
+  folder per Space in `UserDefaults`). `BrowserPinEditor.swift` is the
+  Folio popover (⌘D, Edit Pin, Rename, New Folder) and its child
+  panel; `BrowserPinOutlineCell.swift` a row of the rail's outline;
+  `BrowserSpacesMenu.swift` the Spaces menu (stage 2's Bookmarks menu):
+  every Space on ⌃1…⌃9 with the active window's checked, Next/Previous
+  Space on ⌥⌘→/⌥⌘←, then the active window's Space's pin tree, rebuilt on
+  every change (`dump` prints it). ⌃1…⌃9 and ⌥⌘←/⌥⌘→ are Arc's Space
+  shortcuts; ⌘1…⌘9 stay tabs of the current Space.
+- `Browser/Import/` — File ▸ Import Browser Data…. Readers, pure:
+  `BrowserArcImportReader` (Arc's support folder; profiles a Space or
+  favorites use, then History-only ones, never `__ARC_SYSTEM_PROFILE`),
+  `BrowserChromiumHistoryReader` (`read`, `counts`),
+  `BrowserChromeBookmarksReader`, `BrowserSafariExportReader`,
+  `BrowserNetscapeBookmarks` (parse and write), the neutral model in
+  `BrowserImportModel.swift`. `BrowserImportLoader` reads a source off the
+  main thread; `BrowserImportPlan.swift` is the pure plan step
+  (`BrowserImportPlanner`: profile mapping — Arc `Default` → Default,
+  `Profile N` → the profile an import made (`importedFrom`) or a new one
+  named after its first Space —, Spaces skipped by `importedFrom`,
+  favorites past 12, Archive ids from Arc's item ids, History counts within
+  Settings ▸ Remove history items; `BrowserImportColorMatch`, OKLab hue to
+  the nearest Folio color); `BrowserImportChecklist` the sheet's rows and
+  result lines; `BrowserImporter` the apply step (store writes on the main
+  actor, a new profile's own Space taken over by its first imported Space,
+  then History per profile through `BrowserHistoryStore.importInBackground`:
+  batches on a second connection, duplicates — same address and time —
+  skipped, cancel between batches, frecency refreshed after).
+  `BrowserWindowManager+Import.swift` plans and runs imports for a window
+  (Today tabs unloaded, switch to the first imported Space), shows the
+  sheets and holds `BrowserPinExport` (File ▸ Export Pinned Tabs…).
+  `App/BrowserImportSheet.swift` is the sheet. `BrowserLinkRouting.swift`
+  — the rules for links from other apps (`link-routing.json`, contains /
+  equals / prefix → a Space or the most recent one), applied in
+  `BrowserWindowManager.open(_:)` via `windowForOutsideLink`;
+  `App/BrowserLinkRoutingSheet.swift` is Settings ▸ Links from other apps.
+- `Browser/BrowserCommands.swift` — the command registry: `BrowserCommandID`
+  (the stable ids `settings.json`, menu item identifiers and the harness
+  use) and `BrowserAppCommand.all`, one row per command in menu order
+  (title, menu and section, default shortcut, synonyms, symbol, state and
+  action closures over `BrowserCommandContext`; standard AppKit commands
+  carry their responder-chain selector and a fixed shortcut).
+  `App/MainMenu.swift` builds every menu item from it (identifier = id,
+  `runCommand:`), re-applies the keymap when settings change and validates
+  through the row's state; the Spaces menu takes its Space items' shortcuts
+  from `space-1`…`space-9`. `BrowserShortcuts.swift` is the pure part:
+  `BrowserShortcut` (`"shift+cmd+c"` / `⇧⌘C`, from an `NSEvent` or a page's
+  `KeyboardEvent.code`), `BrowserShortcutPriority`, `BrowserShortcutSettings`
+  (`shortcuts` in `settings.json`, decoded entry by entry, only differences
+  saved; a decoded remap onto a fixed or reserved key is dropped and of
+  two commands on one key the later gets none), `BrowserKeymap` (effective
+  shortcuts, conflicts, swap, reset; `BrowserShortcut.reservedOwner` refuses
+  the Edit menu's Spelling keys, ⌘`, ⌃⌘Space, ⇧⌘/, the Cocoa text-editing
+  bindings and Vimium's ⌃E/⌃Y/⌃[),
+  `BrowserShortcutGate`, `BrowserRecentTabs` / `BrowserRecentTabSwitcher`
+  and `BrowserRailWalk`. Priority mechanism: `BrowserWebView.performKeyEquivalent`
+  (and `keyDown` for ⌃/⌥ keys) calls `routePageShortcut` while the page has
+  focus — AppKit offers key equivalents to the window's views before the
+  menu. App wins runs the command there. Site wins and Press twice let
+  WebKit send the key to the page; WebKit hands back a key the page left
+  unhandled by sending the same `NSEvent` again (`forwardedKey`), and the
+  isolated-world `BrowserShortcutScripts.keyReport` posts each modified
+  `keydown`'s `defaultPrevented` on the `sopranoWeb` channel; the first
+  answer decides, the late one is swallowed. Forwarded presses are
+  tracked per event (a token each), so key repeat and Press twice races
+  never run a command twice; `BrowserWindow.performKeyEquivalent` checks a
+  handed-back event before any view or the menu, wherever focus went. A
+  hand-back runs a Site wins press however late; the report matches by
+  `KeyboardEvent.code` (the physical key), so on another layout it may not
+  match and the hand-back decides. `App/BrowserShortcutsSheet.swift`
+  is Settings ▸ Keyboard shortcuts.
+  `BrowserCommandBar.swift` — the Command Bar's pure results
+  (`BrowserCommandBarEngine`: the default row — keyword search, address or
+  default-engine search —, open tabs, pins and favorites and History
+  ranked by `AddressSuggestionEngine.rankedPages` (the address bar's tiers
+  and frecency), Spaces, `/` actions and settings pages by prefix >
+  word start > substring; site search's engine for Tab).
+  `BrowserCommandBarView.swift` — `BrowserCommandBarController` (state and
+  keys) and the Folio panel, a view over the window's content (never a
+  window of its own). `BrowserWindowController+CommandBar` (sources,
+  choosing a row) and `+Shortcuts` (copy URL / Markdown on
+  `manager.pasteboard`, ⇧⌘D's `toolbarHidden` in `UserDefaults`, the rail
+  walk, ⌃Tab's switcher with `BrowserRecentTabsOverlay`, key routing).
+  A private context keeps its pages in `BrowserSessionVisits` (memory
+  only) for its Command Bar.
 - `Browser/BrowserDataStores.swift` — downloads JSON
   (`{version, entries}` envelopes, lossy decoding; a private window's download
   rows carry `privateContextID` and stay in memory);
@@ -283,8 +588,9 @@ no linter or formatter; match surrounding style.
   `BrowserMemoryPressure`, `BrowserTabSleepPolicy` (exemptions and idle
   thresholds, pure) and the page-world `sleepGuard` script (`beforeunload`,
   edited fields, screen capture). `BrowserTabSleeper.swift` — the manager's
-  idle timer and memory pressure source (`now` and `thresholdOverride` are
-  the harness's clock and test threshold). `BrowserWindowController+Sleep`
+  idle timer (`idlePass`: archive idle Today tabs, then sleep) and memory
+  pressure source (`now` and `thresholdOverride` are the harness's clock
+  and test sleep threshold). `BrowserWindowController+Sleep`
   — `sleepCandidate`, `sleepTab` (snapshot, then `finishSleeping`: state into
   `lifecycle.pendingRestore`, `replaceWebView(of:)` swaps in an empty web
   view), wake snapshot overlay, `promptBegan(for:)` (dialogs keep a tab
@@ -322,12 +628,18 @@ no linter or formatter; match surrounding style.
   `sopranoWeb` message channel; messages are accepted only from the world (page or
   isolated) their type was written for.
 - `Browser/BrowserToolbarView.swift`, `BrowserAddressBarController.swift`,
-  `BrowserAddressSuggestions.swift`, `BrowserTabStripView.swift`,
-  `BrowserVerticalTabsView.swift`, `BrowserTabButton.swift`,
+  `BrowserAddressSuggestions.swift`, `BrowserTabStripView.swift` (favorite
+  and pinned tabs first, icon-only), `BrowserVerticalTabsView.swift` (the
+  rail: Space header, Favorites, the pinned outline, Today with "+ New
+  Tab", the switcher), `BrowserRailPinsView.swift` (the Favorites grid and
+  the pinned outline with its drag and drop), `BrowserRailSpaceSwitcher.swift`
+  (the switcher, the "Today" head, `BrowserSpaceIconDrawing`),
+  `BrowserPinFolderPreview.swift` (a folder's hover preview with search),
+  `BrowserSpaceSheet.swift` (New Space / Edit Space), `BrowserTabButton.swift`,
   `BrowserTabDragSession.swift` (a tab's system drag session and drop marker),
   `BrowserTabReorder.swift` (drag and drop index math),
-  `BrowserSidebarView.swift`, `BrowserFindBar.swift`, `BrowserStartPage.swift`,
-  `BrowserErrorPage.swift` — chrome and local pages.
+  `BrowserSidebarView.swift` (History, Archive and Downloads), `BrowserFindBar.swift`,
+  `BrowserStartPage.swift`, `BrowserErrorPage.swift` — chrome and local pages.
 - `Browser/BrowserAutomationCommand.swift`, `BrowserAutomationSocket.swift`,
   `BrowserAutomation.swift` — the `browser` CLI over a user-only Unix socket and
   the `@e1` snapshot/action scripts. `browser vimium <keys>` feeds the selected
@@ -335,7 +647,8 @@ no linter or formatter; match surrounding style.
 - `Browser/VimiumController.swift`, `VimiumKeyMap.swift`, `VimiumPageScripts.swift`,
   `VimiumPanels.swift`, `BrowserWebView.swift` — the native Vimium mode layer.
 - `Browser/SnapshotCommand*.swift`, `SnapshotPageTools.swift` — offscreen UI harness.
-- `App/` — app delegate, menu, settings window, resources.
+- `App/` — app delegate, menu, settings window (`BrowserSearchEnginesSheet`
+  is Settings ▸ Search engine ▸ Manage…), resources.
 - `Vendored/` — Folio design system from Soprano. Never edit these files here.
 
 `SOPRANO_COMMIT` records the Soprano commit the vendored files came from. Refresh

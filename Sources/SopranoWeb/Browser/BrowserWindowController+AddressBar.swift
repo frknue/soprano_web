@@ -34,6 +34,9 @@ extension BrowserWindowController {
         }
     }
 
+    /// The current Space's suggestion sources: its profile's History, its
+    /// pins and the window's other open tabs (of every Space; picking one
+    /// switches to its Space).
     func addressSuggestionInput(for query: String) -> AddressSuggestionInput {
         let selectedID = selectedTab?.id
         let openTabs = tabs.compactMap { tab -> AddressSuggestionTab? in
@@ -43,10 +46,10 @@ extension BrowserWindowController {
         return AddressSuggestionInput(
             query: query,
             kind: kind,
-            history: kind.suggestsHistory ? history.suggestionCandidates(for: query) : [],
-            bookmarks: bookmarks.bookmarks,
+            history: kind.suggestsHistory ? dataContext.history.suggestionCandidates(for: query) : [],
+            pins: pinSpaceID.map { spaces.pins(inSpace: $0) } ?? [],
             tabs: openTabs,
-            searchEngine: settingsStore.settings.searchEngine
+            searchEngines: settingsStore.settings.searchEngines
         )
     }
 
@@ -63,12 +66,19 @@ extension BrowserWindowController {
         case .url(let address):
             openAddress(address, typed: true, newTab: newTab)
         case .search(let query):
-            guard let url = settingsStore.settings.searchEngine.searchURL(for: query) else { return }
+            guard let url = settingsStore.settings.defaultSearchEngine.searchURL(for: query) else { return }
+            openAddress(url.absoluteString, typed: false, newTab: newTab)
+        case .keywordSearch(let engineID, let query):
+            guard let url = settingsStore.settings.searchEngines.engine(id: engineID)?.searchURL(for: query) else {
+                return
+            }
             openAddress(url.absoluteString, typed: false, newTab: newTab)
         }
     }
 
-    private func openAddress(_ address: String, typed: Bool, newTab: Bool) {
+    /// Opens `address` in a new Today tab of the current Space or the
+    /// selected tab; `typed` counts it as a typed visit.
+    func openAddress(_ address: String, typed: Bool, newTab: Bool) {
         if newTab {
             let tab = self.newTab(url: address)
             if typed { tab.typedNavigationPending = true }

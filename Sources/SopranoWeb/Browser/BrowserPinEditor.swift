@@ -1,9 +1,9 @@
 import AppKit
 
-/// What the bookmark editor shows: a heading, the name, the address (only
-/// when editing a bookmark from the sidebar), the folder picker and an
-/// optional Remove button.
-struct BrowserBookmarkEditorContent: Equatable {
+/// What the pin editor shows: a heading, the name, the address (only when
+/// editing a pin from the sidebar), the folder picker and an optional
+/// Remove button.
+struct BrowserPinEditorContent: Equatable {
     var heading: String
     var name: String
     var namePlaceholder: String
@@ -11,7 +11,7 @@ struct BrowserBookmarkEditorContent: Equatable {
     var url: String?
     var folderID: UUID
     /// The folders the item may go to (a folder's own subtree excluded).
-    var folders: [BrowserBookmarkFolderEntry]
+    var folders: [BrowserPinFolderEntry]
     /// "Remove" / "Delete"; nil hides the button.
     var removeTitle: String?
 
@@ -32,7 +32,7 @@ struct BrowserBookmarkEditorContent: Equatable {
 /// and New Folder. The folder picker applies at once; Done or Return saves
 /// the name (and address), Esc closes without saving them.
 @MainActor
-final class BrowserBookmarkEditorView: NSView, NSTextFieldDelegate {
+final class BrowserPinEditorView: NSView, NSTextFieldDelegate {
     static let width: CGFloat = 300
 
     var onFolderChange: ((UUID) -> Void)?
@@ -41,7 +41,7 @@ final class BrowserBookmarkEditorView: NSView, NSTextFieldDelegate {
     var onCancel: (() -> Void)?
 
     private var theme: AppTheme
-    private(set) var content: BrowserBookmarkEditorContent
+    private(set) var content: BrowserPinEditorContent
     private let heading: ChromeEyebrowView
     private let nameFrame: ChromeFieldView
     let nameField = NSTextField()
@@ -54,7 +54,7 @@ final class BrowserBookmarkEditorView: NSView, NSTextFieldDelegate {
     private var urlConstraints: [NSLayoutConstraint] = []
     private var noURLConstraints: [NSLayoutConstraint] = []
 
-    init(theme: AppTheme, content: BrowserBookmarkEditorContent) {
+    init(theme: AppTheme, content: BrowserPinEditorContent) {
         self.theme = theme
         self.content = content
         heading = ChromeEyebrowView(title: content.heading, theme: theme)
@@ -138,7 +138,7 @@ final class BrowserBookmarkEditorView: NSView, NSTextFieldDelegate {
         fatalError("init(coder:) is not supported")
     }
 
-    func configure(_ content: BrowserBookmarkEditorContent) {
+    func configure(_ content: BrowserPinEditorContent) {
         self.content = content
         heading.title = content.heading
         nameField.stringValue = content.name
@@ -189,7 +189,7 @@ final class BrowserBookmarkEditorView: NSView, NSTextFieldDelegate {
     }
 
     private var folderName: String {
-        content.folders.first { $0.id == content.folderID }?.name ?? BrowserBookmarkTree.rootName
+        content.folders.first { $0.id == content.folderID }?.name ?? BrowserPinTree.rootName
     }
 
     private func refreshFolderTitle() {
@@ -273,9 +273,9 @@ final class BrowserBookmarkEditorView: NSView, NSTextFieldDelegate {
 /// The borderless child panel that floats the editor under its anchor.
 /// Clicking elsewhere saves and closes it, like Done.
 @MainActor
-final class BrowserBookmarkEditorPanel: NSPanel {
+final class BrowserPinEditorPanel: NSPanel {
     private weak var hostWindow: NSWindow?
-    private var editor: BrowserBookmarkEditorView?
+    private var editor: BrowserPinEditorView?
     private var isClosing = false
     /// When it last closed because another window took the click; the
     /// star ignores the click that closed it.
@@ -283,7 +283,7 @@ final class BrowserBookmarkEditorPanel: NSPanel {
 
     init() {
         super.init(
-            contentRect: NSRect(x: 0, y: 0, width: BrowserBookmarkEditorView.width, height: 160),
+            contentRect: NSRect(x: 0, y: 0, width: BrowserPinEditorView.width, height: 160),
             styleMask: [.borderless],
             backing: .buffered,
             defer: true
@@ -305,7 +305,7 @@ final class BrowserBookmarkEditorPanel: NSPanel {
     var isShown: Bool { editor != nil }
 
     /// Floats `editor` under `anchor` in `hostWindow` and focuses the name.
-    func show(_ editor: BrowserBookmarkEditorView, below anchor: NSView, in hostWindow: NSWindow) {
+    func show(_ editor: BrowserPinEditorView, below anchor: NSView, in hostWindow: NSWindow) {
         close(saving: false)
         isClosing = false
         self.editor = editor
@@ -315,7 +315,7 @@ final class BrowserBookmarkEditorPanel: NSPanel {
         let size = editor.fittingSize
         let anchorRect = hostWindow.convertToScreen(anchor.convert(anchor.bounds, to: nil))
         setFrame(
-            BrowserBookmarkEditorView.frame(size: size, below: anchorRect, within: hostWindow.frame),
+            BrowserPinEditorView.frame(size: size, below: anchorRect, within: hostWindow.frame),
             display: true
         )
         hostWindow.addChildWindow(self, ordered: .above)

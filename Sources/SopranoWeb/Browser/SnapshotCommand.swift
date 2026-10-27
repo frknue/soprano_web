@@ -48,9 +48,13 @@ enum SnapshotCommand {
         var captureStatus: BrowserCaptureStatus?
         var pageTools = SnapshotPageTools.Options()
         var privacy = PrivacyOptions()
-        var bookmarks = BookmarkOptions()
+        var pins = PinOptions()
         var sleep = SnapshotSleepOptions()
         var blocker = SnapshotBlockerOptions()
+        var searchEngines = SnapshotSearchEngineOptions()
+        /// `--shortcuts-sheet`: capture Settings ▸ Keyboard shortcuts.
+        var showsShortcutsSheet = false
+        var imports = SnapshotImportOptions()
     }
 
     enum OptionError: Error, CustomStringConvertible {
@@ -72,7 +76,7 @@ enum SnapshotCommand {
     static let usage = """
     usage: SopranoWeb snapshot --out <png> [--url <url>] [--size 1500x940]
                                [--theme folio-paper|folio-ink|<id>] [--wait <seconds>]
-                               [--sidebar history|bookmarks|downloads] [--find] [--settings]
+                               [--sidebar history|archive|downloads] [--find] [--settings]
                                [--vertical-tabs] [--collapsed] [--hints] [--help] [--prompt]
                                [--allow-popups <host>] [--tab <url>]... [--sheet] [--print-tabs]
                                [--click [cmd-|shift-cmd-|middle-]X,Y]...
@@ -87,9 +91,11 @@ enum SnapshotCommand {
                                [--capture camera|microphone|camera-muted-mic|microphone-muted]
     \(SnapshotPageTools.usage)
     \(privacyUsage)
-    \(bookmarksUsage)
+    \(pinsUsage)
     \(SnapshotSleepOptions.usage)
     \(SnapshotBlockerOptions.usage)
+    \(SnapshotSearchEngineOptions.usage)
+    \(SnapshotImportOptions.usage)
     """
 
     nonisolated static func parse(_ arguments: [String]) throws -> Options {
@@ -171,6 +177,24 @@ enum SnapshotCommand {
                 options.showSecurityInfo = true
             case let flag where SnapshotSessionOptions.flags.contains(flag):
                 try options.session.parse(flag) { try value(flag) }
+            case let flag where SnapshotCommandBarAction.flags.contains(flag):
+                if let action = try SnapshotCommandBarAction.parse(
+                    flag,
+                    value: { try value(flag) },
+                    peek: { index + 1 < arguments.count ? arguments[index + 1] : nil },
+                    skip: { index += 1 }
+                ) {
+                    options.session.actions.append(.commandBar(action))
+                }
+            case let flag where SnapshotImportOptions.flags.contains(flag):
+                try options.imports.parse(
+                    flag,
+                    value: { try value(flag) },
+                    peek: { index + 1 < arguments.count ? arguments[index + 1] : nil },
+                    skip: { index += 1 }
+                )
+            case "--shortcuts-sheet":
+                options.showsShortcutsSheet = true
             case "--tabs":
                 options.extraTabs += try value(option)
                     .split(separator: ",")
@@ -226,10 +250,11 @@ enum SnapshotCommand {
             case _ where SnapshotPageTools.flags.contains(option):
                 SnapshotPageTools.parse(option, try value(option), into: &options.pageTools)
             default:
-                guard try parseBookmarks(option, value: { try value(option) }, into: &options.bookmarks)
+                guard try parsePins(option, value: { try value(option) }, into: &options.pins)
                     || parsePrivacy(option, value: { try value(option) }, into: &options.privacy)
                     || SnapshotSleepOptions.parse(option, value: { try value(option) }, into: &options.sleep)
                     || SnapshotBlockerOptions.parse(option, value: { try value(option) }, into: &options.blocker)
+                    || SnapshotSearchEngineOptions.parse(option, value: { try value(option) }, into: &options.searchEngines)
                 else {
                     throw OptionError.unknownOption(option)
                 }
@@ -272,7 +297,7 @@ enum SnapshotCommand {
         let temp = options.sleep.supportDirectory ?? FileManager.default.temporaryDirectory
             .appendingPathComponent("soprano-web-snapshot-\(UUID().uuidString)", isDirectory: true)
         try? FileManager.default.createDirectory(at: temp, withIntermediateDirectories: true)
-        let settings = BrowserSettings(
+        var settings = BrowserSettings(
             searchEngine: .duckDuckGo,
             homepage: "",
             themeID: options.theme,
@@ -284,21 +309,19 @@ enum SnapshotCommand {
             // injects canned suggestions instead.
             includeSearchSuggestions: false
         )
-        let settingsStore = BrowserSettingsStore(
-            url: temp.appendingPathComponent("settings.json"),
-            settings: settings
-        )
+        let settingsURL = temp.appendingPathComponent("settings.json")
+        // `--support-dir`: a second run reads the shortcuts the first saved
+        // (Settings ▸ Keyboard shortcuts), decoded as the app decodes them.
+        if let saved = JSONFile.read(BrowserSettings.self, at: settingsURL) {
+            settings.shortcuts = saved.shortcuts
+        }
+        let settingsStore = BrowserSettingsStore(url: settingsURL, settings: settings)
         if let autoplay = options.autoplay {
             settingsStore.update { $0.autoplay = autoplay }
         }
         options.sleep.apply(to: settingsStore)
+        options.searchEngines.apply(to: settingsStore)
         let themeManager = ThemeManager(themeId: options.theme, appearance: .system)
-        let bookmarksURL = temp.appendingPathComponent("bookmarks.json")
-        prepareBookmarksFile(options.bookmarks, at: bookmarksURL)
-        let bookmarks = BrowserBookmarkStore(url: bookmarksURL)
-        if options.bookmarks.seedTree {
-            seedBookmarkTree(bookmarks)
-        }
         let downloads = BrowserDownloadStore(url: temp.appendingPathComponent("downloads.json"))
         let profiles = BrowserProfileStore(url: temp.appendingPathComponent("profiles.json"))
         // `--add-profile`: the profiles exist before any window opens.
@@ -306,6 +329,18 @@ enum SnapshotCommand {
             let profile = profiles.add(name: name)
             print("profile: added \(profile.name) \(profile.id.uuidString) (\(profile.color.rawValue))")
         }
+        let bookmarksURL = temp.appendingPathComponent("bookmarks.json")
+        prepareBookmarksFile(options.pins, at: bookmarksURL)
+        let spaces = BrowserSpaceStore(
+            url: temp.appendingPathComponent("spaces.json"),
+            profiles: profiles.profiles,
+            bookmarksURL: bookmarksURL
+        )
+        if options.pins.seedTree {
+            seedPinTree(spaces, inSpace: spaces.firstSpace(ofProfile: BrowserProfile.defaultID)?.id)
+        }
+        // `--create-space`: the Spaces exist before any window opens.
+        options.session.createSpaces(in: spaces, profiles: profiles)
         let session = BrowserSessionStore(url: temp.appendingPathComponent("session.json"))
         options.session.prepare(sessionURL: session.url)
 
@@ -321,7 +356,8 @@ enum SnapshotCommand {
             settingsStore: settingsStore,
             profiles: profiles,
             supportDirectory: temp,
-            bookmarks: bookmarks,
+            spaces: spaces,
+            archive: BrowserArchiveStore(url: temp.appendingPathComponent("archive.json")),
             downloads: downloads,
             faviconStore: BrowserFaviconStore(directory: temp.appendingPathComponent("Favicons", isDirectory: true)),
             sessionStore: session,
@@ -331,6 +367,10 @@ enum SnapshotCommand {
             filterLists: options.blocker.sources
         )
         options.sleep.apply(to: manager)
+        // ⇧⌘C and ⌥⇧⌘C copy to a pasteboard of the harness's own, never
+        // the user's general one.
+        let pasteboard = NSPasteboard(name: NSPasteboard.Name("com.soprano.web.snapshot.\(UUID().uuidString)"))
+        manager.pasteboard = pasteboard
         let history = manager.defaultContext.history
         let sitePermissions = manager.defaultContext.sitePermissions
         if let host = options.allowPopups {
@@ -351,13 +391,13 @@ enum SnapshotCommand {
             controller.focusAddressBar()
         }
         if let value = options.url,
-           let url = BrowserAddressResolver.resolve(value, searchEngine: .duckDuckGo)
+           let url = BrowserAddressResolver.resolve(value, searchEngines: settingsStore.settings.searchEngines)
         {
             if BrowserAddressResolver.isStartPage(url) {
                 // Already on the start page.
             } else if let tab = controller.selectedTab {
                 if let back = options.backURL,
-                   let backURL = BrowserAddressResolver.resolve(back, searchEngine: .duckDuckGo)
+                   let backURL = BrowserAddressResolver.resolve(back, searchEngines: settingsStore.settings.searchEngines)
                 {
                     // Load a first page so Back has somewhere to go.
                     controller.navigate(tab, to: backURL)
@@ -410,13 +450,20 @@ enum SnapshotCommand {
             }
         }
 
+        // Imports (and exports) before every other action, so the pins,
+        // Spaces and Archive flags print what they made. In a pool of its
+        // own, so the tabs it makes go when closed (an imported profile's
+        // data store is removed at the end).
+        let importOutcome = options.imports.isActive
+            ? autoreleasepool { options.imports.run(manager: manager, controller: controller) }
+            : SnapshotImportOptions.Outcome()
+
         runPrivacyScenario(options.privacy, controller: controller, wait: options.wait)
 
         if let section = options.sidebar {
             if history.visitCount() == 0 {
                 history.importVisits(Self.seededHistory(now: Date()))
             }
-            seedBookmarkTree(bookmarks)
             if downloads.records.isEmpty, !options.session.startsDownloads {
                 let finished = downloads.begin(
                     url: "https://example.com/files/report.pdf",
@@ -434,10 +481,13 @@ enum SnapshotCommand {
                 )
                 downloads.updateProgress(id: active.id, fraction: 0.42)
             }
+            if section == .archive {
+                SnapshotArchiveAction.seed(manager.archive, spaces: manager.spaces, now: Date())
+            }
             controller.showSidebar(section: section)
         }
-        if options.bookmarks.isActive {
-            runBookmarkScenario(options.bookmarks, controller: controller)
+        if options.pins.isActive {
+            runPinScenario(options.pins, controller: controller)
         }
         if options.showFind {
             controller.showFindBar()
@@ -501,7 +551,18 @@ enum SnapshotCommand {
             print("websites: profile picker \(websitesSheet.pickerTitle ?? "hidden")")
         }
         let profilesSheet = options.session.showProfilesSheet ? manager.makeProfilesSheet() : nil
-        if settingsPreview != nil || websitesSheet != nil || profilesSheet != nil {
+        let searchEnginesSheet = options.searchEngines.makeSheet(
+            settingsStore: settingsStore,
+            theme: themeManager.currentTheme
+        )
+        let shortcutsSheet = options.showsShortcutsSheet ? SnapshotCommandBarAction.sheet(for: manager) : nil
+        if let shortcutsSheet {
+            shortcutsSheet.apply(theme: themeManager.currentTheme)
+            shortcutsSheet.dump.forEach { print("shortcuts: \($0)") }
+        }
+        if settingsPreview != nil || websitesSheet != nil || profilesSheet != nil || searchEnginesSheet != nil
+            || shortcutsSheet != nil
+        {
             wait(0.3)
         }
 
@@ -514,7 +575,7 @@ enum SnapshotCommand {
             print("address-follows-navigation: \(follows ? "yes" : "no") (page \(page))")
         }
         if let address = options.address {
-            AddressBarSnapshot.type(address, into: controller, history: history, bookmarks: bookmarks)
+            AddressBarSnapshot.type(address, into: controller, history: history)
             wait(0.3)
         }
         SnapshotPageTools.run(options.pageTools, controller: controller)
@@ -560,7 +621,9 @@ enum SnapshotCommand {
         if options.printTabs {
             printTabs(controller)
         }
-        let bookmarkPopover = makeBookmarkPopover(options.bookmarks, controller: controller)
+        let bookmarkPopover = makePinPopover(options.pins, controller: controller)
+        let pinPreview = makePinPreview(options.pins, controller: controller)
+        let spaceSheet = makeSpaceSheet(options.pins, controller: controller)
 
         let captureWindow: NSWindow
         let privacySheet = makePrivacySheet(options.privacy, controller: controller)
@@ -591,7 +654,9 @@ enum SnapshotCommand {
             }
             print("sheet: " + texts.joined(separator: " | "))
         }
-        let captured = websitesSheet?.window ?? profilesSheet?.window ?? captureWindow
+        let settingsSheetWindow: NSWindow? = websitesSheet?.window ?? profilesSheet?.window ?? searchEnginesSheet?.window
+        let otherSheetWindow: NSWindow? = shortcutsSheet?.window ?? spaceSheet?.window ?? importOutcome.window
+        let captured: NSWindow = settingsSheetWindow ?? otherSheetWindow ?? captureWindow
         guard let captureContent = captured.contentView else {
             FileHandle.standardError.write(Data("Snapshot could not find the window to capture.\n".utf8))
             exit(1)
@@ -609,7 +674,10 @@ enum SnapshotCommand {
 
         var pageImage: NSImage?
         if privacySheet == nil, !options.showSettings, !options.showHelp, !options.showPrompt,
-           websitesSheet == nil, profilesSheet == nil, !options.showFind, captureWindow === window,
+           websitesSheet == nil, profilesSheet == nil, searchEnginesSheet == nil, shortcutsSheet == nil, spaceSheet == nil,
+           importOutcome.window == nil,
+           !options.showFind,
+           captureWindow === window,
            controller.selectedTab?.lifecycle.crashView == nil,
            let webView = controller.selectedTab?.webView {
             var finished = false
@@ -653,14 +721,18 @@ enum SnapshotCommand {
             image.addRepresentation(rep)
             image.draw(in: dropdown.convert(dropdown.bounds, to: captureContent))
         }
-        if let bookmarkPopover, bookmarkPopover.window === captureWindow,
-           let rep = bookmarkPopover.bitmapImageRepForCachingDisplay(in: bookmarkPopover.bounds)
+        // The Command Bar and ⌃Tab's switcher float over the page too.
+        let commandBarSurface = controller.commandBar.isOpen ? controller.commandBar.view.surface : nil
+        let recentTabs = controller.recentTabsOverlay?.superview == nil ? nil : controller.recentTabsOverlay
+        for overlay in [bookmarkPopover, pinPreview, commandBarSurface, recentTabs].compactMap({ $0 })
+            where overlay.window === captureWindow && spaceSheet == nil && shortcutsSheet == nil
         {
-            // The popover hangs over the page, which is drawn after the chrome.
-            bookmarkPopover.cacheDisplay(in: bookmarkPopover.bounds, to: rep)
-            let image = NSImage(size: bookmarkPopover.bounds.size)
+            // Popovers hang over the page, which is drawn after the chrome.
+            guard let rep = overlay.bitmapImageRepForCachingDisplay(in: overlay.bounds) else { continue }
+            overlay.cacheDisplay(in: overlay.bounds, to: rep)
+            let image = NSImage(size: overlay.bounds.size)
             image.addRepresentation(rep)
-            image.draw(in: bookmarkPopover.convert(bookmarkPopover.bounds, to: captureContent))
+            image.draw(in: overlay.convert(overlay.bounds, to: captureContent))
         }
         if options.showSheet {
             drawAttachedSheet(of: window, in: captureContent)
@@ -686,23 +758,37 @@ enum SnapshotCommand {
             exit(1)
         }
 
+        // An import's sheet finishes (or cancels) before anything goes.
+        SnapshotImportOptions.finish(importOutcome)
+
         // The profiles' data stores live outside the temporary folder
         // (WebKit's own); delete every profile so none is left behind. A
         // window kept here would keep its profile's data store in use, so
-        // the captured one is swapped for a Default window first.
+        // the captured one is swapped for a Default window first. An import
+        // into `--support-dir` keeps its profiles for the next run and
+        // removes only the data stores its windows made.
         if controller.profileID != BrowserProfile.defaultID || controller.kind.isPrivate {
             controller = manager.controllers.first { $0.profileID == BrowserProfile.defaultID && !$0.kind.isPrivate }
                 ?? manager.newWindow(profileID: BrowserProfile.defaultID)
             window = controller.window ?? window
         }
+        let keepsProfiles = options.sleep.supportDirectory != nil && options.imports.imports
         for profile in manager.profiles.profiles where !profile.isDefault {
+            if keepsProfiles, manager.profileContexts[profile.id] == nil {
+                continue
+            }
             var finished = false
+            let report: @MainActor (Error?) -> Void = { error in
+                if let error {
+                    FileHandle.standardError.write(Data("Snapshot could not remove \(profile.name)'s data store: \(error)\n".utf8))
+                }
+                finished = true
+            }
             autoreleasepool {
-                manager.deleteProfile(profile.id) { error in
-                    if let error {
-                        FileHandle.standardError.write(Data("Snapshot could not remove \(profile.name)'s data store: \(error)\n".utf8))
-                    }
-                    finished = true
+                if keepsProfiles {
+                    manager.releaseDataStore(ofProfile: profile.id, completion: report)
+                } else {
+                    manager.deleteProfile(profile.id, completion: report)
                 }
             }
             let removalDeadline = Date().addingTimeInterval(15)
@@ -715,6 +801,7 @@ enum SnapshotCommand {
             open.window?.orderOut(nil)
         }
         defaults.removePersistentDomain(forName: defaultsSuite)
+        pasteboard.releaseGlobally()
         if options.sleep.supportDirectory == nil {
             try? FileManager.default.removeItem(at: temp)
         }

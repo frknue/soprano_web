@@ -117,49 +117,15 @@ enum AppearancePreference: String, Codable, CaseIterable, Sendable {
     }
 }
 
-enum SearchEngine: String, Codable, CaseIterable, Sendable {
-    case duckDuckGo
-    case google
-    case bing
-
-    var name: String {
-        switch self {
-        case .duckDuckGo: "DuckDuckGo"
-        case .google: "Google"
-        case .bing: "Bing"
-        }
-    }
-
-    var searchFormURL: String {
-        switch self {
-        case .duckDuckGo: "https://duckduckgo.com/"
-        case .google: "https://www.google.com/search"
-        case .bing: "https://www.bing.com/search"
-        }
-    }
-
-    func searchURL(for query: String) -> URL? {
-        var components = URLComponents()
-        switch self {
-        case .duckDuckGo:
-            components.host = "duckduckgo.com"
-            components.path = "/"
-        case .google:
-            components.host = "www.google.com"
-            components.path = "/search"
-        case .bing:
-            components.host = "www.bing.com"
-            components.path = "/search"
-        }
-        components.scheme = "https"
-        components.queryItems = [URLQueryItem(name: "q", value: query)]
-        return components.url
-    }
-}
-
 struct BrowserSettings: Codable, Equatable, Sendable {
     var version: Int = 1
-    var searchEngine: SearchEngine = .duckDuckGo
+    /// The default engine: a built-in's id or one of `customSearchEngines`'.
+    var searchEngine: BrowserSearchEngineID = .duckDuckGo
+    /// Settings ▸ Search engine ▸ Manage…, after the built-ins.
+    var customSearchEngines: [BrowserSearchEngine] = []
+    /// Keywords given to built-in engines, by id (`"google": "g"`); they
+    /// have none by default.
+    var searchEngineKeywords: [String: String] = [:]
     /// Empty means the built-in start page.
     var homepage: String = ""
     var themeID: String = "folio"
@@ -189,11 +155,40 @@ struct BrowserSettings: Codable, Equatable, Sendable {
     var defaultZoom: Double = 1
     /// Settings ▸ "Block ads and trackers" (EasyList and EasyPrivacy).
     var blockAdsAndTrackers: Bool = true
+    /// Settings ▸ Keyboard shortcuts: remapped shortcuts and their
+    /// priority, by command id.
+    var shortcuts = BrowserShortcutSettings()
 
     static let `default` = BrowserSettings()
 
     var usesVerticalTabs: Bool {
         verticalTabs ?? true
+    }
+
+    /// The shortcuts in effect (the registry's defaults, then `shortcuts`).
+    var keymap: BrowserKeymap {
+        get { BrowserKeymap(shortcuts) }
+        set { shortcuts = newValue.settings }
+    }
+
+    /// Every engine and the default (an unknown default reads as DuckDuckGo).
+    var searchEngines: BrowserSearchEngines {
+        get {
+            BrowserSearchEngines(
+                custom: customSearchEngines,
+                builtInKeywords: searchEngineKeywords,
+                defaultID: searchEngine
+            )
+        }
+        set {
+            customSearchEngines = newValue.custom
+            searchEngineKeywords = newValue.builtInKeywords
+            searchEngine = newValue.defaultID
+        }
+    }
+
+    var defaultSearchEngine: BrowserSearchEngine {
+        searchEngines.defaultEngine
     }
 
     var downloadDirectoryURL: URL {
@@ -213,7 +208,19 @@ extension BrowserSettings {
         self.init()
         let c = try decoder.container(keyedBy: CodingKeys.self)
         version = (try? c.decodeIfPresent(Int.self, forKey: .version)) ?? version
-        searchEngine = (try? c.decodeIfPresent(SearchEngine.self, forKey: .searchEngine)) ?? searchEngine
+        // Engines before the default, so it can name a custom one; a bad
+        // entry, a repeated id or keyword is dropped, an unknown default is
+        // DuckDuckGo.
+        let engines = BrowserSearchEngines(
+            custom: (try? c.decodeIfPresent(LossyArray<BrowserSearchEngine>.self, forKey: .customSearchEngines))?
+                .elements ?? [],
+            builtInKeywords: (try? c.decodeIfPresent(BrowserSearchKeywordMap.self, forKey: .searchEngineKeywords))?
+                .keywords ?? [:],
+            defaultID: (try? c.decodeIfPresent(BrowserSearchEngineID.self, forKey: .searchEngine)) ?? searchEngine
+        )
+        customSearchEngines = engines.custom
+        searchEngineKeywords = engines.builtInKeywords
+        searchEngine = engines.defaultID
         homepage = (try? c.decodeIfPresent(String.self, forKey: .homepage)) ?? homepage
         themeID = (try? c.decodeIfPresent(String.self, forKey: .themeID)) ?? themeID
         appearance = (try? c.decodeIfPresent(AppearancePreference.self, forKey: .appearance)) ?? appearance
@@ -233,6 +240,7 @@ extension BrowserSettings {
             .flatMap(BrowserZoom.validated)
             .map(BrowserZoom.nearestStep) ?? defaultZoom
         blockAdsAndTrackers = (try? c.decodeIfPresent(Bool.self, forKey: .blockAdsAndTrackers)) ?? blockAdsAndTrackers
+        shortcuts = (try? c.decodeIfPresent(BrowserShortcutSettings.self, forKey: .shortcuts)) ?? shortcuts
     }
 }
 
@@ -300,12 +308,27 @@ final class BrowserSettingsStore {
 // MARK: - Addresses
 
 enum BrowserAddressResolver {
-    /// Resolves what the address bar or a command-line argument means.
-    /// `about:start` and empty input both mean the start page.
+    /// Resolves what the address bar or a command-line argument means:
+    /// "keyword query" searches that engine, an address opens, anything
+    /// else searches the default engine. `about:start` and empty input
+    /// both mean the start page.
     static func resolve(
         _ input: String,
-        searchEngine: SearchEngine = .duckDuckGo
+        searchEngines: BrowserSearchEngines = .default
     ) -> URL? {
+        let trimmed = input.trimmingCharacters(in: .whitespacesAndNewlines)
+        if let search = searchEngines.resolve(trimmed) {
+            return search.url
+        }
+        if let url = address(for: trimmed) {
+            return url
+        }
+        return searchEngines.defaultEngine.searchURL(for: trimmed)
+    }
+
+    /// The URL `input` names when it reads as an address (the start page
+    /// for empty input), or nil when it reads as a search.
+    static func address(for input: String) -> URL? {
         let trimmed = input.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty else { return URL(string: "about:start") }
 
@@ -346,7 +369,7 @@ enum BrowserAddressResolver {
             return URL(string: "https://\(trimmed)")
         }
 
-        return searchEngine.searchURL(for: trimmed)
+        return nil
     }
 
     static func isStartPage(_ url: URL?) -> Bool {
@@ -366,6 +389,9 @@ enum BrowserAddressResolver {
 
 /// One saved tab. Files before the sleep slice also hold a per-tab `zoom`;
 /// it is ignored, since a page takes its site's zoom when it loads.
+/// Version 3 adds the tab's Space and its pin or favorite link (`pinID`,
+/// `favoriteID`); without them a tab is a Today tab of its window's
+/// profile's first Space.
 struct BrowserTabState: Codable, Equatable, Sendable {
     /// Nil is the start page.
     var url: String?
@@ -374,6 +400,20 @@ struct BrowserTabState: Codable, Equatable, Sendable {
     /// Nil in files written before it was saved; the tab then restores its
     /// URL only.
     var interactionState: Data?
+    /// The tab's Space; nil in a private window and in version 2 files.
+    var spaceID: UUID?
+    var origin: BrowserTabOrigin = .today
+    /// Where the last load of a linked tab's pin landed (its redirect
+    /// target), so a restored tab there shows no "/".
+    var linkLanding: String?
+    /// When the tab was last selected or used, so idle time (the Archive's
+    /// `archiveAfter`, tab sleep) carries over a relaunch. Nil in older
+    /// files: the tab counts from the restore.
+    var lastActiveAt: Date?
+
+    private enum CodingKeys: String, CodingKey {
+        case url, title, interactionState, spaceID, pinID, favoriteID, linkLanding, lastActiveAt
+    }
 }
 
 extension BrowserTabState {
@@ -383,6 +423,28 @@ extension BrowserTabState {
         url = try? c.decodeIfPresent(String.self, forKey: .url)
         title = (try? c.decodeIfPresent(String.self, forKey: .title)) ?? title
         interactionState = try? c.decodeIfPresent(Data.self, forKey: .interactionState)
+        spaceID = (try? c.decodeIfPresent(UUID.self, forKey: .spaceID)) ?? nil
+        if let pin = (try? c.decodeIfPresent(UUID.self, forKey: .pinID)) ?? nil {
+            origin = .pinned(pin)
+        } else if let favorite = (try? c.decodeIfPresent(UUID.self, forKey: .favoriteID)) ?? nil {
+            origin = .favorite(favorite)
+        }
+        if origin != .today {
+            linkLanding = (try? c.decodeIfPresent(String.self, forKey: .linkLanding)) ?? nil
+        }
+        lastActiveAt = (try? c.decodeIfPresent(Date.self, forKey: .lastActiveAt)) ?? nil
+    }
+
+    func encode(to encoder: Encoder) throws {
+        var c = encoder.container(keyedBy: CodingKeys.self)
+        try c.encodeIfPresent(url, forKey: .url)
+        try c.encode(title, forKey: .title)
+        try c.encodeIfPresent(interactionState, forKey: .interactionState)
+        try c.encodeIfPresent(spaceID, forKey: .spaceID)
+        try c.encodeIfPresent(origin.pinID, forKey: .pinID)
+        try c.encodeIfPresent(origin.favoriteID, forKey: .favoriteID)
+        try c.encodeIfPresent(origin == .today ? nil : linkLanding, forKey: .linkLanding)
+        try c.encodeIfPresent(lastActiveAt, forKey: .lastActiveAt)
     }
 }
 
@@ -405,18 +467,33 @@ struct BrowserWindowFrame: Codable, Equatable, Sendable {
     }
 }
 
-/// One saved window: its tabs, the selected one, where it was and its
-/// profile.
+/// One saved window: its tabs, the selected one, where it was, the Space it
+/// shows and each Space's selection.
 struct BrowserWindowState: Codable, Equatable, Sendable {
     /// Stable across relaunches, so a closed tab finds its window again.
     var id = UUID()
     /// Nil for the window a version 1 session migrates to.
     var frame: BrowserWindowFrame?
+    /// Every tab of every Space, in window order.
     var tabs: [BrowserTabState]
+    /// Index in `tabs` of the selected tab (of the current Space).
     var selectedIndex = 0
+    /// The current Space's profile (version 2: the window's profile).
     /// Missing in files written before profiles: Default. A profile that no
     /// longer exists opens in Default too.
     var profileID = BrowserProfile.defaultID
+    /// The Space the window shows; nil in a private window and in version 2
+    /// files (`placedInSpaces` picks the profile's first Space).
+    var currentSpaceID: UUID?
+    /// The tab each Space selects when the window switches to it.
+    var spaceSelections: [BrowserSpaceSelection] = []
+}
+
+/// A Space's remembered tab in a saved window: its index in the window's
+/// `tabs`.
+struct BrowserSpaceSelection: Codable, Equatable, Sendable {
+    var spaceID: UUID
+    var index: Int
 }
 
 extension BrowserWindowState {
@@ -427,6 +504,9 @@ extension BrowserWindowState {
         tabs = (try? c.decodeIfPresent(LossyArray<BrowserTabState>.self, forKey: .tabs))?.elements ?? []
         selectedIndex = (try? c.decodeIfPresent(Int.self, forKey: .selectedIndex)) ?? 0
         profileID = ((try? c.decodeIfPresent(UUID.self, forKey: .profileID)) ?? nil) ?? BrowserProfile.defaultID
+        currentSpaceID = (try? c.decodeIfPresent(UUID.self, forKey: .currentSpaceID)) ?? nil
+        spaceSelections = (try? c.decodeIfPresent(LossyArray<BrowserSpaceSelection>.self, forKey: .spaceSelections))?
+            .elements ?? []
     }
 
     /// The selected tab's title, as the Window menu showed it.
@@ -450,8 +530,12 @@ extension BrowserTabState {
 ///
 /// Version 1 (stage 1) held one window's `tabs`, `selectedIndex` and
 /// `closedTabs`; it decodes as one window whose closed tabs return to it.
+/// Version 2 windows have no Spaces; their tabs open in the first Space of
+/// the window's profile (`BrowserWindowState.placedInSpaces`). Version 3
+/// adds each window's `currentSpaceID` and `spaceSelections` and each
+/// tab's `spaceID` and pin or favorite link.
 struct BrowserSession: Codable, Equatable, Sendable {
-    static let currentVersion = 2
+    static let currentVersion = 3
 
     /// The version of the file this was read from; new sessions are current.
     var version = Self.currentVersion
@@ -520,13 +604,14 @@ final class BrowserSessionStore {
         self.url = url
     }
 
-    /// Where a version 1 file is kept after it migrates.
+    /// Where an older file (version 1 or 2) is kept after it migrates.
     var migratedURL: URL {
         url.appendingPathExtension("migrated")
     }
 
-    /// Reads the session. A version 1 file is copied to `migratedURL` once;
-    /// the next save replaces it with version 2.
+    /// Reads the session. An older file is copied to `migratedURL` once (a
+    /// copy already there stays); the next save replaces it with the
+    /// current version.
     func load() -> BrowserSession? {
         guard let session = JSONFile.read(BrowserSession.self, at: url) else { return nil }
         if session.version < BrowserSession.currentVersion,

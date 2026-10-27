@@ -274,6 +274,8 @@ final class BrowserConnectionSecurity {
 
     struct CredentialRequest {
         let challenge: URLAuthenticationChallenge
+        /// The asking tab's data context: one answer never crosses profiles.
+        let contextID: UUID
         let completion: ChallengeCompletion
     }
 

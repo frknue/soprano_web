@@ -71,6 +71,28 @@ struct BrowserProfilesTests {
         #expect(garbage.profiles == [.defaultProfile])
     }
 
+    @Test func archiveAfterDecodesTolerantlyAndRoundTrips() throws {
+        let work = UUID()
+        let home = UUID()
+        let text = """
+        {"version": 1, "profiles": [
+          {"id": "\(BrowserProfile.defaultID.uuidString)", "name": "Default"},
+          {"id": "\(work.uuidString)", "name": "Work", "archiveAfter": "days7"},
+          {"id": "\(home.uuidString)", "name": "Home", "archiveAfter": "fortnight"}
+        ]}
+        """
+        var list = try JSONDecoder().decode(BrowserProfileList.self, from: Data(text.utf8))
+        // Missing (a stage 2 file) and unknown values get the default.
+        #expect(list.profiles.map(\.archiveAfter) == [.hours12, .days7, .hours12])
+        #expect(BrowserArchiveAfter.default == .hours12)
+        #expect(BrowserArchiveAfter.never.interval == nil)
+        #expect(BrowserArchiveAfter.hour1.interval == 3_600)
+
+        list.setArchiveAfter(id: home, .never)
+        let decoded = try JSONDecoder().decode(BrowserProfileList.self, from: JSONEncoder().encode(list))
+        #expect(decoded.profiles.map(\.archiveAfter) == [.hours12, .days7, .never])
+    }
+
     @Test func unreadableFileStartsWithDefault() throws {
         let url = temporaryFile()
         defer { try? FileManager.default.removeItem(at: url.deletingLastPathComponent()) }
@@ -139,22 +161,32 @@ struct BrowserProfilesTests {
         #expect(defaultHistory.databaseURL.deletingLastPathComponent().standardizedFileURL == support.standardizedFileURL)
     }
 
-    @Test func windowMarkNamesPrivateAndProfile() {
+    @Test func windowMarkNamesPrivateProfileAndSpace() {
         let work = BrowserProfile(name: "Work", color: .green)
         #expect(BrowserWindowMark(kind: .normal, profile: nil).text == nil)
         #expect(BrowserWindowMark(kind: .private, profile: nil).text == "Private")
         #expect(BrowserWindowMark(kind: .normal, profile: work).text == "Work")
         let both = BrowserWindowMark(kind: .private, profile: work)
         #expect(both.text == "Private · Work")
-        #expect(both.profileColor == .green)
+        #expect(both.color == .green)
+        // A normal window shows its Space: emoji, name and the Space's
+        // color; the profile goes into the tooltip.
+        let space = BrowserSpace(name: "Research", icon: .emoji("🔬"), color: .blue, profileID: work.id)
+        let spaceMark = BrowserWindowMark(space: space, profile: work)
+        #expect(spaceMark.text == "🔬 Research")
+        #expect(spaceMark.color == .blue)
+        #expect(spaceMark.toolTip == "Space: Research\nProfile: Work")
+        let plain = BrowserSpace(name: "Home", icon: .symbol("house"), color: .yellow, profileID: work.id)
+        #expect(BrowserWindowMark(space: plain, profile: nil).text == "Home")
     }
 
     @Test func deleteConfirmationSaysWhatGoes() {
-        let none = BrowserProfilesSheet.deleteConfirmation(name: "Work", windowCount: 0)
+        let none = BrowserProfilesSheet.deleteConfirmation(name: "Work", tabCount: 0)
         #expect(none.title == "Delete the profile “Work”?")
-        #expect(!none.message.contains("window"))
-        #expect(BrowserProfilesSheet.deleteConfirmation(name: "Work", windowCount: 1).message.hasPrefix("Its open window closes."))
-        #expect(BrowserProfilesSheet.deleteConfirmation(name: "Work", windowCount: 3).message.hasPrefix("Its 3 open windows close."))
+        #expect(!none.message.contains("tab closes"))
+        #expect(none.message.contains("Spaces, pinned tabs"))
+        #expect(BrowserProfilesSheet.deleteConfirmation(name: "Work", tabCount: 1).message.hasPrefix("Its open tab closes."))
+        #expect(BrowserProfilesSheet.deleteConfirmation(name: "Work", tabCount: 3).message.hasPrefix("Its 3 open tabs close."))
     }
 
     @Test func clearBrowsingDataNamesTheProfile() {

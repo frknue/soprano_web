@@ -2,9 +2,9 @@ import AppKit
 import WebKit
 
 /// One browser window and its tabs. App-wide pieces (stores, downloads,
-/// Settings, the recently-closed stack) live on `manager`; the window's
-/// profile data (data store, History, site decisions) and its favicons and
-/// connection decisions on `dataContext`; this keeps per-window state only.
+/// Settings, the recently-closed stack) live on `manager`; each tab's
+/// profile data on its own `BrowserTab.dataContext`; the current Space's
+/// on `dataContext`; this keeps per-window state only.
 @MainActor
 final class BrowserWindowController: NSWindowController {
     unowned let manager: BrowserWindowManager
@@ -13,13 +13,30 @@ final class BrowserWindowController: NSWindowController {
     /// A page's `window.open` with a size: one tab, compact chrome (no tab
     /// list, read-only address), never saved in the session.
     let isPopup: Bool
-    /// What this window's tabs read and write; shared with every window a
-    /// tab may move to. A private window's own context dies with the last
-    /// window that uses it.
-    let dataContext: BrowserDataContext
+    /// What the window-level chrome reads (sidebar History, address
+    /// suggestions, Clear Browsing Data, the mark) and what new tabs use:
+    /// the current Space's profile context. A private or pop-up window's
+    /// is fixed, shared with every window a tab may move to; a private
+    /// window's own context dies with the last window that uses it.
+    private(set) var dataContext: BrowserDataContext
+    /// The Space the window shows (`switchToSpace`); nil for private and
+    /// pop-up windows, which have no Spaces.
+    private(set) var currentSpaceID: UUID?
 
-    var tabs: [BrowserTab] = []
+    /// Every live tab of the window, of every Space, in window order (what
+    /// the session saves, sleep, content blocking and closing iterate).
+    var tabs: [BrowserTab] = [] {
+        didSet { refreshVisibleTabs() }
+    }
+    /// The current Space's tabs, in window order: what the tab strip and
+    /// rail show and every index-based command counts (⌘1…⌘9, Vimium,
+    /// the CLI's tab numbers). All tabs in a window without Spaces.
+    private(set) var visibleTabs: [BrowserTab] = []
+    /// Index of the selected tab in `visibleTabs`.
     var selectedIndex = 0
+    /// Each Space's selected tab, kept while the window shows another
+    /// Space.
+    var spaceSelections: [UUID: UUID] = [:]
     var isSidebarVisible = false
     var sidebarSection: BrowserSidebarSection = .history
     var findQuery = ""
@@ -33,11 +50,14 @@ final class BrowserWindowController: NSWindowController {
     /// Store, theme and settings subscriptions; cancelled when the window
     /// closes.
     private var storeObservations: [BrowserObservation] = []
+    /// The History, site decisions and favicons of every data context the
+    /// window's tabs (and its current Space) use, by context id.
+    private var contextObservations: [UUID: [BrowserObservation]] = [:]
 
     private(set) var theme: AppTheme
     private var usesVerticalTabs: Bool
     private var isVerticalSidebarCollapsed: Bool
-    private var lastSearchEngine: SearchEngine
+    private var lastSearchEngine: BrowserSearchEngine
     let verticalTabsView: BrowserVerticalTabsView
     let rootView = NSView()
     private let topBar = NSView()
@@ -61,37 +81,67 @@ final class BrowserWindowController: NSWindowController {
     private var webLeadingToRoot: NSLayoutConstraint!
     private var webLeadingToSidebar: NSLayoutConstraint!
 
+    /// Vimium's `b` (pins) and `T` (tabs) lists.
     lazy var palette = CommandPalettePanel(themeManager: themeManager)
+    lazy var commandBar = BrowserCommandBarController(theme: theme)
     lazy var addressBar = BrowserAddressBarController(toolbar: toolbar, theme: theme)
+    /// The window's tabs by when they were last selected (⌃Tab).
+    var recentTabs = BrowserRecentTabs()
+    /// ⌃Tab's switcher while ⌃ is held, its overlay and the ⌃-release
+    /// monitor.
+    var recentTabSwitcher: BrowserRecentTabSwitcher?
+    var recentTabsOverlay: BrowserRecentTabsOverlay?
+    var recentTabsMonitor: Any?
+    /// Site wins and Press twice state for shortcuts pressed in a page.
+    var shortcutGate = BrowserShortcutGate()
+    /// The key handed to the page under Site wins or Press twice, until
+    /// WebKit or the page answers.
+    var forwardedKeys: [(event: NSEvent, token: Int)] = []
+    var keyTokens = 0
+    /// ⇧⌘D: the toolbar is hidden in every window (UI state in
+    /// `UserDefaults`).
+    var isToolbarHidden: Bool {
+        defaults.bool(forKey: Self.toolbarHiddenKey)
+    }
 
     var previousSelectedTabID: UUID?
     var lastFindQuery = ""
     var vimiumFindActive = false
     lazy var vimiumPromptPanel = VimiumPromptPanel(theme: theme)
     lazy var vimiumTextPanel = VimiumTextPanel(theme: theme)
-    /// ⌘D's popover and the sidebar's bookmark editor.
-    lazy var bookmarkEditorPanel = BrowserBookmarkEditorPanel()
+    /// ⌘D's popover and the rail's pin editor.
+    lazy var bookmarkEditorPanel = BrowserPinEditorPanel()
+    /// The open folder preview beside the rail, and its pending close.
+    var folderPreview: BrowserPinFolderPreview?
+    var folderPreviewHideTimer: Timer?
+    /// The New Space / Edit Space sheet while it is open.
+    var spaceSheet: BrowserSpaceSheet?
     var vimiumToastView: NSView?
     var popupBlockedControl: ChromeButton?
     /// The address field's zoom percentage (`updateZoomChip`).
     var zoomChip: ChromeButton?
 
     static let verticalSidebarCollapsedKey = "verticalSidebarCollapsed"
+    static let toolbarHiddenKey = "toolbarHidden"
 
     /// An empty window at `frame` (screen coordinates the window really
-    /// uses) whose tabs use `dataContext`; the manager adds its tabs. Create
-    /// windows through `BrowserWindowManager`.
+    /// uses) showing Space `spaceID` (a normal window; `dataContext` is that
+    /// Space's profile context) or, without one, a private or pop-up
+    /// window of `dataContext`; the manager adds its tabs. Create windows
+    /// through `BrowserWindowManager`.
     init(
         manager: BrowserWindowManager,
         id: UUID = UUID(),
         frame: NSRect,
         isPopup: Bool = false,
-        dataContext: BrowserDataContext
+        dataContext: BrowserDataContext,
+        spaceID: UUID?
     ) {
         self.manager = manager
         self.id = id
         self.isPopup = isPopup
         self.dataContext = dataContext
+        self.currentSpaceID = isPopup || dataContext.kind.isPrivate ? nil : spaceID
         let themeManager = manager.themeManager
         let settings = manager.settingsStore.settings
         let theme = Self.theme(for: dataContext.kind, appTheme: themeManager.currentTheme)
@@ -100,7 +150,7 @@ final class BrowserWindowController: NSWindowController {
         self.isVerticalSidebarCollapsed = manager.defaults.bool(
             forKey: Self.verticalSidebarCollapsedKey
         )
-        self.lastSearchEngine = settings.searchEngine
+        self.lastSearchEngine = settings.defaultSearchEngine
         self.verticalTabsView = BrowserVerticalTabsView(theme: theme)
         self.toolbar = BrowserToolbarView(theme: theme)
         self.tabStrip = BrowserTabStripView(theme: theme)
@@ -108,9 +158,9 @@ final class BrowserWindowController: NSWindowController {
         self.sidebar = BrowserSidebarView(
             theme: theme,
             history: dataContext.history,
-            bookmarks: manager.bookmarks,
-            bookmarkState: manager.bookmarkUIState,
-            downloads: manager.downloads
+            downloads: manager.downloads,
+            archive: manager.archive,
+            archiveProfileID: dataContext.profileID
         )
         self.hairline = ChromeRuleView(axis: .horizontal, color: theme.colors.borderSubtle)
         self.sidebarDivider = ChromeRuleView(axis: .vertical, color: theme.colors.borderSubtle)
@@ -145,7 +195,10 @@ final class BrowserWindowController: NSWindowController {
         wireCallbacks()
         installTabChrome()
         installAddressBar()
+        installCommandBar()
         sidebar.privateDownloadContextID = dataContext.downloadContextID
+        sidebar.showsArchive = !kind.isPrivate
+        syncContextObservations()
         applyWindowMark()
         applyTheme(theme)
         applyTabsLayout()
@@ -159,23 +212,37 @@ final class BrowserWindowController: NSWindowController {
     // App-wide stores, owned by the manager.
     var themeManager: ThemeManager { manager.themeManager }
     var settingsStore: BrowserSettingsStore { manager.settingsStore }
-    var bookmarks: BrowserBookmarkStore { manager.bookmarks }
+    var spaces: BrowserSpaceStore { manager.spaces }
     var downloads: BrowserDownloadStore { manager.downloads }
     private var defaults: UserDefaults { manager.defaults }
 
-    // This window's data, owned by its data context.
+    // The current Space's data (a private or pop-up window's own), owned by
+    // its data context. Per-tab work uses `BrowserTab.dataContext`.
     var kind: BrowserWindowKind { dataContext.kind }
-    /// The profile the window belongs to (a private window's: the one it
-    /// was opened over).
+    /// The current Space's profile (a private window's: the one it was
+    /// opened over).
     var profileID: UUID { dataContext.profileID }
-    var history: BrowserHistoryStore { dataContext.history }
-    var sitePermissions: BrowserSitePermissionStore { dataContext.sitePermissions }
-    var faviconStore: BrowserFaviconStore { dataContext.faviconStore }
-    var connectionSecurity: BrowserConnectionSecurity { dataContext.connectionSecurity }
+
+    /// Whether the window shows Spaces (a normal window that is not a
+    /// pop-up).
+    var hasSpaces: Bool { currentSpaceID != nil }
+
+    /// The Space whose pins the window's pin surfaces (⌘D, the sidebar's
+    /// outline, the Spaces menu, Vimium `b`, address suggestions) read and
+    /// write: the current Space; a private or pop-up window's profile's
+    /// first Space.
+    var pinSpaceID: UUID? {
+        currentSpaceID ?? spaces.firstSpace(ofProfile: profileID)?.id
+    }
+
+    /// The pin Space's pinned tree; empty without one.
+    var currentPinTree: BrowserPinTree {
+        pinSpaceID.map(spaces.pinTree(inSpace:)) ?? BrowserPinTree()
+    }
 
     /// This window as `BrowserTabMoveRule` sees it.
     var moveRuleWindow: BrowserTabMoveRule.Window {
-        BrowserTabMoveRule.Window(id: id, context: dataContext.id, isPopup: isPopup)
+        BrowserTabMoveRule.Window(id: id, context: dataContext.id, isPopup: isPopup, hasSpaces: hasSpaces)
     }
 
     /// A private window always uses Folio Ink; a normal window the app's
@@ -185,8 +252,91 @@ final class BrowserWindowController: NSWindowController {
     }
 
     var selectedTab: BrowserTab? {
-        guard tabs.indices.contains(selectedIndex) else { return tabs.first }
-        return tabs[selectedIndex]
+        guard visibleTabs.indices.contains(selectedIndex) else { return visibleTabs.first }
+        return visibleTabs[selectedIndex]
+    }
+
+    /// Recomputes `visibleTabs` (the current Space's tabs: favorite tabs,
+    /// then pinned tabs, then Today tabs; `BrowserPinLinks.order`) and keeps
+    /// `selectedIndex` on the same tab. Runs when `tabs` changes, and when a
+    /// tab's link, its Space or the pins and favorites change.
+    func refreshVisibleTabs() {
+        let selectedID = visibleTabs.indices.contains(selectedIndex) ? visibleTabs[selectedIndex].id : nil
+        let spaceTabs = tabs.filter { $0.spaceID == currentSpaceID }
+        if let spaceID = currentSpaceID, spaceTabs.contains(where: { $0.origin != .today }) {
+            let byID = Dictionary(spaceTabs.map { ($0.id, $0) }, uniquingKeysWith: { first, _ in first })
+            visibleTabs = BrowserPinLinks.order(
+                spaceTabs.map { (id: $0.id, origin: $0.origin) },
+                favorites: spaces.favorites(ofProfile: profileID).map(\.id),
+                pins: spaces.pins(inSpace: spaceID).map(\.id)
+            ).compactMap { byID[$0] }
+        } else {
+            visibleTabs = spaceTabs
+        }
+        if let selectedID, let index = visibleTabs.firstIndex(where: { $0.id == selectedID }) {
+            selectedIndex = index
+        }
+    }
+
+    /// Makes `space` the current Space: the window's data context becomes
+    /// its profile's, the visible tabs its tabs, and the window-level
+    /// chrome (sidebar History, mark) follows. The caller selects a tab.
+    func setCurrentSpace(_ space: BrowserSpace) {
+        guard hasSpaces else { return }
+        let context = manager.context(for: space.profileID)
+        let contextChanged = context !== dataContext
+        currentSpaceID = space.id
+        dataContext = context
+        refreshVisibleTabs()
+        selectedIndex = 0
+        syncContextObservations()
+        if contextChanged {
+            sidebar.history = context.history
+            sidebar.archiveProfileID = context.profileID
+            addressBar.close()
+        }
+        applyWindowMark()
+        // The preview showed the Space left behind.
+        closeFolderPreview()
+    }
+
+    /// Observes the History, site decisions and favicons of every data
+    /// context the tabs and the current Space use, and stops observing the
+    /// ones no longer used. Runs when tabs come and go and on a Space
+    /// switch.
+    func syncContextObservations() {
+        var used: [UUID: BrowserDataContext] = [dataContext.id: dataContext]
+        for tab in tabs {
+            used[tab.dataContext.id] = tab.dataContext
+        }
+        for id in contextObservations.keys where used[id] == nil {
+            contextObservations.removeValue(forKey: id)?.forEach { $0.cancel() }
+        }
+        for (id, context) in used where contextObservations[id] == nil {
+            contextObservations[id] = [
+                context.history.changes.observe { [weak self, weak context] in
+                    guard let self, let context else { return }
+                    // The list queries the database; a hidden one reloads
+                    // when shown.
+                    if context === self.dataContext, self.isSidebarVisible, self.sidebar.section == .history {
+                        self.sidebar.refresh()
+                    }
+                    self.markStartPagesStale()
+                },
+                context.faviconStore.changes.observe { [weak self, weak context] in
+                    guard let self, let context, context === self.dataContext else { return }
+                    // Pins and favorites without a live tab show the
+                    // cached favicon.
+                    self.updateRail()
+                    if self.isSidebarVisible {
+                        self.sidebar.redisplayRows()
+                    }
+                },
+                // Each tab reads its own context's decisions, so every tab
+                // re-reads; only tabs whose state changed reload.
+                context.sitePermissions.changes.observe { [weak self] in self?.sitePermissionsChanged() },
+            ]
+        }
     }
 
     // MARK: - Layout
@@ -282,18 +432,24 @@ final class BrowserWindowController: NSWindowController {
         webLeadingToRoot.isActive = true
     }
 
-    private func applyTabsLayout() {
+    func applyTabsLayout() {
         let compact = isPopup
         let vertical = usesVerticalTabs && !compact
         let collapsed = vertical && isVerticalSidebarCollapsed
         let railShown = vertical && !collapsed
         let stripShown = !vertical && !compact
+        // ⇧⌘D hides the toolbar (never a pop-up's, its only chrome).
+        let toolbarShown = compact || !isToolbarHidden
         verticalTabsView.isHidden = !railShown
         tabStrip.isHidden = !stripShown
+        toolbar.isHidden = !toolbarShown
         tabStripHeight.constant = stripShown ? BrowserTabStripView.preferredHeight : 0
-        topBarHeight.constant = stripShown
-            ? BrowserToolbarView.preferredHeight + BrowserTabStripView.preferredHeight
-            : BrowserToolbarView.preferredHeight
+        topBarHeight.constant = (stripShown ? BrowserTabStripView.preferredHeight : 0)
+            + (toolbarShown ? BrowserToolbarView.preferredHeight : 0)
+        topBar.isHidden = topBarHeight.constant == 0
+        if !toolbarShown {
+            addressBar.close()
+        }
 
         topBarLeadingToRoot.isActive = !railShown
         topBarLeadingToSidebar.isActive = railShown
@@ -310,6 +466,7 @@ final class BrowserWindowController: NSWindowController {
         // rail header, or next to the address field when there is no rail.
         toolbar.setWindowMarkShown(!railShown)
         updateTabStrip()
+        syncFolderPreview()
         updateWindowMinSize()
         viewNeedsLayout()
     }
@@ -334,11 +491,12 @@ final class BrowserWindowController: NSWindowController {
 
     private func wireCallbacks() {
         tabStrip.onSelect = { [weak self] id in self?.selectTab(id: id, focus: true) }
-        tabStrip.onClose = { [weak self] id in self?.closeTab(id: id) }
+        tabStrip.onClose = { [weak self] id in self?.closeTab(id: id, archive: true) }
         tabStrip.onNewTab = { [weak self] in self?.newTab(focusAddress: true) }
         verticalTabsView.onSelect = { [weak self] id in self?.selectTab(id: id, focus: true) }
-        verticalTabsView.onClose = { [weak self] id in self?.closeTab(id: id) }
+        verticalTabsView.onClose = { [weak self] id in self?.closeTab(id: id, archive: true) }
         verticalTabsView.onNewTab = { [weak self] in self?.newTab(focusAddress: true) }
+        verticalTabsView.onSwipeSpace = { [weak self] step in self?.switchToNeighborSpace(step: step) }
         toolbar.onToggleVerticalSidebar = { [weak self] in self?.toggleVerticalSidebar() }
 
         toolbar.onSubmit = { [weak self] value in self?.submitAddress(value) }
@@ -362,15 +520,11 @@ final class BrowserWindowController: NSWindowController {
         sidebar.onOpenURL = { [weak self] url in self?.navigateCurrent(to: url) }
         sidebar.onOpenFile = { [weak self] path in self?.openFile(path) }
         sidebar.onRevealFile = { [weak self] path in self?.revealFile(path) }
-        sidebar.onRemoveHistory = { [weak self] url in self?.history.removePage(url: url) }
-        sidebar.onOpenURLInNewTab = { [weak self] url in self?.newTab(url: url) }
-        sidebar.onOpenFolderInTabs = { [weak self] id in self?.openBookmarkFolderInTabs(id) }
-        sidebar.onNewBookmarkFolder = { [weak self] parent, index in self?.newBookmarkFolder(in: parent, at: index) }
-        sidebar.onEditBookmarkNode = { [weak self] id in self?.editBookmarkNodeFromSidebar(id) }
-        sidebar.onDeleteBookmarkNode = { [weak self] id in self?.deleteBookmarkNode(id) }
-        sidebar.onMoveBookmarkNode = { [weak self] id, folder, index in
-            self?.bookmarks.move(id, to: folder, at: index)
-        }
+        sidebar.onRemoveHistory = { [weak self] url in self?.dataContext.history.removePage(url: url) }
+        sidebar.onRestoreArchived = { [weak self] id in self?.restoreArchived(id: id) }
+        sidebar.onDeleteArchived = { [weak self] id in self?.manager.archive.remove(id: id) }
+        sidebar.spaceMarkProvider = { [weak self] spaceID in self?.archiveSpaceMark(spaceID) }
+        wireRail()
         sidebar.onRemoveDownload = { [weak self] id in self?.downloads.remove(id: id) }
         sidebar.onCancelDownload = { [weak self] id in self?.cancelDownload(id: id) }
         sidebar.onResumeDownload = { [weak self] id in self?.resumeDownload(id: id) }
@@ -379,25 +533,22 @@ final class BrowserWindowController: NSWindowController {
         sidebar.onClose = { [weak self] in self?.hideSidebar() }
 
         storeObservations = [
-            history.changes.observe { [weak self] in
-                guard let self else { return }
-                // The list queries the database; a hidden one reloads when shown.
-                if self.isSidebarVisible, self.sidebar.section == .history {
-                    self.sidebar.refresh()
-                }
-                self.markStartPagesStale()
-            },
-            bookmarks.changes.observe { [weak self] in
-                self?.sidebar.refresh()
+            spaces.changes.observe { [weak self] in
+                // A deleted Space's tabs close, a window on it moves on;
+                // a deleted pin's live tab becomes a Today tab.
+                self?.spacesChanged()
+                self?.refreshVisibleTabs()
                 self?.markStartPagesStale()
+                self?.applyWindowMark()
+                self?.updateTabStrip()
                 self?.updateChrome()
+                self?.syncFolderPreview()
             },
             downloads.changes.observe { [weak self] in self?.sidebar.refresh() },
-            faviconStore.changes.observe { [weak self] in
-                guard let self, self.isSidebarVisible else { return }
-                self.sidebar.redisplayRows()
+            manager.archive.changes.observe { [weak self] in
+                guard let self, self.isSidebarVisible, self.sidebar.section == .archive else { return }
+                self.sidebar.refresh()
             },
-            sitePermissions.changes.observe { [weak self] in self?.sitePermissionsChanged() },
             manager.profiles.changes.observe { [weak self] in self?.applyWindowMark() },
             manager.themeChanges.observe { [weak self] theme in
                 // A private window keeps Folio Ink.
@@ -418,13 +569,16 @@ final class BrowserWindowController: NSWindowController {
     func cancelStoreObservations() {
         storeObservations.forEach { $0.cancel() }
         storeObservations.removeAll()
+        contextObservations.values.forEach { $0.forEach { $0.cancel() } }
+        contextObservations.removeAll()
     }
 
-    /// Shows "Private", the window's profile (when there are several) or
-    /// both in the rail header and next to the address field.
+    /// Shows "Private", the current Space (when there are several), its
+    /// profile, or both next to the address field; the rail header always
+    /// shows the current Space (`railMark`).
     func applyWindowMark() {
         let mark = manager.windowMark(for: self)
-        verticalTabsView.setMark(mark)
+        verticalTabsView.setMark(railMark)
         toolbar.setWindowMark(mark)
         viewNeedsLayout()
     }
@@ -454,6 +608,14 @@ final class BrowserWindowController: NSWindowController {
         applyTabsLayout()
     }
 
+    /// ⌥⌘B Show Pinned Tabs: the rail (vertical tabs on, not collapsed).
+    func showRail() {
+        guard usesVerticalTabs, !isVerticalSidebarCollapsed else {
+            toggleVerticalSidebar()
+            return
+        }
+    }
+
     func showSettings() {
         manager.showSettings()
     }
@@ -462,8 +624,8 @@ final class BrowserWindowController: NSWindowController {
         refreshPermissionStates()
         // Settings ▸ Default page zoom: sites without their own zoom follow.
         applySiteZooms()
-        let searchChanged = lastSearchEngine != settings.searchEngine
-        lastSearchEngine = settings.searchEngine
+        let searchChanged = lastSearchEngine != settings.defaultSearchEngine
+        lastSearchEngine = settings.defaultSearchEngine
         if searchChanged {
             for tab in tabs where tab.isStartPage {
                 staleStartTabs.insert(tab.id)
@@ -497,6 +659,8 @@ final class BrowserWindowController: NSWindowController {
         verticalTabsView.apply(theme: theme)
         toolbar.apply(theme: theme)
         addressBar.apply(theme: theme)
+        commandBar.apply(theme: theme)
+        recentTabsOverlay?.apply(theme: theme)
         findBar.apply(theme: theme)
         sidebar.apply(theme: theme)
         linkStatus.apply(theme: theme)

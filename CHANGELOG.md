@@ -207,8 +207,121 @@ app.
   off (or back on) for that site and reloads its open tabs. Settings ▸ Websites
   lists those sites ("Ad blocking: Off") with Remove; private windows keep the
   switch until they close, and each profile has its own.
+- The rail (vertical tabs) shows the current Space from top to bottom: its
+  icon, name and color, the profile's Favorites as a grid of icons, the
+  Space's pinned tabs and folders, then Today with "+ New Tab" and your other
+  tabs, and a Space switcher at the bottom. Click a Space's icon to switch;
+  "+" opens New Space (name, an emoji or SF Symbol icon, color and profile);
+  right-click an icon ▸ Edit Space… or Delete Space (a profile's last Space
+  can't be deleted).
+- Pinned tabs and Favorites stay in place: clicking one opens its tab, or
+  goes back to the one already open in this window. `⌘W` on a pinned or
+  favorite tab closes it back to its pin and does not add it to Recently
+  Closed. A pinned tab that moved on to another page shows "/": click its icon
+  to go back to the pinned page, `⌘`-click the icon to go back and keep the
+  page in a new tab.
+- Right-click a tab ▸ Pin Tab / Unpin Tab, Add to Favorites / Remove from
+  Favorites (up to 12 per profile), Back to Pinned Page and Replace Pin with
+  Current Page; right-click a pin in the rail for Open, Copy Link, Replace
+  Pin with Current Page, Edit Pin…, New Folder and Delete, and a favorite for
+  Open, Copy Link, Replace Favorite with Current Page and Remove from
+  Favorites. `⌘D` pins the page into the current Space and makes its tab the
+  pin's tab. In a Space with no pinned tabs, right-click the Pinned area for
+  New Folder.
+- A pin whose address redirects (to `https`, to a trailing "/", to the site's
+  own start page) is home where it lands: no "/" until you move on from there.
+- With many Spaces the switcher's icons draw closer together and the rest go
+  into a More Spaces menu; with many pinned and favorite tabs in the strip,
+  those that don't fit go into the All Tabs menu, and a moved-on one shows
+  "/".
+- Rest the pointer on a pinned folder to preview its pins and search them.
+  Drag pins and folders in the rail to reorder them or move them into folders.
+- With horizontal tabs, the Space's favorite and pinned tabs come first in
+  the strip, as icons.
+- Archive: Today tabs you haven't used for a while archive themselves.
+  Settings ▸ Profiles ▸ "Archive Today tabs after" sets the time per profile:
+  Never, 30 days, 7 days, 24 hours, 12 hours (the default), 6 hours or 1 hour.
+  Pinned and favorite tabs, the selected tab, a tab playing audio or waiting
+  on a dialog, and private windows never archive.
+- Closing a Today tab (`⌘W`, its close button, Close Tab, Close Other Tabs)
+  archives it, and it's still on Recently Closed. Spaces ▸ Archive Today Tabs
+  (`⇧⌘K`) archives every Today tab of the current Space.
+- The right sidebar has History · Archive · Downloads. Archive lists the
+  profile's archived tabs by day with their Space, and its search ignores
+  case and accents. Click a tab (or press Return) to bring it back in its
+  Space; right-click for Restore, Copy Link and Delete. History ▸ Show
+  Archive opens it. Clear Browsing Data ▸ History also clears the profile's
+  Archive for the chosen time range, and deleting a profile deletes its
+  Archive.
+- The Command Bar: `⌘T` opens it inside the window; type an address or a
+  search and press Return for a new Today tab in the current Space. `⌘L`
+  opens it with the page's address, and Return loads the edit in the same
+  tab. Results are grouped: open tabs of every Space (choosing one switches
+  Space), pinned tabs and favorites, History, Spaces, actions and settings
+  pages; type `/` to list only actions (`⇧⌘P`). A search engine's keyword
+  then `Tab` enters site search with the engine's name as a chip. `↑`/`↓`,
+  `⌃N`/`⌃P` and `Esc` work as you'd expect. A private window's Command Bar
+  remembers its own pages in memory only.
+- Settings ▸ Keyboard shortcuts ▸ Customize… (also Help ▸ Keyboard
+  Shortcuts): every menu command by menu; click a shortcut and press a new
+  one (`⌫` removes it), Reset, Reset All. A shortcut another command has
+  offers Swap or Cancel; Quit, Copy and the other system shortcuts can't be
+  taken. Each shortcut has a priority for when a page has focus: App wins,
+  Site wins (the command runs only if the page doesn't use the key) or Press
+  twice (a second press within a second). Saved under `shortcuts` in
+  `settings.json`. Keys the system, text editing (`⌥⌫`, `⌥←`, `⌃A`, `⌃E`, `⌃K`…)
+  or Vimium use, `⌘;`, `` ⌘` ``, `⌃⌘Space` and `⇧⌘/` can't be taken, and a
+  hand-edited `settings.json` that puts two commands on one key keeps the
+  first. A quick double press or key repeat runs a Site wins or Press twice
+  command once per press, never more.
+- `⌘T` then Return on nothing opens a new tab on the start page; `⌘L` then
+  Return on the start page does nothing.
+- `⌃Tab` shows your five most recent tabs while `⌃` is held; press `Tab`
+  again to move on, release to switch (`⌃⇧Tab` goes back). Switching to
+  another window or app closes it.
+- Edit ▸ Copy URL (`⇧⌘C`) and Copy URL as Markdown (`⌥⇧⌘C`, `[title](url)`).
+- View ▸ Hide Toolbar (`⇧⌘D`) hides the address toolbar in every window;
+  wherever the address field would get focus (a new tab or window, launch)
+  the Command Bar opens instead.
+- How long a Today tab has been idle survives quitting, so "Archive Today
+  tabs after" counts across relaunches.
+- File ▸ Import Browser Data… brings in Arc (found on this Mac): every Space
+  with its emoji, nearest color and pinned folders, Favorites (past 12 they
+  are pinned in the profile's first Space), Today tabs (unloaded, in their
+  Space; the window switches to the first imported Space), archived tabs
+  with their favicons, each profile's History and Air Traffic Control
+  rules. Arc's Default profile goes into Default; each other Arc profile
+  becomes a profile named after its first Space (a profile with only
+  History is offered unchecked). Also Chrome (bookmarks as a "Chrome
+  Bookmarks" pinned folder, History), Safari's File ▸ Export Browsing Data
+  ZIP (bookmarks, History with one visit per page) and a bookmarks `.html`
+  file. Check what to bring in; History imports in the background with
+  progress and Cancel, and only visits Settings ▸ Remove history items keeps
+  (all of them with Manually; the checklist says since when). Today tabs
+  open in a normal window even when the import started from a private one.
+  Importing again skips what was imported before. Arc, Chrome and Safari
+  files are only read.
+- File ▸ Export Pinned Tabs… saves the current Space's pinned tabs, or every
+  Space as a folder each, as a bookmarks `.html` file other browsers import.
+- Settings ▸ Links from other apps ▸ Manage… lists the rules for links other
+  apps open (imported from Arc's Air Traffic Control: an address that
+  contains, is or starts with some text opens in a chosen Space or the most
+  recent window's Space), with Delete.
 
 ### Changed
+- Shortcuts moved for Arc's: Window ▸ Next Tab and Previous Tab are now
+  `⌥⌘↓`/`⌥⌘↑` and walk the rail's favorites, pinned tabs and Today tabs
+  (they were `⌃Tab`/`⌃⇧Tab`, now the recent-tab switcher); `⌘T` and `⌘L`
+  open the Command Bar; View ▸ Command Palette… (`⇧⌘P`) is Search
+  Actions… in the Command Bar; Spaces ▸ Bookmark This Page is Pin This
+  Page (`⌘D`); Help ▸ Keyboard Shortcuts opens Settings ▸ Keyboard
+  shortcuts.
+- The start page says Pinned Tabs instead of Bookmarks, and its footer lists
+  `⌘T` Command Bar, `⌘L` Edit address and `⌘D` Pin tab.
+- Bookmarks are the current Space's pinned tabs in the rail now; the right
+  sidebar keeps History, Archive and Downloads. Spaces ▸ Show Pinned Tabs (`⌥⌘B`)
+  shows the rail. Close Other Tabs and Close Tabs Below / to the Right leave
+  pinned and favorite tabs open.
 - History lives in a SQLite database (`History.sqlite`) instead of
   `history.json` and keeps every visit, not just the last 5,000. Your existing
   history moves over on first launch; the old file stays as
@@ -262,6 +375,14 @@ app.
   `bookmarks.json.migrated`.
 
 ### Fixed
+- Reopening a closed tab (`⇧⌘T`) takes it out of the Archive again.
+- A private window's sidebar no longer shows the profile's Archive, and
+  Clear Browsing Data ▸ History there also clears its Command Bar pages.
+- `⌘L` in a pop-up window edits the pop-up's own address.
+- Archiving or closing many tabs at once (`⇧⌘K`, tabs going idle, Close
+  Other Tabs, Close Tabs Below) writes the Archive and redraws the tab list
+  once instead of once per tab: `⇧⌘K` on 21 tabs went from about 1.9 s to
+  0.3 s.
 - `⌘L` (File → Open Location…) now focuses and selects the address bar; the
   shortcut was listed in Keyboard Shortcuts but never bound.
 - Settings, history, bookmarks and downloads no longer reset when their file has a

@@ -343,7 +343,7 @@ final class VimiumController: NSObject {
             windowController?.showVimiumTabs()
 
         case .commandPalette:
-            windowController?.showCommandPalette()
+            windowController?.showCommandBar(.actions)
 
         case .back:
             windowController?.goBack()
@@ -460,9 +460,10 @@ final class VimiumController: NSObject {
         toast(tab.isMuted ? "Tab muted." : "Tab unmuted.")
     }
 
+    /// `<<` / `>>`: moves the tab within its Space's tab list.
     private func moveTab(by offset: Int) {
         guard let tab, let windowController else { return }
-        let tabs = windowController.tabs
+        let tabs = windowController.visibleTabs
         guard tabs.count > 1 else {
             toast("Only one tab is open.")
             return

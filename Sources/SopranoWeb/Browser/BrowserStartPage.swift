@@ -1,32 +1,32 @@
 import AppKit
 
 /// The local start page. It is plain HTML so it follows the Folio palette and
-/// can show the user's bookmarks and recent pages without a web request. A
+/// can show the Space's pins and recent pages without a web request. A
 /// private window's start page says so and shows no recent pages. Top-level
 /// folders are cards that expand in place (`<details>`, no script) to list
-/// every bookmark inside them.
+/// every pin inside them.
 enum BrowserStartPage {
     /// Pages in the Recent list.
     static let recentLimit = 6
-    /// Top-level bookmarks, and separately top-level folders, shown.
+    /// Top-level pins, and separately top-level folders, shown.
     static let bookmarkLimit = 8
 
     static func html(
         theme: AppTheme,
         settings: BrowserSettings,
-        bookmarks: BrowserBookmarkTree,
+        pins: BrowserPinTree,
         history: [BrowserHistoryPage],
         kind: BrowserWindowKind = .normal
     ) -> String {
         let colors = theme.colors
-        let bookmarksHTML: String
-        let cards = topLevelCards(bookmarks)
+        let pinsHTML: String
+        let cards = topLevelCards(pins)
         if cards.isEmpty {
-            bookmarksHTML = """
-            <p class="empty">Bookmark a page with ⌘D and it shows up here.</p>
+            pinsHTML = """
+            <p class="empty">Pin a page with ⌘D and it shows up here.</p>
             """
         } else {
-            bookmarksHTML = """
+            pinsHTML = """
             <div class="grid">
             \(cards.joined(separator: "\n"))
             </div>
@@ -223,19 +223,16 @@ enum BrowserStartPage {
           <p class="sub">\(kind.isPrivate
               ? "Pages you open here stay out of History. Cookies and site data go when the window closes."
               : "Search the web, or enter an address above.")</p>
-          <form action="\(escape(settings.searchEngine.searchFormURL))" method="get">
-            <input type="search" name="q" placeholder="Search with \(escape(settings.searchEngine.name))">
-            <button type="submit">Search</button>
-          </form>
+          \(searchFormHTML(settings.defaultSearchEngine))
           <section>
-            <h2>Bookmarks</h2>
-            \(bookmarksHTML)
+            <h2>Pinned Tabs</h2>
+            \(pinsHTML)
           </section>
           \(recentSection)
           <footer>
-            <span>⌘L Address</span>
-            <span>⌘T New tab</span>
-            <span>⌘D Bookmark</span>
+            <span>⌘T Command Bar</span>
+            <span>⌘L Edit address</span>
+            <span>⌘D Pin tab</span>
           </footer>
         </main>
         </body>
@@ -243,20 +240,36 @@ enum BrowserStartPage {
         """
     }
 
-    /// The first top-level bookmarks and folders, in tree order.
-    private static func topLevelCards(_ tree: BrowserBookmarkTree) -> [String] {
-        var bookmarkCount = 0
+    /// The search box, a plain GET form to the engine. An engine whose
+    /// template has no form shape (`%s` in the path, or http) gets none:
+    /// the address field searches it.
+    private static func searchFormHTML(_ engine: BrowserSearchEngine) -> String {
+        guard let form = engine.searchForm else { return "" }
+        let hidden = form.hidden.map { field in
+            "\n    <input type=\"hidden\" name=\"\(escape(field.name))\" value=\"\(escape(field.value))\">"
+        }.joined()
+        return """
+        <form action="\(escape(form.action))" method="get">
+            <input type="search" name="\(escape(form.field))" placeholder="Search with \(escape(engine.name))">\(hidden)
+            <button type="submit">Search</button>
+          </form>
+        """
+    }
+
+    /// The first top-level pins and folders, in tree order.
+    private static func topLevelCards(_ tree: BrowserPinTree) -> [String] {
+        var pinCount = 0
         var folderCount = 0
         var cards: [String] = []
         for node in tree.root.children {
             switch node {
-            case let .bookmark(bookmark):
-                guard bookmarkCount < bookmarkLimit else { continue }
-                bookmarkCount += 1
+            case let .pin(pin):
+                guard pinCount < bookmarkLimit else { continue }
+                pinCount += 1
                 cards.append("""
-                <a class="card" href="\(escape(bookmark.url))">
-                  <div class="title">\(escape(bookmark.displayTitle))</div>
-                  <div class="host">\(escape(host(of: bookmark.url)))</div>
+                <a class="card" href="\(escape(pin.url))">
+                  <div class="title">\(escape(pin.displayTitle))</div>
+                  <div class="host">\(escape(host(of: pin.url)))</div>
                 </a>
                 """)
             case let .folder(folder):
@@ -268,14 +281,14 @@ enum BrowserStartPage {
         return cards
     }
 
-    /// A folder card; open, it spans the grid and lists every bookmark in
+    /// A folder card; open, it spans the grid and lists every pinned tab in
     /// the folder with the subfolder it sits in.
-    private static func folderCard(_ folder: BrowserBookmarkFolder) -> String {
-        let entries = BrowserBookmarkTree(children: folder.children).entries()
+    private static func folderCard(_ folder: BrowserPinFolder) -> String {
+        let entries = BrowserPinTree(children: folder.children).entries()
         let count = switch entries.count {
         case 0: "empty"
-        case 1: "1 bookmark"
-        default: "\(entries.count) bookmarks"
+        case 1: "1 pinned tab"
+        default: "\(entries.count) pinned tabs"
         }
         let list = entries.isEmpty
             ? "<p class=\"empty\">This folder is empty.</p>"
@@ -283,11 +296,11 @@ enum BrowserStartPage {
             <div class="recent">
             \(entries.map { entry in
                 let place = entry.path.isEmpty
-                    ? host(of: entry.bookmark.url)
-                    : "\(entry.path.joined(separator: " › ")) · \(host(of: entry.bookmark.url))"
+                    ? host(of: entry.pin.url)
+                    : "\(entry.path.joined(separator: " › ")) · \(host(of: entry.pin.url))"
                 return """
-                <a href="\(escape(entry.bookmark.url))">
-                  <span class="title">\(escape(entry.bookmark.displayTitle))</span>
+                <a href="\(escape(entry.pin.url))">
+                  <span class="title">\(escape(entry.pin.displayTitle))</span>
                   <span class="host">\(escape(place))</span>
                 </a>
                 """

@@ -64,21 +64,25 @@ extension BrowserWindowController {
     // MARK: - Link-opened tabs
 
     /// Opens `url` in a new tab right after `opener` (after the tabs it
-    /// already opened), selected or in the background.
+    /// already opened), selected or in the background, in the opener's
+    /// profile and Space.
     @discardableResult
     func openLinkTab(_ url: URL, opener: BrowserTab, select: Bool) -> BrowserTab {
-        let tab = insertLinkTab(makeTab(), opener: opener, select: select)
+        let tab = insertLinkTab(makeTab(context: opener.dataContext), opener: opener, select: select)
         navigate(tab, to: url)
         return tab
     }
 
-    /// Attaches a freshly made tab after its opener and records the opener.
-    /// From a pop-up window the tab opens at the end of a window with tabs
-    /// of the pop-up's data context instead.
+    /// Attaches a freshly made tab (of the opener's data context) after its
+    /// opener in the opener's Space and records the opener. From a pop-up
+    /// window the tab opens at the end of the current Space of a window
+    /// whose current Space uses the pop-up's data context instead. A tab
+    /// opened from a hidden Space never takes the selection.
     @discardableResult
     func insertLinkTab(_ tab: BrowserTab, opener: BrowserTab, select: Bool) -> BrowserTab {
         if isPopup {
             let (target, isNewWindow) = manager.windowForNewTabs(from: self)
+            tab.spaceID = target.currentSpaceID
             target.insertLinkTab(tab, opener: opener, select: select || isNewWindow)
             if select || isNewWindow {
                 manager.present(target)
@@ -87,17 +91,21 @@ extension BrowserWindowController {
         }
         tab.isStartPage = false
         tab.links.openerID = opener.id
+        if tabs.contains(where: { $0 === opener }) {
+            tab.spaceID = opener.spaceID
+        }
+        let spaceTabs = tabs.filter { $0.spaceID == tab.spaceID }
         let index: Int
-        if let openerIndex = tabs.firstIndex(where: { $0.id == opener.id }) {
+        if let openerIndex = spaceTabs.firstIndex(where: { $0.id == opener.id }) {
             index = BrowserLinkDisposition.insertionIndex(
                 openerIndex: openerIndex,
                 openerID: opener.id,
-                openerIDs: tabs.map(\.links.openerID)
+                openerIDs: spaceTabs.map(\.links.openerID)
             )
         } else {
-            index = tabs.count
+            index = spaceTabs.count
         }
-        attachTab(tab, at: index, select: select)
+        attachTab(tab, at: index, select: select && tab.spaceID == currentSpaceID)
         return tab
     }
 
@@ -114,12 +122,13 @@ extension BrowserWindowController {
         // WebKit hands over the opener's preferences object; give the new tab
         // its own so per-site pop-up permission stays per tab.
         configuration.preferences = Self.makePreferences()
-        let tab = makeTab(configuration: configuration)
+        let opener = self.tab(for: webView)
+        let tab = makeTab(context: opener?.dataContext ?? dataContext, configuration: configuration)
         let disposition = BrowserLinkDisposition.disposition(
             modifierFlags: navigationAction.modifierFlags,
             buttonNumber: navigationAction.buttonNumber
         )
-        if let opener = self.tab(for: webView) {
+        if let opener {
             if let url = navigationAction.request.url {
                 let now = Date()
                 opener.links.recentlyOpened = opener.links.recentlyOpened
@@ -134,6 +143,7 @@ extension BrowserWindowController {
             }
         } else {
             tab.isStartPage = false
+            tab.spaceID = currentSpaceID
             attachTab(tab, select: true)
         }
         return tab.webView
@@ -195,7 +205,10 @@ extension BrowserWindowController {
     /// allowed. WebKit reads the preference when `window.open` runs, so it
     /// is set for the page about to load and again once it commits.
     func applyPopupPermission(_ tab: BrowserTab, pageURL: URL?) {
-        let allowed = BrowserPopupPolicy.opensWithoutGesture(pageURL: pageURL, permissions: sitePermissions)
+        let allowed = BrowserPopupPolicy.opensWithoutGesture(
+            pageURL: pageURL,
+            permissions: tab.dataContext.sitePermissions
+        )
         let preferences = tab.webView.configuration.preferences
         if preferences.javaScriptCanOpenWindowsAutomatically != allowed {
             preferences.javaScriptCanOpenWindowsAutomatically = allowed
@@ -306,7 +319,7 @@ extension BrowserWindowController {
 
     @objc func allowPopupsForSelectedSite(_ sender: NSMenuItem) {
         guard let host = sender.representedObject as? String, let tab = selectedTab else { return }
-        sitePermissions.set(.popups, .allow, host: host)
+        tab.dataContext.sitePermissions.set(.popups, .allow, host: host)
         refreshPopupPermissions()
         tab.links.blockedPopups = []
         updatePopupBlockedControl()
@@ -331,7 +344,8 @@ extension BrowserWindowController {
     /// the site is allowed, otherwise ask once per tab at a time.
     func openExternalLink(_ url: URL, from webView: WKWebView) {
         guard let tab = tab(for: webView) else { return }
-        switch BrowserExternalAppPolicy.decision(for: url, pageURL: webView.url, permissions: sitePermissions) {
+        let permissions = tab.dataContext.sitePermissions
+        switch BrowserExternalAppPolicy.decision(for: url, pageURL: webView.url, permissions: permissions) {
         case .block:
             return
         case .open:
@@ -367,12 +381,13 @@ extension BrowserWindowController {
             alert.suppressionButton?.state = .off
         }
         tab.links.isPromptingExternalApp = true
-        alert.beginSheetModal(for: window) { [weak self, weak tab] response in
+        let permissions = tab.dataContext.sitePermissions
+        alert.beginSheetModal(for: window) { [weak tab] response in
             MainActor.assumeIsolated {
                 tab?.links.isPromptingExternalApp = false
                 guard response == .alertFirstButtonReturn else { return }
                 if let host, alert.suppressionButton?.state == .on {
-                    self?.sitePermissions.set(.externalApp(scheme: scheme), .allow, host: host)
+                    permissions.set(.externalApp(scheme: scheme), .allow, host: host)
                 }
                 NSWorkspace.shared.open(url)
             }

@@ -4,8 +4,7 @@ import WebKit
 extension BrowserWindowController {
     // MARK: - Clear Browsing Data
 
-    /// The store every tab of this window uses (its profile's, or a private
-    /// window's own).
+    /// The current Space's profile's store (a private window's own).
     var websiteDataStore: WKWebsiteDataStore {
         dataContext.websiteDataStore
     }
@@ -24,10 +23,12 @@ extension BrowserWindowController {
         }
     }
 
-    /// Removes what `options` names from `options.range` up to now, for this
-    /// window's profile. History clears the profile's list and its entries
-    /// on the closed-tab stack; website data goes through the window's
-    /// `WKWebsiteDataStore`, whose removal finishes asynchronously.
+    /// Removes what `options` names from `options.range` up to now, for the
+    /// current Space's profile. History clears the profile's list, its
+    /// tabs on the closed-tab stack and (in a normal window) its Archive
+    /// entries archived in the range; website data goes through the
+    /// profile's `WKWebsiteDataStore`, whose removal finishes
+    /// asynchronously.
     func clearBrowsingData(
         _ options: BrowserClearOptions,
         now: Date = Date(),
@@ -35,11 +36,19 @@ extension BrowserWindowController {
     ) {
         let since = options.range.startDate(now: now)
         if options.history {
-            history.removeVisits(since: since, now: now)
+            dataContext.history.removeVisits(since: since, now: now)
+            // A private window's Command Bar pages (memory only).
+            dataContext.sessionVisits.removeVisits(since: since)
             // Closed tabs and windows carry their own back/forward lists.
             let profileID = self.profileID
-            manager.recentlyClosed.removeAll { $0.profileID == profileID }
+            let spaceIDs = Set(spaces.spaces(ofProfile: profileID).map(\.id))
+            manager.recentlyClosed.removeEntries(ofProfile: profileID, spaces: spaceIDs)
             closedTabs.removeAll()
+            if !kind.isPrivate {
+                // The idle clock may run ahead of `now` (the harness's).
+                let end = max(now, manager.tabSleeper.now())
+                manager.archive.removeEntries(ofProfile: profileID, archivedIn: min(since, end)...end)
+            }
             saveSession()
         }
         if options.downloadList {

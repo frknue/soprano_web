@@ -23,6 +23,14 @@ final class BrowserTabButton: NSView {
     var isSelected = false {
         didSet { refresh() }
     }
+    /// A pinned or favorite tab in the strip: the favicon alone, centered.
+    var isCompact = false {
+        didSet {
+            guard isCompact != oldValue else { return }
+            refreshContent()
+            needsLayout = true
+        }
+    }
 
     var onSelect: ((UUID) -> Void)?
     var onClose: ((UUID) -> Void)?
@@ -33,6 +41,8 @@ final class BrowserTabButton: NSView {
 
     private let iconView = NSImageView()
     private let spinner = BrowserTabSpinner()
+    /// "/" on a compact pinned tab whose page moved on.
+    private let awayBadge = NSTextField(labelWithString: "/")
     private let label = NSTextField(labelWithString: "")
     private let audioButton: ChromeIconButton
     private let closeButton: ChromeIconButton
@@ -41,6 +51,7 @@ final class BrowserTabButton: NSView {
     private var isHovered = false
     private var trackingArea: NSTrackingArea?
     private var dragOrigin: NSPoint?
+    private var iconLeading: NSLayoutConstraint!
     private(set) var isDragging = false
 
     private static let dragThreshold: CGFloat = 4
@@ -77,6 +88,11 @@ final class BrowserTabButton: NSView {
         spinner.isHidden = true
         addSubview(spinner)
 
+        awayBadge.translatesAutoresizingMaskIntoConstraints = false
+        awayBadge.font = ChromeFont.labelStrong
+        awayBadge.isHidden = true
+        addSubview(awayBadge)
+
         label.translatesAutoresizingMaskIntoConstraints = false
         label.lineBreakMode = .byTruncatingTail
         label.usesSingleLineMode = true
@@ -99,8 +115,9 @@ final class BrowserTabButton: NSView {
         accessories.setContentHuggingPriority(.required, for: .horizontal)
         addSubview(accessories)
 
+        iconLeading = iconView.leadingAnchor.constraint(equalTo: leadingAnchor, constant: 10)
         NSLayoutConstraint.activate([
-            iconView.leadingAnchor.constraint(equalTo: leadingAnchor, constant: 10),
+            iconLeading,
             iconView.centerYAnchor.constraint(equalTo: centerYAnchor),
             iconView.widthAnchor.constraint(equalToConstant: 16),
             iconView.heightAnchor.constraint(equalToConstant: 16),
@@ -109,6 +126,9 @@ final class BrowserTabButton: NSView {
             spinner.centerYAnchor.constraint(equalTo: iconView.centerYAnchor),
             spinner.widthAnchor.constraint(equalToConstant: 14),
             spinner.heightAnchor.constraint(equalToConstant: 14),
+
+            awayBadge.leadingAnchor.constraint(equalTo: iconView.trailingAnchor, constant: 1),
+            awayBadge.centerYAnchor.constraint(equalTo: iconView.bottomAnchor, constant: -1),
 
             label.leadingAnchor.constraint(equalTo: iconView.trailingAnchor, constant: 8),
             label.trailingAnchor.constraint(lessThanOrEqualTo: accessories.leadingAnchor, constant: -4),
@@ -258,13 +278,28 @@ final class BrowserTabButton: NSView {
         } else {
             toolTip = item.title
         }
+        if item.isAway {
+            toolTip = (toolTip ?? item.title) + "\nMoved on from its pinned page"
+        }
         if item.isAsleep {
             toolTip = (toolTip ?? item.title) + "\nAsleep to save memory; reloads when you open it"
         }
         // Asleep: the page was released; the tab reads as inactive.
         iconView.alphaValue = item.isAsleep ? 0.4 : 1
         label.alphaValue = item.isAsleep ? 0.55 : 1
+        label.isHidden = isCompact
+        accessories.isHidden = isCompact
+        awayBadge.isHidden = !(isCompact && item.isAway)
+        awayBadge.textColor = colors.textMuted
         refresh()
+    }
+
+    override func layout() {
+        super.layout()
+        let leading = isCompact ? floor((bounds.width - 16) / 2) : 10
+        if iconLeading.constant != leading {
+            iconLeading.constant = leading
+        }
     }
 
     private func refresh() {

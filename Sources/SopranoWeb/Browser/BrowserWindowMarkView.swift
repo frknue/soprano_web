@@ -1,9 +1,10 @@
 import AppKit
 
-/// A window's mark as an eyebrow: the profile's color dot (when the mark
-/// names a profile) and "Private", the profile name or "Private · Work".
-/// The tab rail's header shows it (or `fallback`, "Tabs"); with horizontal
-/// tabs it sits before the address field.
+/// A window's mark as an eyebrow: its color dot (the Space's or the
+/// profile's), the Space's icon (an emoji, or an SF Symbol drawn inline)
+/// and "Private", the Space or profile name or "Private · Work". The tab
+/// rail's header shows it (or `fallback`, "Tabs"); with horizontal tabs it
+/// sits before the address field.
 @MainActor
 final class BrowserWindowMarkView: NSView {
     private let dot = ChromeStatusMark(shape: .dot)
@@ -47,8 +48,11 @@ final class BrowserWindowMarkView: NSView {
     /// Whether the mark has words of its own (not just the fallback).
     var hasMark: Bool { mark.text != nil }
 
-    /// The words shown, for the harness and accessibility.
-    var text: String { label.stringValue }
+    /// The words shown (an SF Symbol icon as `[name]`), for the harness.
+    var text: String {
+        guard case let .symbol(name) = mark.spaceIcon, let words = mark.text else { return label.stringValue }
+        return "[\(name)] \(words.uppercased())"
+    }
 
     func set(_ mark: BrowserWindowMark) {
         guard mark != self.mark else { return }
@@ -64,11 +68,25 @@ final class BrowserWindowMarkView: NSView {
     private func refresh() {
         let colors = theme.colors
         if let text = mark.text {
-            label.attributedStringValue = ChromeText.eyebrow(text, color: colors.textPrimary)
+            let words = ChromeText.eyebrow(text, color: colors.textPrimary)
+            if case let .symbol(name) = mark.spaceIcon,
+               let symbol = NSImage(systemSymbolName: name, accessibilityDescription: nil)?
+                   .withSymbolConfiguration(.init(pointSize: 10, weight: .semibold))
+            {
+                let attachment = NSTextAttachment()
+                attachment.image = symbol.tinted(colors.textPrimary)
+                attachment.bounds = NSRect(x: 0, y: -1.5, width: symbol.size.width, height: symbol.size.height)
+                let line = NSMutableAttributedString(attachment: attachment)
+                line.append(NSAttributedString(string: " ", attributes: [.font: ChromeFont.eyebrow]))
+                line.append(words)
+                label.attributedStringValue = line
+            } else {
+                label.attributedStringValue = words
+            }
         } else {
             label.attributedStringValue = ChromeText.eyebrow(fallback ?? "", color: colors.textMuted)
         }
-        let color = mark.profileColor
+        let color = mark.color
         dot.isHidden = color == nil
         if let color {
             dot.color = color.color(in: colors)

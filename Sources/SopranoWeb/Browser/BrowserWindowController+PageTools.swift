@@ -197,7 +197,7 @@ extension BrowserWindowController {
             identifiers: identifiers,
             titles: titles,
             target: target,
-            searchEngine: settingsStore.settings.searchEngine
+            searchEngine: settingsStore.settings.defaultSearchEngine
         )
         menu.removeAllItems()
         for entry in entries {
@@ -235,7 +235,8 @@ extension BrowserWindowController {
             }
         case let .download(url):
             if let webView = command.webView ?? selectedTab?.webView {
-                downloadManager.start(URLRequest(url: url), in: webView, privateContextID: dataContext.downloadContextID)
+                let context = tab(for: webView)?.dataContext ?? dataContext
+                downloadManager.start(URLRequest(url: url), in: webView, privateContextID: context.downloadContextID)
             }
         }
     }

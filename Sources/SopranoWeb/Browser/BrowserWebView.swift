@@ -21,7 +21,28 @@ final class BrowserWebView: WKWebView {
         (uiDelegate as? BrowserWindowController)?.prepareContextMenu(menu, target: target, in: self)
     }
 
+    /// Registry shortcuts pressed while the page has focus go through the
+    /// window's priority gate first (`routePageShortcut`): App wins runs
+    /// the command here; Site wins and Press twice let WebKit hand the key
+    /// to the page, and WebKit sends a key the page left unhandled through
+    /// here again.
+    override func performKeyEquivalent(with event: NSEvent) -> Bool {
+        if let controller = window?.windowController as? BrowserWindowController,
+           controller.routePageShortcut(event, in: self)
+        {
+            return true
+        }
+        return super.performKeyEquivalent(with: event)
+    }
+
     override func keyDown(with event: NSEvent) {
+        // ⌃ and ⌥ shortcuts (⌃Tab) may arrive as plain key-downs.
+        if !event.modifierFlags.intersection([.command, .control, .option]).isEmpty,
+           let controller = window?.windowController as? BrowserWindowController,
+           controller.routePageShortcut(event, in: self)
+        {
+            return
+        }
         if keyHandler?(event) == true {
             return
         }

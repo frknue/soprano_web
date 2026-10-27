@@ -70,30 +70,32 @@ Left:
 
 ## 3. Arc's organization model and import
 
-- Spaces: name, emoji or SF Symbol, theme color, a profile per Space; Pinned and Today
-  sections; switch with ⌃1…⌃9, ⌥⌘←/→ and a two-finger swipe.
-- Favorites: icon grid per profile above the Space title (Arc caps it at 12).
-- Pinned tabs: remember the pinned URL, mark a tab that navigated away, reset on icon click,
-  ⌘-click the icon to reset and keep the current page in a new tab, Replace Pin with
-  Current Page.
-- Folders: nested, never archived, searchable preview on hover.
-- Today tabs archive after idle time (per profile: never, 30 days, 7 days, 24 h, 12 h, 6 h,
-  1 h; Arc defaults to 12 h). Archive view: searchable, restores into the original Space.
-- Command Bar on ⌘T (tabs, history, Spaces, actions behind `/`, settings, site search on
-  Tab); ⌘L edits the current URL in the same bar. One command registry feeds the menu bar,
-  remappable shortcuts (with a site-wins / app-wins / press-twice priority) and the Command
-  Bar, as Arc's menu-item metadata does.
-- ⌃Tab switches between recent tabs; ⌥⌘↑/↓ walks the sidebar; ⇧⌘C copies the URL, ⌥⇧⌘C
-  as Markdown; ⇧⌘K clears Today; ⇧⌘D toggles the toolbar.
-- Custom search engines with `%s` templates and keywords.
-- Import from Arc: `StorableSidebar.json` (Spaces with their profiles, Favorites per
-  profile, pinned trees, Today tabs), `StorableArchiveItems.json`, the favicon caches,
-  each profile's Chromium `History`, `StorableLinkRouting.json`. Read Arc's folder in
-  place and read-only (SQLite with `immutable=1`); the files stay on disk after Arc stops
-  opening on 2026-12-22. Cookies and passwords don't transfer; Easels, Notes and Boosts
-  aren't on disk. `Arc Data Export.md` as a lossy fallback.
-- Import from Chrome (`Bookmarks`, `History`) and Safari (Export Browsing Data ZIP);
-  bookmarks HTML import and export.
+Built so far on `feat/stage-3` (see `CHANGELOG.md` and `docs/STAGE-3-PLAN.md`): Spaces
+(name, emoji or SF Symbol, color mark, a profile per Space; ⌃1…⌃9, ⌥⌘←/→, a two-finger
+swipe and the rail's switcher with New Space / Edit Space), per-profile Favorites (12),
+pinned trees replacing bookmarks, and live pinned and favorite tabs in the rail (the "/"
+mark, reset on icon click, ⌘-click keeps the page, Replace Pin with Current Page, ⌘W
+unloads to the pin, searchable folder preview on hover); custom search engines with `%s`
+templates and keywords; the Archive (Today tabs archive after idle time per profile:
+never, 30 days, 7 days, 24 h, 12 h by default, 6 h, 1 h; ⌘W and ⇧⌘K archive; a searchable
+Archive section in the right sidebar restores a tab into its original Space); the
+Command Bar on ⌘T (open tabs of every Space, pins and favorites, History, Spaces, `/`
+actions, settings pages, site search on Tab after a keyword) and ⌘L (edits the current
+URL in the same bar); one command registry feeding the menu bar, Settings ▸ Keyboard
+shortcuts (remapping, conflicts with Swap, App wins / Site wins / Press twice) and the
+Command Bar; ⌃Tab recent-tab switcher, ⌥⌘↑/↓ rail walk, ⇧⌘C / ⌥⇧⌘C copy URL and
+Markdown, ⇧⌘D toggles the toolbar; File ▸ Import Browser Data… from Arc (Spaces with
+emoji and nearest Folio color, pinned trees, Favorites with the overflow pinned, Today
+tabs unloaded in the importing window, the Archive with its favicons, each profile's
+History off the main thread with progress and cancel, Air Traffic Control rules applied
+to links from other apps and listed in Settings ▸ Links from other apps; Arc's folder
+read in place, SQLite with `immutable=1`; a re-import skips what an earlier one made),
+Chrome (`Bookmarks` as a pinned folder, `History`), Safari's Export Browsing Data ZIP
+and bookmarks HTML files, and File ▸ Export Pinned Tabs… as bookmarks HTML.
+
+- Not built: Arc's `Arc Data Export.md` as a lossy fallback; Firefox, Brave, Edge and
+  Vivaldi as sources; Arc's `defaultDestination` rule (Little Arc, §4). Cookies and
+  passwords don't transfer; Easels, Notes and Boosts aren't on disk.
 
 ## 4. Arc extras
 

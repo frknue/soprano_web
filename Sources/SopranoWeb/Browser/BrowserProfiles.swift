@@ -26,8 +26,9 @@ enum BrowserProfileColor: String, Codable, CaseIterable, Sendable {
 }
 
 /// One profile (Safari's model): a window belongs to one profile, and its
-/// tabs use the profile's website data, history and site decisions.
-/// Bookmarks, downloads, favicons, settings and Recently Closed are shared.
+/// tabs use the profile's website data, history and site decisions. Each
+/// profile has one or more Spaces (`BrowserSpaceStore`) and its own
+/// favorites; downloads, favicons, settings and Recently Closed are shared.
 struct BrowserProfile: Codable, Equatable, Identifiable, Sendable {
     /// The Default profile's fixed id. It keeps `WKWebsiteDataStore.default()`
     /// and the files in the support folder itself.
@@ -39,11 +40,24 @@ struct BrowserProfile: Codable, Equatable, Identifiable, Sendable {
     var id: UUID
     var name: String
     var color: BrowserProfileColor
+    /// When the profile's Today tabs archive themselves.
+    var archiveAfter: BrowserArchiveAfter
+    /// Where an import made it (`arc:Profile 3`), so a re-import maps the
+    /// source profile to it instead of making another.
+    var importedFrom: String?
 
-    init(id: UUID = UUID(), name: String, color: BrowserProfileColor) {
+    init(
+        id: UUID = UUID(),
+        name: String,
+        color: BrowserProfileColor,
+        archiveAfter: BrowserArchiveAfter = .default,
+        importedFrom: String? = nil
+    ) {
         self.id = id
         self.name = name
         self.color = color
+        self.archiveAfter = archiveAfter
+        self.importedFrom = importedFrom
     }
 
     static var defaultProfile: BrowserProfile {
@@ -69,11 +83,11 @@ struct BrowserProfile: Codable, Equatable, Identifiable, Sendable {
     }
 
     private enum CodingKeys: String, CodingKey {
-        case id, name, color
+        case id, name, color, archiveAfter, importedFrom
     }
 
     /// An entry needs an id; a missing name becomes "Profile", an unknown
-    /// color blue.
+    /// color blue, a missing or unknown archive time `.default`.
     init(from decoder: Decoder) throws {
         let c = try decoder.container(keyedBy: CodingKeys.self)
         id = try c.decode(UUID.self, forKey: .id)
@@ -82,10 +96,13 @@ struct BrowserProfile: Codable, Equatable, Identifiable, Sendable {
         self.name = name.isEmpty ? (id == Self.defaultID ? Self.defaultName : "Profile") : name
         color = ((try? c.decodeIfPresent(String.self, forKey: .color)) ?? nil)
             .flatMap(BrowserProfileColor.init(rawValue:)) ?? .blue
+        archiveAfter = ((try? c.decodeIfPresent(String.self, forKey: .archiveAfter)) ?? nil)
+            .flatMap(BrowserArchiveAfter.init(rawValue:)) ?? .default
+        importedFrom = (try? c.decodeIfPresent(String.self, forKey: .importedFrom)) ?? nil
     }
 }
 
-/// `profiles.json`: `{ "version": 1, "profiles": [{id, name, color}] }`.
+/// `profiles.json`: `{ "version": 1, "profiles": [{id, name, color, archiveAfter, importedFrom?}] }`.
 /// Decoding is tolerant: an entry that does not decode is skipped, a
 /// repeated id keeps its first entry, and the Default profile is always
 /// there, first.
@@ -164,10 +181,20 @@ struct BrowserProfileList: Codable, Equatable, Sendable {
     }
 
     @discardableResult
-    mutating func add(name: String, color: BrowserProfileColor? = nil, id: UUID = UUID()) -> BrowserProfile {
-        let profile = BrowserProfile(id: id, name: uniqueName(name), color: color ?? nextColor)
+    mutating func add(
+        name: String,
+        color: BrowserProfileColor? = nil,
+        id: UUID = UUID(),
+        importedFrom: String? = nil
+    ) -> BrowserProfile {
+        let profile = BrowserProfile(id: id, name: uniqueName(name), color: color ?? nextColor, importedFrom: importedFrom)
         profiles.append(profile)
         return profile
+    }
+
+    /// The profile an import made from `source` (`importedFrom`).
+    func profile(importedFrom source: String) -> BrowserProfile? {
+        profiles.first { $0.importedFrom == source }
     }
 
     mutating func rename(id: UUID, to name: String) {
@@ -180,6 +207,11 @@ struct BrowserProfileList: Codable, Equatable, Sendable {
     mutating func setColor(id: UUID, _ color: BrowserProfileColor) {
         guard let index = profiles.firstIndex(where: { $0.id == id }) else { return }
         profiles[index].color = color
+    }
+
+    mutating func setArchiveAfter(id: UUID, _ archiveAfter: BrowserArchiveAfter) {
+        guard let index = profiles.firstIndex(where: { $0.id == id }) else { return }
+        profiles[index].archiveAfter = archiveAfter
     }
 
     /// Removes a profile; Default stays.
@@ -208,11 +240,12 @@ final class BrowserProfileStore {
 
     func profile(id: UUID) -> BrowserProfile? { list.profile(id: id) }
     func profile(named name: String) -> BrowserProfile? { list.profile(named: name) }
+    func profile(importedFrom source: String) -> BrowserProfile? { list.profile(importedFrom: source) }
     func resolvedID(_ id: UUID) -> UUID { list.resolvedID(id) }
 
     @discardableResult
-    func add(name: String, color: BrowserProfileColor? = nil) -> BrowserProfile {
-        let profile = list.add(name: name, color: color)
+    func add(name: String, color: BrowserProfileColor? = nil, importedFrom: String? = nil) -> BrowserProfile {
+        let profile = list.add(name: name, color: color, importedFrom: importedFrom)
         persist()
         return profile
     }
@@ -224,6 +257,11 @@ final class BrowserProfileStore {
 
     func setColor(id: UUID, _ color: BrowserProfileColor) {
         list.setColor(id: id, color)
+        persist()
+    }
+
+    func setArchiveAfter(id: UUID, _ archiveAfter: BrowserArchiveAfter) {
+        list.setArchiveAfter(id: id, archiveAfter)
         persist()
     }
 
@@ -240,33 +278,58 @@ final class BrowserProfileStore {
     }
 }
 
-/// What a window shows of itself next to its tabs: "Private", its profile
-/// (color and name) when more than one profile exists, or both
-/// ("Private · Work").
+/// What a window shows of itself next to its tabs: "Private" with its
+/// profile (color and name) when more than one profile exists ("Private ·
+/// Work"), or a normal window's current Space (its emoji, name and color
+/// mark) when more than one Space exists; nothing otherwise.
 struct BrowserWindowMark: Equatable, Sendable {
     var isPrivate: Bool
     /// Nil while only one profile exists.
     var profileName: String?
-    var profileColor: BrowserProfileColor?
+    /// The color dot: the Space's mark, else the profile's color.
+    var color: BrowserProfileColor?
+    /// The current Space's name; nil without one (or while only one Space
+    /// exists).
+    var spaceName: String?
+    var spaceIcon: BrowserSpaceIcon = .none
 
     init(kind: BrowserWindowKind, profile: BrowserProfile?) {
         isPrivate = kind.isPrivate
         profileName = profile?.name
-        profileColor = profile?.color
+        color = profile?.color
+    }
+
+    /// A normal window on `space`; `profile` (nil while only one exists)
+    /// goes into the tooltip.
+    init(space: BrowserSpace, profile: BrowserProfile?) {
+        isPrivate = false
+        profileName = profile?.name
+        color = space.color
+        spaceName = space.displayName
+        spaceIcon = space.icon
     }
 
     /// The mark's words; nil when there is nothing to show.
     var text: String? {
+        if let spaceName {
+            if case let .emoji(emoji) = spaceIcon {
+                return "\(emoji) \(spaceName)"
+            }
+            return spaceName
+        }
         switch (isPrivate, profileName) {
-        case (true, let name?): "Private · \(name)"
-        case (true, nil): "Private"
-        case (false, let name?): name
-        case (false, nil): nil
+        case (true, let name?): return "Private · \(name)"
+        case (true, nil): return "Private"
+        case (false, let name?): return name
+        case (false, nil): return nil
         }
     }
 
     var toolTip: String? {
         var parts: [String] = []
+        if let spaceName {
+            parts.append("Space: \(spaceName)")
+        }
         if let profileName {
             parts.append("Profile: \(profileName)")
         }

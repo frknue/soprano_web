@@ -13,7 +13,7 @@ extension BrowserWindowController {
     func navigate(_ tab: BrowserTab, to input: String) {
         guard let url = BrowserAddressResolver.resolve(
             input,
-            searchEngine: settingsStore.settings.searchEngine
+            searchEngines: settingsStore.settings.searchEngines
         ) else {
             NSSound.beep()
             return
@@ -101,7 +101,14 @@ extension BrowserWindowController {
         }
     }
 
+    /// Every "focus the address" path (new tab, new window, launch, the
+    /// CLI): the toolbar's field, or with the toolbar hidden (⇧⌘D) the
+    /// Command Bar on the selected tab's address.
     func focusAddressBar() {
+        if isToolbarHidden, !isPopup {
+            showCommandBar(.editCurrent, toggles: false)
+            return
+        }
         toolbar.focusAddress(selectAll: true)
     }
 
@@ -133,12 +140,12 @@ extension BrowserWindowController {
     }
 
     /// A URL change without a page load (`history.pushState`, a hash route)
-    /// becomes a visit once it has stayed for a second; see
-    /// `BrowserSameDocumentVisits`.
+    /// becomes a visit in the tab's profile's History once it has stayed
+    /// for a second; see `BrowserSameDocumentVisits`.
     func sameDocumentURLChanged(_ tab: BrowserTab) {
         tab.sameDocumentTimer?.invalidate()
         tab.sameDocumentTimer = nil
-        guard kind.recordsHistory, !tab.isStartPage,
+        guard tab.dataContext.kind.recordsHistory, !tab.isStartPage,
               tab.sameDocumentVisits.urlChanged(
                   to: tab.webView.url?.absoluteString,
                   isLoading: tab.webView.isLoading,
@@ -152,14 +159,14 @@ extension BrowserWindowController {
             MainActor.assumeIsolated {
                 guard let self, let tab, self.tabs.contains(where: { $0 === tab }) else { return }
                 tab.sameDocumentTimer = nil
-                guard self.kind.recordsHistory,
+                guard tab.dataContext.kind.recordsHistory,
                       let url = tab.sameDocumentVisits.takeDueVisit(
                           currentURL: tab.webView.url?.absoluteString,
                           isLoading: tab.webView.isLoading,
                           now: Date()
                       )
                 else { return }
-                self.history.record(url: url, title: tab.displayTitle, kind: .sameDocument)
+                tab.dataContext.history.record(url: url, title: tab.displayTitle, kind: .sameDocument)
             }
         }
     }
@@ -178,7 +185,8 @@ extension BrowserWindowController {
         let shownURL = tab.failedURL ?? url?.absoluteString ?? ""
         toolbar.setAddress(tab.isStartPage ? "" : shownURL, security: securityState(for: tab))
         toolbar.setProgress(tab.webView.estimatedProgress, isLoading: tab.webView.isLoading)
-        toolbar.setBookmarked(!tab.isStartPage && bookmarks.isBookmarked(shownURL))
+        let isPinned = pinSpaceID.map { spaces.isPinned(shownURL, inSpace: $0) } ?? false
+        toolbar.setBookmarked(!tab.isStartPage && isPinned)
         toolbar.setBookmarkEnabled(!tab.isStartPage && !shownURL.isEmpty)
         toolbar.setSidebarToggle(isSidebarVisible)
         toolbar.setDownloadsToggle(isSidebarVisible && sidebarSection == .downloads)
@@ -216,10 +224,15 @@ extension BrowserWindowController: WKNavigationDelegate {
     func webView(_ webView: WKWebView, didCommit navigation: WKNavigation!) {
         guard let tab = tab(for: webView) else { return }
         clearCrashState(tab)
+        if tab.awaitsLinkLanding {
+            // Where the pin's load landed, redirects followed: not "away".
+            tab.awaitsLinkLanding = false
+            tab.linkLanding = webView.url?.absoluteString
+        }
         // The committed page's site decides (a redirect can change it).
-        applyContentBlocking(to: tab.webView, pageURL: webView.url)
+        applyContentBlocking(to: tab, pageURL: webView.url)
         // A new document: its site's zoom, no unsaved input or capture yet.
-        tab.zoom = siteZoom(for: webView.url)
+        tab.zoom = siteZoom(for: webView.url, in: tab)
         webView.pageZoom = tab.zoom
         tab.lifecycle.unsavedFrames.removeAll()
         tab.lifecycle.capturingFrames.removeAll()
@@ -259,12 +272,18 @@ extension BrowserWindowController: WKNavigationDelegate {
         tab.sameDocumentTimer = nil
         if tab.suppressNextHistoryRecord {
             tab.suppressNextHistoryRecord = false
-        } else if kind.recordsHistory,
-                  !tab.isStartPage,
+        } else if !tab.isStartPage,
                   let address = webView.url?.absoluteString,
                   ["http", "https", "file"].contains(webView.url?.scheme?.lowercased() ?? "")
         {
-            history.record(url: address, title: tab.displayTitle, kind: visitKind)
+            if tab.dataContext.kind.recordsHistory {
+                // The tab's own profile, even while its Space is hidden.
+                tab.dataContext.history.record(url: address, title: tab.displayTitle, kind: visitKind)
+            } else {
+                // A private window's Command Bar remembers its pages in
+                // memory only.
+                tab.dataContext.sessionVisits.record(url: address, title: tab.displayTitle, kind: visitKind)
+            }
         }
         if tab.id == selectedTab?.id {
             updateChrome()
@@ -295,7 +314,7 @@ extension BrowserWindowController: WKNavigationDelegate {
     ) {
         guard let tab = tab(for: webView) else { return }
         // The page's site may have changed; its subresources load next.
-        applyContentBlocking(to: tab.webView, pageURL: webView.url)
+        applyContentBlocking(to: tab, pageURL: webView.url)
         guard tab.id == selectedTab?.id else { return }
         updateChrome()
     }
@@ -377,7 +396,7 @@ extension BrowserWindowController: WKNavigationDelegate {
         }
         if navigationAction.targetFrame?.isMainFrame == true, let tab = tab(for: webView) {
             // The new page's lists are in place before it starts loading.
-            applyContentBlocking(to: tab.webView, pageURL: url)
+            applyContentBlocking(to: tab, pageURL: url)
         }
         decisionHandler(.allow)
     }

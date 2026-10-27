@@ -1,17 +1,16 @@
 import AppKit
 
 /// `snapshot --address <text>`: seeds the volatile stores with history (visit
-/// and typed counts), bookmarks and two open tabs, then types `text` into the
-/// address field key by key so inline completion and the dropdown run as
-/// they do for a user. Search-engine suggestions are canned; nothing leaves
-/// the machine.
+/// and typed counts), pins in the window's Space and two open tabs, then
+/// types `text` into the address field key by key so inline completion and
+/// the dropdown run as they do for a user. Search-engine suggestions are
+/// canned; nothing leaves the machine.
 @MainActor
 enum AddressBarSnapshot {
     static func type(
         _ text: String,
         into controller: BrowserWindowController,
-        history: BrowserHistoryStore,
-        bookmarks: BrowserBookmarkStore
+        history: BrowserHistoryStore
     ) {
         let tabs = [
             ("https://github.com/frknue/soprano_web/pulls", "Pull requests · frknue/soprano_web"),
@@ -46,14 +45,24 @@ enum AddressBarSnapshot {
                 history.record(url: address, title: title, at: date, kind: visit < typed ? .typed : .link)
             }
         }
-        if !bookmarks.isBookmarked("https://github.com/frknue/soprano_web") {
-            bookmarks.addBookmark(url: "https://github.com/frknue/soprano_web", title: "Soprano Web")
+        let spaces = controller.spaces
+        if let spaceID = controller.pinSpaceID,
+           !spaces.isPinned("https://github.com/frknue/soprano_web", inSpace: spaceID)
+        {
+            spaces.addPin(url: "https://github.com/frknue/soprano_web", title: "Soprano Web", inSpace: spaceID)
         }
         print("address-history: \(history.pageCount()) pages, \(history.visitCount()) visits in \(history.databaseURL.lastPathComponent)")
-        // Inside a folder: suggestions see every bookmark in every folder.
-        if !bookmarks.isBookmarked("https://developer.apple.com/documentation/webkit") {
-            let docs = bookmarks.addFolder(name: "Docs")
-            bookmarks.addBookmark(url: "https://developer.apple.com/documentation/webkit", title: "WebKit Documentation", to: docs.id)
+        // Inside a folder: suggestions see every pin in every folder.
+        if let spaceID = controller.pinSpaceID,
+           !spaces.isPinned("https://developer.apple.com/documentation/webkit", inSpace: spaceID),
+           let docs = spaces.addPinFolder(name: "Docs", inSpace: spaceID)
+        {
+            spaces.addPin(
+                url: "https://developer.apple.com/documentation/webkit",
+                title: "WebKit Documentation",
+                to: docs.id,
+                inSpace: spaceID
+            )
         }
 
         controller.focusAddressBar()

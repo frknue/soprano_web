@@ -88,6 +88,77 @@ final class BrowserHistoryStore {
         changes.notify()
     }
 
+    /// An import's visits in bulk: `read` hands over batches (it runs off
+    /// the main thread, so it may read another browser's database there);
+    /// each batch goes into History in its own transaction on a second
+    /// connection, skipping visits already there (same address and time),
+    /// then every page's frecency is refreshed. `cancellation` stops it
+    /// between batches (what was added stays). `progress` gets the visits
+    /// handled so far; both callbacks run on the main actor.
+    func importInBackground(
+        batchesFrom read: @escaping @Sendable (_ body: ([BrowserHistoryImport]) throws -> Void) throws -> Void,
+        cancellation: BrowserImportCancellation,
+        progress: @escaping @MainActor @Sendable (Int) -> Void,
+        completion: @escaping @MainActor @Sendable (Result<BrowserHistoryImportCount, Error>) -> Void
+    ) {
+        let now = Date()
+        guard isPersistent else {
+            let result = Result { try Self.importBatches(into: database, read: read, cancellation: cancellation, now: now) { _ in } }
+            if (try? result.get())?.added ?? 0 > 0 { changes.notify() }
+            completion(result)
+            return
+        }
+        let path = databaseURL.path
+        let finish: @MainActor @Sendable (Result<BrowserHistoryImportCount, Error>) -> Void = { [weak self] result in
+            if (try? result.get())?.added ?? 0 > 0 { self?.changes.notify() }
+            completion(result)
+        }
+        Task.detached(priority: .utility) {
+            let result = Result {
+                try Self.importBatches(
+                    into: BrowserHistoryDatabase(path: path),
+                    read: read,
+                    cancellation: cancellation,
+                    now: now
+                ) { handled in
+                    Task { @MainActor in progress(handled) }
+                }
+            }
+            await finish(result)
+        }
+    }
+
+    /// The import loop on `database` (any thread that owns it). A read or
+    /// write error stops it like a cancel does: what was added stays,
+    /// frecency is refreshed and the error comes back in `failure` with
+    /// the counts. Only a failure to refresh frecency throws.
+    nonisolated static func importBatches(
+        into database: BrowserHistoryDatabase,
+        read: (_ body: ([BrowserHistoryImport]) throws -> Void) throws -> Void,
+        cancellation: BrowserImportCancellation,
+        now: Date,
+        progress: @escaping (Int) -> Void
+    ) throws -> BrowserHistoryImportCount {
+        var count = BrowserHistoryImportCount()
+        do {
+            try read { batch in
+                if cancellation.isCancelled { throw CancellationError() }
+                let result = try database.importNewVisits(batch)
+                count.added += result.added
+                count.skipped += result.skipped
+                progress(count.added + count.skipped)
+            }
+        } catch is CancellationError {
+            count.cancelled = true
+        } catch {
+            count.failure = "\(error)"
+        }
+        if count.added > 0 {
+            try database.refreshAllFrecency(now: now)
+        }
+        return count
+    }
+
     /// Removes every visit to `url` (the sidebar's Remove from History).
     func removePage(url: String) {
         guard (perform { try database.removePage(url: url) } ?? 0) > 0 else { return }
@@ -180,6 +251,36 @@ final class BrowserHistoryStore {
 
     private func report(_ error: Error) {
         FileHandle.standardError.write(Data("History: \(error)\n".utf8))
+    }
+}
+
+/// What a bulk History import did.
+struct BrowserHistoryImportCount: Sendable, Equatable {
+    var added = 0
+    /// Visits History already held (same address and time).
+    var skipped = 0
+    var cancelled = false
+    /// The read or write error that stopped it, after `added` visits.
+    var failure: String?
+}
+
+/// Stops a running import between batches; safe to use from any thread.
+final class BrowserImportCancellation: @unchecked Sendable {
+    private let lock = NSLock()
+    private var cancelled = false
+
+    init() {}
+
+    var isCancelled: Bool {
+        lock.lock()
+        defer { lock.unlock() }
+        return cancelled
+    }
+
+    func cancel() {
+        lock.lock()
+        cancelled = true
+        lock.unlock()
     }
 }
 

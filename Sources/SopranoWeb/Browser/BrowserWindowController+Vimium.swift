@@ -66,27 +66,29 @@ extension BrowserWindowController {
         }
     }
 
-    /// `b` / `B`: every bookmark in every folder; the description names the
-    /// folder ("Work › Docs · https://…") so the palette matches it too.
+    /// `b` / `B`: every pin of the current Space in every folder; the
+    /// description names the folder ("Work › Docs · https://…") so the
+    /// palette matches it too.
     func showVimiumBookmarks(newTab: Bool) {
         guard let window else { return }
-        guard !bookmarks.entries.isEmpty else {
+        let entries = pinSpaceID.map { spaces.pinEntries(inSpace: $0) } ?? []
+        guard !entries.isEmpty else {
             showVimiumToast("No bookmarks yet.")
             return
         }
-        let items = bookmarks.entries.map { entry in
-            let bookmark = entry.bookmark
+        let items = entries.map { entry in
+            let pin = entry.pin
             return CommandItem(
-                id: "vimium-bookmark-\(bookmark.id)",
+                id: "vimium-bookmark-\(pin.id)",
                 icon: "bookmark",
-                label: bookmark.displayTitle,
+                label: pin.displayTitle,
                 description: entry.detail
             ) { [weak self] in
                 guard let self else { return }
                 if newTab {
-                    _ = self.newTab(url: bookmark.url)
+                    _ = self.newTab(url: pin.url)
                 } else {
-                    self.navigateCurrent(to: bookmark.url)
+                    self.navigateCurrent(to: pin.url)
                 }
                 self.focusPage()
             }
@@ -98,9 +100,10 @@ extension BrowserWindowController {
         )
     }
 
+    /// `T`: the current Space's tabs, numbered as ⌘1…⌘9 count them.
     func showVimiumTabs() {
         guard let window else { return }
-        let items = tabs.enumerated().map { index, tab in
+        let items = visibleTabs.enumerated().map { index, tab in
             CommandItem(
                 id: "vimium-tab-\(tab.id)",
                 icon: "rectangle.on.rectangle",

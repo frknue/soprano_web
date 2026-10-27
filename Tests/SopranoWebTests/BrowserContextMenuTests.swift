@@ -10,7 +10,7 @@ struct BrowserContextMenuTests {
         _ identifiers: [String?],
         titles: [String]? = nil,
         target: BrowserContextMenuTarget?,
-        engine: SearchEngine = .duckDuckGo
+        engine: BrowserSearchEngine = .duckDuckGo
     ) -> [BrowserContextMenuEntry] {
         BrowserContextMenu.transform(
             identifiers: identifiers,
@@ -73,7 +73,7 @@ struct BrowserContextMenuTests {
             target: BrowserContextMenuTarget(selection: "  Soprano   web\nbrowser "),
             engine: .google
         )
-        let url = try #require(SearchEngine.google.searchURL(for: "Soprano web browser"))
+        let url = try #require(BrowserSearchEngine.google.searchURL(for: "Soprano web browser"))
         #expect(entries == [
             .keep(0),
             .action(.search(query: "Soprano web browser", url: url),
@@ -96,8 +96,8 @@ struct BrowserContextMenuTests {
     }
 
     @Test func searchURLEncodesTheSelection() throws {
-        let url = try #require(SearchEngine.duckDuckGo.searchURL(for: BrowserContextMenu.searchQuery("a&b = c?")))
-        #expect(url.absoluteString == "https://duckduckgo.com/?q=a%26b%20%3D%20c?")
+        let url = try #require(BrowserSearchEngine.duckDuckGo.searchURL(for: BrowserContextMenu.searchQuery("a&b = c?")))
+        #expect(url.absoluteString == "https://duckduckgo.com/?q=a%26b%20%3D%20c%3F")
     }
 
     @Test func targetParsesThePageMessageAndExpires() {

@@ -40,18 +40,18 @@ struct BrowserPrivateWindowTests {
         #expect(BrowserWindowController.theme(for: .normal, appTheme: .folioPaper).id == AppTheme.folioPaper.id)
     }
 
-    @Test func privateSuggestionsComeFromBookmarksTabsAndSearchNeverHistory() {
+    @Test func privateSuggestionsComeFromPinsTabsAndSearchNeverHistory() {
         let history = [BrowserHistoryPage(url: "https://visited.example/", title: "Visited Example")]
-        let bookmarks = [BrowserBookmark(url: "https://saved.example/", title: "Saved Example")]
+        let pins = [BrowserPin(url: "https://saved.example/", title: "Saved Example")]
         let tab = AddressSuggestionTab(id: UUID(), title: "Open Example", url: "https://open.example/")
         func rows(_ kind: BrowserWindowKind) -> [AddressSuggestion] {
             var input = AddressSuggestionInput(
                 query: "example",
                 kind: kind,
                 history: history,
-                bookmarks: bookmarks,
+                pins: pins,
                 tabs: [tab],
-                searchEngine: .duckDuckGo
+                searchEngines: .default
             )
             input.remoteSuggestions = ["example phrase"]
             return AddressSuggestionEngine.suggestions(for: input).rows
@@ -80,7 +80,7 @@ struct BrowserPrivateWindowTests {
         let html = BrowserStartPage.html(
             theme: .folioInk,
             settings: BrowserSettings(searchEngine: .duckDuckGo),
-            bookmarks: BrowserBookmarkTree(),
+            pins: BrowserPinTree(),
             history: history,
             kind: .private
         )
