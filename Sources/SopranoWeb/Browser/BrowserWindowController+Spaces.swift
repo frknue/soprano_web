@@ -38,7 +38,11 @@ extension BrowserWindowController {
                 leaving.webView.isHidden = true
                 removeWakeSnapshot(leaving)
             }
-            newTab(focusAddress: focus)
+            if focus {
+                newTab(focusAddress: true)
+            } else {
+                selectTab(id: newTab(select: false).id, focus: false)
+            }
         }
         if isSidebarVisible {
             sidebar.refresh()
@@ -111,13 +115,18 @@ extension BrowserWindowController {
     }
 
     /// Profile `profileID` is being deleted: a window on one of its Spaces
-    /// shows another profile's Space, and every tab of the profile closes
-    /// without going onto Recently Closed (its data goes with it). The
-    /// caller closes a window that held only the profile's tabs instead.
+    /// shows another profile's Space (one it has tabs in, else the first),
+    /// and every tab of the profile closes without going onto Recently
+    /// Closed (its data goes with it). The caller closes a window that held
+    /// only the profile's tabs instead.
     func closeTabs(ofProfile profileID: UUID) {
         guard hasSpaces else { return }
-        if self.profileID == profileID, let other = spaces.spaces.first(where: { $0.profileID != profileID }) {
-            switchToSpace(other.id, focus: false)
+        if self.profileID == profileID {
+            let others = spaces.spaces.filter { $0.profileID != profileID }
+            let used = others.first { space in tabs.contains { $0.spaceID == space.id } }
+            if let other = used ?? others.first {
+                switchToSpace(other.id, focus: false)
+            }
         }
         for tab in tabs where tab.dataContext.profileID == profileID {
             detachTab(tab)

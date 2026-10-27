@@ -75,6 +75,14 @@ extension BrowserWindowManager {
         }
     }
 
+    /// Every open tab of profile `id`, in any window or Space, private
+    /// windows over it included: what deleting it closes.
+    func openTabCount(ofProfile id: UUID) -> Int {
+        controllers.reduce(0) { count, controller in
+            count + controller.tabs.count { $0.dataContext.profileID == id }
+        }
+    }
+
     /// Settings ▸ Profiles ▸ Delete (after the confirmation): closes the
     /// profile's tabs in every window (a window on one of its Spaces shows
     /// another Space first; `windowsClosing(onDeleteOf:)` close whole) and

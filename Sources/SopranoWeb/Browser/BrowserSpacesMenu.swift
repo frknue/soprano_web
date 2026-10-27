@@ -21,6 +21,9 @@ final class BrowserSpacesMenu: NSObject, NSMenuDelegate, NSMenuItemValidation {
     private var observation: BrowserObservation?
     /// The Space whose pins the menu lists (the active window's).
     private var shownSpaceID: UUID?
+    /// The Space the menu checks (the active window's current one; none
+    /// in a private or pop-up window).
+    private var checkedSpaceID: UUID?
 
     init(menu: NSMenu, commands: [NSMenuItem], windowManager: @escaping () -> BrowserWindowManager?) {
         self.menu = menu
@@ -38,7 +41,9 @@ final class BrowserSpacesMenu: NSObject, NSMenuDelegate, NSMenuItemValidation {
         guard menu === self.menu else { return }
         let needsObservation = observation == nil
         observeSpaces()
-        if needsObservation || currentSpaceID() != shownSpaceID {
+        if needsObservation || currentSpaceID() != shownSpaceID
+            || windowManager()?.tabbedController?.currentSpaceID != checkedSpaceID
+        {
             rebuild()
         }
     }
@@ -66,6 +71,7 @@ final class BrowserSpacesMenu: NSObject, NSMenuDelegate, NSMenuItemValidation {
         shownSpaceID = currentSpaceID()
         let manager = windowManager()
         let checked = manager?.tabbedController?.currentSpaceID
+        checkedSpaceID = checked
         for (index, space) in (manager?.spaces.spaces ?? []).enumerated() {
             let item = NSMenuItem(
                 title: Self.menuTitle(Self.spaceTitle(space)),

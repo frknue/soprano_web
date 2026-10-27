@@ -6,8 +6,9 @@ import AppKit
 /// sheets on it.
 @MainActor
 final class BrowserProfilesSheet: NSWindowController {
-    /// How many windows a profile has open (for the delete confirmation).
-    var windowCount: ((UUID) -> Int)?
+    /// How many tabs of a profile are open, in any window or Space (for
+    /// the delete confirmation).
+    var tabCount: ((UUID) -> Int)?
     /// Deletes a profile after the user confirmed it.
     var onDelete: ((UUID) -> Void)?
 
@@ -131,16 +132,16 @@ final class BrowserProfilesSheet: NSWindowController {
     }
 
     /// The delete confirmation's title and message.
-    nonisolated static func deleteConfirmation(name: String, windowCount: Int) -> (title: String, message: String) {
-        let windows: String
-        switch windowCount {
-        case 0: windows = ""
-        case 1: windows = "Its open window closes. "
-        default: windows = "Its \(windowCount) open windows close. "
+    nonisolated static func deleteConfirmation(name: String, tabCount: Int) -> (title: String, message: String) {
+        let tabs: String
+        switch tabCount {
+        case 0: tabs = ""
+        case 1: tabs = "Its open tab closes. "
+        default: tabs = "Its \(tabCount) open tabs close. "
         }
         return (
             "Delete the profile “\(name)”?",
-            windows + "Its history, cookies, website data, site decisions and bookmarks are removed "
+            tabs + "Its Spaces, pinned tabs, history, cookies, website data and site decisions are removed "
                 + "from this Mac. Downloads and settings stay."
         )
     }
@@ -181,7 +182,7 @@ final class BrowserProfilesSheet: NSWindowController {
 
     private func confirmDelete(_ id: UUID) {
         guard let window, let profile = profiles.profile(id: id), !profile.isDefault else { return }
-        let text = Self.deleteConfirmation(name: profile.name, windowCount: windowCount?(id) ?? 0)
+        let text = Self.deleteConfirmation(name: profile.name, tabCount: tabCount?(id) ?? 0)
         let alert = NSAlert()
         alert.messageText = text.title
         alert.informativeText = text.message

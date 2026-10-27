@@ -509,7 +509,7 @@ enum BrowserAutomationRouter {
         } else if let selected = source.selectedTab {
             tab = selected
         } else {
-            return .failure(BrowserAutomationError.invalidArguments("No tab is open."))
+            return .failure(BrowserAutomationError.unavailable("No tab is open."))
         }
         guard let destination = request.arguments.first else {
             return .failure(BrowserAutomationError.invalidArguments(BrowserCommandRequest.moveToWindowUsage))
@@ -595,8 +595,9 @@ enum BrowserAutomationRouter {
             return .failure(BrowserAutomationError.invalidArguments("This window has no Spaces."))
         }
         let all = manager.spaces.spaces
-        let wanted = value.trimmingCharacters(in: .whitespaces).lowercased()
-        guard let index = Int(value).map({ $0 - 1 }).flatMap({ all.indices.contains($0) ? $0 : nil })
+        let trimmed = value.trimmingCharacters(in: .whitespaces)
+        let wanted = trimmed.lowercased()
+        guard let index = Int(trimmed).map({ $0 - 1 }).flatMap({ all.indices.contains($0) ? $0 : nil })
             ?? all.firstIndex(where: { $0.displayName.lowercased() == wanted })
         else {
             let known = all.map(\.displayName).joined(separator: ", ")

@@ -181,11 +181,12 @@ struct BrowserProfilesTests {
     }
 
     @Test func deleteConfirmationSaysWhatGoes() {
-        let none = BrowserProfilesSheet.deleteConfirmation(name: "Work", windowCount: 0)
+        let none = BrowserProfilesSheet.deleteConfirmation(name: "Work", tabCount: 0)
         #expect(none.title == "Delete the profile “Work”?")
-        #expect(!none.message.contains("window"))
-        #expect(BrowserProfilesSheet.deleteConfirmation(name: "Work", windowCount: 1).message.hasPrefix("Its open window closes."))
-        #expect(BrowserProfilesSheet.deleteConfirmation(name: "Work", windowCount: 3).message.hasPrefix("Its 3 open windows close."))
+        #expect(!none.message.contains("tab closes"))
+        #expect(none.message.contains("Spaces, pinned tabs"))
+        #expect(BrowserProfilesSheet.deleteConfirmation(name: "Work", tabCount: 1).message.hasPrefix("Its open tab closes."))
+        #expect(BrowserProfilesSheet.deleteConfirmation(name: "Work", tabCount: 3).message.hasPrefix("Its 3 open tabs close."))
     }
 
     @Test func clearBrowsingDataNamesTheProfile() {

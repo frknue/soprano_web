@@ -472,7 +472,7 @@ struct SnapshotSessionOptions {
         }
         let confirmation = BrowserProfilesSheet.deleteConfirmation(
             name: profile.name,
-            windowCount: manager.controllers.filter { $0.profileID == profile.id }.count
+            tabCount: manager.openTabCount(ofProfile: profile.id)
         )
         print("delete-profile: \(confirmation.title) \(confirmation.message)")
         let folder = profile.directory(in: manager.supportDirectory)
@@ -487,9 +487,12 @@ struct SnapshotSessionOptions {
         // autoreleases a closing window, and an outer pool (this action's)
         // would keep it, its tabs and their web views until the action ends.
         autoreleasepool {
-            let closing = manager.controllers.filter { $0.profileID == profile.id }
+            let closing = manager.windowsClosing(onDeleteOf: profile.id)
             windows = closing.map { WeakController(controller: $0) }
-            webViews = closing.filter { !$0.kind.isPrivate }.flatMap(\.tabs).map { WeakObject(object: $0.webView) }
+            // Its tabs in every window, hidden Spaces included.
+            webViews = manager.controllers.filter { !$0.kind.isPrivate }.flatMap(\.tabs)
+                .filter { $0.dataContext.profileID == profile.id }
+                .map { WeakObject(object: $0.webView) }
             store = WeakObject(object: manager.profileContexts[profile.id]?.websiteDataStore)
             manager.deleteProfile(profile.id) { error in
                 failure = error

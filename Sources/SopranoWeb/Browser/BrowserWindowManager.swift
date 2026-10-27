@@ -725,8 +725,8 @@ final class BrowserWindowManager {
 
     func makeProfilesSheet() -> BrowserProfilesSheet {
         let sheet = BrowserProfilesSheet(profiles: profiles, theme: themeManager.currentTheme)
-        sheet.windowCount = { [weak self] id in
-            self?.windowsClosing(onDeleteOf: id).count ?? 0
+        sheet.tabCount = { [weak self] id in
+            self?.openTabCount(ofProfile: id) ?? 0
         }
         sheet.onDelete = { [weak self] id in self?.deleteProfile(id) }
         return sheet

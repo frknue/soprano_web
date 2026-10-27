@@ -57,7 +57,7 @@ no linter or formatter; match surrounding style.
   sheets, session restore and crashes, address-bar typing, tab audio and hover,
   site permissions, print/PDF/save and context menus, Clear Browsing Data and
   downloads. Window flags run in order on the active window:
-  `--session <file>` restores a version 1 or 2 session (every window),
+  `--session <file>` restores a version 1, 2 or 3 session (every window),
   `--add-profile <name>` (repeatable) creates a profile before any window
   opens, `--new-window <url|start>` (repeatable) opens another window,
   cascaded, in the active window's profile or, after `--profile <name>`, in
@@ -76,9 +76,16 @@ no linter or formatter; match surrounding style.
   `--click-page [cmd-|shift-cmd-|middle-]X,Y` (a real click into the active
   window's page, e.g. to open a pop-up window or a background tab),
   `--find-text <text>`, `--cli "<browser arguments>"` (one CLI request
-  through the router), `--start-download <url>` / `--wait-downloads`, and
+  through the router), `--start-download <url>` / `--wait-downloads`,
+  `--create-space <name>[:<profile>]` (repeatable; made before the first
+  window, after the profiles), `--space <n|name>` (what `browser space`
+  runs), `--swipe-rail next|previous` (a two-finger swipe's scroll events
+  fed to the rail), `--print-spaces` (one JSON line: every Space with its
+  profile, color, icon, pin count and each window's tabs and selection in
+  it), and
   `--print-windows` prints every window (kind `normal`/`private`, profile
-  and the mark its chrome shows, CLI number, frame, page size, pop-up flag,
+  and the mark its chrome shows, current Space and each Space's remembered
+  selection, CLI number, frame, page size, pop-up flag,
   find query, tabs with back/forward lists and zoom, its own closed tabs, the
   cookies and website data records of its data store and the store's
   identifier), the default store's cookies and records, Default's history
@@ -93,8 +100,8 @@ no linter or formatter; match surrounding style.
   one; numbers count private windows, unlike the CLI's). The harness's
   support folder is a temporary one, so profile folders go with it; it
   deletes every profile it made before exiting, so no WebKit data store is
-  left behind. Pin flags (every one works on the window's current Space,
-  for now its profile's first Space): `--sidebar` seeds a pinned tree
+  left behind. Pin flags (every one works on the active window's current
+  Space; a private window's is its profile's first): `--sidebar` seeds a pinned tree
   (nested folders, an empty one) when the Space has no pins, `--pins-tree`
   seeds Default's Space before the first window (the start page's folder
   cards), `--bookmarks-file <json>` starts from that stage 2
@@ -110,7 +117,7 @@ no linter or formatter; match surrounding style.
   (`space:` with profile, color, icon and pin count), each profile's
   favorites count and archive time, the current Space's tree, the outline
   rows, Vimium's `b` lines, `spaces.json`'s version and the migrated
-  `bookmarks.json` copy, and the Bookmarks menu as text. Sleep and zoom flags:
+  `bookmarks.json` copy, and the Spaces menu as text. Sleep and zoom flags:
   `--sleep-after <seconds>` (a test threshold; the idle pass runs on the
   real timer four times per threshold), `--tab-sleep <setting>`,
   `--default-zoom <percent>`, `--support-dir <dir>` (a support folder kept
@@ -171,27 +178,32 @@ no linter or formatter; match surrounding style.
   ⇧⌘N private windows over it, close onto the stack), owns the app-wide
   stores, profiles, `BrowserDownloadManager`, Settings and its Websites,
   Website Data and Profiles sheets, the recently-closed stack (entries reopen
-  in their profile's windows), Vimium's global marks, notification-click
+  in their Space, else their profile's first), Vimium's global marks, notification-click
   routing, links from other apps (`outsideTabbedController`: never a private
-  window) and the debounced `session.json` (restore every normal window in
-  its profile, frames clamped to today's screens). It runs every profile's
+  window) and the debounced `session.json` (restore every normal window on
+  its current Space, frames clamped to today's screens). It runs every profile's
   History retention pass (Settings ▸ Remove history items) at launch, once a
   day and when the setting changes. `BrowserWindowPlacement`
   keeps harness windows off-screen. `BrowserAutomationRouter` (in
   `BrowserAutomationCommand.swift`) picks the CLI's window from
   `automationControllers` (private windows excluded), opens `new-window
-  --profile` and runs `move-to-window`. `BrowserWindowManager+TabMove.swift`
+  --profile`, runs `move-to-window` and `spaces` / `space <n|name>`. `BrowserWindowManager+TabMove.swift`
   moves live tabs: `moveTab(_:from:to:at:select:)`, `moveTabToNewWindow`,
-  `mergeAllWindows`, `openPopupWindow`; `canMoveTab(from:to:)`
+  `mergeAllWindows` (tabs keep their Space), `openPopupWindow`; `canMoveTab(from:to:)`
   (`BrowserTabMoveRule`) is the one rule for which windows may exchange tabs:
-  the same data context (so the same profile), never into a pop-up.
+  the tab's data context is the target's current Space's (so the same
+  profile), never into a pop-up; a moved tab lands in the target's current
+  Space as a Today tab.
   `tabbedController` is the window menu commands' new tabs go to (never a
   pop-up window); `windowForNewTabs(from:)` the window a pop-up's tabs go to
   (same data context). `BrowserWindowManager+Profiles.swift` —
   `context(for:)` (a profile's data context, made on first use; Default's or
   a deleted profile's is `defaultContext`), `history(for:)`,
-  `windowMark(for:)` and `deleteProfile(_:completion:)` (closes the
-  profile's windows without Recently Closed, drops its closed entries,
+  `windowMark(for:)` (the current Space when there are several),
+  `windowsClosing(onDeleteOf:)`, `openTabCount(ofProfile:)` and
+  `deleteProfile(_:completion:)` (closes the
+  profile's tabs in every window and Space — a window holding only its tabs
+  closes whole — without Recently Closed, drops its closed entries,
   deletes its Spaces and favorites, removes it from `profiles.json`, then
   retries `WKWebsiteDataStore.remove(forIdentifier:)` until its web views
   are released and deletes its folder). The manager reconciles `spaces`
@@ -221,9 +233,26 @@ no linter or formatter; match surrounding style.
 - `Browser/BrowserWindowController.swift` — one window: per-window stored state
   (its `dataContext` and `kind`, a private window's own `closedTabs`), init,
   layout, wiring, settings and theme (Folio Ink always for a private window).
-  `currentSpaceID` is the Space whose pins every bookmark surface reads and
-  writes (for now the first Space of the window's profile; `currentPinTree`
+  A normal window shows one Space at a time: `currentSpaceID` (nil in
+  private and pop-up windows, `hasSpaces`), `tabs` holds every live tab of
+  every Space, `visibleTabs` the current Space's (what `selectedIndex`,
+  ⌘1…⌘9, Vimium `gt`/`gT`/`<<`/`>>`, the tab lists and the CLI's tab
+  numbers count), `spaceSelections` each Space's selected tab. The
+  window's `dataContext` is the current Space's profile's; every per-tab
+  operation and WebKit callback uses the tab's own `BrowserTab.dataContext`
+  (history, site decisions, favicons, connection security and sign-in
+  answers, downloads, zoom, content blocking, sleep), so a tab of a hidden
+  Space in another profile never writes into the shown one.
+  `syncContextObservations` observes the stores of every context in use.
+  `pinSpaceID` is the Space whose pins every pin surface reads and writes
+  (the current Space; a private window's profile's first; `currentPinTree`
   its tree).
+  `+Spaces` — `switchToSpace` (⌃1…⌃9 via the Spaces menu, ⌥⌘←/⌥⌘→, the
+  rail's swipe, CLI; an empty Space opens a start-page Today tab, and ⌘W
+  doesn't close a Space's lone start tab), `spacesChanged` (deleted Space,
+  Space moved to another profile: its tabs reopen there) and
+  `closeTabs(ofProfile:)`. `BrowserSpaceSwitching.swift` is the pure
+  index/wrap and selection math and `BrowserSpaceSwipe`.
   Its behavior lives in extension files
   by concern: `+Tabs` (`attachTab`/`detachTab`: everything that binds a tab to a
   window), `+TabMove` (Move Tab to New Window, the drop and drag-out handlers
@@ -243,9 +272,12 @@ no linter or formatter; match surrounding style.
   browser). Each WebKit protocol conformance sits on the extension that holds its
   methods.
 - `Browser/BrowserTab.swift`, `BrowserModel.swift`, `BrowserSessionRestore.swift`
-  — tab state, settings (decoded key by key), address resolution, the version 2
-  session (`windows[]` with frames, `recentlyClosed`; a version 1 file migrates
-  to one window and is kept as `session.json.migrated`), the recently-closed
+  — tab state (`dataContext`, `spaceID`, `origin`: today, pinned or
+  favorite pin id), settings (decoded key by key), address resolution, the version 3
+  session (`windows[]` with frames, `currentSpaceID`, tabs with `spaceID`
+  and origin, per-Space selection, `recentlyClosed` with `spaceID`; a
+  version 1 or 2 file migrates — tabs into the first Space of the
+  window's profile — and is kept as `session.json.migrated`), the recently-closed
   stack of tabs and windows, and window frame clamping/cascading (and where a
   dragged-out tab's window opens). `BrowserTabMove.swift` — the tab-move rule,
   Merge All Windows ordering and pop-up window frames from `WKWindowFeatures`.
@@ -292,8 +324,11 @@ no linter or formatter; match surrounding style.
   folder per Space in `UserDefaults`). `BrowserPinEditor.swift` is the
   Folio popover (⌘D, Edit Bookmark, Rename, New Folder) and its child
   panel; `BrowserPinOutlineCell.swift` an outline row;
-  `BrowserBookmarksMenu.swift` the Bookmarks menu's tree of the active
-  window's Space, rebuilt on every change (`dump` prints it).
+  `BrowserSpacesMenu.swift` the Spaces menu (stage 2's Bookmarks menu):
+  every Space on ⌃1…⌃9 with the active window's checked, Next/Previous
+  Space on ⌥⌘→/⌥⌘←, then the active window's Space's pin tree, rebuilt on
+  every change (`dump` prints it). ⌃1…⌃9 and ⌥⌘←/⌥⌘→ are Arc's Space
+  shortcuts; ⌘1…⌘9 stay tabs of the current Space.
 - `Browser/BrowserDataStores.swift` — downloads JSON
   (`{version, entries}` envelopes, lossy decoding; a private window's download
   rows carry `privateContextID` and stay in memory);

@@ -471,11 +471,15 @@ extension BrowserWindowController {
     /// Closes a tab onto the recently-closed stack (a private window's own)
     /// with its Space and its index there. The window's last tab closes the
     /// window instead, which goes onto the stack as one window entry (a
-    /// private window goes nowhere).
+    /// private window goes nowhere). A Space's only tab, when it is the
+    /// start page, stays: closing it would only open another.
     func closeTab(id: UUID) {
         guard let tab = tabs.first(where: { $0.id == id }) else { return }
         guard tabs.count > 1 else {
             manager.closeWindow(self)
+            return
+        }
+        if hasSpaces, tab.isStartPage, visibleTabs.count == 1, visibleTabs.first === tab {
             return
         }
         let index = tabs.filter { $0.spaceID == tab.spaceID }.firstIndex { $0 === tab }

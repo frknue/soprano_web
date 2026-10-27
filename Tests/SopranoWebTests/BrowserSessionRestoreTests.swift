@@ -117,7 +117,8 @@ struct BrowserSessionRestoreTests {
         var list = BrowserSpaceList()
         let defaultSpace = list.ensureSpace(for: .defaultProfile)
         let workSpace = list.ensureSpace(for: work)
-        let research = try #require(list.create(name: "Research", color: .blue, profileID: work.id))
+        let created = list.create(name: "Research", color: .blue, profileID: work.id)
+        let research = try #require(created)
         let original = """
         {"version": 2, "activeWindowIndex": 1, "savedAt": "2026-10-01T10:00:00Z", "windows": [
           {"tabs": [{"url": "https://example.com", "title": "E"}, {"url": "https://webkit.org", "title": "W"}], "selectedIndex": 1},
