@@ -41,6 +41,8 @@ final class BrowserTabButton: NSView {
 
     private let iconView = NSImageView()
     private let spinner = BrowserTabSpinner()
+    /// "/" on a compact pinned tab whose page moved on.
+    private let awayBadge = NSTextField(labelWithString: "/")
     private let label = NSTextField(labelWithString: "")
     private let audioButton: ChromeIconButton
     private let closeButton: ChromeIconButton
@@ -86,6 +88,11 @@ final class BrowserTabButton: NSView {
         spinner.isHidden = true
         addSubview(spinner)
 
+        awayBadge.translatesAutoresizingMaskIntoConstraints = false
+        awayBadge.font = ChromeFont.labelStrong
+        awayBadge.isHidden = true
+        addSubview(awayBadge)
+
         label.translatesAutoresizingMaskIntoConstraints = false
         label.lineBreakMode = .byTruncatingTail
         label.usesSingleLineMode = true
@@ -119,6 +126,9 @@ final class BrowserTabButton: NSView {
             spinner.centerYAnchor.constraint(equalTo: iconView.centerYAnchor),
             spinner.widthAnchor.constraint(equalToConstant: 14),
             spinner.heightAnchor.constraint(equalToConstant: 14),
+
+            awayBadge.leadingAnchor.constraint(equalTo: iconView.trailingAnchor, constant: 1),
+            awayBadge.centerYAnchor.constraint(equalTo: iconView.bottomAnchor, constant: -1),
 
             label.leadingAnchor.constraint(equalTo: iconView.trailingAnchor, constant: 8),
             label.trailingAnchor.constraint(lessThanOrEqualTo: accessories.leadingAnchor, constant: -4),
@@ -279,6 +289,8 @@ final class BrowserTabButton: NSView {
         label.alphaValue = item.isAsleep ? 0.55 : 1
         label.isHidden = isCompact
         accessories.isHidden = isCompact
+        awayBadge.isHidden = !(isCompact && item.isAway)
+        awayBadge.textColor = colors.textMuted
         refresh()
     }
 

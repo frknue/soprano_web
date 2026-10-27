@@ -20,8 +20,8 @@ final class BrowserProfilesSheet: NSWindowController {
     private let rootView = NSView()
     private let header = NSTextField(labelWithString: "Profiles")
     private let subtitle = NSTextField(
-        wrappingLabelWithString: "Each profile keeps its own cookies, website data, history, site decisions "
-            + "and bookmarks. Downloads and settings are shared."
+        wrappingLabelWithString: "Each profile keeps its own cookies, website data, history, site decisions, "
+            + "Spaces with their pinned tabs, and Favorites. Downloads and settings are shared."
     )
     private let topRule: ChromeRuleView
     private let bottomRule: ChromeRuleView

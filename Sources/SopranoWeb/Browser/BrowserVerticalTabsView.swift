@@ -181,7 +181,8 @@ final class BrowserVerticalTabsView: NSView {
         pinsView.update(content.pins)
         switcher.update(content.spaces)
         favoritesView.isHidden = !content.showsSpaces || content.favorites.isEmpty
-        pinsView.isHidden = !content.showsSpaces || content.pins.isEmpty
+        // An empty Space keeps its outline (a hint and the New Folder menu).
+        pinsView.isHidden = !content.showsSpaces
         switcher.isHidden = !content.showsSpaces
         if modeChanged || scrollToSwitcher.isActive != content.showsSpaces {
             todayHeader.setShowsLabel(content.showsSpaces)

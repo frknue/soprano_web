@@ -151,6 +151,7 @@ extension BrowserWindowController {
                 live: tabs.map(\.origin)
             )
         } ?? .today
+        tab.linkLanding = tab.origin == .today ? nil : state.linkLanding
         tab.title = state.url == nil && state.title.isEmpty ? "New Tab" : state.title
         tab.zoom = settingsStore.settings.defaultZoom
         tab.favicon = state.url.flatMap { context.faviconStore.image(forAddress: $0) }

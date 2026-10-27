@@ -58,7 +58,10 @@ swift-testing rules, harness, CHANGELOG, conventions), then `docs/ROADMAP.md` §
 - Switching Space: ⌃1…⌃9, ⌥⌘←/⌥⌘→, two-finger horizontal swipe on the rail, Spaces menu,
   rail switcher, CLI. Tabs of hidden Spaces stay alive (sleep policy unchanged).
 - Tab move rule: a tab may move into a window iff the target window's current Space uses
-  the same data context; it lands in that window's current Space as a Today tab.
+  the same data context; it lands in that window's current Space. It keeps its pin or
+  favorite link only when that pin is in the target's current Space (a favorite: of its
+  profile) and the target window has no live tab for it yet; otherwise it lands as a
+  Today tab (drops, Move Tab to New Window, Merge All Windows, restore).
 - Pinned/favorite live tabs are per window: clicking a pin selects its live tab in this
   window or opens one linked to the pin. ⌘W on a pinned tab unloads it back to the pin
   (Arc). A pinned tab that navigated to another URL shows a "/" mark; clicking the pin's

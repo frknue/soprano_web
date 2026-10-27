@@ -274,6 +274,10 @@ final class BrowserRailPinsView: NSView, NSDraggingSource {
     private var mouseDownRow: Int?
     private var isDragging = false
     private let dropMarker = BrowserTabDropMarker()
+    /// An empty Space's outline: a hint, and a place to right-click for
+    /// New Folder.
+    private let emptyLabel = NSTextField(labelWithString: "No pinned tabs · ⌘D pins this page")
+    static let emptyHeight: CGFloat = 28
 
     static let rowGap: CGFloat = 2
     static var pitch: CGFloat { BrowserPinOutlineCellView.rowHeight + rowGap }
@@ -290,6 +294,12 @@ final class BrowserRailPinsView: NSView, NSDraggingSource {
         dropMarker.apply(theme: theme)
         addSubview(dropMarker)
         registerForDraggedTypes([.sopranoPinNode])
+        emptyLabel.font = ChromeFont.meta
+        emptyLabel.textColor = theme.colors.textMuted
+        emptyLabel.lineBreakMode = .byTruncatingTail
+        emptyLabel.frame = NSRect(x: BrowserPinOutlineCellView.iconInset, y: 6, width: 200, height: 16)
+        addSubview(emptyLabel)
+        height.constant = Self.emptyHeight
     }
 
     @available(*, unavailable)
@@ -321,13 +331,15 @@ final class BrowserRailPinsView: NSView, NSDraggingSource {
         if let hoveredRow, !rows.indices.contains(hoveredRow) {
             self.hoveredRow = nil
         }
-        height.constant = rows.isEmpty ? 0 : CGFloat(rows.count) * Self.pitch - Self.rowGap
+        height.constant = rows.isEmpty ? Self.emptyHeight : CGFloat(rows.count) * Self.pitch - Self.rowGap
+        emptyLabel.isHidden = !rows.isEmpty
         needsLayout = true
     }
 
     func apply(theme: AppTheme) {
         self.theme = theme
         dropMarker.apply(theme: theme)
+        emptyLabel.textColor = theme.colors.textMuted
         for view in rowViews {
             view.apply(theme: theme)
         }
@@ -385,7 +397,9 @@ final class BrowserRailPinsView: NSView, NSDraggingSource {
     }
 
     override func mouseDragged(with event: NSEvent) {
-        guard let start = mouseDownPoint, let index = mouseDownRow, !isDragging else { return }
+        guard let start = mouseDownPoint, let index = mouseDownRow, !isDragging,
+              rows.indices.contains(index), rowViews.indices.contains(index)
+        else { return }
         let point = convert(event.locationInWindow, from: nil)
         guard hypot(point.x - start.x, point.y - start.y) >= Self.dragThreshold else { return }
         isDragging = true

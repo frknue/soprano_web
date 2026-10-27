@@ -35,10 +35,13 @@ enum SnapshotRailAction {
     case editSpace(String)
     case deleteSpace(String)
     case printRail
+    case hoverFolder(String)
+    case toggleRail
 
     static let flags: Set<String> = [
         "--click-pin", "--click-favorite", "--pin-tab", "--unpin-tab", "--add-favorite", "--remove-favorite",
         "--replace-pin", "--new-space", "--edit-space", "--delete-space", "--print-rail",
+        "--hover-folder", "--toggle-rail",
     ]
 
     static let usage = """
@@ -46,7 +49,7 @@ enum SnapshotRailAction {
                                [--pin-tab] [--unpin-tab] [--add-favorite] [--remove-favorite] [--replace-pin]
                                [--new-space "<name>|<icon>|<color>|<profile>"]...
                                [--edit-space "<space>=<name>|<icon>|<color>|<profile>"] [--delete-space <name>]
-                               [--print-rail]
+                               [--print-rail] [--hover-folder <name>] [--toggle-rail]
     """
 
     /// Nil when `option` is not one of these flags.
@@ -76,6 +79,8 @@ enum SnapshotRailAction {
         case "--edit-space": return .editSpace(try value())
         case "--delete-space": return .deleteSpace(try value())
         case "--print-rail": return .printRail
+        case "--hover-folder": return .hoverFolder(try value())
+        case "--toggle-rail": return .toggleRail
         default: return nil
         }
     }
@@ -90,7 +95,10 @@ enum SnapshotRailAction {
         switch self {
         case let .clickPin(title, icon, command):
             controller.updateRail()
-            guard let row = rail.pinsView.rows.firstIndex(where: { $0.row.node.pin?.displayTitle == title }) else {
+            // A pin by its title, or a folder (a click opens or closes it).
+            guard let row = rail.pinsView.rows.firstIndex(where: {
+                $0.row.node.pin?.displayTitle == title || $0.row.node.folder?.displayName == title
+            }) else {
                 print("click-pin: no pinned row titled \(title)")
                 return
             }
@@ -152,6 +160,17 @@ enum SnapshotRailAction {
             print("delete-space: \(space.displayName) \(deleted ? "deleted" : "refused (its profile's only Space)")")
         case .printRail:
             print(Self.railJSON(controller))
+        case let .hoverFolder(name):
+            controller.updateRail()
+            guard let row = rail.pinsView.rows.first(where: { $0.row.node.folder?.displayName == name }) else {
+                print("hover-folder: no folder row \(name)")
+                return
+            }
+            rail.pinsView.previewFolder(row.id)
+            print("hover-folder: \(name) preview \(controller.folderPreview == nil ? "closed" : "open")")
+        case .toggleRail:
+            controller.toggleVerticalSidebar()
+            print("toggle-rail: rail \(rail.isHidden ? "hidden" : "shown"), folder preview \(controller.folderPreview == nil ? "closed" : "open")")
         }
     }
 
@@ -258,8 +277,15 @@ enum SnapshotRailAction {
             "pinned": pinned,
             "today": today,
             "switcher": switcher,
+            "switcherOverflow": { () -> [String] in
+                rail.switcher.layoutSubtreeIfNeeded()
+                return rail.switcher.overflow.map(\.name)
+            }(),
             "tabs": tabs,
             "recentlyClosed": manager.recentlyClosed.entries.count,
+            "folderPreview": controller.folderPreview.map {
+                controller.currentPinTree.folder(id: $0.folderID)?.displayName ?? "(folder gone)"
+            } ?? NSNull(),
         ]
         guard let data = try? JSONSerialization.data(withJSONObject: object, options: [.sortedKeys]) else { return "{}" }
         return "rail: " + String(decoding: data, as: UTF8.self)

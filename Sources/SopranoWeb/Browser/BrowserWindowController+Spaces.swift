@@ -108,6 +108,7 @@ extension BrowserWindowController {
             updateTabStrip()
             updateChrome()
         }
+        saveSession()
     }
 
     /// Replaces `tab` with a not yet loaded copy made in its Space's
@@ -118,19 +119,21 @@ extension BrowserWindowController {
         var state = tab.state
         state.origin = .today
         let copy = addRestoredTab(state, at: index)
+        // The copy takes over the link (while its pin or favorite is still
+        // the Space's) before the original goes and the session is saved.
+        copy.origin = BrowserPinLinks.originAfterMove(
+            tab.origin,
+            into: copy.spaceID.map(spaces.linkTargets(inSpace:)) ?? BrowserPinLinks.Targets(),
+            live: tabs.filter { $0 !== tab && $0 !== copy }.map(\.origin)
+        )
+        copy.linkLanding = copy.origin == .today ? nil : tab.linkLanding
+        refreshVisibleTabs()
         if wasSelected {
             selectTab(id: copy.id, focus: false)
         }
         detachTab(tab)
         discardTab(tab)
-        // The copy takes over the link once the original is gone (while
-        // its pin or favorite is still the Space's).
-        copy.origin = BrowserPinLinks.originAfterMove(
-            tab.origin,
-            into: copy.spaceID.map(spaces.linkTargets(inSpace:)) ?? BrowserPinLinks.Targets(),
-            live: tabs.map(\.origin)
-        )
-        refreshVisibleTabs()
+        saveSession()
     }
 
     /// Profile `profileID` is being deleted: a window on one of its Spaces

@@ -16,7 +16,7 @@ final class BrowserPinFolderPreview: NSView, NSTextFieldDelegate {
     var onExit: (() -> Void)?
 
     private(set) var folderID: UUID
-    private var entries: [BrowserPinEntry]
+    private(set) var entries: [BrowserPinEntry]
     private(set) var shown: [BrowserPinEntry] = []
     private var theme: AppTheme
     private let heading: ChromeEyebrowView

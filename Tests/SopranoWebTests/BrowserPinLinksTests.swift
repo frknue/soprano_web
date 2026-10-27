@@ -36,10 +36,23 @@ struct BrowserPinLinksTests {
         #expect(!BrowserPinLinks.isAway("https://example.com/docs", from: pinURL))
         #expect(!BrowserPinLinks.isAway("HTTPS://Example.COM:443/docs#intro", from: pinURL))
         #expect(!BrowserPinLinks.isAway("http://example.com", from: "http://example.com/"))
+        #expect(!BrowserPinLinks.isAway("https://example.com/docs/", from: pinURL))
         #expect(!BrowserPinLinks.isAway(nil, from: pinURL))
         #expect(BrowserPinLinks.isAway("https://example.com/docs/page", from: pinURL))
         #expect(BrowserPinLinks.isAway("https://example.com/docs?tab=2", from: pinURL))
-        #expect(BrowserPinLinks.isAway("http://example.com/docs", from: pinURL))
+        #expect(BrowserPinLinks.isAway("https://example.com/", from: pinURL))
+    }
+
+    @Test func whereThePinsLoadLandedIsHomeToo() {
+        // http://mail.example.com redirects to https://mail.example.com/u/0/.
+        let pinURL = "http://mail.example.com"
+        let landing = "https://mail.example.com/u/0/"
+        #expect(!BrowserPinLinks.isAway(landing, from: pinURL, landing: landing))
+        #expect(!BrowserPinLinks.isAway("https://mail.example.com/u/0", from: pinURL, landing: landing))
+        #expect(!BrowserPinLinks.isAway(pinURL, from: pinURL, landing: landing))
+        #expect(BrowserPinLinks.isAway("https://mail.example.com/u/0/inbox/42", from: pinURL, landing: landing))
+        // Without a landing address, the redirect target is away.
+        #expect(BrowserPinLinks.isAway(landing, from: pinURL))
     }
 
     @Test func favoritesThenPinsThenTodayTabsInWindowOrder() {

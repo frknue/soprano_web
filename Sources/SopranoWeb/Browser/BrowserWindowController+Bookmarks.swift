@@ -27,15 +27,16 @@ extension BrowserWindowController {
         }
         guard let editor = makeBookmarkEditor(
             for: result.pin.id,
-            heading: result.added ? "Bookmark Added" : "Edit Bookmark",
+            heading: result.added ? "Pinned" : "Edit Pin",
             showsURL: false
         ) else { return }
         bookmarkEditorPanel.show(editor, below: toolbar.bookmarkAnchor, in: window)
     }
 
     /// Pins the selected page in the current Space unless it is pinned
-    /// there; returns its pin and whether it is new. Nil on the start page,
-    /// an empty tab or without a Space.
+    /// there; returns its pin and whether it is new. A Today tab becomes the
+    /// pin's live tab when the pin has none in this window. Nil on the
+    /// start page, an empty tab or without a Space.
     func bookmarkSelectedPage() -> (pin: BrowserPin, added: Bool)? {
         guard let spaceID = pinSpaceID, let tab = selectedTab, !tab.isStartPage,
               let address = tab.webView.url?.absoluteString
@@ -43,6 +44,7 @@ extension BrowserWindowController {
             return nil
         }
         if let existing = spaces.pin(url: address, inSpace: spaceID) {
+            link(tab, to: existing)
             return (existing, false)
         }
         let folder = spaces.pinTree(inSpace: spaceID)
@@ -50,8 +52,23 @@ extension BrowserWindowController {
         guard let pin = spaces.addPin(url: address, title: tab.displayTitle, to: folder, inSpace: spaceID) else {
             return nil
         }
+        link(tab, to: pin)
         updateChrome()
         return (pin, true)
+    }
+
+    /// Makes a Today tab of the current Space `pin`'s live tab, unless the
+    /// pin has one here already.
+    private func link(_ tab: BrowserTab, to pin: BrowserPin) {
+        guard hasSpaces, tab.origin == .today, tab.spaceID == currentSpaceID,
+              liveTab(for: .pinned(pin.id)) == nil
+        else { return }
+        tab.origin = .pinned(pin.id)
+        tab.linkLanding = nil
+        refreshVisibleTabs()
+        revealPinNode(pin.id)
+        updateTabStrip()
+        saveSession()
     }
 
     /// The editor for pin or folder `id` of the current Space, wired to the

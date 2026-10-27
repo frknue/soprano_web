@@ -67,6 +67,12 @@ final class BrowserTab {
     /// `attachTab`), since its `visibleTabs` follow it.
     var spaceID: UUID?
     var origin: BrowserTabOrigin
+    /// Where the last load of its pin (or favorite) started by the window
+    /// landed after redirects; the tab is not "away" there.
+    var linkLanding: String?
+    /// That load is under way: its first main-frame commit sets
+    /// `linkLanding`.
+    var awaitsLinkLanding = false
     /// The tab's page. Sleeping replaces it with a fresh, empty one
     /// (`BrowserWindowController.replaceWebView`); everything that binds a
     /// web view to a window follows the swap.
@@ -153,6 +159,7 @@ final class BrowserTab {
         )
         state.spaceID = spaceID
         state.origin = origin
+        state.linkLanding = origin == .today ? nil : linkLanding
         return state
     }
 

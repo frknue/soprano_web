@@ -273,6 +273,8 @@ final class BrowserWindowController: NSWindowController {
             addressBar.close()
         }
         applyWindowMark()
+        // The preview showed the Space left behind.
+        closeFolderPreview()
     }
 
     /// Observes the History, site decisions and favicons of every data
@@ -435,6 +437,7 @@ final class BrowserWindowController: NSWindowController {
         // rail header, or next to the address field when there is no rail.
         toolbar.setWindowMarkShown(!railShown)
         updateTabStrip()
+        syncFolderPreview()
         updateWindowMinSize()
         viewNeedsLayout()
     }
@@ -510,6 +513,7 @@ final class BrowserWindowController: NSWindowController {
                 self?.applyWindowMark()
                 self?.updateTabStrip()
                 self?.updateChrome()
+                self?.syncFolderPreview()
             },
             downloads.changes.observe { [weak self] in self?.sidebar.refresh() },
             manager.archive.changes.observe { [weak self] in

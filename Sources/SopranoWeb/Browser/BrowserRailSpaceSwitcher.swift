@@ -25,6 +25,9 @@ final class BrowserRailSpaceSwitcher: NSView {
     private(set) var items: [BrowserRailSpace] = []
     private var cells: [BrowserRailSpaceCell] = []
     private let newButton: ChromeIconButton
+    /// The Spaces that don't fit, in a menu.
+    private let moreButton: ChromeIconButton
+    private(set) var overflow: [BrowserRailSpace] = []
     private let rule: ChromeRuleView
     private var theme: AppTheme
 
@@ -38,6 +41,14 @@ final class BrowserRailSpaceSwitcher: NSView {
             target: nil,
             action: nil
         )
+        moreButton = ChromeIconButton(
+            symbolName: "chevron.up",
+            accessibilityLabel: "More Spaces",
+            pointSize: 10,
+            size: 24,
+            target: nil,
+            action: nil
+        )
         rule = ChromeRuleView(axis: .horizontal, color: theme.colors.borderSubtle)
         super.init(frame: .zero)
         translatesAutoresizingMaskIntoConstraints = false
@@ -46,6 +57,12 @@ final class BrowserRailSpaceSwitcher: NSView {
         newButton.action = #selector(newPressed)
         newButton.toolTip = "New Space…"
         addSubview(newButton)
+        moreButton.translatesAutoresizingMaskIntoConstraints = true
+        moreButton.target = self
+        moreButton.action = #selector(morePressed)
+        moreButton.toolTip = "More Spaces"
+        moreButton.isHidden = true
+        addSubview(moreButton)
         rule.translatesAutoresizingMaskIntoConstraints = false
         addSubview(rule)
         NSLayoutConstraint.activate([
@@ -86,26 +103,84 @@ final class BrowserRailSpaceSwitcher: NSView {
         self.theme = theme
         rule.color = theme.colors.borderSubtle
         newButton.apply(theme: theme)
+        moreButton.apply(theme: theme)
         cells.forEach { $0.theme = theme }
     }
 
-    /// Icons left to right from the rail's inset; "+" after the last.
+    /// Icons left to right from the rail's inset, closer together as
+    /// Spaces are added; when even that runs out of room, the rest go into
+    /// a "More Spaces" menu (the current Space always keeps its icon), and
+    /// "+" follows.
     override func layout() {
         super.layout()
+        let inset: CGFloat = 12
         let gap: CGFloat = 4
-        let y = floor((bounds.height - Self.cellSize) / 2)
-        var x: CGFloat = 12
-        for cell in cells {
-            cell.frame = NSRect(x: x, y: y, width: Self.cellSize, height: Self.cellSize)
-            x += Self.cellSize + gap
-        }
+        let minimumStep: CGFloat = 22
         let buttonSize = newButton.intrinsicContentSize
+        let available = bounds.width - inset * 2 - buttonSize.width - gap
+        var shown = Array(cells.indices)
+        var showsMore = false
+        if CGFloat(cells.count) * minimumStep > available {
+            showsMore = true
+            let fitting = max(1, Int((available - buttonSize.width - gap) / minimumStep))
+            shown = Array(cells.indices.prefix(fitting))
+            if let current = items.firstIndex(where: \.isCurrent), !shown.contains(current) {
+                shown[shown.count - 1] = current
+            }
+        }
+        let room = available - (showsMore ? buttonSize.width + gap : 0)
+        let step = min(Self.cellSize + gap, room / CGFloat(max(shown.count, 1)))
+        let size = min(Self.cellSize, step - 2)
+        let y = floor((bounds.height - size) / 2)
+        var x = inset
+        for (index, cell) in cells.enumerated() {
+            guard shown.contains(index) else {
+                cell.isHidden = true
+                continue
+            }
+            cell.isHidden = false
+            cell.frame = NSRect(x: x, y: y, width: size, height: size)
+            x += step
+        }
+        overflow = items.indices.filter { !shown.contains($0) }.map { items[$0] }
+        moreButton.isHidden = !showsMore
+        let buttonY = floor((bounds.height - buttonSize.height) / 2)
+        if showsMore {
+            moreButton.frame = NSRect(x: x + 2, y: buttonY, width: buttonSize.width, height: buttonSize.height)
+            x += buttonSize.width + gap
+        }
         newButton.frame = NSRect(
-            x: min(x + 2, bounds.width - buttonSize.width - 12),
-            y: floor((bounds.height - buttonSize.height) / 2),
+            x: min(x + 2, bounds.width - buttonSize.width - inset),
+            y: buttonY,
             width: buttonSize.width,
             height: buttonSize.height
         )
+    }
+
+    /// The Spaces in the "More Spaces" menu, each with its icon; choosing
+    /// one switches to it.
+    func overflowMenu() -> NSMenu {
+        let menu = NSMenu(title: "More Spaces")
+        for space in overflow {
+            let prefix: String = if case let .emoji(emoji) = space.icon { "\(emoji) " } else { "" }
+            let item = NSMenuItem(title: prefix + space.name, action: #selector(overflowChosen(_:)), keyEquivalent: "")
+            item.target = self
+            item.representedObject = space.id
+            if case let .symbol(name) = space.icon {
+                item.image = NSImage(systemSymbolName: name, accessibilityDescription: nil)
+            }
+            menu.addItem(item)
+        }
+        return menu
+    }
+
+    @objc private func morePressed() {
+        overflowMenu().popUp(positioning: nil, at: NSPoint(x: 0, y: moreButton.bounds.height + 4), in: moreButton)
+    }
+
+    @objc private func overflowChosen(_ sender: NSMenuItem) {
+        guard let id = sender.representedObject as? UUID else { return }
+        onSelect?(id)
     }
 
     /// The icon of Space `id`, for its menu and sheet to hang from.
@@ -233,7 +308,9 @@ enum BrowserSpaceIconDrawing {
         case .none:
             return
         case let .emoji(emoji):
-            let text = NSAttributedString(string: emoji, attributes: [.font: NSFont.systemFont(ofSize: size)])
+            // Emoji take the row font; they ignore its color.
+            let font = size >= 13 ? ChromeFont.row : ChromeFont.label
+            let text = NSAttributedString(string: emoji, attributes: [.font: font])
             let textSize = text.size()
             let origin = NSPoint(x: center.x - textSize.width / 2, y: center.y - textSize.height / 2)
             if dimmed {

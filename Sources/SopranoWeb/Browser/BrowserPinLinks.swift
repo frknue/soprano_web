@@ -49,12 +49,15 @@ enum BrowserPinLinks {
     }
 
     /// Whether a linked tab's page (`address`, nil while it has none) left
-    /// its pin's address: the "/" mark, and what clicking the pin's icon
-    /// resets. Scheme and host case, a default port, an empty path and the
-    /// fragment don't count.
-    static func isAway(_ address: String?, from pinURL: String) -> Bool {
+    /// its pin: the "/" mark, and what clicking the pin's icon resets. The
+    /// tab is home on the pin's address and on `landing`, where the last
+    /// load of the pin ended up (a redirect: `http` to `https`, `/docs` to
+    /// `/docs/`, a site's own start page). Scheme and host case, a default
+    /// port, an empty path, a trailing "/" and the fragment don't count.
+    static func isAway(_ address: String?, from pinURL: String, landing: String? = nil) -> Bool {
         guard let address else { return false }
-        return normalized(address) != normalized(pinURL)
+        let page = normalized(address)
+        return page != normalized(pinURL) && page != landing.map(normalized)
     }
 
     /// `address` as `isAway` compares it.
@@ -72,6 +75,8 @@ enum BrowserPinLinks {
         }
         if components.host != nil, components.path.isEmpty {
             components.path = "/"
+        } else if components.path.count > 1, components.path.hasSuffix("/") {
+            components.path.removeLast()
         }
         return components.string ?? trimmed
     }

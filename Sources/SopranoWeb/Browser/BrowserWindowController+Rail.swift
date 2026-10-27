@@ -43,20 +43,11 @@ extension BrowserWindowController {
         hasSpaces ? visibleTabs.filter { $0.origin == .today } : visibleTabs
     }
 
-    /// The rail's pinned outline: the expanded folders, plus the folders
-    /// holding the selected tab's pin, so the selected pin always shows.
+    /// The rail's pinned outline: the folders the user expanded (opening a
+    /// pin reveals it once, `revealPinNode`, so it can be closed again).
     var railOutlineRows: [BrowserPinOutline.Row] {
         guard hasSpaces else { return [] }
-        let tree = currentPinTree
-        var expanded = manager.pinUIState.expandedFolders
-        if let tab = selectedTab, case let .pinned(id) = tab.origin {
-            var current = id
-            while let location = tree.location(of: current), location.folderID != BrowserPinTree.rootID {
-                expanded.insert(location.folderID)
-                current = location.folderID
-            }
-        }
-        return BrowserPinOutline.rows(tree, expanded: expanded)
+        return BrowserPinOutline.rows(currentPinTree, expanded: manager.pinUIState.expandedFolders)
     }
 
     /// Refreshes the rail: its sections and the Today tabs.
@@ -209,11 +200,13 @@ extension BrowserWindowController {
     }
 
     /// Where a drop of `id` on the rail's outline would land, or nil when
-    /// it can't (a folder into itself, on a pin).
+    /// it can't (a folder into itself, on a pin). The drop's row numbers
+    /// are the rows the rail shows.
     func bookmarkDestination(for id: UUID, drop: BrowserPinOutline.Drop) -> BrowserPinOutline.Destination? {
         let tree = currentPinTree
+        let rows = verticalTabsView.pinsView.rows.map(\.row)
         guard hasSpaces,
-              let destination = BrowserPinOutline.destination(for: drop, rows: railOutlineRows, tree: tree),
+              let destination = BrowserPinOutline.destination(for: drop, rows: rows, tree: tree),
               tree.canMove(id, into: destination.folderID)
         else { return nil }
         return destination
@@ -379,6 +372,19 @@ extension BrowserWindowController {
         folderPreview = nil
     }
 
+    /// Closes the preview when what it shows is gone: the rail is hidden,
+    /// the window shows another Space, or the folder or its pins changed.
+    func syncFolderPreview() {
+        guard let folderPreview else { return }
+        guard !verticalTabsView.isHidden,
+              let folder = currentPinTree.folder(id: folderPreview.folderID),
+              Self.entries(in: folder) == folderPreview.entries
+        else {
+            closeFolderPreview()
+            return
+        }
+    }
+
     /// Every pin in `folder` and its subfolders, with the path from it.
     static func entries(in folder: BrowserPinFolder) -> [BrowserPinEntry] {
         var result: [BrowserPinEntry] = []
@@ -441,12 +447,15 @@ extension BrowserWindowController {
             return spaces.deleteSpace(id)
         }
         guard let window else { return false }
-        let pins = spaces.pinEntries(inSpace: id).count
-        let open = tabs.filter { $0.spaceID == id }.count
+        let pins = spaces.pinTree(inSpace: id).root.allPins.count
+        let open = manager.controllers.reduce(0) { count, controller in
+            count + controller.tabs.filter { $0.spaceID == id }.count
+        }
         let alert = NSAlert()
         alert.messageText = "Delete the Space “\(space.displayName)”?"
-        alert.informativeText = "Its \(pins == 1 ? "pinned tab" : "\(pins) pinned tabs") go\(pins == 1 ? "es" : "")"
-            + (open > 0 ? " and its open tabs close." : ".") + " This can't be undone."
+        let pinsText = pins == 0 ? "It has no pinned tabs." : "Its \(pins == 1 ? "pinned tab goes" : "\(pins) pinned tabs go")."
+        let openText = open == 0 ? "" : " \(open == 1 ? "Its open tab closes" : "Its \(open) open tabs close") in every window."
+        alert.informativeText = pinsText + openText + " This can't be undone."
         alert.alertStyle = .warning
         alert.addButton(withTitle: "Delete Space")
         alert.addButton(withTitle: "Cancel")

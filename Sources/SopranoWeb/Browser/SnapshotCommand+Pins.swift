@@ -139,7 +139,9 @@ extension SnapshotCommand {
             controller.manager.pinUIState.setLastFolderID(folder?.id, inSpace: spaceID)
         }
         for (title, drop) in options.drops {
-            guard let node = controller.railOutlineRows.first(where: { $0.node.title == title })?.node else {
+            controller.updateRail()
+            let rows = controller.verticalTabsView.pinsView.rows.map(\.row)
+            guard let node = rows.first(where: { $0.node.title == title })?.node else {
                 print("pin-drop: no visible row titled \(title)")
                 continue
             }
@@ -211,7 +213,7 @@ extension SnapshotCommand {
         guard let result = controller.bookmarkSelectedPage(),
               let editor = controller.makeBookmarkEditor(
                   for: result.pin.id,
-                  heading: result.added ? "Bookmark Added" : "Edit Bookmark",
+                  heading: result.added ? "Pinned" : "Edit Pin",
                   showsURL: false
               )
         else {

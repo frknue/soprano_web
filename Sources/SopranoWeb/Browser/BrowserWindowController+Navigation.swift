@@ -217,6 +217,11 @@ extension BrowserWindowController: WKNavigationDelegate {
     func webView(_ webView: WKWebView, didCommit navigation: WKNavigation!) {
         guard let tab = tab(for: webView) else { return }
         clearCrashState(tab)
+        if tab.awaitsLinkLanding {
+            // Where the pin's load landed, redirects followed: not "away".
+            tab.awaitsLinkLanding = false
+            tab.linkLanding = webView.url?.absoluteString
+        }
         // The committed page's site decides (a redirect can change it).
         applyContentBlocking(to: tab, pageURL: webView.url)
         // A new document: its site's zoom, no unsaved input or capture yet.

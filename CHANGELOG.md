@@ -222,9 +222,18 @@ app.
   page in a new tab.
 - Right-click a tab ▸ Pin Tab / Unpin Tab, Add to Favorites / Remove from
   Favorites (up to 12 per profile), Back to Pinned Page and Replace Pin with
-  Current Page; right-click a pin or favorite in the rail for Replace with
-  Current Page, Edit Pin…, New Folder and Delete. `⌘D` still pins the page
-  into the current Space.
+  Current Page; right-click a pin in the rail for Open, Copy Link, Replace
+  Pin with Current Page, Edit Pin…, New Folder and Delete, and a favorite for
+  Open, Copy Link, Replace Favorite with Current Page and Remove from
+  Favorites. `⌘D` pins the page into the current Space and makes its tab the
+  pin's tab. In a Space with no pinned tabs, right-click the Pinned area for
+  New Folder.
+- A pin whose address redirects (to `https`, to a trailing "/", to the site's
+  own start page) is home where it lands: no "/" until you move on from there.
+- With many Spaces the switcher's icons draw closer together and the rest go
+  into a More Spaces menu; with many pinned and favorite tabs in the strip,
+  those that don't fit go into the All Tabs menu, and a moved-on one shows
+  "/".
 - Rest the pointer on a pinned folder to preview its pins and search them.
   Drag pins and folders in the rail to reorder them or move them into folders.
 - With horizontal tabs, the Space's favorite and pinned tabs come first in

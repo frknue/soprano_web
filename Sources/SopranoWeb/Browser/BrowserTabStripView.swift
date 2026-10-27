@@ -45,6 +45,8 @@ final class BrowserTabStripView: NSView {
     /// Pinned and favorite tabs: first, icon-only, never in the overflow.
     private var linkedIDs: Set<UUID> = []
     private var compactCount = 0
+    /// The compact tabs that fit (the rest are in the overflow menu).
+    private var shownCompactCount = 0
     private let dragSource = BrowserTabDragSource()
     private let dropMarker = BrowserTabDropMarker()
 
@@ -159,15 +161,32 @@ final class BrowserTabStripView: NSView {
         layoutTabs(animated: false)
     }
 
-    /// Where the Today run starts, after the compact pinned tabs.
+    /// Where the Today run starts, after the compact pinned tabs shown.
     private var regularLeading: CGFloat {
-        Self.trafficLightInset + CGFloat(compactCount) * Self.compactTabWidth
+        Self.trafficLightInset + CGFloat(shownCompactCount) * Self.compactTabWidth
     }
 
     private func layoutTabs(animated: Bool) {
         let fullOrder = drag?.order ?? order
         compactCount = fullOrder.prefix { linkedIDs.contains($0) }.count
         let displayOrder = Array(fullOrder.dropFirst(compactCount))
+
+        // Compact tabs take what is left after the controls (and one
+        // readable Today tab); the rest go to the overflow menu, the
+        // selected one always staying in the strip.
+        let compactAll = Array(fullOrder.prefix(compactCount))
+        let compactRoom = bounds.width - Self.trafficLightInset - Self.controlsWidth
+            - (displayOrder.isEmpty ? 0 : Self.minimumTabWidth)
+        let fitting = compactAll.count * Int(Self.compactTabWidth) <= Int(compactRoom)
+            ? compactAll.count
+            : max(0, Int((compactRoom - 24) / Self.compactTabWidth))
+        var shownCompact = Array(compactAll.prefix(fitting))
+        if let selectedID, compactAll.contains(selectedID), !shownCompact.contains(selectedID), !shownCompact.isEmpty {
+            shownCompact[shownCompact.count - 1] = selectedID
+        }
+        let hiddenCompact = compactAll.filter { !shownCompact.contains($0) }
+        shownCompactCount = shownCompact.count
+
         let left = regularLeading
         let right = Self.controlsWidth
         let available = max(0, bounds.width - left - right)
@@ -175,7 +194,10 @@ final class BrowserTabStripView: NSView {
         let newTabSize: CGFloat = 22
         let overflowSize: CGFloat = 22
         let y = floor((bounds.height - Self.tabHeight) / 2)
-        for (index, id) in fullOrder.prefix(compactCount).enumerated() {
+        for id in hiddenCompact {
+            buttons[id]?.isHidden = true
+        }
+        for (index, id) in shownCompact.enumerated() {
             guard let button = buttons[id] else { continue }
             button.isHidden = false
             button.frame = NSRect(
@@ -193,10 +215,15 @@ final class BrowserTabStripView: NSView {
                 width: newTabSize,
                 height: newTabSize
             )
-            overflowButton.isHidden = true
-            overflowButton.frame = .zero
-            visibleIDs = Array(fullOrder.prefix(compactCount))
-            overflowIDs = []
+            visibleIDs = shownCompact
+            overflowIDs = hiddenCompact
+            overflowButton.isHidden = overflowIDs.isEmpty
+            overflowButton.frame = overflowIDs.isEmpty ? .zero : NSRect(
+                x: left + 6 + newTabSize + 2,
+                y: floor((bounds.height - overflowSize) / 2),
+                width: overflowSize,
+                height: overflowSize
+            )
             visibleStart = 0
             visibleCount = 0
             return
@@ -224,8 +251,8 @@ final class BrowserTabStripView: NSView {
         visibleStart = start
         self.visibleCount = visibleCount
         let visibleRange = start..<(start + visibleCount)
-        visibleIDs = Array(fullOrder.prefix(compactCount)) + Array(displayOrder[visibleRange])
-        overflowIDs = Array(displayOrder[..<start]) + Array(displayOrder[(start + visibleCount)...])
+        visibleIDs = shownCompact + Array(displayOrder[visibleRange])
+        overflowIDs = hiddenCompact + Array(displayOrder[..<start]) + Array(displayOrder[(start + visibleCount)...])
         overflowButton.isHidden = overflowIDs.isEmpty
 
         let controlsStart = left + width * CGFloat(visibleCount) + 6

@@ -28,10 +28,11 @@ extension BrowserWindowController {
         tab.item.url?.absoluteString
     }
 
-    /// The "/" mark: a linked tab whose page left its pin's address.
+    /// The "/" mark: a linked tab whose page left its pin's address and
+    /// the address its pin's last load landed on.
     func isAway(_ tab: BrowserTab) -> Bool {
         guard let pinURL = linkedURL(of: tab) else { return false }
-        return BrowserPinLinks.isAway(pageAddress(of: tab), from: pinURL)
+        return BrowserPinLinks.isAway(pageAddress(of: tab), from: pinURL, landing: tab.linkLanding)
     }
 
     /// What the tab strip and the rail draw for `tab`.
@@ -58,12 +59,15 @@ extension BrowserWindowController {
     // MARK: - Opening
 
     /// A pin's row: its live tab, else a new tab linked to it, selected.
+    /// The folders holding it open once, so its row shows (and can be
+    /// closed again).
     func openPin(_ id: UUID) {
         guard let pin = currentPinTree.node(id: id)?.pin else { return }
         guard hasSpaces else {
             newTab(url: pin.url)
             return
         }
+        revealPinNode(id)
         if let tab = liveTab(for: .pinned(id)) {
             selectTab(id: tab.id, focus: true)
         } else {
@@ -100,9 +104,17 @@ extension BrowserWindowController {
         tab.spaceID = currentSpaceID
         tab.origin = origin
         attachTab(tab, select: false)
-        navigate(tab, to: url)
+        loadLink(url, in: tab)
         selectTab(id: tab.id, focus: true)
         saveSession()
+    }
+
+    /// Loads a pin's address in its linked tab and remembers where it
+    /// lands (`linkLanding`).
+    private func loadLink(_ url: String, in tab: BrowserTab) {
+        tab.linkLanding = nil
+        tab.awaitsLinkLanding = true
+        navigate(tab, to: url)
     }
 
     /// Clicking a pin's or favorite's icon: its live tab goes back to the
@@ -121,24 +133,23 @@ extension BrowserWindowController {
         resetLinkedTab(tab, keepingPage: keepingPage)
     }
 
-    /// Sends a linked tab back to its pin's address. `keepingPage` keeps
-    /// the page it was on in a new Today tab of its Space, selected.
+    /// Sends a linked tab back to its pin's address. `keepingPage` first
+    /// keeps the page it was on, back/forward list included, in a new
+    /// Today tab of its Space, which is selected.
     func resetLinkedTab(_ tab: BrowserTab, keepingPage: Bool) {
         guard let pinURL = linkedURL(of: tab) else { return }
         let away = isAway(tab)
-        let page = pageAddress(of: tab)
-        if tab.spaceID != currentSpaceID, tab.origin.favoriteID != nil {
-            tab.spaceID = currentSpaceID
-            refreshVisibleTabs()
+        var copy: BrowserTab?
+        if keepingPage, away, !tab.isStartPage {
+            var state = tab.state
+            state.origin = .today
+            state.linkLanding = nil
+            copy = addRestoredTab(state)
         }
         if away {
-            navigate(tab, to: pinURL)
+            loadLink(pinURL, in: tab)
         }
-        if keepingPage, away, let page {
-            newTab(url: page)
-        } else {
-            selectTab(id: tab.id, focus: true)
-        }
+        selectTab(id: copy?.id ?? tab.id, focus: true)
         updateTabStrip()
         saveSession()
     }

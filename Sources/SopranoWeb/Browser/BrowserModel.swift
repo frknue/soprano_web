@@ -393,9 +393,12 @@ struct BrowserTabState: Codable, Equatable, Sendable {
     /// The tab's Space; nil in a private window and in version 2 files.
     var spaceID: UUID?
     var origin: BrowserTabOrigin = .today
+    /// Where the last load of a linked tab's pin landed (its redirect
+    /// target), so a restored tab there shows no "/".
+    var linkLanding: String?
 
     private enum CodingKeys: String, CodingKey {
-        case url, title, interactionState, spaceID, pinID, favoriteID
+        case url, title, interactionState, spaceID, pinID, favoriteID, linkLanding
     }
 }
 
@@ -412,6 +415,9 @@ extension BrowserTabState {
         } else if let favorite = (try? c.decodeIfPresent(UUID.self, forKey: .favoriteID)) ?? nil {
             origin = .favorite(favorite)
         }
+        if origin != .today {
+            linkLanding = (try? c.decodeIfPresent(String.self, forKey: .linkLanding)) ?? nil
+        }
     }
 
     func encode(to encoder: Encoder) throws {
@@ -422,6 +428,7 @@ extension BrowserTabState {
         try c.encodeIfPresent(spaceID, forKey: .spaceID)
         try c.encodeIfPresent(origin.pinID, forKey: .pinID)
         try c.encodeIfPresent(origin.favoriteID, forKey: .favoriteID)
+        try c.encodeIfPresent(origin == .today ? nil : linkLanding, forKey: .linkLanding)
     }
 }
 

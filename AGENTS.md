@@ -112,8 +112,8 @@ no linter or formatter; match surrounding style.
   as `--print-pins` numbers them; prints moved or refused), `--pin-preview
   <folder>` opens the rail's hover preview of that folder and draws it into
   the capture, `--pin-search <text>` types into the preview's search (the
-  first folder's without `--pin-preview`) and prints `pin-search:` per
-  match, `--pin-folder <name>` sets ⌘D's
+  first folder's without `--pin-preview`) and prints a `pin-search:` line
+  per match it shows (at most 10), `--pin-folder <name>` sets ⌘D's
   last-used folder in the Space, `--pin-popover` runs ⌘D on the selected
   page and draws its popover into the capture (built in the offscreen
   window, never a shown panel), `--space-sheet new|<space>[=<name>|<icon>|<color>|<profile>]`
@@ -125,17 +125,21 @@ no linter or formatter; match surrounding style.
   `bookmarks.json` copy, and the Spaces menu as text. Rail actions (in order
   with the window actions, through the handlers a real click calls):
   `--click-pin <title>[:icon|:cmd-icon]` (the pin's row, its icon — reset —
-  or ⌘ on its icon — reset, keeping the page in a new Today tab; prints the
-  selected tab with its id and the tab count before and after),
+  or ⌘ on its icon — reset, keeping the page in a new Today tab; a folder's
+  title opens or closes it; prints the selected tab with its id and the
+  tab count before and after),
   `--click-favorite <n|title>[:cmd]`, the selected tab's menu items
   `--pin-tab`, `--unpin-tab`, `--add-favorite`, `--remove-favorite`,
   `--replace-pin`, `--new-space "<name>|<icon>|<color>|<profile>"` (the
   switcher's "+" sheet, filled, Create Space pressed; empty parts keep its
   defaults), `--edit-space "<space>=<name>|<icon>|<color>|<profile>"`,
-  `--delete-space <name>` (confirmed; a profile's last Space is refused)
-  and `--print-rail` (one `rail:` JSON line: header, favorites, pinned rows
-  and Today tabs with live, selected and "/" state, the switcher, every tab
-  of the Space with its link, and the Recently Closed count). `--close-tab`
+  `--delete-space <name>` (confirmed; a profile's last Space is refused),
+  `--hover-folder <name>` (the folder preview resting on its row opens),
+  `--toggle-rail` (⌘S) and `--print-rail` (one `rail:` JSON line: header,
+  favorites, pinned rows and Today tabs with live, selected and "/" state,
+  the switcher and the Spaces in its More Spaces menu, every tab of the
+  Space with its link, the open folder preview and the Recently Closed
+  count). `--close-tab`
   (⌘W) on a pinned or favorite tab unloads it to its pin; on a Today tab
   it also archives it. Archive flags (actions, in order): `--archive-today`
   (⇧⌘K), `--restore-archived <n|title>` (a click on Archive row n of the
@@ -298,10 +302,15 @@ no linter or formatter; match surrounding style.
   favorite's tab follows the window into another Space of its profile),
   `pinIconPressed` / `resetLinkedTab` (back to the pinned address; ⌘ keeps
   the page in a new Today tab), `unloadLinkedTab` (⌘W: no Recently
-  Closed), `isAway` (the "/" mark), `tabItem`, `replaceLink`, `pinTab` /
-  `unpinTab`, `addTabToFavorites` / `removeTabFromFavorites`. `+Rail` —
-  what the rail shows (`railMark`, `railOutlineRows`: expanded folders plus
-  the selected pin's, `updateRail`) and its handlers: favorites, the
+  Closed), `isAway` (the "/" mark: the page is neither the pin's address
+  nor `BrowserTab.linkLanding`, where the pin's last load landed after
+  redirects — set on that load's commit, saved in the session), `tabItem`,
+  `replaceLink`, `pinTab` /
+  `unpinTab`, `addTabToFavorites` / `removeTabFromFavorites`; ⌘D makes the
+  tab the new pin's live tab. `+Rail` —
+  what the rail shows (`railMark`, `railOutlineRows`: the expanded
+  folders; opening a pin expands its folders once, `updateRail`,
+  `syncFolderPreview`) and its handlers: favorites, the
   outline's clicks, menus and drops (`bookmarkDestination` /
   `performBookmarkDrop`), the folder preview, the Today index mapping, and
   the switcher's New Space / Edit Space sheet (`makeSpaceSheet`) and

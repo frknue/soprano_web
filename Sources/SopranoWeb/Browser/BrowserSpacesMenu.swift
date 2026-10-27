@@ -6,7 +6,8 @@ import AppKit
 /// commands (Bookmark This Page, Show Pinned Tabs, Archive Today Tabs
 /// ⇧⌘K); then every pin of the
 /// active window's Space (Default's first Space without a window) as an
-/// item that opens it in the active window, every folder as a submenu
+/// item that selects its live tab in the active window (or opens one
+/// linked to it), every folder as a submenu
 /// ending in Open All in Tabs. Rebuilt whenever the Spaces change and each
 /// time the menu opens.
 @MainActor
