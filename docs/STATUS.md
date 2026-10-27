@@ -24,7 +24,7 @@ contract is `docs/STAGE-3-PLAN.md`.
 | Branch | Base | State |
 |---|---|---|
 | `feat/stage-3` | `main` | Squash-merged as #3. 518 tests green in debug and release. |
-| `feat/stage-4` | `main` | In progress: P0, P1 and P2 done (575 tests green in debug and release); 1Password sign-in (Furkan) and P3 next. |
+| `feat/stage-4` | `main` | In progress: P0, P1, P2 and the review fixes done (603 tests green in debug and release); 1Password sign-in (Furkan) and P3 next. |
 | `feat/stage-3-search`, `feat/stage-3-import` | — | Merged into `feat/stage-3`; no further work there. |
 
 ## Done
@@ -34,6 +34,7 @@ contract is `docs/STAGE-3-PLAN.md`.
 | Stage 4 P0 | `c1e00aa`, `36ba6c3`, `a16a68f` | macOS 26 floor (tools 6.2, `LSMinimumSystemVersion` 26.0); downloads resume and retry in the profile they started in; a title set after the load renames its History row |
 | Stage 4 P1 | `e57986c` and the commits after it | Web extensions on `WKWebExtension`: one app-wide controller, Chrome Web Store install with full CRX3 check, unpacked folders, daily updates, tab/window adapters, toolbar buttons and popups, permission sheets, site access, private access, commands, Settings ▸ Extensions, `browser extension` CLI |
 | Stage 4 P2 | `372331f` | 1Password 8.12.42.36 runs on native stand-ins (`BrowserExtensionShims`, data-driven by manifest): notifications → Notification Center, `webNavigation.onCreatedNavigationTarget` from the opener, empty `storage.managed`, Chrome user agent, port-less `permissions` origins, `.wasm` MIME, `clients.matchAll`, native WebSocket; missing native hosts answer "host not found"; `browser extension action` |
+| Stage 4 review fixes | `6e165fe` | P1/P2 security and P0 reviews: web pages can't open extension pages app-side; one load gate for extensions (no `file:`, other apps ask); install shows permissions, updates grant nothing new; folder id takeover refused; in-process ZIP extraction (no `ditto`); native-host allowlists; worker WebSocket policy (`connect-src`, local hosts need host access, caps); attributed, capped notifications; deleted-Space downloads never resume in Default and stop on delete |
 | P1 | `24c13c0` | Spaces model and store, bookmarks → per-Space pins, `bookmarks.json` migration |
 | P2 | `c886ddf`, `98d8d7a` | A window shows one Space; per-tab data context; session v3 |
 | P3 | `2f601a1`, `628c07c` | Rail (Space header, Favorites, pinned outline, Today, switcher), live pinned/favorite tabs, New/Edit Space sheet |
@@ -92,6 +93,19 @@ Continue → "Add account" (Create / Sign in) → Sign in opens
 account: the frame configuration sets `inlineDisabled` when `fm()` (any account in its
 database) is false. A failed first background start left WebKit failing with "Importing
 a module script failed" after the package changed, until remove + install.
+
+Review-fix checks (2026-10-27). Harness, local fixture extension with `<all_urls>` and
+`file:///*` host permissions and content scripts, before (`d0fc673`) → after (`6e165fe`):
+a page doing `location = "chrome-extension://<id>/secret.html"` opened the extension page →
+stays on the page; `tabs.update(…, { url: "file:///etc/hosts" })` loaded it → refused;
+granted patterns `<all_urls>`, `file:///*` → `<all_urls>`. Its content script ran on
+`http:` pages and on no `file:` page even with `file:///*` granted, and WebKit reports a
+`file:` URL's permission as unknown under `<all_urls>` or `file:///*`
+(`MatchPattern("<all_urls>").matches(file:)` is false): `<all_urls>` doesn't cover
+`file:` on macOS 26, so no "Allow access to file URLs" switch. Dev app after the fix: uBlock
+Origin Lite, Wappalyzer and 1Password "No errors.", uBOL blocks
+`pagead2.googlesyndication.com` (jQuery loads), its popup opens, 1Password's button opens
+its welcome page, no update additions pending; only 1Password keeps `webSocket`.
 
 ## Next — start here
 
