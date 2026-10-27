@@ -1,8 +1,8 @@
 # Status
 
-Resumed 2026-10-27. Nothing of stage 3 is on `main`; `main` @c1154c4 is stage 2 and must
-stay untouched until stage 3 is finished and Furkan asks for the merge. Never run
-`scripts/install.sh` from a stage 3 branch: launching it converts the real
+Stage 3 is built on `feat/stage-3` (2026-10-27) and waits for Furkan: a real-key GUI check
+and the merge to `main` only when he asks. `main` @c1154c4 is stage 2. Never run
+`scripts/install.sh` from this branch before that merge: launching it converts the real
 `bookmarks.json` into `spaces.json`.
 
 ## Goal
@@ -17,41 +17,42 @@ is `docs/STAGE-3-PLAN.md`.
 
 | Branch | Base | State |
 |---|---|---|
-| `feat/stage-3` | `main` | P1, P2, P5 (search engines) and the import readers, merged, built and green (432 tests). This file lives here. |
+| `feat/stage-3` | `main` | P1–P7 built, reviewed, fixed. `swift test` and `swift test -c release`: 518 tests green. Not pushed since `e646afd`. |
 | `feat/stage-3-search`, `feat/stage-3-import` | — | Merged into `feat/stage-3`; no further work there. |
 
 ## Done
 
-- **P1** Spaces model and store (`BrowserSpaces.swift`, `BrowserSpaceStore.swift`,
-  `spaces.json`), bookmarks renamed to pins (`BrowserPins.swift`, `BrowserPinEditor.swift`),
-  migration from `bookmarks.json`, `archiveAfter` per profile, harness flags `--pins-tree`,
-  `--pin-*`, `--print-pins`. 378 tests passed at `24c13c0`.
-- **Import readers** (`feat/stage-3-import`, `Sources/SopranoWeb/Browser/Import/`):
-  `BrowserArcImportReader`, `BrowserChromiumHistoryReader`, `BrowserChromeBookmarksReader`,
-  `BrowserSafariExportReader`, `BrowserNetscapeBookmarks` (parse and write) and a neutral
-  model in `BrowserImportModel.swift`, with one test file each.
-- **P5** search engines (`feat/stage-3-search`): `BrowserSearchEngines.swift`,
-  Settings ▸ Search engine ▸ Manage… (`App/BrowserSearchEnginesSheet.swift`), keywords
-  (`w cats`), settings `customSearchEngines` and `searchEngineKeywords`, harness flags
-  `--search-engine`, `--search-engine-keyword`, `--default-search-engine`,
-  `--search-engines-sheet`. The old `SearchEngine` enum is gone.
+| Phase | Commits | What |
+|---|---|---|
+| P1 | `24c13c0` | Spaces model and store, bookmarks → per-Space pins, `bookmarks.json` migration |
+| P2 | `c886ddf`, `98d8d7a` | A window shows one Space; per-tab data context; session v3 |
+| P3 | `2f601a1`, `628c07c` | Rail (Space header, Favorites, pinned outline, Today, switcher), live pinned/favorite tabs, New/Edit Space sheet |
+| P4 | `d0efbed` | Archive (`archive.json`), auto-archive per profile, ⌘W / ⇧⌘K, sidebar Archive |
+| P5 | `07d25b7` (merged `898682e`) | Custom search engines and keywords |
+| P6 | `20a5acc` | Command registry, Settings ▸ Keyboard shortcuts with priorities, Command Bar ⌘T/⌘L, ⌃Tab, ⌥⌘↑/↓, ⇧⌘C, ⌥⇧⌘C, ⇧⌘D |
+| P7 | `3829a74` (merged `93e6817`), `3131716` | Import from Arc/Chrome/Safari/bookmarks HTML, Export Pinned Tabs, links-from-other-apps rules |
+| Reviews | `deb24e5`, `89ba36b`, `3f777ae` | P4/P6 and P7 review fixes; ⇧⌘K on 21 tabs 1.9 s → 0.3 s |
+
+Real Arc folder on this Mac (read-only harness import into a temporary support folder):
+4 Spaces, 161 pins in 48 folders, 13 favorites, 147 archived tabs, 1 link rule, 46,873
+visits (History older than the retention setting, one year by default, is left out); a
+second import creates nothing.
 
 ## Next — start here
 
-P2 is finished (`98d8d7a`): the review found and fixed sign-in answers crossing profiles
-and ⌘W reopening a Space's lone start tab. Harness proof: tabs of Default and Work Spaces
-in one window load from a local server; the Default tab that finished while its Space
-was hidden recorded its visit and cookie only in Default.
-
-1. P3 rail UI and live pinned/favorite tabs (plan "Rail" and the pinned-tab bullets of
-   "Windows and tabs"). Merge All Windows must turn a pin-linked tab into a Today tab when
-   the target already has a live tab for that pin.
-2. P4 Archive, P6 Command Bar and shortcut registry, P7 import pipeline and UI.
-3. Last: CHANGELOG `[Unreleased]`, ROADMAP §3, `swift test -c release`, and the merge to
-   `main` only when Furkan asks.
+1. GUI check by Furkan (agents may not launch the app): Site wins / Press twice with
+   real key presses, ⌃Tab release, shifted-punctuation remaps in the menu bar, a real
+   drag in the rail outline, the Command Bar's rounded corners in Folio Ink.
+2. Merge to `main` and `scripts/install.sh` only when Furkan asks. First launch migrates
+   `bookmarks.json` into `spaces.json` (kept as `bookmarks.json.migrated`).
 
 Known, not stage 3: resuming or retrying a download uses the current Space's web view,
-not the profile it came from (download records carry no profile).
+not the profile it came from (download records carry no profile). A History row keeps
+the host as its title when the page sets its title after the load finished. Each tab
+change rebuilds every rail row (~40 ms with 20+ tabs); batch closes do it once.
+
+Not built from ROADMAP §3: Arc's `Arc Data Export.md` lossy fallback (the real files
+read fine), Arc's `defaultDestination` link rule (Little Arc is §4).
 
 ## Open questions
 
