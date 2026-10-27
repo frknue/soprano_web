@@ -88,6 +88,9 @@ final class BrowserWindowManager {
     /// Settings ▸ "Block ads and trackers": the compiled EasyList and
     /// EasyPrivacy lists every tab gets, in `<support>/ContentBlocking/`.
     let contentBlocker: BrowserContentBlocker
+    /// Settings ▸ Links from other apps: rules an import brought in
+    /// (`link-routing.json`), applied in `open(_:)`.
+    let linkRouting: BrowserLinkRoutingStore
 
     /// Open windows in the order they opened; the CLI numbers them 1…n.
     private(set) var controllers: [BrowserWindowController] = []
@@ -108,6 +111,10 @@ final class BrowserWindowManager {
     var websitesSheet: BrowserWebsitesSheet?
     var websiteDataSheet: BrowserWebsiteDataSheet?
     var profilesSheet: BrowserProfilesSheet?
+    /// Settings ▸ Links from other apps, while shown.
+    var linkRoutingSheet: BrowserLinkRoutingSheet?
+    /// File ▸ Import Browser Data…, while shown.
+    var importSheet: BrowserImportSheet?
 
     private var settingsWindowController: SettingsWindowController?
     private var saveTimer: Timer?
@@ -161,11 +168,14 @@ final class BrowserWindowManager {
             sources: filterLists,
             isEnabled: settingsStore.settings.blockAdsAndTrackers
         )
+        self.linkRouting = BrowserLinkRoutingStore(url: supportDirectory.appendingPathComponent("link-routing.json"))
         historyStores[BrowserProfile.defaultID] = defaultHistory
         themeManager.onThemeChanged = { [weak self] theme in
             self?.websitesSheet?.apply(theme: theme)
             self?.websiteDataSheet?.apply(theme: theme)
             self?.profilesSheet?.apply(theme: theme)
+            self?.linkRoutingSheet?.apply(theme: theme)
+            self?.importSheet?.apply(theme: theme)
             self?.themeChanges.notify(theme)
         }
         // Every profile keeps a Space: a new profile gets one, a deleted
@@ -668,6 +678,7 @@ final class BrowserWindowManager {
             controller.onShowWebsites = { [weak self] parent in self?.showWebsites(on: parent) }
             controller.onShowWebsiteData = { [weak self] parent in self?.showWebsiteData(on: parent) }
             controller.onShowProfiles = { [weak self] parent in self?.showProfiles(on: parent) }
+            controller.onShowLinkRouting = { [weak self] parent in self?.showLinkRouting(on: parent) }
             settingsWindowController = controller
             return controller
         }()
@@ -746,9 +757,11 @@ final class BrowserWindowManager {
         return sheet
     }
 
-    /// Links from other apps: the most recently active normal window, in
-    /// its current Space, or a new one when none is open. A lone start tab
-    /// takes the first link.
+    /// Links from other apps: the first Settings ▸ Links from other apps
+    /// rule that matches picks the Space (`windowForOutsideLink`);
+    /// otherwise the most recently active normal window, in its current
+    /// Space, or a new one when none is open. A lone start tab takes a
+    /// window's first link.
     func open(_ urls: [URL]) {
         let files = urls.filter { url in
             guard url.isFileURL else { return true }
@@ -756,16 +769,42 @@ final class BrowserWindowManager {
             return FileManager.default.fileExists(atPath: url.path, isDirectory: &isDirectory) && !isDirectory.boolValue
         }
         guard !files.isEmpty else { return }
-        let controller = outsideTabbedController ?? newWindow()
-        for (index, url) in files.enumerated() {
-            if index == 0, controller.visibleTabs.count == 1, let tab = controller.selectedTab, tab.isStartPage {
+        var used: [BrowserWindowController] = []
+        var last: BrowserWindowController?
+        for url in files {
+            let controller = windowForOutsideLink(url)
+            let isFirst = !used.contains { $0 === controller }
+            if isFirst, controller.visibleTabs.count == 1, let tab = controller.selectedTab, tab.isStartPage {
                 controller.navigate(tab, to: url)
             } else {
                 controller.newTab(url: url.absoluteString)
             }
+            if isFirst { used.append(controller) }
+            last = controller
         }
-        present(controller)
-        controller.focusPage()
+        guard let last else { return }
+        present(last)
+        last.focusPage()
+    }
+
+    /// Where a link from another app opens: a rule's Space in a window
+    /// showing it, else the most recent normal window switched to it, else
+    /// a new window on it; without a rule for a Space (or when its Space is
+    /// gone), the most recent normal window as it is.
+    func windowForOutsideLink(_ url: URL) -> BrowserWindowController {
+        if case let .space(id)? = linkRouting.rule(for: url.absoluteString)?.destination, spaces.space(id: id) != nil {
+            if let showing = mostRecentlyActive(where: {
+                !$0.isPopup && $0.kind.acceptsOutsideRequests && $0.currentSpaceID == id
+            }) {
+                return showing
+            }
+            if let window = outsideTabbedController, window.hasSpaces {
+                window.switchToSpace(id, focus: false)
+                return window
+            }
+            return newWindow(spaceID: id)
+        }
+        return outsideTabbedController ?? newWindow()
     }
 
     /// A notification click: find the tab in any window, bring that window

@@ -54,6 +54,7 @@ enum SnapshotCommand {
         var searchEngines = SnapshotSearchEngineOptions()
         /// `--shortcuts-sheet`: capture Settings ▸ Keyboard shortcuts.
         var showsShortcutsSheet = false
+        var imports = SnapshotImportOptions()
     }
 
     enum OptionError: Error, CustomStringConvertible {
@@ -94,6 +95,7 @@ enum SnapshotCommand {
     \(SnapshotSleepOptions.usage)
     \(SnapshotBlockerOptions.usage)
     \(SnapshotSearchEngineOptions.usage)
+    \(SnapshotImportOptions.usage)
     """
 
     nonisolated static func parse(_ arguments: [String]) throws -> Options {
@@ -184,6 +186,13 @@ enum SnapshotCommand {
                 ) {
                     options.session.actions.append(.commandBar(action))
                 }
+            case let flag where SnapshotImportOptions.flags.contains(flag):
+                try options.imports.parse(
+                    flag,
+                    value: { try value(flag) },
+                    peek: { index + 1 < arguments.count ? arguments[index + 1] : nil },
+                    skip: { index += 1 }
+                )
             case "--shortcuts-sheet":
                 options.showsShortcutsSheet = true
             case "--tabs":
@@ -441,6 +450,14 @@ enum SnapshotCommand {
             }
         }
 
+        // Imports (and exports) before every other action, so the pins,
+        // Spaces and Archive flags print what they made. In a pool of its
+        // own, so the tabs it makes go when closed (an imported profile's
+        // data store is removed at the end).
+        let importOutcome = options.imports.isActive
+            ? autoreleasepool { options.imports.run(manager: manager, controller: controller) }
+            : SnapshotImportOptions.Outcome()
+
         runPrivacyScenario(options.privacy, controller: controller, wait: options.wait)
 
         if let section = options.sidebar {
@@ -637,8 +654,9 @@ enum SnapshotCommand {
             }
             print("sheet: " + texts.joined(separator: " | "))
         }
-        let captured = websitesSheet?.window ?? profilesSheet?.window ?? searchEnginesSheet?.window
-            ?? shortcutsSheet?.window ?? spaceSheet?.window ?? captureWindow
+        let settingsSheetWindow: NSWindow? = websitesSheet?.window ?? profilesSheet?.window ?? searchEnginesSheet?.window
+        let otherSheetWindow: NSWindow? = shortcutsSheet?.window ?? spaceSheet?.window ?? importOutcome.window
+        let captured: NSWindow = settingsSheetWindow ?? otherSheetWindow ?? captureWindow
         guard let captureContent = captured.contentView else {
             FileHandle.standardError.write(Data("Snapshot could not find the window to capture.\n".utf8))
             exit(1)
@@ -657,6 +675,7 @@ enum SnapshotCommand {
         var pageImage: NSImage?
         if privacySheet == nil, !options.showSettings, !options.showHelp, !options.showPrompt,
            websitesSheet == nil, profilesSheet == nil, searchEnginesSheet == nil, shortcutsSheet == nil, spaceSheet == nil,
+           importOutcome.window == nil,
            !options.showFind,
            captureWindow === window,
            controller.selectedTab?.lifecycle.crashView == nil,
@@ -739,23 +758,37 @@ enum SnapshotCommand {
             exit(1)
         }
 
+        // An import's sheet finishes (or cancels) before anything goes.
+        SnapshotImportOptions.finish(importOutcome)
+
         // The profiles' data stores live outside the temporary folder
         // (WebKit's own); delete every profile so none is left behind. A
         // window kept here would keep its profile's data store in use, so
-        // the captured one is swapped for a Default window first.
+        // the captured one is swapped for a Default window first. An import
+        // into `--support-dir` keeps its profiles for the next run and
+        // removes only the data stores its windows made.
         if controller.profileID != BrowserProfile.defaultID || controller.kind.isPrivate {
             controller = manager.controllers.first { $0.profileID == BrowserProfile.defaultID && !$0.kind.isPrivate }
                 ?? manager.newWindow(profileID: BrowserProfile.defaultID)
             window = controller.window ?? window
         }
+        let keepsProfiles = options.sleep.supportDirectory != nil && options.imports.imports
         for profile in manager.profiles.profiles where !profile.isDefault {
+            if keepsProfiles, manager.profileContexts[profile.id] == nil {
+                continue
+            }
             var finished = false
+            let report: @MainActor (Error?) -> Void = { error in
+                if let error {
+                    FileHandle.standardError.write(Data("Snapshot could not remove \(profile.name)'s data store: \(error)\n".utf8))
+                }
+                finished = true
+            }
             autoreleasepool {
-                manager.deleteProfile(profile.id) { error in
-                    if let error {
-                        FileHandle.standardError.write(Data("Snapshot could not remove \(profile.name)'s data store: \(error)\n".utf8))
-                    }
-                    finished = true
+                if keepsProfiles {
+                    manager.releaseDataStore(ofProfile: profile.id, completion: report)
+                } else {
+                    manager.deleteProfile(profile.id, completion: report)
                 }
             }
             let removalDeadline = Date().addingTimeInterval(15)

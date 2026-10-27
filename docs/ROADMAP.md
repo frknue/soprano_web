@@ -84,16 +84,18 @@ actions, settings pages, site search on Tab after a keyword) and ⌘L (edits the
 URL in the same bar); one command registry feeding the menu bar, Settings ▸ Keyboard
 shortcuts (remapping, conflicts with Swap, App wins / Site wins / Press twice) and the
 Command Bar; ⌃Tab recent-tab switcher, ⌥⌘↑/↓ rail walk, ⇧⌘C / ⌥⇧⌘C copy URL and
-Markdown, ⇧⌘D toggles the toolbar.
+Markdown, ⇧⌘D toggles the toolbar; File ▸ Import Browser Data… from Arc (Spaces with
+emoji and nearest Folio color, pinned trees, Favorites with the overflow pinned, Today
+tabs unloaded in the importing window, the Archive with its favicons, each profile's
+History off the main thread with progress and cancel, Air Traffic Control rules applied
+to links from other apps and listed in Settings ▸ Links from other apps; Arc's folder
+read in place, SQLite with `immutable=1`; a re-import skips what an earlier one made),
+Chrome (`Bookmarks` as a pinned folder, `History`), Safari's Export Browsing Data ZIP
+and bookmarks HTML files, and File ▸ Export Pinned Tabs… as bookmarks HTML.
 
-- Import from Arc: `StorableSidebar.json` (Spaces with their profiles, Favorites per
-  profile, pinned trees, Today tabs), `StorableArchiveItems.json`, the favicon caches,
-  each profile's Chromium `History`, `StorableLinkRouting.json`. Read Arc's folder in
-  place and read-only (SQLite with `immutable=1`); the files stay on disk after Arc stops
-  opening on 2026-12-22. Cookies and passwords don't transfer; Easels, Notes and Boosts
-  aren't on disk. `Arc Data Export.md` as a lossy fallback.
-- Import from Chrome (`Bookmarks`, `History`) and Safari (Export Browsing Data ZIP);
-  bookmarks HTML import and export.
+- Not built: Arc's `Arc Data Export.md` as a lossy fallback; Firefox, Brave, Edge and
+  Vivaldi as sources; Arc's `defaultDestination` rule (Little Arc, §4). Cookies and
+  passwords don't transfer; Easels, Notes and Boosts aren't on disk.
 
 ## 4. Arc extras
 

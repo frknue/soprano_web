@@ -440,4 +440,118 @@ struct BrowserArcImportReaderTests {
             try reader.readHistory(profileKey: "Profile 1") { _ in }
         }
     }
+
+    // MARK: Shapes from a real Arc 1.169 folder
+
+    /// `StorableSidebar.json` as Arc 1.169 writes it: a favorites key with
+    /// a bool payload, a custom profile with `machineID` first, a Space
+    /// with a theme but no icon whose `midTone` leaves 0…1, a tab whose
+    /// title and optional fields are null, and a list with a folder icon.
+    private let realSidebar = """
+    {"version":1,"sidebar":{"containers":[{"global":{}},{
+      "items":[
+        "C1",{"id":"C1","parentID":null,"childrenIds":["T1","L1"],"title":null,"createdAt":711383993,"isUnread":false,
+              "data":{"itemContainer":{"containerType":{"spaceItems":{"_0":"S1"}}}}},
+        "C0",{"id":"C0","parentID":null,"childrenIds":[],"title":null,"createdAt":711383993,
+              "data":{"itemContainer":{"containerType":{"spaceItems":{"_0":"S1"}}}}},
+        "T1",{"id":"T1","parentID":"C1","childrenIds":[],"title":null,"createdAt":711383994,"isUnread":false,
+              "data":{"tab":{"savedMuteStatus":null,"timeLastActiveAt":null,"savedTitle":"Saved title","savedURL":"https://saved.example/"}}},
+        "L1",{"id":"L1","parentID":"C1","childrenIds":["T2"],"title":"Egg folder","createdAt":711383995,
+              "data":{"list":{"customInfo":{"iconType":{"icon":"egg"}}}}},
+        "T2",{"id":"T2","parentID":"L1","childrenIds":[],"title":null,"createdAt":711383996,
+              "data":{"tab":{"savedMuteStatus":"allowAudio","timeLastActiveAt":711383999.5,"savedTitle":"Inner","savedURL":"https://inner.example/"}}},
+        "F1",{"id":"F1","parentID":null,"childrenIds":["T3"],"title":null,"createdAt":711383993,
+              "data":{"itemContainer":{"containerType":{"topApps":{"_0":{"default":true}}}}}},
+        "T3",{"id":"T3","parentID":"F1","childrenIds":[],"title":null,"createdAt":711383997,
+              "data":{"tab":{"savedMuteStatus":null,"timeLastActiveAt":null,"savedTitle":"Mail","savedURL":"https://mail.example/"}}}
+      ],
+      "spaces":["S1",{"id":"S1","title":"Real","containerIDs":["unpinned","C0","pinned","C1"],
+        "newContainerIDs":[{"pinned":{}},"C1",{"unpinned":{"_0":{"shared":{}}}},"C0"],
+        "profile":{"custom":{"_0":{"machineID":"82A50F46-0000-4000-8000-000000000001","directoryBasename":"Profile 6"}}},
+        "customInfo":{"windowTheme":{"primaryColorPalette":{"midTone":
+          {"red":-0.38497164845466614,"green":0.8467978239059448,"blue":0.33840304613113403,"alpha":1,"colorSpace":"extendedSRGB"}}}}}],
+      "topAppsContainerIDs":[{"default":true},"F1"]}]}}
+    """
+
+    @Test func realShapesReadAsSpacesFavoritesAndFolders() throws {
+        let support = temporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: support) }
+        try Data(realSidebar.utf8).write(to: support.appendingPathComponent("StorableSidebar.json"))
+        let result = try BrowserArcImportReader(supportDirectory: support).read()
+
+        let space = try #require(result.spaces.first)
+        #expect(space.profileKey == "Profile 6")
+        #expect(space.emoji == nil)
+        #expect(space.iconName == nil)
+        // Extended sRGB kept as stored; the plan converts it.
+        #expect(space.color == BrowserImportedColor(
+            red: -0.38497164845466614, green: 0.8467978239059448, blue: 0.33840304613113403, alpha: 1
+        ))
+        let date = { (seconds: Double) in Date(timeIntervalSinceReferenceDate: seconds) }
+        #expect(space.pinned == [
+            .link(BrowserImportedLink(sourceID: "T1", url: "https://saved.example/", title: "Saved title", addedAt: date(711_383_994))),
+            .folder(BrowserImportedFolder(name: "Egg folder", addedAt: date(711_383_995), children: [
+                .link(BrowserImportedLink(sourceID: "T2", url: "https://inner.example/", title: "Inner", addedAt: date(711_383_996))),
+            ])),
+        ])
+        #expect(space.today.isEmpty)
+        #expect(result.favorites == [BrowserImportedFavorites(profileKey: "Default", links: [
+            BrowserImportedLink(sourceID: "T3", url: "https://mail.example/", title: "Mail", addedAt: date(711_383_997)),
+        ])])
+        #expect(result.profiles.map(\.key) == ["Profile 6", "Default"])
+    }
+
+    @Test func archiveFromLittleArcAndUnknownSourcesHasNoSpace() throws {
+        let support = try makeSupportFolder()
+        defer { try? FileManager.default.removeItem(at: support) }
+        let entries: [[String: Any]] = [
+            ["sidebarItem": item(archivedLittle, data: tab("https://little.example/", "Little")),
+             "reason": "manual", "source": ["littleArc": empty], "archivedAt": 809_180_514.59],
+            ["sidebarItem": item(archivedOdd, data: tab("https://odd.example/", "Odd")),
+             "reason": "auto", "source": ["unknown": empty], "archivedAt": 809_180_601.12],
+        ]
+        let items = entries.flatMap { [($0["sidebarItem"] as? [String: Any])?["id"] as Any, $0] as [Any] }
+        try writeJSON(["version": 1, "items": items], to: support.appendingPathComponent("StorableArchiveItems.json"))
+        let archive = try BrowserArcImportReader(supportDirectory: support).read().archive
+        #expect(archive.map(\.spaceSourceID) == [nil, nil])
+        #expect(archive.map(\.reason) == [.manual, .auto])
+        // Oldest first, as Arc stores them.
+        #expect(archive.map(\.archivedAt) == [
+            Date(timeIntervalSinceReferenceDate: 809_180_514.59),
+            Date(timeIntervalSinceReferenceDate: 809_180_601.12),
+        ])
+    }
+
+    @Test func historyOnlyProfilesAreListedAndArcsSystemProfileIsNot() throws {
+        let support = try makeSupportFolder()
+        defer { try? FileManager.default.removeItem(at: support) }
+        let userData = support.appendingPathComponent("User Data", isDirectory: true)
+        try writeJSON(["profile": [
+            "info_cache": [
+                "Default": ["name": "Person 1"],
+                "Profile 1": ["name": "Work person"],
+                "Profile 2": ["name": "Private"],
+                "Profile 7": ["name": BrowserArcImportReader.systemProfileName],
+            ],
+            "profiles_order": ["Default", "Profile 1", "Profile 2", "Profile 7"],
+        ]], to: userData.appendingPathComponent("Local State"))
+        try touch(userData.appendingPathComponent("Profile 2/History"))
+        try touch(userData.appendingPathComponent("Profile 7/History"))
+        let result = try BrowserArcImportReader(supportDirectory: support).read()
+        #expect(result.profiles.map(\.key) == ["Default", "Profile 1", "Profile 2"])
+        #expect(result.profiles.map(\.displayName) == ["Person 1", "Work person", "Private"])
+        #expect(Set(result.historyFiles.keys) == ["Default", "Profile 2"])
+    }
+
+    @Test func prefixRoutingRulesAreRead() throws {
+        let support = try makeSupportFolder()
+        defer { try? FileManager.default.removeItem(at: support) }
+        try writeJSON([
+            "version": 1,
+            "rules": [["destination": ["space": ["_0": ["mostRecent": empty]]], "sourceComponents": [urlMatch("prefix", "https://docs.")]]],
+        ], to: support.appendingPathComponent("StorableLinkRouting.json"))
+        #expect(try BrowserArcImportReader(supportDirectory: support).read().routingRules == [
+            BrowserImportedRoutingRule(match: .prefix, value: "https://docs.", destination: .space(sourceID: nil)),
+        ])
+    }
 }

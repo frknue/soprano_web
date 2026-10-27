@@ -42,17 +42,22 @@ struct BrowserProfile: Codable, Equatable, Identifiable, Sendable {
     var color: BrowserProfileColor
     /// When the profile's Today tabs archive themselves.
     var archiveAfter: BrowserArchiveAfter
+    /// Where an import made it (`arc:Profile 3`), so a re-import maps the
+    /// source profile to it instead of making another.
+    var importedFrom: String?
 
     init(
         id: UUID = UUID(),
         name: String,
         color: BrowserProfileColor,
-        archiveAfter: BrowserArchiveAfter = .default
+        archiveAfter: BrowserArchiveAfter = .default,
+        importedFrom: String? = nil
     ) {
         self.id = id
         self.name = name
         self.color = color
         self.archiveAfter = archiveAfter
+        self.importedFrom = importedFrom
     }
 
     static var defaultProfile: BrowserProfile {
@@ -78,7 +83,7 @@ struct BrowserProfile: Codable, Equatable, Identifiable, Sendable {
     }
 
     private enum CodingKeys: String, CodingKey {
-        case id, name, color, archiveAfter
+        case id, name, color, archiveAfter, importedFrom
     }
 
     /// An entry needs an id; a missing name becomes "Profile", an unknown
@@ -93,10 +98,11 @@ struct BrowserProfile: Codable, Equatable, Identifiable, Sendable {
             .flatMap(BrowserProfileColor.init(rawValue:)) ?? .blue
         archiveAfter = ((try? c.decodeIfPresent(String.self, forKey: .archiveAfter)) ?? nil)
             .flatMap(BrowserArchiveAfter.init(rawValue:)) ?? .default
+        importedFrom = (try? c.decodeIfPresent(String.self, forKey: .importedFrom)) ?? nil
     }
 }
 
-/// `profiles.json`: `{ "version": 1, "profiles": [{id, name, color, archiveAfter}] }`.
+/// `profiles.json`: `{ "version": 1, "profiles": [{id, name, color, archiveAfter, importedFrom?}] }`.
 /// Decoding is tolerant: an entry that does not decode is skipped, a
 /// repeated id keeps its first entry, and the Default profile is always
 /// there, first.
@@ -175,10 +181,20 @@ struct BrowserProfileList: Codable, Equatable, Sendable {
     }
 
     @discardableResult
-    mutating func add(name: String, color: BrowserProfileColor? = nil, id: UUID = UUID()) -> BrowserProfile {
-        let profile = BrowserProfile(id: id, name: uniqueName(name), color: color ?? nextColor)
+    mutating func add(
+        name: String,
+        color: BrowserProfileColor? = nil,
+        id: UUID = UUID(),
+        importedFrom: String? = nil
+    ) -> BrowserProfile {
+        let profile = BrowserProfile(id: id, name: uniqueName(name), color: color ?? nextColor, importedFrom: importedFrom)
         profiles.append(profile)
         return profile
+    }
+
+    /// The profile an import made from `source` (`importedFrom`).
+    func profile(importedFrom source: String) -> BrowserProfile? {
+        profiles.first { $0.importedFrom == source }
     }
 
     mutating func rename(id: UUID, to name: String) {
@@ -224,11 +240,12 @@ final class BrowserProfileStore {
 
     func profile(id: UUID) -> BrowserProfile? { list.profile(id: id) }
     func profile(named name: String) -> BrowserProfile? { list.profile(named: name) }
+    func profile(importedFrom source: String) -> BrowserProfile? { list.profile(importedFrom: source) }
     func resolvedID(_ id: UUID) -> UUID { list.resolvedID(id) }
 
     @discardableResult
-    func add(name: String, color: BrowserProfileColor? = nil) -> BrowserProfile {
-        let profile = list.add(name: name, color: color)
+    func add(name: String, color: BrowserProfileColor? = nil, importedFrom: String? = nil) -> BrowserProfile {
+        let profile = list.add(name: name, color: color, importedFrom: importedFrom)
         persist()
         return profile
     }

@@ -126,6 +126,23 @@ final class BrowserSpaceStore {
         return space
     }
 
+    /// An importer's first Space of a profile it just made: takes over
+    /// the Space the profile was given instead of adding a second one
+    /// (see `BrowserSpaceList.adopt`).
+    @discardableResult
+    func adoptSpace(
+        _ id: UUID,
+        name: String,
+        icon: BrowserSpaceIcon,
+        color: BrowserProfileColor,
+        pinned: BrowserPinTree,
+        importedFrom: String
+    ) -> Bool {
+        update { $0.adopt(id, name: name, icon: icon, color: color, pinned: pinned, importedFrom: importedFrom) }
+    }
+
+    func space(importedFrom source: String) -> BrowserSpace? { list.space(importedFrom: source) }
+
     /// Every profile in `profiles` gets a Space when it has none; Spaces
     /// and favorites of profiles not in it go.
     func reconcile(with profiles: [BrowserProfile]) {

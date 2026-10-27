@@ -274,6 +274,25 @@ app.
   again to move on, release to switch (`⌃⇧Tab` goes back).
 - Edit ▸ Copy URL (`⇧⌘C`) and Copy URL as Markdown (`⌥⇧⌘C`, `[title](url)`).
 - View ▸ Hide Toolbar (`⇧⌘D`) hides the address toolbar in every window.
+- File ▸ Import Browser Data… brings in Arc (found on this Mac): every Space
+  with its emoji, nearest color and pinned folders, Favorites (past 12 they
+  are pinned in the profile's first Space), Today tabs (unloaded, in their
+  Space; the window switches to the first imported Space), archived tabs
+  with their favicons, each profile's History and Air Traffic Control
+  rules. Arc's Default profile goes into Default; each other Arc profile
+  becomes a profile named after its first Space (a profile with only
+  History is offered unchecked). Also Chrome (bookmarks as a "Chrome
+  Bookmarks" pinned folder, History), Safari's File ▸ Export Browsing Data
+  ZIP (bookmarks, History with one visit per page) and a bookmarks `.html`
+  file. Check what to bring in; History imports in the background with
+  progress and Cancel. Importing again skips what was imported before.
+  Arc, Chrome and Safari files are only read.
+- File ▸ Export Pinned Tabs… saves the current Space's pinned tabs, or every
+  Space as a folder each, as a bookmarks `.html` file other browsers import.
+- Settings ▸ Links from other apps ▸ Manage… lists the rules for links other
+  apps open (imported from Arc's Air Traffic Control: an address that
+  contains, is or starts with some text opens in a chosen Space or the most
+  recent window's Space), with Delete.
 
 ### Changed
 - Shortcuts moved for Arc's: Window ▸ Next Tab and Previous Tab are now

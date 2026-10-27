@@ -59,8 +59,9 @@ not the profile it came from (download records carry no profile).
   https engines with `%s` as a whole query value.
 - Import: the meaning of Arc's link-routing `matches` (mapped to "equals") and how a rule
   names a specific Space are unconfirmed; the real file only holds `contains` rules.
-- Safari history export gives one visit per URL plus a count: record N visits or one
-  weighted visit.
+- Resolved: Safari's history export records one visit per page at its last visit time
+  (not N visits). P7 import pipeline, sheet and bookmarks HTML export are built on
+  `feat/stage-3`; imports leave out History older than Settings ▸ Remove history items.
 
 ## Links
 

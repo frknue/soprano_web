@@ -93,6 +93,55 @@ struct BrowserChromiumHistoryReader: Sendable {
         if !batch.isEmpty { try body(batch) }
     }
 
+    /// What an import plan shows before it runs.
+    struct Counts: Sendable, Equatable {
+        /// Every row of `visits`.
+        var visits: Int
+        /// What `read` yields without `since` (the same filters, schemes
+        /// matched in SQL).
+        var importable: Int
+        /// What `read(since:)` yields.
+        var kept: Int
+    }
+
+    func counts(since: Date? = nil) throws -> Counts {
+        guard FileManager.default.fileExists(atPath: fileURL.path) else {
+            throw BrowserImportError.missingFile(fileURL)
+        }
+        var db: OpaquePointer?
+        let flags = SQLITE_OPEN_READONLY | SQLITE_OPEN_URI | SQLITE_OPEN_NOMUTEX
+        let code = sqlite3_open_v2(Self.immutableURI(for: fileURL), &db, flags, nil)
+        defer { sqlite3_close_v2(db) }
+        guard code == SQLITE_OK, let db else {
+            throw BrowserImportError.unreadable(fileURL, Self.message(db, code))
+        }
+        let sql = """
+            SELECT
+              (SELECT count(*) FROM visits),
+              count(*),
+              coalesce(sum(visits.visit_time >= ?), 0)
+            FROM visits JOIN urls ON urls.id = visits.url
+            WHERE urls.hidden = 0
+              AND (visits.transition & 255) NOT IN (3, 4)
+              AND (urls.url LIKE 'http:%' OR urls.url LIKE 'https:%' OR urls.url LIKE 'file:%')
+            """
+        var statement: OpaquePointer?
+        let prepared = sqlite3_prepare_v2(db, sql, -1, &statement, nil)
+        defer { sqlite3_finalize(statement) }
+        guard prepared == SQLITE_OK, let statement else {
+            throw BrowserImportError.unreadable(fileURL, Self.message(db, prepared))
+        }
+        sqlite3_bind_int64(statement, 1, since.map(BrowserChromiumTime.microseconds) ?? Int64.min)
+        guard sqlite3_step(statement) == SQLITE_ROW else {
+            throw BrowserImportError.unreadable(fileURL, Self.message(db, sqlite3_errcode(db)))
+        }
+        return Counts(
+            visits: Int(sqlite3_column_int64(statement, 0)),
+            importable: Int(sqlite3_column_int64(statement, 1)),
+            kept: Int(sqlite3_column_int64(statement, 2))
+        )
+    }
+
     /// `file:<path>?immutable=1`, with the characters SQLite's URI parser
     /// treats specially (`%`, `?`, `#`) escaped in the path.
     static func immutableURI(for fileURL: URL) -> String {

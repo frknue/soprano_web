@@ -8,6 +8,7 @@ enum BrowserCommandID: String, CaseIterable, Sendable {
     case reopenClosed = "reopen-closed", openLocation = "open-location"
     case closeTab = "close-tab", closeWindow = "close-window"
     case saveAs = "save-as", exportPDF = "export-pdf", print
+    case importBrowserData = "import-browser-data", exportPins = "export-pins"
     case undo, redo, cut, copy, paste, selectAll = "select-all"
     case find, findNext = "find-next", findPrevious = "find-previous"
     case copyURL = "copy-url", copyMarkdown = "copy-markdown"
@@ -290,6 +291,14 @@ struct BrowserAppCommand: Sendable {
         make(.exportPDF, "Export as PDF…", .file, 3, symbol: "doc.richtext",
              state: { .when($0.controller?.canUsePageTools ?? false) }) {
             $0.controller?.exportSelectedPageAsPDF()
+        },
+        make(.importBrowserData, "Import Browser Data…", .file, 5, synonyms: ["arc", "chrome", "safari", "bookmarks"],
+             symbol: "square.and.arrow.down.on.square") { context in
+            context.manager?.showImportSheet(from: context.controller)
+        },
+        make(.exportPins, "Export Pinned Tabs…", .file, 5, synonyms: ["bookmarks", "html"],
+             symbol: "square.and.arrow.up", state: { .when($0.controller?.pinSpaceID != nil) }) {
+            $0.controller?.exportPinnedTabs()
         },
         make(.print, "Print…", .file, 4, "cmd+p", symbol: "printer",
              state: { .when($0.controller?.canUsePageTools ?? false) }) {

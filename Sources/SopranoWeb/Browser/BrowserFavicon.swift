@@ -251,6 +251,31 @@ final class BrowserFaviconStore {
         }
     }
 
+    /// An importer's icons (`page address`, image file): each becomes its
+    /// host's cached icon unless the host has one already. Returns how
+    /// many were added; `changes` fire once.
+    @discardableResult
+    func importIcons(_ icons: [(address: String, file: URL)]) -> Int {
+        var added = 0
+        for icon in icons {
+            guard let key = BrowserFaviconSelection.key(for: URL(string: icon.address)),
+                  image(forKey: key) == nil,
+                  let data = FileManager.default.contents(atPath: icon.file.path),
+                  data.count <= Self.maximumBytes,
+                  let (image, png) = Self.render(data)
+            else { continue }
+            images[key] = image
+            missing.remove(key)
+            if let directory {
+                try? FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+                try? png.write(to: directory.appendingPathComponent(BrowserFaviconSelection.fileName(for: key)), options: .atomic)
+            }
+            added += 1
+        }
+        if added > 0 { changes.notify() }
+        return added
+    }
+
     private func finish(key: String, sources: [URL], result: (NSImage, Data)?) {
         let completions = inFlight.removeValue(forKey: sources) ?? []
         resolvedIcons.updateValue(result?.0, forKey: sources)

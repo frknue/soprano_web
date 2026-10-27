@@ -4,13 +4,15 @@ import Foundation
 /// Everything the Arc reader found, except History (read per profile with
 /// `BrowserArcImportReader.readHistory`, it is large).
 struct BrowserArcImport: Sendable, Equatable {
-    /// Every profile a Space or a favorites list uses, in first-use order.
+    /// Every profile a Space or a favorites list uses, in first-use order,
+    /// then the other profiles that have a History database (Arc's own
+    /// `__ARC_SYSTEM_PROFILE` never).
     var profiles: [BrowserImportedProfile]
     /// In Arc's order.
     var spaces: [BrowserImportedSpace]
     /// One entry per profile with favorites.
     var favorites: [BrowserImportedFavorites]
-    /// Archived tabs with a URL, newest archive first as Arc lists them.
+    /// Archived tabs with a URL, oldest first, as Arc stores them.
     var archive: [BrowserImportedArchiveItem]
     var routingRules: [BrowserImportedRoutingRule]
     /// Item `sourceID` (pins, Today tabs, favorites, archive) → its cached
@@ -30,6 +32,9 @@ struct BrowserArcImport: Sendable, Equatable {
 /// `{"case": {"_0": payload}}` (or `{"case": {}}`, or a bare string for raw
 /// values), and dates are seconds since 2001-01-01.
 struct BrowserArcImportReader: Sendable {
+    /// The `Local State` name of Arc's internal profile, never imported.
+    static let systemProfileName = "__ARC_SYSTEM_PROFILE"
+
     /// `~/Library/Application Support/Arc`.
     static var defaultSupportDirectory: URL {
         FileManager.default.homeDirectoryForCurrentUser
@@ -92,9 +97,16 @@ struct BrowserArcImportReader: Sendable {
         }
 
         let discovered = BrowserChromeBookmarksReader.profiles(userDataDirectory: userDataDirectory)
-        let profiles = profileKeys.map { key in
+            .filter { $0.displayName != Self.systemProfileName }
+        var profiles = profileKeys.map { key in
             let found = discovered.first { $0.key == key }
             return BrowserImportedProfile(key: key, displayName: found?.displayName ?? key, directory: found?.directory)
+        }
+        for profile in discovered where !profileKeys.contains(profile.key) {
+            guard let directory = profile.directory,
+                  FileManager.default.fileExists(atPath: directory.appendingPathComponent("History").path)
+            else { continue }
+            profiles.append(profile)
         }
         var historyFiles: [String: URL] = [:]
         for profile in profiles {
@@ -253,6 +265,7 @@ struct BrowserArcImportReader: Sendable {
                 switch style {
                 case "contains": match = .contains
                 case "equals", "matches", "exact", "is": match = .equals
+                case "prefix", "startsWith", "beginsWith", "hasPrefix": match = .prefix
                 default: continue
                 }
                 rules.append(BrowserImportedRoutingRule(match: match, value: value, destination: destination))

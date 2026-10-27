@@ -30,6 +30,8 @@ final class SettingsWindowController: NSWindowController, NSTextFieldDelegate {
     var onShowWebsiteData: ((NSWindow) -> Void)?
     /// Presents Settings ▸ Profiles as a sheet on the given window.
     var onShowProfiles: ((NSWindow) -> Void)?
+    /// Presents Settings ▸ Links from other apps as a sheet on the given window.
+    var onShowLinkRouting: ((NSWindow) -> Void)?
     /// Settings ▸ Search engine ▸ Manage…, while shown.
     private var searchEnginesSheet: BrowserSearchEnginesSheet?
     /// Settings ▸ Keyboard shortcuts ▸ Customize…, while shown.
@@ -100,6 +102,13 @@ final class SettingsWindowController: NSWindowController, NSTextFieldDelegate {
         let button = ChromeButton(title: "Manage…", theme: theme, kind: .standard)
         button.target = self
         button.action = #selector(profilesPressed)
+        button.widthAnchor.constraint(equalToConstant: 200).isActive = true
+        return button
+    }()
+    private lazy var linkRoutingButton: ChromeButton = {
+        let button = ChromeButton(title: "Manage…", theme: theme, kind: .standard)
+        button.target = self
+        button.action = #selector(linkRoutingPressed)
         button.widthAnchor.constraint(equalToConstant: 200).isActive = true
         return button
     }()
@@ -289,12 +298,12 @@ final class SettingsWindowController: NSWindowController, NSTextFieldDelegate {
             [rowLabel("Websites"), websitesButton],
             [rowLabel("Website data"), websiteDataButton],
             [rowLabel("Default browser"), defaultBrowserRow()],
+            [rowLabel("Links from other apps"), linkRoutingButton],
         ]
         let grid = NSGridView(views: rows)
         grid.translatesAutoresizingMaskIntoConstraints = false
-        // 20 rows; the window stays under 900 pt for small displays.
-        grid.rowSpacing = 12
-        grid.columnSpacing = 18
+        // 21 rows; the window stays under 900 pt for small displays.
+        grid.rowSpacing = 10
         grid.column(at: 0).xPlacement = .trailing
         grid.column(at: 1).xPlacement = .fill
         rootView.addSubview(grid)
@@ -435,6 +444,7 @@ final class SettingsWindowController: NSWindowController, NSTextFieldDelegate {
         notificationsLabel.textColor = theme.colors.textPrimary
         websitesButton.apply(theme: theme)
         profilesButton.apply(theme: theme)
+        linkRoutingButton.apply(theme: theme)
         askDownloadSwitch.apply(theme: theme)
         blockAdsSwitch.apply(theme: theme)
         updateListsButton.apply(theme: theme)
@@ -778,6 +788,11 @@ extension SettingsWindowController {
     @objc private func profilesPressed() {
         guard let window else { return }
         onShowProfiles?(window)
+    }
+
+    @objc private func linkRoutingPressed() {
+        guard let window else { return }
+        onShowLinkRouting?(window)
     }
 }
 

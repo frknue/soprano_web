@@ -73,7 +73,7 @@ final class MainMenuController: NSObject, NSMenuItemValidation {
         // Reopen Closed Tab and Open Location… follow without a separator.
         commands(of: .file, section: 1).forEach { fileMenu.addItem(item(for: $0, keymap: keymap)) }
         fileMenu.addItem(.separator())
-        addSections([2, 3], of: .file, to: fileMenu, keymap: keymap)
+        addSections([2, 3, 5], of: .file, to: fileMenu, keymap: keymap)
         fileMenu.addItem(.separator())
         fileMenu.addItem(ShareMenuUpdater.placeholder())
         let shareUpdater = ShareMenuUpdater { [windowManager] in windowManager()?.activeController?.shareItems ?? [] }

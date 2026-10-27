@@ -195,6 +195,25 @@ no linter or formatter; match surrounding style.
   `search-engines:` (every engine, `*` before the default). `--address
   "w cats"` with an engine keyed `w` shows the keyword row first in
   `address-rows`.
+  Import flags (run after the first window opens, before every other
+  action; sources are only read, Chromium History opens `immutable`):
+  `--import-arc [dir]` (default `~/Library/Application Support/Arc`),
+  `--import-chrome <dir>`, `--import-safari <zip>`, `--import-html <file>`
+  (repeatable) print `import-plan:` (one JSON line: profile mapping, Spaces
+  with counts and create/skip, favorites, Archive, History per profile with
+  `sourceVisits`, `visits` imported and `olderThanRetention`, rules,
+  totals), apply the plan as checked by default and print
+  `import-result:` and one `import-history:` line per profile (added,
+  skipped, seconds); `--import-plan` plans only; `--import-sheet
+  [checklist|progress|result]` captures File ▸ Import Browser Data… (on the
+  first source flag, else the first source found) with its checklist, at
+  30% of History or finished; `--export-pins <file>` /
+  `--export-all-pins <file>` run File ▸ Export Pinned Tabs… and print what
+  the file reads back as; `--open-link <url>` (repeatable) is a link from
+  another app through the routing rules; `--link-routing-sheet` captures
+  Settings ▸ Links from other apps. With `--support-dir` an import keeps
+  its profiles for the next run (only their WebKit data stores are
+  removed), so a second run shows what a re-import skips.
   Command Bar and shortcut flags (actions, in order with the window flags,
   on the active window): `--command-bar [text]` (⌘T, then types `text`;
   the value is any next argument that isn't a flag), `--command-bar-location`
@@ -464,6 +483,33 @@ no linter or formatter; match surrounding style.
   Space on ⌥⌘→/⌥⌘←, then the active window's Space's pin tree, rebuilt on
   every change (`dump` prints it). ⌃1…⌃9 and ⌥⌘←/⌥⌘→ are Arc's Space
   shortcuts; ⌘1…⌘9 stay tabs of the current Space.
+- `Browser/Import/` — File ▸ Import Browser Data…. Readers, pure:
+  `BrowserArcImportReader` (Arc's support folder; profiles a Space or
+  favorites use, then History-only ones, never `__ARC_SYSTEM_PROFILE`),
+  `BrowserChromiumHistoryReader` (`read`, `counts`),
+  `BrowserChromeBookmarksReader`, `BrowserSafariExportReader`,
+  `BrowserNetscapeBookmarks` (parse and write), the neutral model in
+  `BrowserImportModel.swift`. `BrowserImportLoader` reads a source off the
+  main thread; `BrowserImportPlan.swift` is the pure plan step
+  (`BrowserImportPlanner`: profile mapping — Arc `Default` → Default,
+  `Profile N` → the profile an import made (`importedFrom`) or a new one
+  named after its first Space —, Spaces skipped by `importedFrom`,
+  favorites past 12, Archive ids from Arc's item ids, History counts within
+  Settings ▸ Remove history items; `BrowserImportColorMatch`, OKLab hue to
+  the nearest Folio color); `BrowserImportChecklist` the sheet's rows and
+  result lines; `BrowserImporter` the apply step (store writes on the main
+  actor, a new profile's own Space taken over by its first imported Space,
+  then History per profile through `BrowserHistoryStore.importInBackground`:
+  batches on a second connection, duplicates — same address and time —
+  skipped, cancel between batches, frecency refreshed after).
+  `BrowserWindowManager+Import.swift` plans and runs imports for a window
+  (Today tabs unloaded, switch to the first imported Space), shows the
+  sheets and holds `BrowserPinExport` (File ▸ Export Pinned Tabs…).
+  `App/BrowserImportSheet.swift` is the sheet. `BrowserLinkRouting.swift`
+  — the rules for links from other apps (`link-routing.json`, contains /
+  equals / prefix → a Space or the most recent one), applied in
+  `BrowserWindowManager.open(_:)` via `windowForOutsideLink`;
+  `App/BrowserLinkRoutingSheet.swift` is Settings ▸ Links from other apps.
 - `Browser/BrowserCommands.swift` — the command registry: `BrowserCommandID`
   (the stable ids `settings.json`, menu item identifiers and the harness
   use) and `BrowserAppCommand.all`, one row per command in menu order

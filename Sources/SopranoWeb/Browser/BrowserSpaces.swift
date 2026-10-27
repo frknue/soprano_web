@@ -235,6 +235,35 @@ struct BrowserSpaceList: Equatable, Sendable {
         return space
     }
 
+    /// An import takes over Space `id` (the Space a new profile was given)
+    /// as the source's Space: name, icon, color, pinned tree and
+    /// `importedFrom` become the import's. Refused when the Space was
+    /// imported already or holds pins.
+    @discardableResult
+    mutating func adopt(
+        _ id: UUID,
+        name: String,
+        icon: BrowserSpaceIcon,
+        color: BrowserProfileColor,
+        pinned: BrowserPinTree,
+        importedFrom: String
+    ) -> Bool {
+        guard let space = space(id: id), space.importedFrom == nil, space.pinned.isEmpty else { return false }
+        let trimmed = name.trimmingCharacters(in: .whitespacesAndNewlines)
+        return update(id) {
+            $0.name = trimmed.isEmpty ? BrowserSpace.defaultName : trimmed
+            $0.icon = icon
+            $0.color = color
+            $0.pinned = pinned
+            $0.importedFrom = importedFrom
+        }
+    }
+
+    /// The Space an import made from `source` (`importedFrom`).
+    func space(importedFrom source: String) -> BrowserSpace? {
+        spaces.first { $0.importedFrom == source }
+    }
+
     @discardableResult
     mutating func rename(_ id: UUID, to name: String) -> Bool {
         let trimmed = name.trimmingCharacters(in: .whitespacesAndNewlines)

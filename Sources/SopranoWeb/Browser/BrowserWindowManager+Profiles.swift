@@ -127,6 +127,19 @@ extension BrowserWindowManager {
         }
     }
 
+    /// Removes a kept profile's data store (the harness keeps an import's
+    /// profiles in `--support-dir` but no WebKit store): its tabs close,
+    /// its context goes, then the store is removed once released.
+    func releaseDataStore(ofProfile id: UUID, completion: @escaping @MainActor (Error?) -> Void) {
+        for controller in controllers {
+            controller.closeTabs(ofProfile: id)
+        }
+        profileContexts[id] = nil
+        Task { @MainActor in
+            completion(await Self.removeDataStore(identifier: id))
+        }
+    }
+
     /// Removes a deleted profile's data store, retrying while WebKit still
     /// counts it in use (closed windows release their web views once AppKit
     /// has finished closing them). Returns the last error, nil on success.

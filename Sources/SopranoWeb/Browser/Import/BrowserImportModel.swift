@@ -64,8 +64,10 @@ struct BrowserImportedProfile: Sendable, Equatable {
     var isDefault: Bool { key == Self.defaultKey }
 }
 
-/// An sRGB color with components as the source stored them (Arc uses
-/// extended sRGB, so a component may leave 0…1 slightly).
+/// An sRGB color with components as the source stored them. Arc stores
+/// extended sRGB: a component can lie far outside 0…1 (a vivid green
+/// `midTone` has `red` -0.385), so convert before comparing colors
+/// (`BrowserImportColorMatch`).
 struct BrowserImportedColor: Sendable, Equatable {
     var red: Double
     var green: Double
@@ -152,6 +154,8 @@ struct BrowserImportedRoutingRule: Sendable, Equatable {
         case contains
         /// The URL equals `value`.
         case equals
+        /// The URL starts with `value`.
+        case prefix
     }
 
     enum Destination: Sendable, Equatable {
