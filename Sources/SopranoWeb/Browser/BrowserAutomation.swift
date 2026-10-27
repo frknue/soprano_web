@@ -171,7 +171,7 @@ extension BrowserWindowController {
             }
             guard let url = BrowserAddressResolver.resolve(
                 input,
-                searchEngine: settingsStore.settings.searchEngine
+                searchEngines: settingsStore.settings.searchEngines
             ) else {
                 completion(.failure(BrowserAutomationError.invalidArguments(
                     "Invalid browser address: \(input)"

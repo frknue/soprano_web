@@ -80,7 +80,7 @@ enum BrowserContextMenu {
         identifiers: [String?],
         titles: [String],
         target: BrowserContextMenuTarget?,
-        searchEngine: SearchEngine
+        searchEngine: BrowserSearchEngine
     ) -> [BrowserContextMenuEntry] {
         var entries: [BrowserContextMenuEntry] = []
         for (index, identifier) in identifiers.enumerated() {
@@ -141,7 +141,7 @@ enum BrowserContextMenu {
 
     /// `Search with DuckDuckGo for “query”`, the query cut to
     /// `maxQueryLength` characters with an ellipsis.
-    static func searchTitle(query: String, engine: SearchEngine, maxQueryLength: Int = 30) -> String {
+    static func searchTitle(query: String, engine: BrowserSearchEngine, maxQueryLength: Int = 30) -> String {
         let shown = query.count > maxQueryLength
             ? String(query.prefix(maxQueryLength)).trimmingCharacters(in: .whitespaces) + "…"
             : query

@@ -51,7 +51,7 @@ struct BrowserPrivateWindowTests {
                 history: history,
                 pins: pins,
                 tabs: [tab],
-                searchEngine: .duckDuckGo
+                searchEngines: .default
             )
             input.remoteSuggestions = ["example phrase"]
             return AddressSuggestionEngine.suggestions(for: input).rows

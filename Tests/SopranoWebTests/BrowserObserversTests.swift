@@ -38,7 +38,7 @@ struct BrowserObserversTests {
 
     @Test func releasingTheTokenUnsubscribes() {
         let observers = BrowserObservers<BrowserSettings>()
-        var seen: [SearchEngine] = []
+        var seen: [BrowserSearchEngineID] = []
         var token: BrowserObservation? = observers.observe { seen.append($0.searchEngine) }
         observers.notify(BrowserSettings(searchEngine: .google))
         #expect(token != nil)

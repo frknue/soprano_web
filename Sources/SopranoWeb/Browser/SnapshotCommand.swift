@@ -51,6 +51,7 @@ enum SnapshotCommand {
         var pins = PinOptions()
         var sleep = SnapshotSleepOptions()
         var blocker = SnapshotBlockerOptions()
+        var searchEngines = SnapshotSearchEngineOptions()
     }
 
     enum OptionError: Error, CustomStringConvertible {
@@ -90,6 +91,7 @@ enum SnapshotCommand {
     \(pinsUsage)
     \(SnapshotSleepOptions.usage)
     \(SnapshotBlockerOptions.usage)
+    \(SnapshotSearchEngineOptions.usage)
     """
 
     nonisolated static func parse(_ arguments: [String]) throws -> Options {
@@ -230,6 +232,7 @@ enum SnapshotCommand {
                     || parsePrivacy(option, value: { try value(option) }, into: &options.privacy)
                     || SnapshotSleepOptions.parse(option, value: { try value(option) }, into: &options.sleep)
                     || SnapshotBlockerOptions.parse(option, value: { try value(option) }, into: &options.blocker)
+                    || SnapshotSearchEngineOptions.parse(option, value: { try value(option) }, into: &options.searchEngines)
                 else {
                     throw OptionError.unknownOption(option)
                 }
@@ -292,6 +295,7 @@ enum SnapshotCommand {
             settingsStore.update { $0.autoplay = autoplay }
         }
         options.sleep.apply(to: settingsStore)
+        options.searchEngines.apply(to: settingsStore)
         let themeManager = ThemeManager(themeId: options.theme, appearance: .system)
         let downloads = BrowserDownloadStore(url: temp.appendingPathComponent("downloads.json"))
         let profiles = BrowserProfileStore(url: temp.appendingPathComponent("profiles.json"))
@@ -357,13 +361,13 @@ enum SnapshotCommand {
             controller.focusAddressBar()
         }
         if let value = options.url,
-           let url = BrowserAddressResolver.resolve(value, searchEngine: .duckDuckGo)
+           let url = BrowserAddressResolver.resolve(value, searchEngines: settingsStore.settings.searchEngines)
         {
             if BrowserAddressResolver.isStartPage(url) {
                 // Already on the start page.
             } else if let tab = controller.selectedTab {
                 if let back = options.backURL,
-                   let backURL = BrowserAddressResolver.resolve(back, searchEngine: .duckDuckGo)
+                   let backURL = BrowserAddressResolver.resolve(back, searchEngines: settingsStore.settings.searchEngines)
                 {
                     // Load a first page so Back has somewhere to go.
                     controller.navigate(tab, to: backURL)
@@ -507,7 +511,11 @@ enum SnapshotCommand {
             print("websites: profile picker \(websitesSheet.pickerTitle ?? "hidden")")
         }
         let profilesSheet = options.session.showProfilesSheet ? manager.makeProfilesSheet() : nil
-        if settingsPreview != nil || websitesSheet != nil || profilesSheet != nil {
+        let searchEnginesSheet = options.searchEngines.makeSheet(
+            settingsStore: settingsStore,
+            theme: themeManager.currentTheme
+        )
+        if settingsPreview != nil || websitesSheet != nil || profilesSheet != nil || searchEnginesSheet != nil {
             wait(0.3)
         }
 
@@ -597,7 +605,7 @@ enum SnapshotCommand {
             }
             print("sheet: " + texts.joined(separator: " | "))
         }
-        let captured = websitesSheet?.window ?? profilesSheet?.window ?? captureWindow
+        let captured = websitesSheet?.window ?? profilesSheet?.window ?? searchEnginesSheet?.window ?? captureWindow
         guard let captureContent = captured.contentView else {
             FileHandle.standardError.write(Data("Snapshot could not find the window to capture.\n".utf8))
             exit(1)
@@ -615,7 +623,8 @@ enum SnapshotCommand {
 
         var pageImage: NSImage?
         if privacySheet == nil, !options.showSettings, !options.showHelp, !options.showPrompt,
-           websitesSheet == nil, profilesSheet == nil, !options.showFind, captureWindow === window,
+           websitesSheet == nil, profilesSheet == nil, searchEnginesSheet == nil, !options.showFind,
+           captureWindow === window,
            controller.selectedTab?.lifecycle.crashView == nil,
            let webView = controller.selectedTab?.webView {
             var finished = false

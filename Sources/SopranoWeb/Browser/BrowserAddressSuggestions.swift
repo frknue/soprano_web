@@ -11,7 +11,8 @@ struct AddressSuggestion: Equatable, Sendable {
         case bookmark
         /// The typed or inline-completed address itself.
         case url
-        /// `Search “query”` with the configured engine.
+        /// `Search “query”` with the configured engine, or `Search Engine
+        /// for “query”` for a "keyword query".
         case search
         /// A phrase from the search engine's suggestion service.
         case searchSuggestion
@@ -19,7 +20,10 @@ struct AddressSuggestion: Equatable, Sendable {
 
     enum Target: Equatable, Sendable {
         case url(String)
+        /// The default engine's search.
         case search(String)
+        /// "keyword query": that engine's search.
+        case keywordSearch(engine: BrowserSearchEngineID, query: String)
         case tab(UUID)
     }
 
@@ -56,7 +60,7 @@ struct AddressSuggestionInput: Sendable {
     var pins: [BrowserPin] = []
     /// Open tabs other than the selected one.
     var tabs: [AddressSuggestionTab] = []
-    var searchEngine: SearchEngine = .duckDuckGo
+    var searchEngines: BrowserSearchEngines = .default
     var remoteSuggestions: [String] = []
     /// False after a deletion, so backspace never re-completes.
     var allowsInlineCompletion = true
@@ -73,14 +77,14 @@ extension AddressSuggestionInput {
         history: [BrowserHistoryPage],
         pins: [BrowserPin],
         tabs: [AddressSuggestionTab],
-        searchEngine: SearchEngine
+        searchEngines: BrowserSearchEngines
     ) {
         self.init(
             query: query,
             history: kind.suggestsHistory ? history : [],
             pins: pins,
             tabs: tabs,
-            searchEngine: searchEngine
+            searchEngines: searchEngines
         )
     }
 }
@@ -175,17 +179,28 @@ enum AddressSuggestionEngine {
         let searchRow = AddressSuggestion(
             kind: .search,
             title: "Search “\(query)”",
-            detail: input.searchEngine.name,
+            detail: input.searchEngines.defaultEngine.name,
             target: .search(query),
             fillText: query
         )
         var tabRows = rankedTabs.prefix(maxTabRows).map(\.candidate)
         var defaultRow: AddressSuggestion
         var completionText: String?
-        let looksLikeAddress = AddressQueryMatcher.looksLikeAddress(query, engine: input.searchEngine)
+        let keywordSearch = input.searchEngines.resolve(query)
+        let looksLikeAddress = keywordSearch == nil && AddressQueryMatcher.looksLikeAddress(query)
 
-        if input.allowsInlineCompletion,
-           let completion = hostCompletion(matcher: matcher, ranked: rankedTabs + rankedPages)
+        if let keywordSearch {
+            // "d cats": the keyword's engine. The default engine's search
+            // for the whole text stays below as the search row.
+            defaultRow = AddressSuggestion(
+                kind: .search,
+                title: "Search \(keywordSearch.engine.name) for “\(keywordSearch.query)”",
+                detail: "",
+                target: .keywordSearch(engine: keywordSearch.engine.id, query: keywordSearch.query),
+                fillText: query
+            )
+        } else if input.allowsInlineCompletion,
+                  let completion = hostCompletion(matcher: matcher, ranked: rankedTabs + rankedPages)
         {
             completionText = completion.fieldText
             let rootKey = AddressURLText.key(completion.url)
@@ -206,7 +221,7 @@ enum AddressSuggestionEngine {
             }
             defaultRow.fillText = completion.fieldText
         } else if looksLikeAddress,
-                  let resolved = BrowserAddressResolver.resolve(query, searchEngine: input.searchEngine)
+                  let resolved = BrowserAddressResolver.address(for: query)
         {
             let address = resolved.absoluteString
             let key = AddressURLText.key(address)
@@ -416,11 +431,10 @@ struct AddressQueryMatcher {
     }
 
     /// True when the address bar would open the query as an address rather
-    /// than search for it.
-    static func looksLikeAddress(_ query: String, engine: SearchEngine) -> Bool {
-        let trimmed = query.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard let resolved = BrowserAddressResolver.resolve(trimmed, searchEngine: engine) else { return false }
-        return resolved != engine.searchURL(for: trimmed)
+    /// than search for it ("keyword query" is a search, so callers check
+    /// keywords first).
+    static func looksLikeAddress(_ query: String) -> Bool {
+        BrowserAddressResolver.address(for: query) != nil
     }
 
     private static func words(_ text: String) -> [Substring] {
@@ -501,12 +515,13 @@ enum AddressInlineCompletion {
 
 // MARK: - Search engine suggestions
 
-extension SearchEngine {
-    /// The engine's OpenSearch-style suggestion endpoint for `query`.
+extension BrowserSearchEngine {
+    /// A built-in engine's OpenSearch-style suggestion endpoint for
+    /// `query`; custom engines have none.
     func suggestionURL(for query: String) -> URL? {
         var components = URLComponents()
         components.scheme = "https"
-        switch self {
+        switch id {
         case .duckDuckGo:
             components.host = "duckduckgo.com"
             components.path = "/ac/"
@@ -525,6 +540,8 @@ extension SearchEngine {
             components.host = "api.bing.com"
             components.path = "/osjson.aspx"
             components.queryItems = [URLQueryItem(name: "query", value: query)]
+        default:
+            return nil
         }
         // `+` survives URLComponents unescaped and would read as a space.
         components.percentEncodedQuery = components.percentEncodedQuery?
