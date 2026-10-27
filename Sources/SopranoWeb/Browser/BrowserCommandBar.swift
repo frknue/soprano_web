@@ -66,6 +66,8 @@ struct BrowserCommandBarRow: Equatable, Sendable {
         case space(UUID)
         case command(BrowserCommandID)
         case settings(BrowserSettingsPage)
+        /// ⌘T's Return on an empty query: a start-page Today tab.
+        case startPage
     }
 
     var kind: Kind
@@ -154,8 +156,17 @@ enum BrowserCommandBarEngine {
             return rows.isEmpty ? [] : [BrowserCommandBarGroup(title: "Actions", rows: Array(rows))]
         }
         guard !query.isEmpty else {
+            // ⌘T: Return opens a start-page Today tab; the recent tabs
+            // follow. ⌘L on an empty field (a start page) offers nothing,
+            // so Return does nothing.
+            guard input.mode == .newTab else { return [] }
+            let newTab = BrowserCommandBarRow(
+                kind: .open, title: "New Tab", detail: "Start page", symbol: "plus", target: .startPage
+            )
+            var groups = [BrowserCommandBarGroup(title: "", rows: [newTab])]
             let rows = input.tabs.prefix(recentTabRows).map(tabRow)
-            return rows.isEmpty ? [] : [BrowserCommandBarGroup(title: "Recent Tabs", rows: rows)]
+            if !rows.isEmpty { groups.append(BrowserCommandBarGroup(title: "Recent Tabs", rows: rows)) }
+            return groups
         }
 
         var groups = [BrowserCommandBarGroup(title: "", rows: [defaultRow(query: query, engines: input.searchEngines)])]

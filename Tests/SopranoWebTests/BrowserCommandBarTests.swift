@@ -134,13 +134,18 @@ struct BrowserCommandBarTests {
         #expect(rows == [.url("https://webkit.org/blog/"), .url("https://webkit.org/"), .url("https://example.com/webkit-notes")])
     }
 
-    @Test func emptyQueryListsRecentTabs() {
+    @Test func emptyQueryOffersANewTabThenRecentTabs() {
         let ids = (0..<8).map { _ in UUID() }
         var input = BrowserCommandBarInput(query: "")
         input.tabs = ids.map { .init(id: $0, title: "T", url: "https://\($0.uuidString).example/") }
         let groups = BrowserCommandBarEngine.groups(for: input)
-        #expect(groups.map(\.title) == ["Recent Tabs"])
-        #expect(groups.first?.rows.map(\.target) == ids.prefix(6).map { .tab($0) })
+        #expect(groups.map(\.title) == ["", "Recent Tabs"])
+        // ⌘T + Return on nothing: a start-page Today tab.
+        #expect(groups.first?.rows.map(\.target) == [.startPage])
+        #expect(groups.last?.rows.map(\.target) == ids.prefix(6).map { .tab($0) })
+        // ⌘L + Return on an empty field (a start page) does nothing.
+        input.mode = .editCurrent
+        #expect(BrowserCommandBarEngine.groups(for: input).isEmpty)
     }
 
     @MainActor

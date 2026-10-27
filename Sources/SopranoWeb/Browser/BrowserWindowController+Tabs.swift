@@ -31,7 +31,7 @@ extension BrowserWindowController {
         if select {
             selectTab(id: tab.id, focus: !focusAddress)
             if focusAddress {
-                toolbar.focusAddress(selectAll: true)
+                focusAddressBar()
             }
         }
         updateTabStrip()
@@ -157,6 +157,10 @@ extension BrowserWindowController {
         tab.favicon = state.url.flatMap { context.faviconStore.image(forAddress: $0) }
         tab.isStartPage = false
         tab.lifecycle.pendingRestore = state
+        // Idle time carries over the relaunch (the Archive, tab sleep).
+        if let lastActiveAt = state.lastActiveAt {
+            tab.lifecycle.lastActiveAt = lastActiveAt
+        }
         attachTab(tab, at: index, select: false)
         return tab
     }
@@ -320,6 +324,7 @@ extension BrowserWindowController {
     /// selecting (and so loading) the lazily restored ones.
     func tearDown() {
         cancelStoreObservations()
+        cancelRecentTabs()
         let closing = tabs
         tabs.removeAll()
         selectedIndex = 0
@@ -428,6 +433,10 @@ extension BrowserWindowController {
         }
         tabWasUsed(tab)
         recentTabs.touch(tab.id)
+        if commandBar.isOpen, previous?.id != tab.id {
+            // ⌘L's address and ⌘T's results were the old tab's.
+            commandBar.close()
+        }
         if let previous, previous.id != tab.id {
             previousSelectedTabID = previous.id
             previous.lifecycle.lastActiveAt = tab.lifecycle.lastActiveAt
@@ -549,6 +558,10 @@ extension BrowserWindowController {
         var state = state
         state.origin = .today
         let tab = addRestoredTab(state, at: index)
+        // ⌘W archived it; back open, it leaves the Archive.
+        if !kind.isPrivate, let url = state.url {
+            manager.archive.removeEntry(url: url, profileID: tab.dataContext.profileID)
+        }
         selectTab(id: tab.id, focus: true)
         updateTabStrip()
         saveSession()

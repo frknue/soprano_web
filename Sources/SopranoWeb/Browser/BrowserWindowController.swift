@@ -96,7 +96,7 @@ final class BrowserWindowController: NSWindowController {
     var shortcutGate = BrowserShortcutGate()
     /// The key handed to the page under Site wins or Press twice, until
     /// WebKit or the page answers.
-    var forwardedKey: (event: NSEvent, token: Int)?
+    var forwardedKeys: [(event: NSEvent, token: Int)] = []
     var keyTokens = 0
     /// ⇧⌘D: the toolbar is hidden in every window (UI state in
     /// `UserDefaults`).
@@ -197,6 +197,7 @@ final class BrowserWindowController: NSWindowController {
         installAddressBar()
         installCommandBar()
         sidebar.privateDownloadContextID = dataContext.downloadContextID
+        sidebar.showsArchive = !kind.isPrivate
         syncContextObservations()
         applyWindowMark()
         applyTheme(theme)

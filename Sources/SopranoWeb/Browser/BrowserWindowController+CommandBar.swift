@@ -24,16 +24,22 @@ extension BrowserWindowController {
 
     /// ⌘T (empty; Return opens a new Today tab), ⌘L (the selected tab's
     /// address; Return navigates it) and ⇧⌘P (`/` actions). The same mode
-    /// again closes it.
-    func showCommandBar(_ mode: BrowserCommandBarMode) {
+    /// again closes it (`toggles`).
+    func showCommandBar(_ mode: BrowserCommandBarMode, toggles: Bool = true) {
         if isPopup {
+            guard mode != .editCurrent else {
+                // ⌘L edits the pop-up's own address.
+                toolbar.focusAddress(selectAll: true)
+                return
+            }
             // A pop-up window has no tabs to open into.
             let target = manager.windowForNewTabs(from: self).window
             manager.present(target)
-            target.showCommandBar(mode)
+            target.showCommandBar(mode, toggles: toggles)
             return
         }
         if commandBar.isOpen, commandBar.mode == mode {
+            guard toggles else { return }
             commandBar.close()
             focusPage()
             return
@@ -131,10 +137,21 @@ extension BrowserWindowController {
             openFavorite(id)
         case let .space(id):
             switchToSpace(id)
+        case .startPage:
+            self.newTab()
         case let .command(id):
             id.command.perform(in: BrowserCommandContext(manager: manager, controller: self))
+            focusPageIfUnfocused()
         case let .settings(page):
             manager.showSettings(page: page)
+            focusPageIfUnfocused()
         }
+    }
+
+    /// After a row that doesn't move focus itself, the page gets it back
+    /// (closing the bar left the window with none).
+    private func focusPageIfUnfocused() {
+        guard let window, window.firstResponder == nil || window.firstResponder === window else { return }
+        focusPage()
     }
 }

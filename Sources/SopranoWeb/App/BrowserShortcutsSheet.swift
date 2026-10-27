@@ -12,8 +12,10 @@ final class BrowserShortcutsSheet: NSWindowController {
     struct Conflict: Equatable {
         var command: BrowserCommandID
         var shortcut: BrowserShortcut
-        var other: BrowserCommandID
-        /// The other command's shortcut can't change: Cancel only.
+        /// Who has the shortcut: a command's title, or the system, text
+        /// editing or Vimium (`BrowserShortcut.reservedOwner`).
+        var owner: String
+        /// The owner's shortcut can't change: Cancel only.
         var refused: Bool
     }
 
@@ -196,9 +198,11 @@ final class BrowserShortcutsSheet: NSWindowController {
             conflict = nil
             settingsStore.update { $0.keymap = keymap }
         case let .conflict(other):
-            conflict = Conflict(command: id, shortcut: shortcut, other: other, refused: false)
+            conflict = Conflict(command: id, shortcut: shortcut, owner: other.command.title, refused: false)
         case let .refused(other):
-            conflict = Conflict(command: id, shortcut: shortcut, other: other, refused: true)
+            conflict = Conflict(command: id, shortcut: shortcut, owner: other.command.title, refused: true)
+        case let .reserved(owner):
+            conflict = Conflict(command: id, shortcut: shortcut, owner: owner, refused: true)
         case .invalid:
             conflict = nil
             NSSound.beep()
@@ -232,10 +236,9 @@ final class BrowserShortcutsSheet: NSWindowController {
 
     /// What the conflict line says.
     static func message(for conflict: Conflict) -> String {
-        let other = conflict.other.command.title
-        return conflict.refused
-            ? "\(conflict.shortcut.display) is \(other) and can't change."
-            : "\(conflict.shortcut.display) is already \(other)."
+        conflict.refused
+            ? "\(conflict.shortcut.display) belongs to \(conflict.owner) and can't change."
+            : "\(conflict.shortcut.display) is already \(conflict.owner)."
     }
 
     /// Scrolls the list so `id`'s row shows.

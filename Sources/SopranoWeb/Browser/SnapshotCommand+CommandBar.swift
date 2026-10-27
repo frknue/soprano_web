@@ -202,10 +202,7 @@ enum SnapshotCommandBarAction {
             Swift.print("shortcut-conflict: \(conflict) -> \(swap ? "Swap" : "Cancel")")
             Swift.print("settings.json shortcuts: \(Self.savedShortcuts(manager))")
         case let .pageKey(shortcut, times):
-            for press in 1...times {
-                if press > 1 { Self.spin(0.3) }
-                Self.sendPageKey(shortcut, to: controller, manager: manager)
-            }
+            Self.sendPageKeys(shortcut, times: times, to: controller, manager: manager)
         case let .recentTabs(presses, commit):
             let titles = { (ids: [UUID]) in
                 ids.compactMap { id in controller.tabs.first { $0.id == id }?.displayTitle }
@@ -240,6 +237,7 @@ enum SnapshotCommandBarAction {
         case .assigned: "assigned"
         case let .conflict(other): "conflict with \(other.rawValue) (\(other.command.title))"
         case let .refused(other): "refused: \(other.command.title) can't change"
+        case let .reserved(owner): "refused: reserved by \(owner)"
         case .invalid: "invalid (needs ⌘ or ⌃)"
         }
     }
@@ -254,34 +252,46 @@ enum SnapshotCommandBarAction {
         return String(decoding: json, as: UTF8.self)
     }
 
-    /// One key-down into the selected tab's page as AppKit delivers a key
-    /// equivalent: the page's web view becomes first responder, the window's
-    /// views get `performKeyEquivalent` and, unhandled, the web view gets
-    /// `keyDown`. Then waits for the page's answer and prints.
+    /// Key-downs into the selected tab's page as AppKit delivers a key
+    /// equivalent: the page's web view becomes first responder, the window
+    /// gets `performKeyEquivalent` and, unhandled, the web view `keyDown`.
+    /// With `times` 2 the second press follows 0.05 s later, before the page
+    /// answers the first (key repeat, a quick double press). Then waits for
+    /// the answers and prints once.
     @MainActor
-    private static func sendPageKey(_ shortcut: BrowserShortcut, to controller: BrowserWindowController, manager: BrowserWindowManager) {
-        guard let tab = controller.selectedTab, let window = controller.window else { return }
-        window.makeFirstResponder(tab.webView)
+    private static func sendPageKeys(
+        _ shortcut: BrowserShortcut,
+        times: Int,
+        to controller: BrowserWindowController,
+        manager: BrowserWindowManager
+    ) {
+        guard let window = controller.window else { return }
         manager.pasteboard.clearContents()
         let keymap = manager.settingsStore.settings.keymap
         let command = keymap.command(for: shortcut)
-        guard let event = keyEvent(shortcut, window: window) else {
-            Swift.print("page-key: can't make \(shortcut.display)")
-            return
+        let tabsBefore = controller.tabs.count
+        for press in 1...times {
+            if press > 1 { spin(0.05) }
+            guard let tab = controller.selectedTab, let event = keyEvent(shortcut, window: window) else {
+                Swift.print("page-key: can't send \(shortcut.display)")
+                return
+            }
+            window.makeFirstResponder(tab.webView)
+            if !window.performKeyEquivalent(with: event) {
+                tab.webView.keyDown(with: event)
+            }
         }
-        if !window.performKeyEquivalent(with: event) {
-            tab.webView.keyDown(with: event)
-        }
-        spin(0.25)
+        spin(0.4)
         var log = ""
         var finished = false
-        tab.webView.evaluateJavaScript("(window.__keyLog || []).join(',')") { result, _ in
+        controller.selectedTab?.webView.evaluateJavaScript("(window.__keyLog || []).join(',')") { result, _ in
             log = result as? String ?? ""
             finished = true
         }
         spin(2) { finished }
         let priority = command.map { keymap.priority(for: $0).title } ?? "-"
-        Swift.print("page-key: \(shortcut.display) -> \(command?.rawValue ?? "no command") (\(priority)) | page log [\(log)] | pasteboard: \(manager.pasteboard.string(forType: .string) ?? "(empty)")")
+        let presses = times == 1 ? "" : " ×\(times)"
+        Swift.print("page-key: \(shortcut.display)\(presses) -> \(command?.rawValue ?? "no command") (\(priority)) | tabs \(tabsBefore) -> \(controller.tabs.count) | page log [\(log)] | pasteboard: \(manager.pasteboard.string(forType: .string) ?? "(empty)")")
     }
 
     /// A key-down NSEvent for `shortcut` with the US layout's key code (so

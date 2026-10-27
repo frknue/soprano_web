@@ -141,6 +141,11 @@ final class BrowserSessionVisits {
         pages[key] = page
     }
 
+    /// Clear Browsing Data ▸ History: pages last visited from `since` on.
+    func removeVisits(since: Date) {
+        pages = pages.filter { $0.value.lastVisit < since }
+    }
+
     /// The pages matching `query`, as History's candidates are.
     func candidates(for query: String) -> [BrowserHistoryPage] {
         let matcher = AddressQueryMatcher(query: query.trimmingCharacters(in: .whitespacesAndNewlines))

@@ -150,7 +150,11 @@ no linter or formatter; match surrounding style.
   "Archive Today tabs after", the menu item's action; `never`, `days30`,
   `days7`, `hours24`, `hours12`, `hours6`, `hour1`) and `--print-archive`
   (one `archive:` JSON line: every entry with Space, profile, reason, time
-  and favicon key, newest first, and `archive.json`'s version and count).
+  and favicon key, newest first, and `archive.json`'s version and count);
+  `--archive-seed <n>` (n entries through the importers' `insert`) and
+  `--archive-batch <n>` (n more in one `archive(_:)` call, ⇧⌘K's and the
+  idle pass's single write) print their time; `--archive-today` prints
+  its time too.
   `--sidebar archive` seeds sample entries over several days into
   Default's Spaces when the Archive is empty. Sleep and zoom flags:
   `--sleep-after <seconds>` (a test threshold; the idle pass runs on the
@@ -228,8 +232,10 @@ no linter or formatter; match surrounding style.
   press its buttons; with `--support-dir` a second run reads the saved
   shortcuts), `--shortcuts-sheet` (captures the sheet and prints every row),
   `--page-key "<shortcut>[ x2]"` (a key-down into the selected tab's focused
-  page as AppKit sends a key equivalent, twice 0.3 s apart with ` x2`;
-  prints the command, its priority, the page's `window.__keyLog` and the
+  page as AppKit sends a key equivalent; with ` x2` the second press
+  follows 0.05 s later, before the page answers the first; prints the
+  tab count before and after,
+  the command, its priority, the page's `window.__keyLog` and the
   pasteboard — the proof for Site wins and Press twice), `--recent-tabs <n>`
   (⌃Tab n times, then ⌃ released) and `--recent-tabs-hold <n>` (overlay left
   open for the capture), `--walk-rail down|up` (⌥⌘↓/↑), `--toggle-toolbar`
@@ -393,7 +399,8 @@ no linter or formatter; match surrounding style.
   — tab state (`dataContext`, `spaceID`, `origin`: today, pinned or
   favorite pin id), settings (decoded key by key), address resolution, the version 3
   session (`windows[]` with frames, `currentSpaceID`, tabs with `spaceID`
-  and origin, per-Space selection, `recentlyClosed` with `spaceID`; a
+  and origin and `lastActiveAt` (idle time survives a relaunch; missing in
+  older files, then it counts from the restore), per-Space selection, `recentlyClosed` with `spaceID`; a
   version 1 or 2 file migrates — tabs into the first Space of the
   window's profile — and is kept as `session.json.migrated`), the recently-closed
   stack of tabs and windows, and window frame clamping/cascading (and where a
@@ -410,8 +417,11 @@ no linter or formatter; match surrounding style.
   sleep policy's selection, pop-up, audio, capture and prompt exemptions).
   `BrowserArchiveStore.swift` — the only way in or out of
   `<support>/archive.json` (synchronous, atomic, `changes`; an unreadable
-  file is kept as `.corrupt`): `archive(url:…)` (one entry per profile and
-  address), `insert(_:reason:)` (the importers' entry point),
+  file is kept as `.corrupt`): `archive(_:)` (a batch with one write and
+  one `changes`; one entry per profile and address; the search index
+  changes only for added and replaced entries — ⇧⌘K and the idle pass
+  write through it), `archive(url:…)`, `insert(_:reason:)` (the importers'
+  entry point), `removeEntry(url:profileID:)` (⇧⌘T brought the tab back),
   `search(_:inProfile:)` over an in-memory index, `remove(id:)`,
   `removeEntries(ofProfile:)` (profile deletion) and
   `removeEntries(ofProfile:archivedIn:)` (Clear Browsing Data ▸ History).
@@ -523,7 +533,11 @@ no linter or formatter; match surrounding style.
   `BrowserShortcut` (`"shift+cmd+c"` / `⇧⌘C`, from an `NSEvent` or a page's
   `KeyboardEvent.code`), `BrowserShortcutPriority`, `BrowserShortcutSettings`
   (`shortcuts` in `settings.json`, decoded entry by entry, only differences
-  saved), `BrowserKeymap` (effective shortcuts, conflicts, swap, reset),
+  saved; a decoded remap onto a fixed or reserved key is dropped and of
+  two commands on one key the later gets none), `BrowserKeymap` (effective
+  shortcuts, conflicts, swap, reset; `BrowserShortcut.reservedOwner` refuses
+  the Edit menu's Spelling keys, ⌘`, ⌃⌘Space, ⇧⌘/, the Cocoa text-editing
+  bindings and Vimium's ⌃E/⌃Y/⌃[),
   `BrowserShortcutGate`, `BrowserRecentTabs` / `BrowserRecentTabSwitcher`
   and `BrowserRailWalk`. Priority mechanism: `BrowserWebView.performKeyEquivalent`
   (and `keyDown` for ⌃/⌥ keys) calls `routePageShortcut` while the page has
@@ -533,7 +547,13 @@ no linter or formatter; match surrounding style.
   unhandled by sending the same `NSEvent` again (`forwardedKey`), and the
   isolated-world `BrowserShortcutScripts.keyReport` posts each modified
   `keydown`'s `defaultPrevented` on the `sopranoWeb` channel; the first
-  answer decides, the late one is swallowed. `App/BrowserShortcutsSheet.swift`
+  answer decides, the late one is swallowed. Forwarded presses are
+  tracked per event (a token each), so key repeat and Press twice races
+  never run a command twice; `BrowserWindow.performKeyEquivalent` checks a
+  handed-back event before any view or the menu, wherever focus went. A
+  hand-back runs a Site wins press however late; the report matches by
+  `KeyboardEvent.code` (the physical key), so on another layout it may not
+  match and the hand-back decides. `App/BrowserShortcutsSheet.swift`
   is Settings ▸ Keyboard shortcuts.
   `BrowserCommandBar.swift` — the Command Bar's pure results
   (`BrowserCommandBarEngine`: the default row — keyword search, address or

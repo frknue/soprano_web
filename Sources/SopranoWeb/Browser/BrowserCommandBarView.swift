@@ -176,6 +176,7 @@ final class BrowserCommandBarController {
         case let .space(id): "space \(id.uuidString)"
         case let .command(id): "command \(id.rawValue)"
         case let .settings(page): "settings \(page.rawValue)"
+        case .startPage: "start page"
         }
     }
 }

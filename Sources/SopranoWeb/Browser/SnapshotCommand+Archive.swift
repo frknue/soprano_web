@@ -28,14 +28,21 @@ enum SnapshotArchiveAction {
     case search(String)
     case archiveAfter(BrowserArchiveAfter, profile: String?)
     case printArchive
+    /// `--archive-seed <n>`: n entries through the importers' `insert`.
+    case seed(Int)
+    /// `--archive-batch <n>`: n more archived in one `archive(_:)` call,
+    /// as ⇧⌘K and the idle pass write.
+    case batch(Int)
 
     static let flags: Set<String> = [
         "--archive-today", "--restore-archived", "--archive-search", "--archive-after", "--print-archive",
+        "--archive-seed", "--archive-batch",
     ]
 
     static let usage = """
                                [--archive-today] [--restore-archived <n|title>] [--archive-search <text>]
                                [--archive-after <choice>[:<profile>]] [--print-archive]
+                               [--archive-seed <n>] [--archive-batch <n>]
     """
 
     /// Nil when `option` is not one of these flags.
@@ -52,6 +59,12 @@ enum SnapshotArchiveAction {
             }
             return .archiveAfter(choice, profile: parts.count > 1 ? parts[1] : nil)
         case "--print-archive": return .printArchive
+        case "--archive-seed", "--archive-batch":
+            let raw = try value()
+            guard let count = Int(raw), count > 0 else {
+                throw SnapshotCommand.OptionError.unknownOption("\(option) \(raw)")
+            }
+            return option == "--archive-seed" ? .seed(count) : .batch(count)
         default: return nil
         }
     }
@@ -62,6 +75,22 @@ enum SnapshotArchiveAction {
             print(Self.archiveJSON(manager))
             return
         }
+        if case let .seed(count) = self {
+            let entries = Self.syntheticEntries(count, manager: manager, prefix: "seed")
+            let start = Date()
+            let added = manager.archive.insert(entries, reason: .imported)
+            print(String(format: "archive-seed: %d inserted in %.3f s (Archive %d)", added, Date().timeIntervalSince(start), manager.archive.entries.count))
+            return
+        }
+        if case let .batch(count) = self {
+            let entries = Self.syntheticEntries(count, manager: manager, prefix: "batch")
+            let start = Date()
+            let added = manager.archive.archive(entries)
+            print(String(format: "archive-batch: %d archived in %.3f s, one write (Archive %d, search “batch 1999”: %d)",
+                         added.count, Date().timeIntervalSince(start), manager.archive.entries.count,
+                         manager.archive.search("batch 1999", inProfile: BrowserProfile.defaultID).count))
+            return
+        }
         guard let controller = manager.activeController else {
             print("snapshot: no window is open")
             return
@@ -69,9 +98,12 @@ enum SnapshotArchiveAction {
         switch self {
         case .archiveToday:
             let before = controller.tabs.count
+            let start = Date()
             let archived = controller.archiveTodayTabs()
+            let seconds = Date().timeIntervalSince(start)
             let today = controller.visibleTabs.filter { $0.origin == .today }.map(SnapshotRailAction.describe)
-            print("archive-today: \(archived.count) tab(s) archived: \(Self.describe(archived)) | tabs \(before) -> \(controller.tabs.count) | Today left \(today)")
+            print(String(format: "archive-today: %d tab(s) archived in %.3f s (Archive %d)", archived.count, seconds, manager.archive.entries.count))
+            print("archive-today: \(Self.describe(archived)) | tabs \(before) -> \(controller.tabs.count) | Today left \(today)")
         case let .restore(key):
             let sidebar = controller.sidebar
             if !controller.isSidebarVisible || sidebar.section != .archive {
@@ -117,8 +149,27 @@ enum SnapshotArchiveAction {
             sheet.archiveAfterChosen(item)
             let saved = manager.profiles.profile(id: profile.id)?.archiveAfter
             print("archive-after: \(profile.name) -> \(saved?.rawValue ?? "-") (\(saved?.title ?? "-"))")
-        case .printArchive:
+        case .printArchive, .seed, .batch:
             break
+        }
+    }
+
+    /// `count` distinct Default-profile entries, newest first, over the
+    /// last days, titled "<prefix> <n>".
+    @MainActor
+    static func syntheticEntries(_ count: Int, manager: BrowserWindowManager, prefix: String) -> [BrowserArchiveEntry] {
+        let spaceID = manager.spaces.firstSpace(ofProfile: BrowserProfile.defaultID)?.id
+        let now = manager.tabSleeper.now()
+        return (0..<count).map { index in
+            BrowserArchiveEntry(
+                url: "https://\(prefix).example/page/\(index)",
+                title: "\(prefix) \(index)",
+                spaceID: spaceID,
+                profileID: BrowserProfile.defaultID,
+                archivedAt: now.addingTimeInterval(-Double(index) * 60),
+                reason: .auto,
+                faviconKey: nil
+            )
         }
     }
 

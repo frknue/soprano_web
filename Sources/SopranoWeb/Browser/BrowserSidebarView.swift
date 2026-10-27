@@ -93,6 +93,16 @@ final class BrowserSidebarView: NSView, NSTableViewDataSource, NSTableViewDelega
     private let titleLabel = NSTextField(labelWithString: "")
     private let closeButton: ChromeIconButton
     private var sectionButtons: [BrowserSidebarSection: ChromeButton] = [:]
+    /// False in a private window, which has no Archive of its own (it never
+    /// archives, and the profile's belongs to its normal windows).
+    var showsArchive = true {
+        didSet {
+            sectionButtons[.archive]?.isHidden = !showsArchive
+            if !showsArchive, section == .archive {
+                select(.history)
+            }
+        }
+    }
     private let sectionBar = NSStackView()
     private let searchFrame: ChromeFieldView
     private let searchField = NSTextField()
@@ -340,7 +350,7 @@ final class BrowserSidebarView: NSView, NSTableViewDataSource, NSTableViewDelega
     }
 
     func select(_ section: BrowserSidebarSection) {
-        self.section = section
+        self.section = section == .archive && !showsArchive ? .history : section
         searchField.stringValue = ""
         refresh()
     }

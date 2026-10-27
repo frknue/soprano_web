@@ -370,7 +370,9 @@ struct BrowserAppCommand: Sendable {
             $0.controller?.showSidebar(section: .history)
         },
         make(.showArchive, "Show Archive", .history, 0, synonyms: ["archived tabs"], symbol: "archivebox",
-             state: hasWindow) { $0.controller?.showSidebar(section: .archive) },
+             state: { .when($0.controller.map { !$0.kind.isPrivate } ?? false) }) {
+            $0.controller?.showSidebar(section: .archive)
+        },
         make(.showDownloads, "Show Downloads", .history, 0, "opt+cmd+l", symbol: "arrow.down.circle",
              state: hasWindow) { $0.controller?.showSidebar(section: .downloads) },
         make(.clearBrowsingData, "Clear Browsing Data…", .history, 1, "shift+cmd+delete",

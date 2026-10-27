@@ -7,11 +7,12 @@ extension BrowserWindowManager {
     /// Today tab of every normal window idle at least its profile's
     /// `archiveAfter` (`BrowserArchivePolicy`), measured from
     /// `lifecycle.lastActiveAt` on the sleeper's clock, goes into the
-    /// Archive (reason auto). A window's selected tab is in use, so its
-    /// idle time starts over first. Returns the new entries.
+    /// Archive (reason auto), every window's in one Archive write. A
+    /// window's selected tab is in use, so its idle time starts over first.
+    /// Returns the new entries.
     @discardableResult
     func archiveIdleTabs(now: Date) -> [BrowserArchiveEntry] {
-        var archived: [BrowserArchiveEntry] = []
+        var due: [(controller: BrowserWindowController, tab: BrowserTab, entry: BrowserArchiveEntry)] = []
         for controller in controllers where controller.hasSpaces {
             controller.selectedTab?.lifecycle.lastActiveAt = now
             for tab in controller.tabs {
@@ -21,10 +22,17 @@ extension BrowserWindowManager {
                           now: now,
                           archiveAfter: profile.archiveAfter
                       ),
-                      let entry = controller.archiveTab(tab, reason: .auto, at: now)
+                      let entry = controller.archiveEntry(for: tab, reason: .auto, at: now)
                 else { continue }
-                archived.append(entry)
+                due.append((controller, tab, entry))
             }
+        }
+        guard !due.isEmpty else { return [] }
+        let archived = archive.archive(due.map(\.entry))
+        for controller in controllers {
+            let tabs = due.filter { $0.controller === controller }.map(\.tab)
+            guard !tabs.isEmpty else { continue }
+            controller.removeArchivedTabs(tabs)
         }
         return archived
     }

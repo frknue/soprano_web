@@ -37,6 +37,8 @@ extension BrowserWindowController {
         let since = options.range.startDate(now: now)
         if options.history {
             dataContext.history.removeVisits(since: since, now: now)
+            // A private window's Command Bar pages (memory only).
+            dataContext.sessionVisits.removeVisits(since: since)
             // Closed tabs and windows carry their own back/forward lists.
             let profileID = self.profileID
             let spaceIDs = Set(spaces.spaces(ofProfile: profileID).map(\.id))

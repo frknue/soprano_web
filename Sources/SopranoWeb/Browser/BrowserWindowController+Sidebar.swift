@@ -109,6 +109,8 @@ extension BrowserWindowController {
     }
 
     func showSidebar(section: BrowserSidebarSection) {
+        // A private window has no Archive section.
+        let section = section == .archive && kind.isPrivate ? .history : section
         sidebarSection = section
         sidebar.select(section)
         isSidebarVisible = true

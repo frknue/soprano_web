@@ -77,6 +77,49 @@ struct BrowserShortcutTests {
         #expect(Set(settings.entries.keys) == [.copyURL, .print, .reload])
     }
 
+    @Test func decodedRemapsFollowTheAssignRules() throws {
+        let json = """
+        {
+          "reload": {"shortcut": "cmd+q"},
+          "zoom-in": {"shortcut": "cmd+;"},
+          "find": {"shortcut": "ctrl+e"},
+          "print": {"shortcut": "cmd+j"},
+          "export-pdf": {"shortcut": "cmd+j"},
+          "save-as": {"shortcut": "cmd+r"}
+        }
+        """
+        let keymap = BrowserKeymap(try JSONDecoder().decode(BrowserShortcutSettings.self, from: Data(json.utf8)))
+        // A fixed command's key or a reserved one: the remap is dropped.
+        #expect(keymap.shortcut(for: .zoomIn) == shortcut("cmd+="))
+        #expect(keymap.shortcut(for: .find) == shortcut("cmd+f"))
+        // Two commands on one key: the later in registry order gets none.
+        #expect(keymap.shortcut(for: .print) == nil)
+        #expect(keymap.shortcut(for: .exportPDF) == shortcut("cmd+j"))
+        // Reload's remap onto ⌘Q dropped, it is back on ⌘R, which Save As
+        // (File, before View) took in the file: Reload has none.
+        #expect(keymap.shortcut(for: .saveAs) == shortcut("cmd+r"))
+        #expect(keymap.shortcut(for: .reload) == nil)
+        let all = BrowserCommandID.allCases.compactMap { keymap.shortcut(for: $0) }
+        #expect(Set(all).count == all.count)
+    }
+
+    @Test func reservedKeysAreRefused() {
+        var keymap = BrowserKeymap()
+        for text in ["cmd+;", "shift+cmd+;", "cmd+`", "ctrl+cmd+space", "shift+cmd+/", "opt+delete", "opt+left", "ctrl+a",
+                     "ctrl+e", "ctrl+k", "ctrl+["] {
+            guard case .reserved = keymap.assign(shortcut(text), to: .copyURL) else {
+                Issue.record("\(text) was not refused")
+                continue
+            }
+        }
+        #expect(keymap == BrowserKeymap())
+        #expect(BrowserShortcut.reservedOwner(of: shortcut("ctrl+e")) == "Vimium")
+        // Shifted punctuation keys the menu on its shifted character.
+        #expect(shortcut("shift+cmd+[").keyEquivalent == "{")
+        #expect(shortcut("shift+cmd+[").modifierMask == [.command])
+        #expect(shortcut("shift+cmd+c").modifierMask == [.command, .shift])
+    }
+
     @Test func settingsKeepOtherKeysWhenShortcutsAreBad() throws {
         let json = #"{"homepage": "https://example.com", "shortcuts": ["cmd+t"], "verticalTabs": false}"#
         let settings = try JSONDecoder().decode(BrowserSettings.self, from: Data(json.utf8))
@@ -154,7 +197,7 @@ struct BrowserShortcutTests {
     @Test func appWinsRunsAtOnce() {
         var gate = BrowserShortcutGate()
         #expect(gate.keyPressed(.copyURL, shortcut: copy, priority: .app, token: 1, at: start) == .run)
-        #expect(gate.pending == nil)
+        #expect(gate.pending.isEmpty)
     }
 
     @Test func siteWinsRunsOnlyWhenThePageLetsTheKeyThrough() {
@@ -166,7 +209,7 @@ struct BrowserShortcutTests {
         // The page called preventDefault: nothing runs, nothing comes back.
         #expect(gate.keyPressed(.copyURL, shortcut: copy, priority: .site, token: 2, at: start) == .forward)
         #expect(gate.pageReported(copy, prevented: true, at: start.addingTimeInterval(0.05)) == nil)
-        #expect(gate.pending == nil)
+        #expect(gate.pending.isEmpty)
 
         // The report comes first: it runs, and WebKit's late hand-back is
         // swallowed rather than run twice.
@@ -175,12 +218,17 @@ struct BrowserShortcutTests {
         #expect(gate.pageDidNotHandle(token: 3, at: start.addingTimeInterval(0.06)) == (.swallow, nil))
     }
 
-    @Test func siteWinsIgnoresOtherKeysAndLateAnswers() {
+    @Test func siteWinsIgnoresOtherKeysAndRunsOnALateHandBack() {
         var gate = BrowserShortcutGate()
         #expect(gate.keyPressed(.copyURL, shortcut: copy, priority: .site, token: 1, at: start) == .forward)
         #expect(gate.pageReported(BrowserShortcut("cmd+c")!, prevented: false, at: start) == nil)
+        // A report after the timeout no longer matches…
         #expect(gate.pageReported(copy, prevented: false, at: start.addingTimeInterval(5)) == nil)
-        #expect(gate.pageDidNotHandle(token: 1, at: start.addingTimeInterval(5)) == (.pass, nil))
+        // …but WebKit's hand-back is proof the page left the key alone,
+        // however busy the page was.
+        #expect(gate.pageDidNotHandle(token: 1, at: start.addingTimeInterval(5)) == (.run, .copyURL))
+        // A token the gate never issued isn't its business.
+        #expect(gate.pageDidNotHandle(token: 99, at: start) == (.pass, nil))
     }
 
     @Test func pressTwiceRunsOnTheSecondPressWithinASecond() {
@@ -195,6 +243,49 @@ struct BrowserShortcutTests {
         #expect(gate.keyPressed(.copyURL, shortcut: copy, priority: .twice, token: 3, at: later) == .forward)
         #expect(gate.keyPressed(.copyURL, shortcut: copy, priority: .twice, token: 4, at: later.addingTimeInterval(1.5)) == .forward)
         #expect(gate.keyPressed(.copyURL, shortcut: copy, priority: .twice, token: 5, at: later.addingTimeInterval(2)) == .run)
+    }
+
+    @Test func pressTwiceRaceRunsOnce() {
+        // A busy page: the second press arrives before WebKit hands the
+        // first back. The second runs; the first's late hand-back must not
+        // run it again (or reach the menu).
+        var gate = BrowserShortcutGate()
+        #expect(gate.keyPressed(.copyURL, shortcut: copy, priority: .twice, token: 1, at: start) == .forward)
+        #expect(gate.keyPressed(.copyURL, shortcut: copy, priority: .twice, token: 2, at: start.addingTimeInterval(0.3)) == .run)
+        #expect(gate.pageDidNotHandle(token: 1, at: start.addingTimeInterval(0.5)) == (.swallow, nil))
+        #expect(gate.pending.isEmpty)
+    }
+
+    @Test func twoQuickSiteWinsPressesRunOncePerPress() {
+        // Key repeat: two presses forwarded before either answer.
+        var gate = BrowserShortcutGate()
+        #expect(gate.keyPressed(.closeTab, shortcut: copy, priority: .site, token: 1, at: start) == .forward)
+        #expect(gate.keyPressed(.closeTab, shortcut: copy, priority: .site, token: 2, at: start.addingTimeInterval(0.03)) == .forward)
+        var runs = 0
+        // Reports first (oldest press first), then both hand-backs.
+        if gate.pageReported(copy, prevented: false, at: start.addingTimeInterval(0.05)) != nil { runs += 1 }
+        if gate.pageReported(copy, prevented: false, at: start.addingTimeInterval(0.06)) != nil { runs += 1 }
+        #expect(gate.pageDidNotHandle(token: 1, at: start.addingTimeInterval(0.07)) == (.swallow, nil))
+        #expect(gate.pageDidNotHandle(token: 2, at: start.addingTimeInterval(0.08)) == (.swallow, nil))
+        // A third report has no press left to run.
+        if gate.pageReported(copy, prevented: false, at: start.addingTimeInterval(0.09)) != nil { runs += 1 }
+        #expect(runs == 2)
+
+        // Hand-backs first: each runs its own press; the reports find none.
+        #expect(gate.keyPressed(.closeTab, shortcut: copy, priority: .site, token: 3, at: start) == .forward)
+        #expect(gate.keyPressed(.closeTab, shortcut: copy, priority: .site, token: 4, at: start) == .forward)
+        #expect(gate.pageDidNotHandle(token: 3, at: start) == (.run, .closeTab))
+        #expect(gate.pageDidNotHandle(token: 4, at: start) == (.run, .closeTab))
+        #expect(gate.pageReported(copy, prevented: false, at: start) == nil)
+    }
+
+    @Test func aHandBackAfterTheReportRanIsSwallowedWhereverFocusWent() {
+        // The report ran ⌘L-like command that moved focus; the hand-back
+        // still belongs to the gate (the window checks it before focus).
+        var gate = BrowserShortcutGate()
+        #expect(gate.keyPressed(.openLocation, shortcut: copy, priority: .site, token: 7, at: start) == .forward)
+        #expect(gate.pageReported(copy, prevented: false, at: start.addingTimeInterval(0.01)) == .openLocation)
+        #expect(gate.pageDidNotHandle(token: 7, at: start.addingTimeInterval(0.2)) == (.swallow, nil))
     }
 
     // MARK: Recent tabs and the rail

@@ -23,42 +23,65 @@ extension BrowserWindowController {
         BrowserArchivePolicy.exemption(for: archiveCandidate(tab))
     }
 
-    /// Writes `tab` into the Archive without touching the window; nil (and
-    /// nothing written) for a tab that never archives: pinned or favorite,
-    /// a start page, a private or pop-up window's.
-    @discardableResult
-    func recordArchive(_ tab: BrowserTab, reason: BrowserArchiveReason, at date: Date? = nil) -> BrowserArchiveEntry? {
+    /// The Archive entry `tab` would become; nil for a tab that never
+    /// archives: pinned or favorite, a start page, a private or pop-up
+    /// window's.
+    func archiveEntry(for tab: BrowserTab, reason: BrowserArchiveReason, at date: Date? = nil) -> BrowserArchiveEntry? {
         let candidate = archiveCandidate(tab)
         guard candidate.inSpace, candidate.isToday, !candidate.isStartPage, let url = tab.item.url else { return nil }
-        return manager.archive.archive(
+        return BrowserArchiveEntry(
             url: url.absoluteString,
             title: tab.title.trimmingCharacters(in: .whitespacesAndNewlines),
             spaceID: tab.spaceID,
             profileID: tab.dataContext.profileID,
-            at: date ?? manager.tabSleeper.now(),
+            archivedAt: date ?? manager.tabSleeper.now(),
             reason: reason,
             faviconKey: BrowserFaviconSelection.key(for: url)
         )
     }
 
-    /// Archives `tab` and takes it out of the window, without Recently
-    /// Closed. A Space left without tabs gets a start tab (`detachTab`);
-    /// the window's last tab first gets a start tab beside it, so archiving
-    /// never closes a window.
+    /// Writes `tab` into the Archive without touching the window; nil (and
+    /// nothing written) for a tab that never archives.
+    @discardableResult
+    func recordArchive(_ tab: BrowserTab, reason: BrowserArchiveReason, at date: Date? = nil) -> BrowserArchiveEntry? {
+        guard let entry = archiveEntry(for: tab, reason: reason, at: date) else { return nil }
+        return manager.archive.archive([entry]).first
+    }
+
+    /// Archives `tab` and takes it out of the window (`archiveTabs`).
     @discardableResult
     func archiveTab(_ tab: BrowserTab, reason: BrowserArchiveReason, at date: Date? = nil) -> BrowserArchiveEntry? {
-        guard let entry = recordArchive(tab, reason: reason, at: date) else { return nil }
-        if tabs.count == 1 {
-            newTab(select: true)
+        archiveTabs([tab], reason: reason, at: date).first
+    }
+
+    /// Archives `tabs` with one Archive write and takes them out of the
+    /// window, without Recently Closed. A Space left without tabs gets a
+    /// start tab (`detachTab`); the window's last tab first gets a start
+    /// tab beside it, so archiving never closes a window.
+    @discardableResult
+    func archiveTabs(_ tabs: [BrowserTab], reason: BrowserArchiveReason, at date: Date? = nil) -> [BrowserArchiveEntry] {
+        let pairs = tabs.compactMap { tab in archiveEntry(for: tab, reason: reason, at: date).map { (tab, $0) } }
+        guard !pairs.isEmpty else { return [] }
+        let stored = manager.archive.archive(pairs.map(\.1))
+        removeArchivedTabs(pairs.map(\.0))
+        return stored
+    }
+
+    /// Takes tabs already written to the Archive out of the window.
+    func removeArchivedTabs(_ archived: [BrowserTab]) {
+        for tab in archived where self.tabs.contains(where: { $0 === tab }) {
+            if self.tabs.count == 1 {
+                newTab(select: true)
+            }
+            detachTab(tab)
+            discardTab(tab)
         }
-        detachTab(tab)
-        discardTab(tab)
-        return entry
     }
 
     /// ⇧⌘K (Spaces ▸ Archive Today Tabs): archives every Today tab of the
-    /// current Space; start pages stay. The selected tab goes last, so the
-    /// selection moves once, to what is left.
+    /// current Space with one Archive write; start pages stay. The
+    /// selected tab goes last, so the selection moves once, to what is
+    /// left.
     @discardableResult
     func archiveTodayTabs() -> [BrowserArchiveEntry] {
         guard hasSpaces, !kind.isPrivate else { return [] }
@@ -68,7 +91,7 @@ extension BrowserWindowController {
             return candidate.isToday && !candidate.isStartPage
         }
         let ordered = today.filter { $0.id != selectedID } + today.filter { $0.id == selectedID }
-        let archived = ordered.compactMap { archiveTab($0, reason: .manual) }
+        let archived = archiveTabs(ordered, reason: .manual)
         updateTabStrip()
         saveSession()
         return archived

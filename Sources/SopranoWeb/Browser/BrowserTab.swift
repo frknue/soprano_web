@@ -160,6 +160,7 @@ final class BrowserTab {
         state.spaceID = spaceID
         state.origin = origin
         state.linkLanding = origin == .today ? nil : linkLanding
+        state.lastActiveAt = lifecycle.lastActiveAt
         return state
     }
 
@@ -217,5 +218,16 @@ final class BrowserWindow: NSWindow {
 
     override func constrainFrameRect(_ frameRect: NSRect, to screen: NSScreen?) -> NSRect {
         allowsOffscreenFrame ? frameRect : super.constrainFrameRect(frameRect, to: screen)
+    }
+
+    /// A key WebKit hands back after a Site wins or Press twice forward is
+    /// answered here, before any view or the menu, wherever focus went.
+    override func performKeyEquivalent(with event: NSEvent) -> Bool {
+        if let controller = windowController as? BrowserWindowController,
+           let consumed = controller.consumeHandedBackKey(event), consumed
+        {
+            return true
+        }
+        return super.performKeyEquivalent(with: event)
     }
 }

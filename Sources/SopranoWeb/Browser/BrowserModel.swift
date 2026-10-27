@@ -406,9 +406,13 @@ struct BrowserTabState: Codable, Equatable, Sendable {
     /// Where the last load of a linked tab's pin landed (its redirect
     /// target), so a restored tab there shows no "/".
     var linkLanding: String?
+    /// When the tab was last selected or used, so idle time (the Archive's
+    /// `archiveAfter`, tab sleep) carries over a relaunch. Nil in older
+    /// files: the tab counts from the restore.
+    var lastActiveAt: Date?
 
     private enum CodingKeys: String, CodingKey {
-        case url, title, interactionState, spaceID, pinID, favoriteID, linkLanding
+        case url, title, interactionState, spaceID, pinID, favoriteID, linkLanding, lastActiveAt
     }
 }
 
@@ -428,6 +432,7 @@ extension BrowserTabState {
         if origin != .today {
             linkLanding = (try? c.decodeIfPresent(String.self, forKey: .linkLanding)) ?? nil
         }
+        lastActiveAt = (try? c.decodeIfPresent(Date.self, forKey: .lastActiveAt)) ?? nil
     }
 
     func encode(to encoder: Encoder) throws {
@@ -439,6 +444,7 @@ extension BrowserTabState {
         try c.encodeIfPresent(origin.pinID, forKey: .pinID)
         try c.encodeIfPresent(origin.favoriteID, forKey: .favoriteID)
         try c.encodeIfPresent(origin == .today ? nil : linkLanding, forKey: .linkLanding)
+        try c.encodeIfPresent(lastActiveAt, forKey: .lastActiveAt)
     }
 }
 

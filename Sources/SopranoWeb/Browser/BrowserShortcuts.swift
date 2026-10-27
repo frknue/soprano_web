@@ -167,6 +167,38 @@ struct BrowserShortcut: Hashable, Sendable {
         return modifiers.contains(.option) && Self.namedKeys.contains(key) && key != "space"
     }
 
+    /// Keys outside the registry the app must leave alone, with who owns
+    /// them: the Edit menu's standard submenus, the system's window and
+    /// input shortcuts, the Cocoa text-editing bindings every field uses,
+    /// and Vimium's ⌃ keys. Recording or decoding one is refused.
+    static func reservedOwner(of shortcut: BrowserShortcut) -> String? {
+        reserved[shortcut]
+    }
+
+    private static let reserved: [BrowserShortcut: String] = {
+        var table: [BrowserShortcut: String] = [:]
+        func add(_ owner: String, _ texts: [String]) {
+            for text in texts {
+                if let shortcut = BrowserShortcut(text) { table[shortcut] = owner }
+            }
+        }
+        add("Edit ▸ Spelling and Grammar", ["cmd+;", "shift+cmd+;"])
+        add("the system (Cycle Windows)", ["cmd+`", "shift+cmd+`"])
+        add("the system (Emoji & Symbols)", ["ctrl+cmd+space"])
+        add("Help ▸ Search", ["shift+cmd+/"])
+        add("text editing", [
+            "ctrl+a", "ctrl+b", "ctrl+d", "ctrl+f", "ctrl+h", "ctrl+k", "ctrl+n", "ctrl+o", "ctrl+p", "ctrl+t",
+            "ctrl+v", "opt+delete", "cmd+delete", "opt+forwarddelete",
+            "opt+left", "opt+right", "opt+up", "opt+down",
+            "shift+opt+left", "shift+opt+right", "shift+opt+up", "shift+opt+down",
+            "cmd+left", "cmd+right", "cmd+up", "cmd+down",
+            "shift+cmd+left", "shift+cmd+right", "shift+cmd+up", "shift+cmd+down",
+        ])
+        // Vimium's normal mode reads these before the page.
+        add("Vimium", ["ctrl+e", "ctrl+y", "ctrl+["])
+        return table
+    }()
+
     // MARK: AppKit
 
     /// The menu item's `keyEquivalent`.
@@ -191,15 +223,27 @@ struct BrowserShortcut: Hashable, Sendable {
             if key.hasPrefix("f"), let number = Int(key.dropFirst()), (1...12).contains(number) {
                 return function(NSF1FunctionKey + number - 1)
             }
+            // ⇧ with punctuation or a digit: the menu keys on the shifted
+            // character (⌘{, ⌘?), as AppKit's own items do.
+            if modifiers.contains(.shift), let shifted = Self.shifted[key] {
+                return shifted
+            }
             return key
         }
     }
+
+    /// `unshifted` the other way round.
+    private static let shifted: [String: String] = Dictionary(
+        unshifted.map { (String($0.value), String($0.key)) },
+        uniquingKeysWith: { first, _ in first }
+    )
 
     var modifierMask: NSEvent.ModifierFlags {
         var flags: NSEvent.ModifierFlags = []
         if modifiers.contains(.control) { flags.insert(.control) }
         if modifiers.contains(.option) { flags.insert(.option) }
-        if modifiers.contains(.shift) { flags.insert(.shift) }
+        // The shifted character carries ⇧ already.
+        if modifiers.contains(.shift), Self.shifted[key] == nil { flags.insert(.shift) }
         if modifiers.contains(.command) { flags.insert(.command) }
         return flags
     }
@@ -374,12 +418,42 @@ struct BrowserShortcutSettings: Codable, Equatable, Sendable {
             if let text = try? entry.decodeIfPresent(String.self, forKey: .shortcut) {
                 if text.lowercased() == "none" {
                     value.binding = Binding.none
-                } else if let shortcut = BrowserShortcut(text), shortcut.isAssignable {
+                } else if let shortcut = BrowserShortcut(text), shortcut.isAssignable,
+                          BrowserShortcut.reservedOwner(of: shortcut) == nil
+                {
                     value.binding = .shortcut(shortcut)
                 }
             }
             value.priority = (try? entry.decodeIfPresent(BrowserShortcutPriority.self, forKey: .priority)) ?? .app
             self[id] = value
+        }
+        resolveCollisions()
+    }
+
+    /// What `assign` would never have saved: a remap onto a fixed command's
+    /// key is dropped (the default comes back), and of two commands with the
+    /// same key the later one in registry order gets none.
+    private mutating func resolveCollisions() {
+        let fixed = Set(BrowserCommandID.allCases.filter { !$0.isRemappable }.compactMap(\.defaultShortcut))
+        for (id, entry) in entries {
+            if case let .shortcut(shortcut)? = entry.binding, fixed.contains(shortcut) {
+                self[id].binding = nil
+            }
+        }
+        var used = fixed
+        for id in BrowserCommandID.allCases where id.isRemappable {
+            let shortcut: BrowserShortcut?
+            switch self[id].binding {
+            case let .shortcut(remapped)?: shortcut = remapped
+            case .none?: shortcut = nil
+            case nil: shortcut = id.defaultShortcut
+            }
+            guard let shortcut else { continue }
+            if used.contains(shortcut) {
+                self[id].binding = Binding.none
+            } else {
+                used.insert(shortcut)
+            }
         }
     }
 
@@ -438,6 +512,8 @@ struct BrowserKeymap: Equatable, Sendable {
         case conflict(BrowserCommandID)
         /// A fixed command (Quit, Copy, …) has it.
         case refused(BrowserCommandID)
+        /// The system, text editing or Vimium uses it (`reservedOwner`).
+        case reserved(String)
         /// No ⌘ or ⌃ (or ⌥ with a key that types nothing).
         case invalid
     }
@@ -450,6 +526,7 @@ struct BrowserKeymap: Equatable, Sendable {
         guard id.isRemappable else { return .refused(id) }
         if let shortcut {
             guard shortcut.isAssignable else { return .invalid }
+            if let owner = BrowserShortcut.reservedOwner(of: shortcut) { return .reserved(owner) }
             if let other = BrowserCommandID.allCases.first(where: { $0 != id && self.shortcut(for: $0) == shortcut }) {
                 guard other.isRemappable else { return .refused(other) }
                 guard swap else { return .conflict(other) }
@@ -492,18 +569,28 @@ struct BrowserKeymap: Equatable, Sendable {
 
 // MARK: - Priority gate
 
-/// The site-wins and press-twice state of one window, pure. A shortcut
-/// pressed while a page has focus asks `keyPressed`; with Site wins the key
-/// goes to the page and the app runs the command when the page did not
-/// handle it: WebKit hands an unhandled key back (`pageDidNotHandle`), or
-/// the page's `keydown` report says `defaultPrevented` was false
-/// (`pageReported`), whichever comes first. Press twice sends the first
-/// press to the page and runs the command on a second identical press
-/// within `pressTwiceInterval`.
+/// The site-wins and press-twice state of one window, pure, tracked per
+/// forwarded key press (a token per event), so quick presses and key
+/// repeat never share state. A shortcut pressed while a page has focus
+/// asks `keyPressed`; with Site wins the key goes to the page and the app
+/// runs the command when the page did not handle it: WebKit hands an
+/// unhandled key back (`pageDidNotHandle`, authoritative whenever it
+/// comes), or the page's `keydown` report says `defaultPrevented` was
+/// false (`pageReported`), whichever comes first; the other answer for the
+/// same press is swallowed. Press twice sends the first press to the page
+/// and runs the command on a second identical press within
+/// `pressTwiceInterval`; the first press's late hand-back is swallowed.
+///
+/// The report matches by `KeyboardEvent.code`, the physical key. On a
+/// layout where a letter or punctuation sits elsewhere (QWERTZ Y/Z) the
+/// report may not match; the hand-back still decides then, so only a page
+/// that handled the key without `preventDefault` behaves differently.
 struct BrowserShortcutGate: Sendable {
     static let pressTwiceInterval: TimeInterval = 1
-    /// How long a forwarded key waits for the page's answer.
+    /// How long a report may match a forwarded key; hand-backs always do.
     static let answerTimeout: TimeInterval = 1
+    /// Issued tokens remembered, so any hand-back of ours is recognized.
+    static let rememberedTokens = 64
 
     enum Decision: Equatable, Sendable {
         /// Run the command; the page never sees this press.
@@ -524,12 +611,12 @@ struct BrowserShortcutGate: Sendable {
         var at: Date
     }
 
-    private(set) var pending: Pending?
+    /// Forwarded presses still waiting for an answer, oldest first.
+    private(set) var pending: [Pending] = []
     /// The last first press of a Press twice shortcut.
-    private(set) var firstPress: (command: BrowserCommandID, at: Date)?
-    /// The token of a forwarded key already resolved, so its late echo
-    /// (WebKit's hand-back after the report ran the command) is swallowed.
-    private var resolvedToken: Int?
+    private(set) var firstPress: (command: BrowserCommandID, at: Date, token: Int)?
+    /// Every token handed out, newest last.
+    private var issued: [Int] = []
 
     init() {}
 
@@ -540,52 +627,52 @@ struct BrowserShortcutGate: Sendable {
         token: Int,
         at now: Date
     ) -> Decision {
+        issued.append(token)
+        if issued.count > Self.rememberedTokens { issued.removeFirst(issued.count - Self.rememberedTokens) }
+        // A press the page answered without a hand-back never comes back.
+        pending.removeAll { now.timeIntervalSince($0.at) > 10 }
         switch priority {
         case .app:
             firstPress = nil
             return .run
         case .site:
-            pending = Pending(command: command, shortcut: shortcut, priority: .site, token: token, at: now)
+            pending.append(Pending(command: command, shortcut: shortcut, priority: .site, token: token, at: now))
             return .forward
         case .twice:
             if let first = firstPress, first.command == command,
                now.timeIntervalSince(first.at) <= Self.pressTwiceInterval
             {
+                // The first press is answered: its late hand-back is
+                // swallowed rather than run.
                 firstPress = nil
-                pending = nil
+                pending.removeAll { $0.token == first.token }
                 return .run
             }
-            firstPress = (command, now)
-            pending = Pending(command: command, shortcut: shortcut, priority: .twice, token: token, at: now)
+            firstPress = (command, now, token)
+            pending.append(Pending(command: command, shortcut: shortcut, priority: .twice, token: token, at: now))
             return .forward
         }
     }
 
-    /// WebKit handed forwarded key `token` back unhandled.
+    /// WebKit handed forwarded key `token` back unhandled: a Site wins
+    /// press still waiting runs (however late); anything else the gate
+    /// issued is swallowed; an unknown token passes.
     mutating func pageDidNotHandle(token: Int, at now: Date) -> (Decision, BrowserCommandID?) {
-        if resolvedToken == token {
-            resolvedToken = nil
-            return (.swallow, nil)
-        }
-        guard let pending, pending.token == token else { return (.pass, nil) }
-        self.pending = nil
-        guard now.timeIntervalSince(pending.at) <= Self.answerTimeout else { return (.swallow, nil) }
-        return pending.priority == .site ? (.run, pending.command) : (.swallow, nil)
+        guard issued.contains(token) else { return (.pass, nil) }
+        guard let index = pending.firstIndex(where: { $0.token == token }) else { return (.swallow, nil) }
+        let press = pending.remove(at: index)
+        return press.priority == .site ? (.run, press.command) : (.swallow, nil)
     }
 
     /// The page's `keydown` report for `shortcut`: whether a listener called
-    /// `preventDefault`. Runs a Site wins command the page let through.
+    /// `preventDefault`. Answers the oldest Site wins press of that shortcut
+    /// still waiting: runs it when the page let it through.
     mutating func pageReported(_ shortcut: BrowserShortcut, prevented: Bool, at now: Date) -> BrowserCommandID? {
-        guard let pending, pending.shortcut == shortcut else { return nil }
-        guard now.timeIntervalSince(pending.at) <= Self.answerTimeout else {
-            self.pending = nil
-            return nil
-        }
-        guard pending.priority == .site else { return nil }
-        self.pending = nil
-        if prevented { return nil }
-        resolvedToken = pending.token
-        return pending.command
+        guard let index = pending.firstIndex(where: {
+            $0.priority == .site && $0.shortcut == shortcut && now.timeIntervalSince($0.at) <= Self.answerTimeout
+        }) else { return nil }
+        let press = pending.remove(at: index)
+        return prevented ? nil : press.command
     }
 }
 

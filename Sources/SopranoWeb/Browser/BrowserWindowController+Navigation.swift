@@ -101,7 +101,14 @@ extension BrowserWindowController {
         }
     }
 
+    /// Every "focus the address" path (new tab, new window, launch, the
+    /// CLI): the toolbar's field, or with the toolbar hidden (⇧⌘D) the
+    /// Command Bar on the selected tab's address.
     func focusAddressBar() {
+        if isToolbarHidden, !isPopup {
+            showCommandBar(.editCurrent, toggles: false)
+            return
+        }
         toolbar.focusAddress(selectAll: true)
     }
 

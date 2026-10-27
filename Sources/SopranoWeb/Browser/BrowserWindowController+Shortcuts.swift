@@ -77,20 +77,26 @@ extension BrowserWindowController {
     /// ⌥⌘↓ / ⌥⌘↑: the next or previous rail item (favorites, the pinned
     /// outline's shown pins, Today tabs), selecting its tab or opening it.
     func walkRail(step: Int) {
-        let items: [BrowserRailWalk.Item]
-        if hasSpaces {
-            items = spaces.favorites(ofProfile: profileID).map { .favorite($0.id) }
-                + railOutlineRows.compactMap { $0.node.pin.map { .pin($0.id) } }
-                + todayTabs.map { .tab($0.id) }
-        } else {
-            items = visibleTabs.map { .tab($0.id) }
-        }
         let current: BrowserRailWalk.Item? = selectedTab.map { tab in
             switch tab.origin {
             case let .favorite(id) where hasSpaces: .favorite(id)
             case let .pinned(id) where hasSpaces: .pin(id)
             default: .tab(tab.id)
             }
+        }
+        let items: [BrowserRailWalk.Item]
+        if hasSpaces {
+            // The outline's shown pins, plus the selected one where it sits
+            // in the tree when its folder is collapsed, so the walk goes on
+            // from it rather than jumping to an end.
+            let shown = Set(railOutlineRows.compactMap { $0.node.pin?.id })
+            let pins = (pinSpaceID.map { spaces.pins(inSpace: $0) } ?? [])
+                .filter { shown.contains($0.id) || current == .pin($0.id) }
+            items = spaces.favorites(ofProfile: profileID).map { .favorite($0.id) }
+                + pins.map { .pin($0.id) }
+                + todayTabs.map { .tab($0.id) }
+        } else {
+            items = visibleTabs.map { .tab($0.id) }
         }
         switch BrowserRailWalk.step(items, from: current, by: step) {
         case let .favorite(id)?: openFavorite(id)
@@ -180,21 +186,13 @@ extension BrowserWindowController {
     /// unhandled key back by sending the same event again, which lands here
     /// as `forwardedKey`. True when the key is consumed.
     func routePageShortcut(_ event: NSEvent, in webView: BrowserWebView) -> Bool {
+        // A hand-back is recognized before the focus check: the command
+        // may have moved focus since the press.
+        if let consumed = consumeHandedBackKey(event) {
+            return consumed
+        }
         guard event.type == .keyDown, window?.firstResponder === webView else { return false }
         let now = Date()
-        if let forwarded = forwardedKey, forwarded.event === event {
-            forwardedKey = nil
-            let (decision, command) = shortcutGate.pageDidNotHandle(token: forwarded.token, at: now)
-            switch decision {
-            case .run:
-                if let command { runShortcutCommand(command) }
-                return true
-            case .swallow:
-                return true
-            case .forward, .pass:
-                return false
-            }
-        }
         let keymap = settingsStore.settings.keymap
         guard let shortcut = BrowserShortcut(event: event),
               let id = keymap.command(for: shortcut),
@@ -207,11 +205,30 @@ extension BrowserWindowController {
             runShortcutCommand(id)
             return true
         case .forward:
-            forwardedKey = (event, keyTokens)
+            forwardedKeys.append((event, keyTokens))
+            if forwardedKeys.count > BrowserShortcutGate.rememberedTokens { forwardedKeys.removeFirst() }
             return false
         case .swallow:
             return true
         case .pass:
+            return false
+        }
+    }
+
+    /// WebKit sends a key the page left unhandled through AppKit again as
+    /// the same event: a press the gate forwarded is answered here (run
+    /// or swallowed, never left to the menu). Nil when `event` is not one.
+    func consumeHandedBackKey(_ event: NSEvent) -> Bool? {
+        guard let index = forwardedKeys.firstIndex(where: { $0.event === event }) else { return nil }
+        let token = forwardedKeys.remove(at: index).token
+        let (decision, command) = shortcutGate.pageDidNotHandle(token: token, at: Date())
+        switch decision {
+        case .run:
+            if let command { runShortcutCommand(command) }
+            return true
+        case .swallow:
+            return true
+        case .forward, .pass:
             return false
         }
     }

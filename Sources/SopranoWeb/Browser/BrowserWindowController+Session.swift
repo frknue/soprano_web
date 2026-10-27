@@ -224,7 +224,14 @@ extension BrowserWindowController: NSWindowDelegate {
     }
 
     func windowWillClose(_ notification: Notification) {
+        cancelRecentTabs()
         manager.windowClosing(self)
+    }
+
+    /// ⌃Tab's switcher closes with the window's key status (another window,
+    /// another app): a ⌃ released elsewhere must not pick a tab later.
+    func windowDidResignKey(_ notification: Notification) {
+        cancelRecentTabs()
     }
 
     func windowDidBecomeKey(_ notification: Notification) {

@@ -269,11 +269,22 @@ app.
   taken. Each shortcut has a priority for when a page has focus: App wins,
   Site wins (the command runs only if the page doesn't use the key) or Press
   twice (a second press within a second). Saved under `shortcuts` in
-  `settings.json`.
+  `settings.json`. Keys the system, text editing (`⌥⌫`, `⌥←`, `⌃A`, `⌃E`, `⌃K`…)
+  or Vimium use, `⌘;`, `` ⌘` ``, `⌃⌘Space` and `⇧⌘/` can't be taken, and a
+  hand-edited `settings.json` that puts two commands on one key keeps the
+  first. A quick double press or key repeat runs a Site wins or Press twice
+  command once per press, never more.
+- `⌘T` then Return on nothing opens a new tab on the start page; `⌘L` then
+  Return on the start page does nothing.
 - `⌃Tab` shows your five most recent tabs while `⌃` is held; press `Tab`
-  again to move on, release to switch (`⌃⇧Tab` goes back).
+  again to move on, release to switch (`⌃⇧Tab` goes back). Switching to
+  another window or app closes it.
 - Edit ▸ Copy URL (`⇧⌘C`) and Copy URL as Markdown (`⌥⇧⌘C`, `[title](url)`).
-- View ▸ Hide Toolbar (`⇧⌘D`) hides the address toolbar in every window.
+- View ▸ Hide Toolbar (`⇧⌘D`) hides the address toolbar in every window;
+  wherever the address field would get focus (a new tab or window, launch)
+  the Command Bar opens instead.
+- How long a Today tab has been idle survives quitting, so "Archive Today
+  tabs after" counts across relaunches.
 - File ▸ Import Browser Data… brings in Arc (found on this Mac): every Space
   with its emoji, nearest color and pinned folders, Favorites (past 12 they
   are pinned in the profile's first Space), Today tabs (unloaded, in their
@@ -361,6 +372,12 @@ app.
   `bookmarks.json.migrated`.
 
 ### Fixed
+- Reopening a closed tab (`⇧⌘T`) takes it out of the Archive again.
+- A private window's sidebar no longer shows the profile's Archive, and
+  Clear Browsing Data ▸ History there also clears its Command Bar pages.
+- `⌘L` in a pop-up window edits the pop-up's own address.
+- Archiving many tabs at once (`⇧⌘K`, tabs going idle) writes the Archive
+  once instead of once per tab.
 - `⌘L` (File → Open Location…) now focuses and selects the address bar; the
   shortcut was listed in Keyboard Shortcuts but never bound.
 - Settings, history, bookmarks and downloads no longer reset when their file has a

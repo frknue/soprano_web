@@ -54,9 +54,8 @@ final class BrowserArchiveStore {
 
     // MARK: Changes
 
-    /// Archives one tab. An entry of the same profile with the same address
-    /// is replaced, so the page shows once, at its newest time. Nil for an
-    /// address that can't be archived.
+    /// Archives one tab (`archive(_:)` with one entry). Nil for an address
+    /// that can't be archived.
     @discardableResult
     func archive(
         url address: String,
@@ -67,8 +66,7 @@ final class BrowserArchiveStore {
         reason: BrowserArchiveReason,
         faviconKey: String? = nil
     ) -> BrowserArchiveEntry? {
-        guard BrowserArchiveEntry.isArchivable(URL(string: address)) else { return nil }
-        let entry = BrowserArchiveEntry(
+        archive([BrowserArchiveEntry(
             url: address,
             title: title,
             spaceID: spaceID,
@@ -76,11 +74,53 @@ final class BrowserArchiveStore {
             archivedAt: date,
             reason: reason,
             faviconKey: faviconKey
-        )
-        entries.removeAll { $0.profileID == profileID && $0.url == address }
-        entries.insert(entry, at: 0)
-        commit()
-        return entry
+        )]).first
+    }
+
+    /// Archives many tabs with one write and one `changes` (⇧⌘K, the idle
+    /// pass). An entry of the same profile and address already in the
+    /// Archive (or earlier in the batch) is replaced, so a page shows once,
+    /// at its newest time. Addresses that can't be archived are skipped.
+    /// The search index changes only for the entries added and replaced.
+    /// Returns the entries added.
+    @discardableResult
+    func archive(_ newEntries: [BrowserArchiveEntry]) -> [BrowserArchiveEntry] {
+        func key(_ entry: BrowserArchiveEntry) -> String { "\(entry.profileID.uuidString)|\(entry.url)" }
+        var seen: Set<String> = []
+        let batch = Self.sorted(newEntries.filter { BrowserArchiveEntry.isArchivable(URL(string: $0.url)) })
+            .filter { seen.insert(key($0)).inserted }
+        guard let oldest = batch.last else { return [] }
+        var kept: [BrowserArchiveEntry] = []
+        kept.reserveCapacity(entries.count)
+        for entry in entries {
+            if seen.contains(key(entry)) {
+                searchKeys[entry.id] = nil
+            } else {
+                kept.append(entry)
+            }
+        }
+        for entry in batch {
+            searchKeys[entry.id] = BrowserArchiveSearch.key(for: entry)
+        }
+        // Usually the batch is newer than everything; merge only when not.
+        entries = kept.first.map { oldest.archivedAt >= $0.archivedAt } ?? true
+            ? batch + kept
+            : Self.sorted(batch + kept)
+        save()
+        return batch
+    }
+
+    /// The profile's entry for `address`, removed (⇧⌘T brought the tab
+    /// back).
+    @discardableResult
+    func removeEntry(url address: String, profileID: UUID) -> BrowserArchiveEntry? {
+        guard let index = entries.firstIndex(where: { $0.profileID == profileID && $0.url == address }) else {
+            return nil
+        }
+        let removed = entries.remove(at: index)
+        searchKeys[removed.id] = nil
+        save()
+        return removed
     }
 
     /// The importers' entry point: adds `entries` with `reason` (ids
@@ -106,32 +146,45 @@ final class BrowserArchiveStore {
     func remove(id: UUID) -> BrowserArchiveEntry? {
         guard let index = entries.firstIndex(where: { $0.id == id }) else { return nil }
         let removed = entries.remove(at: index)
-        commit()
+        searchKeys[id] = nil
+        save()
         return removed
     }
 
     /// Every entry of a profile (the profile is deleted).
     func removeEntries(ofProfile profileID: UUID) {
-        let count = entries.count
-        entries.removeAll { $0.profileID == profileID }
-        guard entries.count != count else { return }
-        commit()
+        removeEntries { $0.profileID == profileID }
     }
 
     /// The profile's entries archived within `range` (Clear Browsing Data
     /// ▸ History for that profile).
     func removeEntries(ofProfile profileID: UUID, archivedIn range: ClosedRange<Date>) {
+        removeEntries { $0.profileID == profileID && range.contains($0.archivedAt) }
+    }
+
+    private func removeEntries(where shouldRemove: (BrowserArchiveEntry) -> Bool) {
         let count = entries.count
-        entries.removeAll { $0.profileID == profileID && range.contains($0.archivedAt) }
+        entries.removeAll { entry in
+            guard shouldRemove(entry) else { return false }
+            searchKeys[entry.id] = nil
+            return true
+        }
         guard entries.count != count else { return }
-        commit()
+        save()
     }
 
     // MARK: Saving
 
+    /// Re-sorts and re-indexes everything (the importers' insert), then
+    /// saves.
     private func commit() {
         entries = Self.sorted(entries)
         rebuildIndex()
+        save()
+    }
+
+    /// One write of `archive.json` and one `changes` per change.
+    private func save() {
         try? JSONFile.write(BrowserArchiveFile(entries: entries), to: url)
         changes.notify()
     }
