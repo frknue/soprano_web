@@ -49,12 +49,14 @@ enum BrowserImportSourceData: Sendable {
 // MARK: - Plan
 
 struct BrowserImportPlan: Sendable {
-    /// How a source profile maps onto the app's profiles.
+    /// Where a source profile's History and favorites go: its home Space.
     struct Profile: Sendable, Equatable {
         enum Target: Sendable, Equatable {
+            /// The Space whose profile has this id (the Default Space, or
+            /// the one an earlier import made the home).
             case existing(UUID)
-            /// Made when something of it is imported, named `name` (made
-            /// unique then).
+            /// The first of the source profile's Spaces this import makes,
+            /// else a new Space named `name`.
             case new(name: String)
         }
 
@@ -63,8 +65,12 @@ struct BrowserImportPlan: Sendable {
         /// The source's name for it.
         var displayName: String
         var target: Target
-        /// The app profile's name (a new one's before it is made unique).
+        /// The home Space's name (a new one's: `name`).
         var targetName: String
+        /// An existing home Space nothing was put in yet (no pins, never
+        /// imported): the profile's first new Space takes it over instead
+        /// of adding a Space (the Default Space of a fresh install).
+        var adoptableSpaceID: UUID?
     }
 
     /// An Arc Space.
@@ -86,9 +92,9 @@ struct BrowserImportPlan: Sendable {
         var isSkipped: Bool { existingSpaceID != nil }
     }
 
-    /// A profile's favorites. `links` are the ones the profile doesn't
-    /// have yet; the first `capacity` become favorites, the rest are
-    /// pinned at the end of the profile's first imported Space.
+    /// A source profile's favorites, for its home Space. `links` are the
+    /// ones the home doesn't have yet; the first `capacity` become
+    /// favorites, the rest are pinned at the end of the home Space.
     struct Favorites: Sendable {
         var profileKey: String
         var links: [BrowserImportedLink]
@@ -107,7 +113,8 @@ struct BrowserImportPlan: Sendable {
         var items: [BrowserImportedArchiveItem]
         /// Items the Archive doesn't hold yet.
         var newCount: Int
-        /// Items without a Space (Little Arc, unknown): into Default's.
+        /// Items without a Space (Little Arc, unknown): into the Default
+        /// Space.
         var spacelessCount: Int
         var isIncluded: Bool
     }
@@ -145,7 +152,8 @@ struct BrowserImportPlan: Sendable {
 
         var id: String
         var title: String
-        /// The Arc profile it belongs to; nil: the target Space's profile.
+        /// The Arc profile it belongs to (its home Space's); nil: the
+        /// target Space's.
         var profileKey: String?
         var source: Source
         /// The visits this imports.
@@ -168,17 +176,51 @@ struct BrowserImportPlan: Sendable {
     var routing: Routing?
     var folders: [Folder] = []
     var history: [History] = []
-    /// Where bookmark folders go and whose profile non-Arc History joins:
-    /// the importing window's Space.
+    /// Where bookmark folders go and whose History non-Arc History joins:
+    /// the Space chosen in the sheet (the importing window's at first;
+    /// `BrowserImportPlanner.retarget`).
     var targetSpaceID: UUID?
     /// Arc item id → its cached favicon file.
     var favicons: [String: URL] = [:]
     /// History older than this (Settings ▸ Remove history items) is left
     /// out; nil imports all of it.
     var historyCutoff: Date?
+    /// The Default Space's name, where Spaceless archived tabs go.
+    var defaultSpaceName = BrowserProfile.defaultName
 
     func profile(key: String) -> Profile? {
         profiles.first { $0.key == key }
+    }
+
+    /// The first checked new Space of source profile `key`: the one that
+    /// becomes its home (or takes the home over).
+    func firstNewSpace(ofProfile key: String) -> Space? {
+        spaces.first { $0.profileKey == key && $0.isIncluded && !$0.isSkipped }
+    }
+
+    /// The Space a checked new Space takes over (its profile's untouched
+    /// home), if any.
+    func adoptedSpaceID(by space: Space) -> UUID? {
+        guard let profile = profile(key: space.profileKey), let adoptable = profile.adoptableSpaceID,
+              firstNewSpace(ofProfile: space.profileKey)?.id == space.id
+        else { return nil }
+        return adoptable
+    }
+
+    /// Where source profile `key`'s History and favorites go, as the sheet
+    /// names it.
+    func homeName(ofProfile key: String) -> String {
+        guard let profile = profile(key: key) else { return "“\(defaultSpaceName)”" }
+        switch profile.target {
+        case .existing:
+            return "“\(profile.targetName)”"
+        case .new:
+            if let first = firstNewSpace(ofProfile: key) {
+                let name = first.name.trimmingCharacters(in: .whitespacesAndNewlines)
+                return "“\(name.isEmpty ? BrowserSpace.defaultName : name)”"
+            }
+            return "new Space “\(profile.targetName)”"
+        }
     }
 
     /// Visits of the included History items.
@@ -228,11 +270,16 @@ enum BrowserImportPlanner {
 
     // MARK: Arc
 
-    /// Arc → app: Arc's `Default` profile is Default; `Profile N` is the
-    /// profile an earlier import made of it, else a new one named after
-    /// its first Space (its Arc name when it has none). Spaces an earlier
-    /// import made are skipped. A profile with History but no Space or
-    /// favorites is offered unchecked.
+    /// Arc → app: every Arc Space becomes a Space of its own, with its own
+    /// cookies, History and Archive. An Arc profile's History and favorites
+    /// go to its home Space: Arc's `Default` → the Default Space; `Profile
+    /// N` → the Space an earlier import made its home (the profile marked
+    /// `arc:Profile N`), else the first of its Spaces this import makes,
+    /// else a new Space named after its first Space (its Arc name when it
+    /// has none). A home nothing was put in yet (the Default Space of a
+    /// fresh install) is taken over by the profile's first new Space.
+    /// Spaces an earlier import made are skipped. A profile with History
+    /// but no Space or favorites is offered unchecked.
     static func arc(
         _ data: BrowserArcImport,
         historyCounts: [String: BrowserImportSourceData.HistoryCounts],
@@ -241,33 +288,37 @@ enum BrowserImportPlanner {
         var plan = BrowserImportPlan(source: .arc, sourceName: BrowserImportSourceKind.arc.title)
         plan.targetSpaceID = context.targetSpaceID
         plan.favicons = data.favicons
+        plan.defaultSpaceName = context.spaces.defaultSpace?.displayName ?? BrowserProfile.defaultName
         let profileList = BrowserProfileList(context.profiles)
 
         for profile in data.profiles {
             let spaces = data.spaces.filter { $0.profileKey == profile.key }
             let target: BrowserImportPlan.Profile.Target
             let targetName: String
+            let home: BrowserSpace?
             if profile.isDefault {
+                home = context.spaces.defaultSpace
                 target = .existing(BrowserProfile.defaultID)
-                targetName = profileList.profile(id: BrowserProfile.defaultID)?.name ?? BrowserProfile.defaultName
-            } else if let earlier = spaces.lazy.compactMap({ context.spaces.space(importedFrom: $0.sourceID) }).first,
-                      let owner = profileList.profile(id: earlier.profileID) {
-                target = .existing(owner.id)
-                targetName = owner.name
-            } else if let earlier = profileList.profile(importedFrom: arcProfileSource(profile.key)) {
+                targetName = home?.displayName ?? BrowserProfile.defaultName
+            } else if let earlier = profileList.profile(importedFrom: arcProfileSource(profile.key)),
+                      let space = context.spaces.space(ofProfile: earlier.id)
+            {
+                home = space
                 target = .existing(earlier.id)
-                targetName = earlier.name
+                targetName = space.displayName
             } else {
                 let spaceName = spaces.first?.name.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
                 let name = spaceName.isEmpty ? profile.displayName : spaceName
                 target = .new(name: name)
                 targetName = name
+                home = nil
             }
             plan.profiles.append(BrowserImportPlan.Profile(
                 key: profile.key,
                 displayName: profile.displayName,
                 target: target,
-                targetName: targetName
+                targetName: targetName,
+                adoptableSpaceID: home.flatMap { $0.importedFrom == nil && $0.pinned.isEmpty ? $0.id : nil }
             ))
         }
 
@@ -368,10 +419,30 @@ enum BrowserImportPlanner {
 
     // MARK: Chrome, Safari, bookmarks files
 
+    /// Points a Chrome, Safari or bookmarks-file plan at Space `spaceID`
+    /// (the sheet's Space menu): its folders go there (one the Space has
+    /// a top-level folder of that name for is skipped) and its History
+    /// joins that Space's.
+    static func retarget(_ plan: inout BrowserImportPlan, to spaceID: UUID, spaces: BrowserSpaceList) {
+        guard plan.source != .arc, spaces.space(id: spaceID) != nil else { return }
+        plan.targetSpaceID = spaceID
+        let root = spaces.space(id: spaceID)?.pinned.root
+        for index in plan.folders.indices {
+            let wasThere = plan.folders[index].alreadyThere
+            let there = root?.children.contains { $0.folder?.name == plan.folders[index].name } ?? false
+            plan.folders[index].alreadyThere = there
+            if there {
+                plan.folders[index].isIncluded = false
+            } else if wasThere {
+                plan.folders[index].isIncluded = !plan.folders[index].nodes.isEmpty
+            }
+        }
+    }
+
     /// Each Chrome profile's bookmarks become one pinned folder ("Chrome
     /// Bookmarks", with the profile's name when several have bookmarks)
     /// in the target Space; each profile's History goes to the target
-    /// Space's profile.
+    /// Space.
     static func chrome(_ profiles: [BrowserImportSourceData.ChromeProfile], context: Context) -> BrowserImportPlan {
         var plan = BrowserImportPlan(source: .chrome, sourceName: BrowserImportSourceKind.chrome.title)
         plan.targetSpaceID = context.targetSpaceID
@@ -399,8 +470,8 @@ enum BrowserImportPlanner {
     }
 
     /// Safari's export: `Bookmarks.html` as one pinned folder, each
-    /// History file into the target Space's profile, one visit per page at
-    /// its last visit time.
+    /// History file into the target Space, one visit per page at its last
+    /// visit time.
     static func safari(_ export: BrowserSafariExport, name: String, context: Context) -> BrowserImportPlan {
         var plan = BrowserImportPlan(source: .safari, sourceName: name)
         plan.targetSpaceID = context.targetSpaceID

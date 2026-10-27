@@ -2,8 +2,9 @@
 import AppKit
 import Testing
 
-/// The apply step against real stores in a temporary folder: profiles and
-/// their one Space, favorites past the limit, the Archive, rules, History,
+/// The apply step against real stores in a temporary folder: every Space
+/// with a profile of its own, home Spaces for a source profile's History
+/// and favorites, favorites past the limit, the Archive, rules, History,
 /// and a second run that adds nothing.
 @MainActor
 struct BrowserImporterTests {
@@ -59,7 +60,7 @@ struct BrowserImporterTests {
                 spaces: spaces.list,
                 archiveIDs: Set(archive.entries.map(\.id)),
                 routingRules: linkRouting.rules,
-                targetSpaceID: spaces.firstSpace(ofProfile: BrowserProfile.defaultID)?.id
+                targetSpaceID: spaces.space(ofProfile: BrowserProfile.defaultID)?.id
             )
         }
 
@@ -138,53 +139,100 @@ struct BrowserImporterTests {
         }
     }
 
-    @Test func anArcImportMakesProfilesSpacesFavoritesArchiveAndRules() async throws {
+    @Test func anArcImportMakesASpaceWithItsOwnProfilePerArcSpace() async throws {
         let fixture = Fixture()
         let summary = await run(plan(fixture), fixture)
 
-        #expect(summary.profilesCreated == ["Work"])
-        let work = try #require(fixture.profiles.profile(named: "Work"))
-        #expect(work.importedFrom == "arc:Profile 1")
-        // The new profile's own Space became its first imported Space;
-        // no second one was added for it.
-        let workSpaces = fixture.spaces.spaces(ofProfile: work.id)
-        #expect(workSpaces.map(\.name) == ["Work", "Side"])
-        #expect(workSpaces.map(\.importedFrom) == [spaceB, spaceC])
-        #expect(workSpaces.first?.color == .green)
-        #expect(fixture.spaces.pins(inSpace: workSpaces[0].id).map(\.url) == ["https://docs.example/"])
-
-        // Arc's Default Space joins Default next to its own Space.
-        let defaults = fixture.spaces.spaces(ofProfile: BrowserProfile.defaultID)
-        #expect(defaults.count == 2)
-        let home = try #require(defaults.first { $0.importedFrom == spaceA })
+        // Arc's Default Space takes over the untouched Default Space; Work
+        // and Side each get a Space with a profile of its own.
+        #expect(fixture.spaces.spaces.map(\.name) == ["Home", "Work", "Side"])
+        #expect(fixture.spaces.spaces.map(\.importedFrom) == [spaceA, spaceB, spaceC])
+        #expect(Set(fixture.spaces.spaces.map(\.profileID)).count == 3)
+        let home = try #require(fixture.spaces.defaultSpace)
+        #expect(home.importedFrom == spaceA)
         #expect(home.icon == .emoji("🦅"))
+        let workSpace = try #require(fixture.spaces.space(importedFrom: spaceB))
+        let side = try #require(fixture.spaces.space(importedFrom: spaceC))
+        #expect(workSpace.color == .green)
+        #expect(fixture.spaces.pins(inSpace: workSpace.id).map(\.url) == ["https://docs.example/"])
+        // Profile 1's History goes to its first Space, Work, whose profile
+        // is marked for a re-import; Side's isn't.
+        let work = try #require(fixture.profiles.profile(id: workSpace.profileID))
+        #expect(work.importedFrom == "arc:Profile 1")
+        #expect(work.name == "Work")
+        #expect(fixture.profiles.profile(id: side.profileID)?.importedFrom == nil)
+        #expect(fixture.profiles.profiles.count == 3)
         #expect(summary.spacesCreated == 3)
         #expect(summary.firstSpaceID == home.id)
         #expect(summary.todayTabs.map { $0.spaceID } == [home.id])
 
-        // 12 favorites; the 2 past the limit end Home's pins.
+        // Default's favorites: 12 in the Default Space; the 2 past the
+        // limit end its pins.
         #expect(fixture.spaces.favorites(ofProfile: BrowserProfile.defaultID).count == BrowserFavorites.limit)
         #expect(summary.favoritesPinned == 2)
         #expect(fixture.spaces.pins(inSpace: home.id).map(\.url).suffix(2) == ["https://fav13.example/", "https://fav14.example/"])
 
-        // Archive: the Space's entry in its profile, Little Arc's in Default's first Space.
+        // Archive: Work's entry in Work's profile, Little Arc's in the
+        // Default Space.
         #expect(summary.archiveAdded == 2)
         let fromSpaceID = try #require(UUID(uuidString: archivedB))
         let fromSpace = try #require(fixture.archive.entry(id: fromSpaceID))
         #expect(fromSpace.profileID == work.id)
-        #expect(fromSpace.spaceID == workSpaces[0].id)
+        #expect(fromSpace.spaceID == workSpace.id)
         #expect(fromSpace.reason == .imported)
         let littleID = try #require(UUID(uuidString: archivedLittle))
         let little = try #require(fixture.archive.entry(id: littleID))
         #expect(little.profileID == BrowserProfile.defaultID)
-        #expect(little.spaceID == defaults[0].id)
+        #expect(little.spaceID == home.id)
 
         // Rules: the most recent Space and Work; Little Arc's is dropped.
         #expect(summary.rulesAdded == 2)
-        #expect(fixture.linkRouting.rules.map(\.destination) == [.mostRecentSpace, .space(workSpaces[0].id)])
+        #expect(fixture.linkRouting.rules.map(\.destination) == [.mostRecentSpace, .space(workSpace.id)])
 
         #expect(summary.history.map(\.count) == [BrowserHistoryImportCount(added: 5, skipped: 0)])
+        #expect(summary.history.map(\.spaceName) == ["Work"])
         #expect(fixture.histories[work.id]?.visitCount() == 5)
+        #expect(fixture.histories[side.profileID] == nil)
+    }
+
+    @Test func aDefaultSpaceInUseKeepsItsOwnAndStillGetsDefaultsFavorites() async throws {
+        let fixture = Fixture()
+        let defaultSpace = try #require(fixture.spaces.defaultSpace)
+        fixture.spaces.addPin(url: "https://mine.example/", title: "Mine", inSpace: defaultSpace.id)
+        let summary = await run(plan(fixture), fixture)
+        // Arc's Home becomes a Space of its own next to the Default Space,
+        // which keeps its name and pins and receives Default's favorites.
+        #expect(fixture.spaces.spaces.map(\.name) == ["Default", "Home", "Work", "Side"])
+        #expect(Set(fixture.spaces.spaces.map(\.profileID)).count == 4)
+        #expect(summary.spacesCreated == 3)
+        #expect(fixture.spaces.favorites(ofProfile: BrowserProfile.defaultID).count == BrowserFavorites.limit)
+        let pins = fixture.spaces.pins(inSpace: defaultSpace.id).map(\.url)
+        #expect(pins == ["https://mine.example/", "https://fav13.example/", "https://fav14.example/"])
+    }
+
+    @Test func aProfilesHistoryAloneGetsASpaceTheFirstImportedSpaceTakesOver() async throws {
+        let fixture = Fixture()
+        var historyOnly = plan(fixture)
+        BrowserImportChecklist.set(.space(spaceB), included: false, in: &historyOnly)
+        BrowserImportChecklist.set(.space(spaceC), included: false, in: &historyOnly)
+        #expect(historyOnly.homeName(ofProfile: "Profile 1") == "new Space “Work”")
+        let first = await run(historyOnly, fixture)
+        // Profile 1's History made a Space named after its first Arc Space.
+        let made = try #require(fixture.spaces.spaces.first { $0.name == "Work" })
+        #expect(made.importedFrom == nil)
+        #expect(fixture.profiles.profile(id: made.profileID)?.importedFrom == "arc:Profile 1")
+        #expect(first.history.map(\.spaceName) == ["Work"])
+        #expect(fixture.histories[made.profileID]?.visitCount() == 5)
+
+        // Importing the Spaces later: Work takes that Space over (with its
+        // History); Side gets its own.
+        let later = plan(fixture)
+        #expect(later.profile(key: "Profile 1")?.target == .existing(made.profileID))
+        #expect(later.profile(key: "Profile 1")?.adoptableSpaceID == made.id)
+        let second = await run(later, fixture)
+        #expect(fixture.spaces.space(importedFrom: spaceB)?.id == made.id)
+        #expect(fixture.spaces.space(importedFrom: spaceC)?.profileID != made.profileID)
+        #expect(second.history.map(\.count) == [BrowserHistoryImportCount(added: 0, skipped: 5)])
     }
 
     @Test func importingAgainAddsNothing() async throws {
@@ -196,7 +244,6 @@ struct BrowserImporterTests {
         let again = plan(fixture)
         #expect(again.spaces.allSatisfy { $0.isSkipped })
         let summary = await run(again, fixture)
-        #expect(summary.profilesCreated.isEmpty)
         #expect(summary.spacesCreated == 0)
         #expect(summary.spacesSkipped == 3)
         #expect(summary.favoritesAdded == 0)
@@ -217,9 +264,7 @@ struct BrowserImporterTests {
         BrowserImportChecklist.set(.history("test"), included: false, in: &plan)
         BrowserImportChecklist.set(.routing, included: false, in: &plan)
         let summary = await run(plan, fixture)
-        // Nothing of Profile 1 was imported, so no profile was made; its
-        // archived tab goes to Default's Archive.
-        #expect(summary.profilesCreated.isEmpty)
+        // Nothing of Profile 1 was imported, so no Space was made for it.
         #expect(fixture.profiles.profiles.count == 1)
         // Its archived tab waits for the profile; only Little Arc's goes to Default.
         #expect(fixture.archive.entries.map(\.url) == ["https://little.example/"])
@@ -245,12 +290,19 @@ struct BrowserImporterTests {
         #expect(fixture.linkRouting.rules.map(\.value) == ["meet.example", "https://x.example/", "mine.example"])
     }
 
-    @Test func historyOfAProfileThatVanishedIsSkipped() async throws {
+    @Test func historyOfAHomeThatVanishedIsSkipped() async throws {
         let fixture = Fixture()
+        // The plan saw a home Space for Profile 1 that is deleted before
+        // the import runs.
         let gone = BrowserProfile(name: "Gone", color: .gray, importedFrom: BrowserImportPlanner.arcProfileSource("Profile 1"))
         var context = fixture.context
         context.profiles.append(gone)
+        var list = context.spaces
+        list.ensureSpace(for: gone)
+        context.spaces = list
         var plan = BrowserImportPlanner.arc(arc(), historyCounts: [:], context: context)
+        BrowserImportChecklist.set(.space(spaceB), included: false, in: &plan)
+        BrowserImportChecklist.set(.space(spaceC), included: false, in: &plan)
         plan.history = [BrowserImportPlan.History(
             id: "test", title: "History", profileKey: "Profile 1", source: .visits(visits()), visitCount: 5, isIncluded: true
         )]
@@ -269,7 +321,7 @@ struct BrowserImporterTests {
         let first = await run(BrowserImportPlanner.bookmarksFile(nodes, name: "bookmarks.html", context: fixture.context), fixture)
         #expect(first.pinsAdded == 2)
         #expect(first.foldersAdded == 2)
-        let space = try #require(fixture.spaces.firstSpace(ofProfile: BrowserProfile.defaultID))
+        let space = try #require(fixture.spaces.space(ofProfile: BrowserProfile.defaultID))
         #expect(fixture.spaces.pinTree(inSpace: space.id).root.children.map(\.title) == ["bookmarks"])
 
         let again = BrowserImportPlanner.bookmarksFile(nodes, name: "bookmarks.html", context: fixture.context)
@@ -277,5 +329,28 @@ struct BrowserImporterTests {
         let second = await run(again, fixture)
         #expect(second.pinsAdded == 0)
         #expect(fixture.spaces.pinTree(inSpace: space.id).root.children.count == 1)
+    }
+
+    @Test func bookmarkFoldersGoToTheSpaceChosenInTheSheet() async throws {
+        let fixture = Fixture()
+        let reading = try #require(fixture.spaces.createSpace(name: "Reading", color: .yellow, profiles: fixture.profiles))
+        let nodes: [BrowserImportedNode] = [.link(link("https://d.example/", "D"))]
+        var plan = BrowserImportPlanner.bookmarksFile(nodes, name: "bookmarks.html", context: fixture.context)
+        let home = try #require(fixture.spaces.defaultSpace)
+        #expect(plan.targetSpaceID == home.id)
+        BrowserImportPlanner.retarget(&plan, to: reading.id, spaces: fixture.spaces.list)
+        #expect(plan.targetSpaceID == reading.id)
+        _ = await run(plan, fixture)
+        #expect(fixture.spaces.pinTree(inSpace: reading.id).root.children.map(\.title) == ["bookmarks"])
+        #expect(fixture.spaces.pinTree(inSpace: home.id).isEmpty)
+
+        // Back at the Space that has the folder now: skipped there.
+        var again = BrowserImportPlanner.bookmarksFile(nodes, name: "bookmarks.html", context: fixture.context)
+        #expect(again.folders.first?.alreadyThere == false)
+        BrowserImportPlanner.retarget(&again, to: reading.id, spaces: fixture.spaces.list)
+        #expect(again.folders.first?.alreadyThere == true)
+        #expect(again.folders.first?.isIncluded == false)
+        BrowserImportPlanner.retarget(&again, to: home.id, spaces: fixture.spaces.list)
+        #expect(again.folders.first?.isIncluded == true)
     }
 }

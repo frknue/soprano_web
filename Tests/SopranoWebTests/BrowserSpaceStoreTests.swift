@@ -25,7 +25,7 @@ struct BrowserSpaceStoreTests {
     }
 
     private func defaultSpace(_ store: BrowserSpaceStore) throws -> UUID {
-        try #require(store.firstSpace(ofProfile: BrowserProfile.defaultID)).id
+        try #require(store.space(ofProfile: BrowserProfile.defaultID)).id
     }
 
     // MARK: Migration
@@ -63,7 +63,7 @@ struct BrowserSpaceStoreTests {
 
         let store = makeStore(in: directory)
         let home = try defaultSpace(store)
-        let workSpace = try #require(store.firstSpace(ofProfile: work.id)).id
+        let workSpace = try #require(store.space(ofProfile: work.id)).id
         #expect(store.pinTree(inSpace: home).root.children.map(\.id) == [new, old])
         #expect(store.pinTree(inSpace: workSpace).isEmpty)
         #expect(!FileManager.default.fileExists(atPath: bookmarksURL.path))
@@ -116,28 +116,76 @@ struct BrowserSpaceStoreTests {
         #expect(try object(at: url)["version"] as? Int == 1)
     }
 
-    // MARK: Spaces
-
-    @Test func everyProfileKeepsASpace() throws {
+    @Test func spacesSharingAProfileAreSeparatedOnLoadOnce() throws {
         let directory = temporaryDirectory()
         defer { try? FileManager.default.removeItem(at: directory) }
-        let store = makeStore(in: directory)
-        let workSpace = try #require(store.firstSpace(ofProfile: work.id)).id
-        #expect(!store.deleteSpace(workSpace))
+        let url = directory.appendingPathComponent("spaces.json")
+        // Stage 3's file: Work and Side share the Work profile, Home and
+        // Reading share Default; Work has favorites.
+        let home = BrowserSpace(name: "Home", color: .blue, profileID: BrowserProfile.defaultID)
+        let reading = BrowserSpace(name: "Reading", color: .yellow, profileID: BrowserProfile.defaultID)
+        let workSpace = BrowserSpace(name: "Work", color: .green, profileID: work.id)
+        let side = BrowserSpace(name: "Side", icon: .emoji("🌱"), color: .red, profileID: work.id)
+        var favorites = BrowserFavorites(profileID: work.id)
+        favorites.add(BrowserPin(url: "https://mail.example/", title: "Mail"))
+        let stage3 = BrowserSpaceList(spaces: [home, workSpace, reading, side], favorites: [favorites])
+        try JSONFile.write(BrowserSpacesFile(list: stage3), to: url)
+        let slowWork = BrowserProfile(id: work.id, name: "Work", color: .green, archiveAfter: .days7)
 
-        let second = try #require(store.createSpace(name: "Side", icon: .emoji("🌱"), color: .cyan, profileID: work.id))
-        #expect(store.spaces(ofProfile: work.id).count == 2)
-        #expect(store.deleteSpace(workSpace))
-        #expect(!store.deleteSpace(second.id))
-        #expect(store.firstSpace(ofProfile: work.id)?.id == second.id)
+        let store = makeStore(in: directory, profiles: [.defaultProfile, slowWork])
+        #expect(store.separations == [
+            BrowserSpaceList.Separation(spaceID: reading.id, from: BrowserProfile.defaultID),
+            BrowserSpaceList.Separation(spaceID: side.id, from: work.id),
+        ])
+        // Each separated Space has a new profile with its own id, name and
+        // color, archiving as the shared profile did.
+        #expect(store.separatedProfiles.map(\.id) == [reading.id, side.id])
+        #expect(store.separatedProfiles.map(\.name) == ["Reading", "Side"])
+        #expect(store.separatedProfiles.map(\.archiveAfter) == [.hours12, .days7])
+        #expect(store.spaces.map(\.profileID) == [BrowserProfile.defaultID, work.id, reading.id, side.id])
+        // Favorites stay with the first Space's profile.
+        #expect(store.favorites(ofProfile: work.id).map(\.title) == ["Mail"])
+        #expect(store.favorites(ofProfile: side.id).isEmpty)
 
-        // A profile whose Spaces were deleted gets one again.
-        store.deleteSpaces(ofProfile: work.id)
-        #expect(store.spaces(ofProfile: work.id).isEmpty)
+        // Written once: a second launch (with the new profiles saved)
+        // changes nothing.
+        let written = try Data(contentsOf: url)
+        let again = makeStore(in: directory, profiles: [.defaultProfile, slowWork] + store.separatedProfiles)
+        #expect(again.separations.isEmpty)
+        #expect(again.spaces == store.spaces)
+        #expect(try Data(contentsOf: url) == written)
+
+        // A launch that saved `spaces.json` but not the new profiles keeps
+        // the separated Spaces and asks for their profiles again.
+        let interrupted = makeStore(in: directory, profiles: [.defaultProfile, slowWork])
+        #expect(interrupted.spaces.count == 4)
+        #expect(interrupted.separatedProfiles.map(\.id) == [reading.id, side.id])
+    }
+
+    // MARK: Spaces
+
+    @Test func everySpaceHasItsOwnProfile() throws {
+        let directory = temporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let profiles = BrowserProfileStore(url: directory.appendingPathComponent("profiles.json"))
+        let store = makeStore(in: directory, profiles: profiles.profiles)
+        let side = try #require(store.createSpace(name: "Side", icon: .emoji("🌱"), color: .cyan, profiles: profiles))
+        // The Space's profile has its id, its name and color.
+        #expect(side.profileID == side.id)
+        let profile = try #require(profiles.profile(id: side.id))
+        #expect(profile.name == "Side")
+        #expect(profile.color == .cyan)
+        #expect(store.space(ofProfile: side.id) == side)
+        #expect(Set(store.spaces.map(\.profileID)).count == store.spaces.count)
+
+        // Deleting its profile's Space takes it; a profile without a Space
+        // gets one again.
+        store.deleteSpace(ofProfile: side.id)
+        #expect(store.space(id: side.id) == nil)
         let ensured = store.ensureSpace(forProfile: work)
         #expect(ensured.name == "Work")
         #expect(store.ensureSpace(forProfile: work) == ensured)
-        #expect(makeStore(in: directory).spaces(ofProfile: work.id) == [ensured])
+        #expect(makeStore(in: directory).space(ofProfile: work.id) == ensured)
     }
 
     @Test func reconcileFollowsTheProfileList() throws {
@@ -152,7 +200,7 @@ struct BrowserSpaceStoreTests {
         #expect(store.spaces.map(\.name) == ["Default", "Work"])
         store.reconcile(with: [.defaultProfile, work])
         #expect(notified == 1)
-        // Opening with a list that lost a profile drops its Spaces.
+        // Opening with a list that lost a profile drops its Space.
         let reopened = makeStore(in: directory, profiles: [.defaultProfile])
         #expect(reopened.spaces.map(\.name) == ["Default"])
     }
@@ -162,19 +210,17 @@ struct BrowserSpaceStoreTests {
         defer { try? FileManager.default.removeItem(at: directory) }
         let store = makeStore(in: directory)
         let home = try defaultSpace(store)
-        let reading = try #require(store.createSpace(name: "Reading", color: .yellow, profileID: BrowserProfile.defaultID))
+        let workSpace = try #require(store.space(ofProfile: work.id))
         store.renameSpace(home, to: "Home")
         store.setSpaceIcon(home, .symbol("house"))
         store.setSpaceColor(home, .red)
-        store.moveSpace(reading.id, to: 0)
-        #expect(store.setSpaceProfile(reading.id, work.id))
+        store.moveSpace(workSpace.id, to: 0)
 
         let reopened = makeStore(in: directory)
-        #expect(reopened.spaces.map(\.name) == ["Reading", "Home", "Work"])
+        #expect(reopened.spaces.map(\.name) == ["Work", "Home"])
         let saved = try #require(reopened.space(id: home))
         #expect(saved.icon == .symbol("house"))
         #expect(saved.color == .red)
-        #expect(reopened.space(id: reading.id)?.profileID == work.id)
     }
 
     // MARK: Pins
@@ -184,7 +230,7 @@ struct BrowserSpaceStoreTests {
         defer { try? FileManager.default.removeItem(at: directory) }
         let store = makeStore(in: directory)
         let home = try defaultSpace(store)
-        let workSpace = try #require(store.firstSpace(ofProfile: work.id)).id
+        let workSpace = try #require(store.space(ofProfile: work.id)).id
 
         let example = try #require(store.addPin(url: "https://example.com", title: "Example", inSpace: home))
         #expect(store.isPinned("https://example.com", inSpace: home))
@@ -255,8 +301,8 @@ struct BrowserSpaceStoreTests {
         #expect(titles.last == "Moved")
         #expect(titles.first == "2")
 
-        // Deleting the profile's Spaces takes its favorites.
-        reopened.deleteSpaces(ofProfile: work.id)
+        // Deleting the profile's Space takes its favorites.
+        reopened.deleteSpace(ofProfile: work.id)
         #expect(reopened.favorites(ofProfile: work.id).isEmpty)
     }
 

@@ -12,8 +12,8 @@ extension BrowserWindowController {
         spaces.spaces.map(\.id)
     }
 
-    /// Shows Space `id`: the window's data context becomes the Space's
-    /// profile's, the tab list its tabs, and it selects `tabID` (one of
+    /// Shows Space `id`: the window's data context becomes the Space's,
+    /// the tab list its tabs, and it selects `tabID` (one of
     /// its tabs), else its remembered tab, else its most recently used
     /// one; an empty Space opens a start-page Today tab. No-op in a window
     /// without Spaces or for an unknown Space.
@@ -68,19 +68,16 @@ extension BrowserWindowController {
 
     // MARK: - Spaces changing under the window
 
-    /// The Spaces changed (created, renamed, reordered, deleted, given
-    /// another profile, pins or favorites edited). A window on a deleted
-    /// Space shows another one of its profile (else the first); a tab
-    /// whose pin or favorite is gone becomes a Today tab; tabs of a deleted
-    /// Space close onto Recently Closed; a tab whose Space now uses another
-    /// profile comes back in that profile (its page reloads there,
-    /// back/forward list kept), since a web view keeps its data store for
-    /// life.
+    /// The Spaces changed (created, renamed, reordered, deleted, pins or
+    /// favorites edited). A window on a deleted Space shows the first
+    /// Space; a tab whose pin or favorite is gone becomes a Today tab; tabs
+    /// of a deleted Space close onto Recently Closed; a tab whose data
+    /// context isn't its Space's comes back in its Space's (its page
+    /// reloads there, back/forward list kept), since a web view keeps its
+    /// data store for life.
     func spacesChanged() {
         guard hasSpaces, !tabs.isEmpty else { return }
-        if let current = currentSpaceID, spaces.space(id: current) == nil,
-           let next = spaces.firstSpace(ofProfile: profileID) ?? spaces.spaces.first
-        {
+        if let current = currentSpaceID, spaces.space(id: current) == nil, let next = spaces.spaces.first {
             switchToSpace(next.id, focus: false)
         }
         var targets: [UUID: BrowserPinLinks.Targets] = [:]
@@ -112,7 +109,7 @@ extension BrowserWindowController {
     }
 
     /// Replaces `tab` with a not yet loaded copy made in its Space's
-    /// current profile, at the same place; a selected tab stays selected.
+    /// context, at the same place; a selected tab stays selected.
     private func reopenInItsSpace(_ tab: BrowserTab) {
         let index = tabs.filter { $0.spaceID == tab.spaceID }.firstIndex { $0 === tab }
         let wasSelected = tab.id == selectedTab?.id
@@ -136,11 +133,11 @@ extension BrowserWindowController {
         saveSession()
     }
 
-    /// Profile `profileID` is being deleted: a window on one of its Spaces
-    /// shows another profile's Space (one it has tabs in, else the first),
-    /// and every tab of the profile closes without going onto Recently
+    /// Profile `profileID` (a Space's data) is being deleted: a window on
+    /// its Space shows another Space (one it has tabs in, else the first),
+    /// and every tab of the Space closes without going onto Recently
     /// Closed (its data goes with it). The caller closes a window that held
-    /// only the profile's tabs instead.
+    /// only the Space's tabs instead.
     func closeTabs(ofProfile profileID: UUID) {
         guard hasSpaces else { return }
         if self.profileID == profileID {

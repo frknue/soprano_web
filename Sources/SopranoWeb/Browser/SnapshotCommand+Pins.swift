@@ -23,7 +23,7 @@ extension SnapshotCommand {
         /// `--pin-preview <folder>`: the rail's hover preview of a folder,
         /// captured.
         var preview: String?
-        /// `--space-sheet new|<space>[=<name>|<icon>|<color>|<profile>]`:
+        /// `--space-sheet new|<space>[=<name>|<icon>|<color>|<archive after>]`:
         /// the New Space (or Edit Space) sheet, filled but not saved, is
         /// what the PNG shows.
         var spaceSheet: String?
@@ -47,7 +47,7 @@ extension SnapshotCommand {
                                    [--bookmarks-file <json>] [--pins-tree] [--expand-folder <name|all>]...
                                    [--pin-search <text>] [--pin-preview <folder>] [--pin-drop <title>:on|above:<row>]...
                                    [--pin-folder <name>] [--pin-popover] [--print-pins]
-                                   [--space-sheet new|<space>[=<name>|<icon>|<color>|<profile>]]
+                                   [--space-sheet new|<space>[=<name>|<icon>|<color>|<archive after>]]
     """
 
     /// Parses `option` if it is a pin flag; false means not ours.
@@ -164,13 +164,14 @@ extension SnapshotCommand {
             case let .emoji(value): "emoji \(value)"
             case let .symbol(value): "symbol \(value)"
             }
-            let profile = profiles.profile(id: space.profileID)?.name ?? space.profileID.uuidString
+            let profile = space.profileID == BrowserProfile.defaultID ? "Default" : space.profileID.uuidString
             let current = space.id == controller.pinSpaceID ? " (current)" : ""
             print("space: \(space.displayName)\(current) | profile \(profile) | color \(space.color.rawValue) | icon \(icon) | \(store.pinEntries(inSpace: space.id).count) pins")
         }
-        for profile in profiles.profiles {
-            let favorites = store.favorites(ofProfile: profile.id)
-            print("favorites: \(profile.name) \(favorites.count)/\(BrowserFavorites.limit) | archive \(profile.archiveAfter.rawValue)")
+        for space in store.spaces {
+            let favorites = store.favorites(ofProfile: space.profileID)
+            let archiveAfter = profiles.profile(id: space.profileID)?.archiveAfter.rawValue ?? "-"
+            print("favorites: \(space.displayName) \(favorites.count)/\(BrowserFavorites.limit) | archive \(archiveAfter)")
         }
         func walk(_ folder: BrowserPinFolder, depth: Int) {
             for node in folder.children {

@@ -1,8 +1,8 @@
 import AppKit
 
-/// A window's mark as an eyebrow: its color dot (the Space's or the
-/// profile's), the Space's icon (an emoji, or an SF Symbol drawn inline)
-/// and "Private", the Space or profile name or "Private · Work". The tab
+/// A window's mark as an eyebrow: its Space's color dot and icon (an
+/// emoji, or an SF Symbol drawn inline) and the Space's name, "Private"
+/// or "Private · Work". The tab
 /// rail's header shows it (or `fallback`, "Tabs"); with horizontal tabs it
 /// sits before the address field.
 @MainActor
@@ -11,7 +11,7 @@ final class BrowserWindowMarkView: NSView {
     private let label = NSTextField(labelWithString: "")
     private let fallback: String?
     private var theme: AppTheme
-    private var mark = BrowserWindowMark(kind: .normal, profile: nil)
+    private var mark = BrowserWindowMark(kind: .normal, space: nil)
     private lazy var labelAfterDot = label.leadingAnchor.constraint(equalTo: dot.trailingAnchor, constant: 6)
     private lazy var labelAtEdge = label.leadingAnchor.constraint(equalTo: leadingAnchor)
 

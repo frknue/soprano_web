@@ -86,37 +86,38 @@ struct BrowserCommandTests {
         #expect(withURL?.arguments == ["https://webkit.org"])
     }
 
-    @Test func newWindowTakesAProfile() throws {
+    @Test func newWindowTakesASpace() throws {
         let named = try BrowserCommandRequest.parse(
-            ["SopranoWeb", "browser", "new-window", "https://webkit.org", "--profile", "Work"]
+            ["SopranoWeb", "browser", "new-window", "https://webkit.org", "--space", "Work"]
         )
         #expect(named?.command == "new-window")
         #expect(named?.arguments == ["https://webkit.org"])
-        #expect(named?.profile == "Work")
+        #expect(named?.space == "Work")
 
-        let first = try BrowserCommandRequest.parse(["SopranoWeb", "browser", "new-window", "--profile", "Side Project"])
-        #expect(first?.arguments == [])
-        #expect(first?.profile == "Side Project")
+        let numbered = try BrowserCommandRequest.parse(["SopranoWeb", "browser", "new-window", "--space", "2"])
+        #expect(numbered?.arguments == [])
+        #expect(numbered?.space == "2")
 
         let none = try BrowserCommandRequest.parse(["SopranoWeb", "browser", "new-window"])
-        #expect(none?.profile == nil)
+        #expect(none?.space == nil)
 
-        // The request carries the profile to the app.
+        // The request carries the Space to the app.
         let decoded = try JSONDecoder().decode(BrowserCommandRequest.self, from: JSONEncoder().encode(named))
         #expect(decoded == named)
     }
 
-    @Test func newWindowRejectsAMissingProfileNameOrExtraArguments() {
+    @Test func newWindowRejectsAMissingSpaceOrExtraArguments() {
         #expect(throws: BrowserAutomationError.self) {
-            _ = try BrowserCommandRequest.parse(["SopranoWeb", "browser", "new-window", "--profile"])
+            _ = try BrowserCommandRequest.parse(["SopranoWeb", "browser", "new-window", "--space"])
         }
         #expect(throws: BrowserAutomationError.self) {
-            _ = try BrowserCommandRequest.parse(["SopranoWeb", "browser", "new-window", "--profile", " "])
+            _ = try BrowserCommandRequest.parse(["SopranoWeb", "browser", "new-window", "--space", " "])
         }
         #expect(throws: BrowserAutomationError.self) {
             _ = try BrowserCommandRequest.parse(["SopranoWeb", "browser", "new-window", "a.com", "b.com"])
         }
-        #expect(BrowserCommand.help.contains("new-window [url] [--profile <name>]"))
+        #expect(BrowserCommand.help.contains("new-window [url] [--space <n|name>]"))
+        #expect(!BrowserCommand.help.contains("--profile"))
     }
 
     @Test func closeWindowTakesTheWindowFlagOrANumber() throws {

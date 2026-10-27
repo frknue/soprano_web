@@ -4,31 +4,31 @@ import WebKit
 extension BrowserWindowController {
     // MARK: - Clear Browsing Data
 
-    /// The current Space's profile's store (a private window's own).
+    /// The current Space's store (a private window's own).
     var websiteDataStore: WKWebsiteDataStore {
         dataContext.websiteDataStore
     }
 
-    /// The profile Clear Browsing Data names: nil while only one exists.
-    var clearDataProfileName: String? {
-        manager.profiles.hasSeveral ? manager.profile(of: self).name : nil
+    /// The Space Clear Browsing Data names (a private window's: the one it
+    /// was opened over): nil while only one exists.
+    var clearDataSpaceName: String? {
+        spaces.spaces.count > 1 ? manager.space(of: self)?.displayName : nil
     }
 
     func showClearBrowsingData() {
         revealWindowIfNeeded()
         guard let window, window.attachedSheet == nil else { return }
-        BrowserClearBrowsingDataSheet.present(on: window, theme: theme, profileName: clearDataProfileName) { [weak self] options in
+        BrowserClearBrowsingDataSheet.present(on: window, theme: theme, spaceName: clearDataSpaceName) { [weak self] options in
             guard let options else { return }
             self?.clearBrowsingData(options)
         }
     }
 
     /// Removes what `options` names from `options.range` up to now, for the
-    /// current Space's profile. History clears the profile's list, its
-    /// tabs on the closed-tab stack and (in a normal window) its Archive
-    /// entries archived in the range; website data goes through the
-    /// profile's `WKWebsiteDataStore`, whose removal finishes
-    /// asynchronously.
+    /// current Space. History clears the Space's list, its tabs on the
+    /// closed-tab stack and (in a normal window) its Archive entries
+    /// archived in the range; website data goes through the Space's
+    /// `WKWebsiteDataStore`, whose removal finishes asynchronously.
     func clearBrowsingData(
         _ options: BrowserClearOptions,
         now: Date = Date(),
@@ -41,7 +41,7 @@ extension BrowserWindowController {
             dataContext.sessionVisits.removeVisits(since: since)
             // Closed tabs and windows carry their own back/forward lists.
             let profileID = self.profileID
-            let spaceIDs = Set(spaces.spaces(ofProfile: profileID).map(\.id))
+            let spaceIDs = Set(spaces.space(ofProfile: profileID).map { [$0.id] } ?? [])
             manager.recentlyClosed.removeEntries(ofProfile: profileID, spaces: spaceIDs)
             closedTabs.removeAll()
             if !kind.isPrivate {

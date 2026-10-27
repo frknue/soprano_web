@@ -1,21 +1,21 @@
 import AppKit
 
 /// History ▸ Clear Browsing Data…: an alert sheet with a time range and one
-/// checkbox per kind of data. It acts on the window's profile and names it
+/// checkbox per kind of data. It acts on the window's Space and names it
 /// when there are several.
 @MainActor
 enum BrowserClearBrowsingDataSheet {
     /// Shows the sheet on `window`; `completion` gets the chosen options, or
-    /// nil when cancelled. `profileName` is the profile it clears (nil while
-    /// only one profile exists).
+    /// nil when cancelled. `spaceName` is the Space it clears (nil while
+    /// only one Space exists).
     static func present(
         on window: NSWindow,
         theme: AppTheme,
-        profileName: String?,
+        spaceName: String?,
         initial: BrowserClearOptions = BrowserClearOptions(),
         completion: @escaping @MainActor (BrowserClearOptions?) -> Void
     ) {
-        let (alert, accessory) = makeAlert(theme: theme, profileName: profileName, initial: initial)
+        let (alert, accessory) = makeAlert(theme: theme, spaceName: spaceName, initial: initial)
         alert.beginSheetModal(for: window) { response in
             completion(response == .alertFirstButtonReturn ? accessory.options : nil)
         }
@@ -25,12 +25,12 @@ enum BrowserClearBrowsingDataSheet {
     /// offscreen).
     static func makeAlert(
         theme: AppTheme,
-        profileName: String?,
+        spaceName: String?,
         initial: BrowserClearOptions = BrowserClearOptions()
     ) -> (NSAlert, BrowserClearDataAccessoryView) {
         let alert = NSAlert()
-        alert.messageText = title(profileName: profileName)
-        alert.informativeText = message(profileName: profileName)
+        alert.messageText = title(spaceName: spaceName)
+        alert.informativeText = message(spaceName: spaceName)
         let clear = alert.addButton(withTitle: "Clear")
         alert.addButton(withTitle: "Cancel")
         let accessory = BrowserClearDataAccessoryView(options: initial, theme: theme)
@@ -43,18 +43,18 @@ enum BrowserClearBrowsingDataSheet {
     }
 
     /// "Clear Browsing Data", or "… of “Work”" when there are several
-    /// profiles.
-    nonisolated static func title(profileName: String?) -> String {
-        profileName.map { "Clear Browsing Data of “\($0)”" } ?? "Clear Browsing Data"
+    /// Spaces.
+    nonisolated static func title(spaceName: String?) -> String {
+        spaceName.map { "Clear Browsing Data of “\($0)”" } ?? "Clear Browsing Data"
     }
 
-    nonisolated static func message(profileName: String?) -> String {
+    nonisolated static func message(spaceName: String?) -> String {
         let tail = "Open tabs keep their back and forward history."
-        guard let profileName else {
+        guard let spaceName else {
             return "Removes the chosen data from this Mac for the selected time range. \(tail)"
         }
-        return "Removes the chosen data of the \(profileName) profile from this Mac for the selected "
-            + "time range; other profiles keep theirs. \(tail)"
+        return "Removes the chosen data of the \(spaceName) Space from this Mac for the selected "
+            + "time range; other Spaces keep theirs. \(tail)"
     }
 }
 

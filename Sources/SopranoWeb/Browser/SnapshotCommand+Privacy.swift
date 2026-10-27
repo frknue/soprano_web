@@ -102,7 +102,7 @@ extension SnapshotCommand {
         if options.showClearData {
             let (alert, accessory) = BrowserClearBrowsingDataSheet.makeAlert(
                 theme: controller.theme,
-                profileName: controller.clearDataProfileName
+                spaceName: controller.clearDataSpaceName
             )
             print("privacy: clear-data sheet: \(alert.messageText) | \(alert.informativeText)")
             privacySheetOwner = accessory
@@ -121,7 +121,7 @@ extension SnapshotCommand {
         }
         if options.showWebsiteData {
             let sheet = controller.manager.makeWebsiteDataSheet(selected: controller.profileID)
-            print("privacy: website-data sheet shows profile \(sheet.profileName)")
+            print("privacy: website-data sheet shows Space \(sheet.spaceName)")
             privacySheetOwner = sheet
             sheet.reload()
             spin(seconds: 1.5)

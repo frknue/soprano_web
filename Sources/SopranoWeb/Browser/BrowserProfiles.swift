@@ -1,6 +1,6 @@
 import AppKit
 
-/// A profile's color: one Folio token, so the mark follows the theme.
+/// A Space's color mark: one Folio token, so the mark follows the theme.
 enum BrowserProfileColor: String, Codable, CaseIterable, Sendable {
     case blue
     case cyan
@@ -25,10 +25,11 @@ enum BrowserProfileColor: String, Codable, CaseIterable, Sendable {
     }
 }
 
-/// One profile (Safari's model): a window belongs to one profile, and its
-/// tabs use the profile's website data, history and site decisions. Each
-/// profile has one or more Spaces (`BrowserSpaceStore`) and its own
-/// favorites; downloads, favicons, settings and Recently Closed are shared.
+/// One Space's data container, never shown as such: every Space has a
+/// profile of its own (`BrowserSpace.profileID`), whose website data,
+/// History, site decisions, Archive, Favorites and archive time are the
+/// Space's. Its name and color follow the Space. Downloads, favicons,
+/// settings and Recently Closed are shared.
 struct BrowserProfile: Codable, Equatable, Identifiable, Sendable {
     /// The Default profile's fixed id. It keeps `WKWebsiteDataStore.default()`
     /// and the files in the support folder itself.
@@ -146,50 +147,18 @@ struct BrowserProfileList: Codable, Equatable, Sendable {
         profiles.first { $0.id == id }
     }
 
-    /// The profile named `name`, ignoring case and surrounding spaces.
-    func profile(named name: String) -> BrowserProfile? {
-        let wanted = name.trimmingCharacters(in: .whitespacesAndNewlines)
-        return profiles.first { $0.name.compare(wanted, options: .caseInsensitive) == .orderedSame }
-    }
-
-    /// `id` while that profile exists, else Default (a deleted profile's
-    /// window or closed tab opens in Default).
+    /// `id` while that profile exists, else Default (a deleted Space's
+    /// window or closed tab opens in the Default Space).
     func resolvedID(_ id: UUID) -> UUID {
         profile(id: id) == nil ? BrowserProfile.defaultID : id
     }
 
-    /// `name` trimmed, or "Profile" when empty; a name another profile
-    /// already has (ignoring case) gets the next free number ("Work 2").
-    func uniqueName(_ name: String, excluding id: UUID? = nil) -> String {
-        let trimmed = name.trimmingCharacters(in: .whitespacesAndNewlines)
-        let base = trimmed.isEmpty ? "Profile" : trimmed
-        let taken = Set(profiles.filter { $0.id != id }.map { $0.name.lowercased() })
-        guard taken.contains(base.lowercased()) else { return base }
-        var number = 2
-        while taken.contains("\(base) \(number)".lowercased()) {
-            number += 1
-        }
-        return "\(base) \(number)"
-    }
-
-    /// The first palette color no profile uses yet, else the one used least.
-    var nextColor: BrowserProfileColor {
-        let used = profiles.map(\.color)
-        return BrowserProfileColor.allCases.min { a, b in
-            used.filter { $0 == a }.count < used.filter { $0 == b }.count
-        } ?? .blue
-    }
-
+    /// Appends `profile`; refused when its id is taken.
     @discardableResult
-    mutating func add(
-        name: String,
-        color: BrowserProfileColor? = nil,
-        id: UUID = UUID(),
-        importedFrom: String? = nil
-    ) -> BrowserProfile {
-        let profile = BrowserProfile(id: id, name: uniqueName(name), color: color ?? nextColor, importedFrom: importedFrom)
+    mutating func add(_ profile: BrowserProfile) -> Bool {
+        guard self.profile(id: profile.id) == nil else { return false }
         profiles.append(profile)
-        return profile
+        return true
     }
 
     /// The profile an import made from `source` (`importedFrom`).
@@ -197,16 +166,23 @@ struct BrowserProfileList: Codable, Equatable, Sendable {
         profiles.first { $0.importedFrom == source }
     }
 
-    mutating func rename(id: UUID, to name: String) {
-        guard let index = profiles.firstIndex(where: { $0.id == id }),
-              !name.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
-        else { return }
-        profiles[index].name = uniqueName(name, excluding: id)
-    }
-
-    mutating func setColor(id: UUID, _ color: BrowserProfileColor) {
-        guard let index = profiles.firstIndex(where: { $0.id == id }) else { return }
-        profiles[index].color = color
+    /// Each profile takes its Space's name and color. True when anything
+    /// changed.
+    @discardableResult
+    mutating func follow(_ spaces: [BrowserSpace]) -> Bool {
+        var changed = false
+        for space in spaces {
+            guard let index = profiles.firstIndex(where: { $0.id == space.profileID }) else { continue }
+            if profiles[index].name != space.displayName {
+                profiles[index].name = space.displayName
+                changed = true
+            }
+            if profiles[index].color != space.color {
+                profiles[index].color = space.color
+                changed = true
+            }
+        }
+        return changed
     }
 
     mutating func setArchiveAfter(id: UUID, _ archiveAfter: BrowserArchiveAfter) {
@@ -235,38 +211,35 @@ final class BrowserProfileStore {
     }
 
     var profiles: [BrowserProfile] { list.profiles }
-    /// Windows show their profile only when there is more than one.
-    var hasSeveral: Bool { list.profiles.count > 1 }
 
     func profile(id: UUID) -> BrowserProfile? { list.profile(id: id) }
-    func profile(named name: String) -> BrowserProfile? { list.profile(named: name) }
     func profile(importedFrom source: String) -> BrowserProfile? { list.profile(importedFrom: source) }
     func resolvedID(_ id: UUID) -> UUID { list.resolvedID(id) }
 
+    /// A new Space's profile (`BrowserSpaceStore.createSpace`, a
+    /// separated Space's); refused when its id is taken.
     @discardableResult
-    func add(name: String, color: BrowserProfileColor? = nil, importedFrom: String? = nil) -> BrowserProfile {
-        let profile = list.add(name: name, color: color, importedFrom: importedFrom)
+    func add(_ profile: BrowserProfile) -> Bool {
+        guard list.add(profile) else { return false }
         persist()
-        return profile
+        return true
     }
 
-    func rename(id: UUID, to name: String) {
-        list.rename(id: id, to: name)
-        persist()
-    }
-
-    func setColor(id: UUID, _ color: BrowserProfileColor) {
-        list.setColor(id: id, color)
+    /// Names and colors follow the Spaces (a Space renamed or recolored).
+    func follow(_ spaces: [BrowserSpace]) {
+        guard list.follow(spaces) else { return }
         persist()
     }
 
+    /// Edit Space ▸ "Archive Today tabs after", on the Space's profile.
     func setArchiveAfter(id: UUID, _ archiveAfter: BrowserArchiveAfter) {
+        guard list.profile(id: id)?.archiveAfter != archiveAfter else { return }
         list.setArchiveAfter(id: id, archiveAfter)
         persist()
     }
 
-    /// Takes the profile out of the list; `BrowserWindowManager.deleteProfile`
-    /// removes its windows and data.
+    /// Takes the profile out of the list; `BrowserWindowManager.deleteSpace`
+    /// removes its Space, windows and data.
     func remove(id: UUID) {
         list.remove(id: id)
         persist()
@@ -278,50 +251,39 @@ final class BrowserProfileStore {
     }
 }
 
-/// What a window shows of itself next to its tabs: "Private" with its
-/// profile (color and name) when more than one profile exists ("Private ·
-/// Work"), or a normal window's current Space (its emoji, name and color
-/// mark) when more than one Space exists; nothing otherwise.
+/// What a window shows of itself next to its tabs: a normal window's
+/// current Space (its emoji, name and color mark) when more than one Space
+/// exists, "Private" for a private window ("Private · Work" with the Space
+/// it was opened over, when there are several); nothing otherwise.
 struct BrowserWindowMark: Equatable, Sendable {
     var isPrivate: Bool
-    /// Nil while only one profile exists.
-    var profileName: String?
-    /// The color dot: the Space's mark, else the profile's color.
-    var color: BrowserProfileColor?
-    /// The current Space's name; nil without one (or while only one Space
-    /// exists).
+    /// The Space's name; nil without one (or while only one Space exists).
     var spaceName: String?
+    /// The color dot: the Space's mark.
+    var color: BrowserProfileColor?
     var spaceIcon: BrowserSpaceIcon = .none
 
-    init(kind: BrowserWindowKind, profile: BrowserProfile?) {
+    /// `space`: the window's Space (a private window's: the one it was
+    /// opened over), nil while only one exists.
+    init(kind: BrowserWindowKind, space: BrowserSpace?) {
         isPrivate = kind.isPrivate
-        profileName = profile?.name
-        color = profile?.color
-    }
-
-    /// A normal window on `space`; `profile` (nil while only one exists)
-    /// goes into the tooltip.
-    init(space: BrowserSpace, profile: BrowserProfile?) {
-        isPrivate = false
-        profileName = profile?.name
-        color = space.color
-        spaceName = space.displayName
-        spaceIcon = space.icon
+        spaceName = space?.displayName
+        color = space?.color
+        spaceIcon = space?.icon ?? .none
     }
 
     /// The mark's words; nil when there is nothing to show.
     var text: String? {
-        if let spaceName {
+        let name = spaceName.map { name in
             if case let .emoji(emoji) = spaceIcon {
-                return "\(emoji) \(spaceName)"
+                return "\(emoji) \(name)"
             }
-            return spaceName
+            return name
         }
-        switch (isPrivate, profileName) {
+        switch (isPrivate, name) {
         case (true, let name?): return "Private · \(name)"
         case (true, nil): return "Private"
-        case (false, let name?): return name
-        case (false, nil): return nil
+        case (false, let name): return name
         }
     }
 
@@ -329,9 +291,6 @@ struct BrowserWindowMark: Equatable, Sendable {
         var parts: [String] = []
         if let spaceName {
             parts.append("Space: \(spaceName)")
-        }
-        if let profileName {
-            parts.append("Profile: \(profileName)")
         }
         if isPrivate {
             parts.append("Private window: no history, and cookies and site data go when it closes")

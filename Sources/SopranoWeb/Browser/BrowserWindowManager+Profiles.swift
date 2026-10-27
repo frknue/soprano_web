@@ -1,19 +1,20 @@
 import AppKit
 import WebKit
 
-/// Profiles: one data context per profile, made on first use, and deleting
-/// a profile with its windows and data.
+/// Spaces and their data: one data context per Space's profile, made on
+/// first use; creating a Space with its profile and deleting a Space with
+/// its windows and data.
 extension BrowserWindowManager {
     /// How often, and how far apart, deleting a profile tries to remove its
     /// data store: WebKit refuses while a web view of it is still alive.
     static let dataStoreRemovalAttempts = 20
     static let dataStoreRemovalDelay: TimeInterval = 0.25
 
-    /// The normal context of profile `profileID`: Default's for Default or
-    /// a profile that no longer exists, else the profile's own (its
-    /// `WKWebsiteDataStore(forIdentifier:)`, History and site decisions in
-    /// `<support>/Profiles/<id>/`), made the first time it is asked for and
-    /// shared by every window of the profile.
+    /// The normal context of profile `profileID` (a Space's data):
+    /// Default's for Default or a profile that no longer exists, else the
+    /// profile's own (its `WKWebsiteDataStore(forIdentifier:)`, History and
+    /// site decisions in `<support>/Profiles/<id>/`), made the first time
+    /// it is asked for and shared by every window showing its Space.
     func context(for profileID: UUID) -> BrowserDataContext {
         guard profileID != BrowserProfile.defaultID, let profile = profiles.profile(id: profileID) else {
             return defaultContext
@@ -54,19 +55,46 @@ extension BrowserWindowManager {
         profiles.profile(id: controller.profileID) ?? .defaultProfile
     }
 
-    /// What a window shows next to its tabs: "Private" (with its profile
-    /// when more than one exists), or its current Space (icon, name and
-    /// color) when more than one Space exists.
+    /// The Space a window's data belongs to: its current Space, a private
+    /// or pop-up window's the one it was opened over.
+    func space(of controller: BrowserWindowController) -> BrowserSpace? {
+        controller.currentSpaceID.flatMap(spaces.space(id:)) ?? spaces.space(ofProfile: controller.profileID)
+    }
+
+    /// What a window shows next to its tabs: its Space (icon, name and
+    /// color) when more than one Space exists, "Private" (with that Space
+    /// when there are several) in a private window.
     func windowMark(for controller: BrowserWindowController) -> BrowserWindowMark {
-        let profile = profiles.hasSeveral ? profile(of: controller) : nil
-        if let space = controller.currentSpaceID.flatMap(spaces.space(id:)), spaces.spaces.count > 1 {
-            return BrowserWindowMark(space: space, profile: profile)
+        BrowserWindowMark(kind: controller.kind, space: spaces.spaces.count > 1 ? space(of: controller) : nil)
+    }
+
+    /// The switcher's "+": a Space with a profile of its own (no cookies,
+    /// History or Archive yet), named and colored as asked.
+    @discardableResult
+    func createSpace(name: String, icon: BrowserSpaceIcon, color: BrowserProfileColor) -> BrowserSpace? {
+        spaces.createSpace(name: name, icon: icon, color: color, profiles: profiles)
+    }
+
+    /// Every Space but the Default one (the default data store's) can be
+    /// deleted.
+    func canDeleteSpace(_ id: UUID) -> Bool {
+        guard let space = spaces.space(id: id) else { return false }
+        return space.profileID != BrowserProfile.defaultID
+    }
+
+    /// Delete Space (after the confirmation): deletes the Space's profile
+    /// and with it every piece of its data (`deleteProfile`). Refused (and
+    /// `completion` gets nil) for the Default Space.
+    func deleteSpace(_ id: UUID, completion: (@MainActor (Error?) -> Void)? = nil) {
+        guard canDeleteSpace(id), let space = spaces.space(id: id) else {
+            completion?(nil)
+            return
         }
-        return BrowserWindowMark(kind: controller.kind, profile: profile)
+        deleteProfile(space.profileID, completion: completion)
     }
 
     /// The windows deleting profile `id` closes: its private and pop-up
-    /// windows, and every normal window holding only the profile's tabs.
+    /// windows, and every normal window holding only its Space's tabs.
     func windowsClosing(onDeleteOf id: UUID) -> [BrowserWindowController] {
         controllers.filter { controller in
             controller.hasSpaces
@@ -75,24 +103,24 @@ extension BrowserWindowManager {
         }
     }
 
-    /// Every open tab of profile `id`, in any window or Space, private
-    /// windows over it included: what deleting it closes.
+    /// Every open tab of profile `id`, in any window, private windows over
+    /// it included: what deleting its Space closes.
     func openTabCount(ofProfile id: UUID) -> Int {
         controllers.reduce(0) { count, controller in
             count + controller.tabs.count { $0.dataContext.profileID == id }
         }
     }
 
-    /// Settings ▸ Profiles ▸ Delete (after the confirmation): closes the
-    /// profile's tabs in every window (a window on one of its Spaces shows
-    /// another Space first; `windowsClosing(onDeleteOf:)` close whole) and
-    /// its private windows, none onto Recently Closed; drops its Recently
-    /// Closed tabs and its Archive; deletes its Spaces and favorites;
-    /// removes it from `profiles.json`; then, once its web views are
-    /// released, removes its data store
-    /// (`WKWebsiteDataStore.remove(forIdentifier:)`) and deletes its
-    /// folder. `completion` gets the data store removal's error, if it
-    /// never succeeded. Default can't be deleted.
+    /// Deletes a Space's profile with every piece of its data: closes its
+    /// tabs in every window (a window on its Space shows another Space
+    /// first; `windowsClosing(onDeleteOf:)` close whole) and its private
+    /// windows, none onto Recently Closed; drops its Recently Closed tabs
+    /// and its Archive; deletes its Space and Favorites; removes it from
+    /// `profiles.json`; then, once its web views are released, removes its
+    /// data store (`WKWebsiteDataStore.remove(forIdentifier:)`) and deletes
+    /// its folder (History, site decisions). `completion` gets the data
+    /// store removal's error, if it never succeeded. Default can't be
+    /// deleted.
     func deleteProfile(_ id: UUID, completion: (@MainActor (Error?) -> Void)? = nil) {
         guard id != BrowserProfile.defaultID, let profile = profiles.profile(id: id) else {
             completion?(nil)
@@ -105,9 +133,9 @@ extension BrowserWindowManager {
         for controller in controllers where !closing.contains(where: { $0 === controller }) {
             controller.closeTabs(ofProfile: id)
         }
-        recentlyClosed.removeEntries(ofProfile: id, spaces: Set(spaces.spaces(ofProfile: id).map(\.id)))
+        recentlyClosed.removeEntries(ofProfile: id, spaces: Set(spaces.space(ofProfile: id).map { [$0.id] } ?? []))
         archive.removeEntries(ofProfile: id)
-        spaces.deleteSpaces(ofProfile: id)
+        spaces.deleteSpace(ofProfile: id)
         // Everything still holding the profile's stores (Settings sheets,
         // chrome) lets go when the list changes.
         profiles.remove(id: id)
@@ -119,7 +147,7 @@ extension BrowserWindowManager {
             let error = await Self.removeDataStore(identifier: id)
             if let error {
                 FileHandle.standardError.write(
-                    Data("Profile data store removal failed: \(error.localizedDescription)\n".utf8)
+                    Data("Space data store removal failed: \(error.localizedDescription)\n".utf8)
                 )
             }
             try? FileManager.default.removeItem(at: folder)
@@ -127,9 +155,9 @@ extension BrowserWindowManager {
         }
     }
 
-    /// Removes a kept profile's data store (the harness keeps an import's
-    /// profiles in `--support-dir` but no WebKit store): its tabs close,
-    /// its context goes, then the store is removed once released.
+    /// Removes a kept profile's data store (the harness keeps the Spaces
+    /// of a `--support-dir` run but no WebKit store): its tabs close, its
+    /// context goes, then the store is removed once released.
     func releaseDataStore(ofProfile id: UUID, completion: @escaping @MainActor (Error?) -> Void) {
         for controller in controllers {
             controller.closeTabs(ofProfile: id)

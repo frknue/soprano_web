@@ -28,9 +28,12 @@ enum BrowserImportChecklist {
             let icon = if case let .emoji(emoji) = space.icon { "\(emoji) " } else { "" }
             var parts = [count(space.pinCount, "pin"), count(space.folderCount, "folder")]
             if !space.today.isEmpty { parts.append(count(space.today.count, "Today tab")) }
+            let destination = plan.adoptedSpaceID(by: space) != nil
+                ? "takes over “\(plan.profile(key: space.profileKey)?.targetName ?? plan.defaultSpaceName)”"
+                : "a Space of its own"
             let detail = space.isSkipped
                 ? "Imported before; skipped"
-                : parts.joined(separator: " · ") + " → \(target(space.profileKey, in: plan))"
+                : parts.joined(separator: " · ") + " → \(destination)"
             rows.append(Row(
                 item: .space(space.id),
                 section: "Spaces",
@@ -49,7 +52,7 @@ enum BrowserImportChecklist {
                 item: .favorites(favorites.profileKey),
                 section: "Favorites",
                 title: "Favorites of \(sourceName(favorites.profileKey, in: plan))",
-                detail: parts.joined(separator: " · ") + " → \(target(favorites.profileKey, in: plan))",
+                detail: parts.joined(separator: " · ") + " → \(plan.homeName(ofProfile: favorites.profileKey))",
                 isChecked: favorites.isIncluded && !favorites.links.isEmpty,
                 isEnabled: !favorites.links.isEmpty
             ))
@@ -69,7 +72,9 @@ enum BrowserImportChecklist {
         }
         if let archive = plan.archive {
             var detail = "\(count(archive.newCount, "new tab")) of \(archive.items.count)"
-            if archive.spacelessCount > 0 { detail += " · \(archive.spacelessCount) without a Space go to Default" }
+            if archive.spacelessCount > 0 {
+                detail += " · \(archive.spacelessCount) without a Space go to “\(plan.defaultSpaceName)”"
+            }
             rows.append(Row(
                 item: .archive,
                 section: "Archive",
@@ -80,7 +85,7 @@ enum BrowserImportChecklist {
             ))
         }
         for history in plan.history {
-            let destination = history.profileKey.map { target($0, in: plan) } ?? "this window's profile"
+            let destination = history.profileKey.map { plan.homeName(ofProfile: $0) } ?? "the chosen Space"
             var detail = count(history.visitCount, "visit")
             if let cutoff = plan.historyCutoff {
                 detail += " since \(cutoff.formatted(date: .abbreviated, time: .omitted))"
@@ -102,7 +107,7 @@ enum BrowserImportChecklist {
             let importable = plan.importableRuleCount
             var detail = count(importable, "rule")
             let notImported = routing.rules.count - importable
-            if notImported > 0 { detail += " · \(notImported) for Little Arc, a profile or an unchecked Space not imported" }
+            if notImported > 0 { detail += " · \(notImported) for Little Arc, an Arc profile or an unchecked Space not imported" }
             rows.append(Row(
                 item: .routing,
                 section: "Links from other apps",
@@ -164,10 +169,6 @@ enum BrowserImportChecklist {
     /// What an import did, one line per kind.
     static func resultLines(_ summary: BrowserImporter.Summary) -> [String] {
         var lines: [String] = []
-        if !summary.profilesCreated.isEmpty {
-            lines.append("New \(summary.profilesCreated.count == 1 ? "profile" : "profiles"): "
-                + summary.profilesCreated.map { "“\($0)”" }.joined(separator: ", "))
-        }
         lines.append("\(count(summary.spacesCreated, "Space")) created"
             + (summary.spacesSkipped > 0 ? ", \(summary.spacesSkipped) imported before" : ""))
         lines.append("\(count(summary.pinsAdded, "pin")) in \(count(summary.foldersAdded, "folder"))")
@@ -193,13 +194,5 @@ enum BrowserImportChecklist {
 
     private static func sourceName(_ key: String, in plan: BrowserImportPlan) -> String {
         "“\(plan.profile(key: key)?.displayName ?? key)”"
-    }
-
-    private static func target(_ key: String, in plan: BrowserImportPlan) -> String {
-        guard let profile = plan.profile(key: key) else { return "Default" }
-        switch profile.target {
-        case .existing: return "profile “\(profile.targetName)”"
-        case .new: return "new profile “\(profile.targetName)”"
-        }
     }
 }

@@ -2,10 +2,13 @@ import AppKit
 
 /// File ▸ Import Browser Data…: pick a source on the left (Arc and Chrome
 /// when found on this Mac, a Safari export ZIP or a bookmarks file chosen
-/// with an open panel), check what to bring in on the right, Import. The
-/// footer shows progress (History, the long part, can be cancelled) and
-/// then what the import did. A sheet on the importing window; its Today
-/// tabs open there and it switches to the first imported Space.
+/// with an open panel), check what to bring in on the right, Import. Arc's
+/// Spaces each become a Space of their own; a Chrome, Safari or bookmarks
+/// file import goes into the Space chosen at the top of the checklist
+/// (the importing window's at first). The footer shows progress
+/// (History, the long part, can be cancelled) and then what the import
+/// did. A sheet on the importing window; its Today tabs open there and it
+/// switches to the first imported Space.
 @MainActor
 final class BrowserImportSheet: NSWindowController {
     enum State: Equatable {
@@ -242,6 +245,21 @@ final class BrowserImportSheet: NSWindowController {
         refresh()
     }
 
+    /// The Space menu at the top of a Chrome, Safari or bookmarks-file
+    /// checklist: points the plan at Space `id`.
+    func chooseTarget(_ id: UUID) {
+        guard state == .ready, var plan, let manager else { return }
+        BrowserImportPlanner.retarget(&plan, to: id, spaces: manager.spaces.list)
+        self.plan = plan
+        refresh()
+    }
+
+    /// The Space a Chrome, Safari or bookmarks-file import goes into.
+    var targetSpaceName: String? {
+        guard let plan, plan.source != .arc else { return nil }
+        return plan.targetSpaceID.flatMap { manager?.spaces.space(id: $0) }?.displayName
+    }
+
     /// Import: the plan as checked.
     func startImport() {
         guard state == .ready, let plan, let manager else { return }
@@ -282,7 +300,8 @@ final class BrowserImportSheet: NSWindowController {
             return summary.map(BrowserImportChecklist.resultLines) ?? []
         default:
             guard let plan else { return [placeholder.stringValue] }
-            return BrowserImportChecklist.rows(for: plan).map { row in
+            let target = targetSpaceName.map { ["Into Space | \($0)"] } ?? []
+            return target + BrowserImportChecklist.rows(for: plan).map { row in
                 "[\(row.isChecked ? "x" : " ")]\(row.isEnabled ? "" : " (off)") \(row.section) | \(row.title) | \(row.detail)"
             }
         }
@@ -400,6 +419,11 @@ final class BrowserImportSheet: NSWindowController {
                 add(ResultLine(text: line, theme: theme))
             }
         } else if let plan, state == .ready || state == .importing {
+            if let name = targetSpaceName, let manager {
+                let row = TargetRow(spaces: manager.spaces.spaces, selected: name, theme: theme, enabled: state == .ready)
+                row.onChoose = { [weak self] id in self?.chooseTarget(id) }
+                add(row)
+            }
             var section = ""
             for row in BrowserImportChecklist.rows(for: plan) {
                 if row.section != section {
@@ -556,6 +580,64 @@ final class BrowserImportSheet: NSWindowController {
 
         @objc private func toggled() {
             onToggle?(item, checkbox.isChecked)
+        }
+    }
+
+    /// "Into Space": the Space a Chrome, Safari or bookmarks-file import
+    /// goes into, a menu of every Space.
+    private final class TargetRow: NSView {
+        var onChoose: ((UUID) -> Void)?
+
+        private let spaces: [BrowserSpace]
+        private let button: ChromeButton
+
+        init(spaces: [BrowserSpace], selected: String, theme: AppTheme, enabled: Bool) {
+            self.spaces = spaces
+            button = ChromeButton(title: selected, theme: theme, kind: .standard)
+            super.init(frame: .zero)
+            translatesAutoresizingMaskIntoConstraints = false
+            let label = NSTextField(labelWithString: "Into Space")
+            label.font = ChromeFont.label
+            label.textColor = theme.colors.textPrimary
+            button.target = self
+            button.action = #selector(pressed)
+            button.isEnabled = enabled
+            button.setAccessibilityLabel("Import into Space")
+            for view in [label, button] as [NSView] {
+                view.translatesAutoresizingMaskIntoConstraints = false
+                addSubview(view)
+            }
+            NSLayoutConstraint.activate([
+                heightAnchor.constraint(equalToConstant: 44),
+                label.leadingAnchor.constraint(equalTo: leadingAnchor, constant: 24),
+                label.centerYAnchor.constraint(equalTo: button.centerYAnchor),
+                button.leadingAnchor.constraint(equalTo: label.trailingAnchor, constant: 10),
+                button.topAnchor.constraint(equalTo: topAnchor, constant: 8),
+                button.widthAnchor.constraint(greaterThanOrEqualToConstant: 120),
+                button.trailingAnchor.constraint(lessThanOrEqualTo: trailingAnchor, constant: -24),
+            ])
+        }
+
+        @available(*, unavailable)
+        required init?(coder: NSCoder) {
+            fatalError("init(coder:) is not supported")
+        }
+
+        @objc private func pressed() {
+            let menu = NSMenu()
+            for space in spaces {
+                let item = NSMenuItem(title: space.displayName, action: #selector(chose(_:)), keyEquivalent: "")
+                item.target = self
+                item.representedObject = space.id
+                item.state = space.displayName == button.title ? .on : .off
+                menu.addItem(item)
+            }
+            menu.popUp(positioning: nil, at: NSPoint(x: 0, y: button.bounds.height + 4), in: button)
+        }
+
+        @objc private func chose(_ sender: NSMenuItem) {
+            guard let id = sender.representedObject as? UUID else { return }
+            onChoose?(id)
         }
     }
 

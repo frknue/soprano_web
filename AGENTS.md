@@ -58,14 +58,14 @@ no linter or formatter; match surrounding style.
   site permissions, print/PDF/save and context menus, Clear Browsing Data and
   downloads. Window flags run in order on the active window:
   `--session <file>` restores a version 1, 2 or 3 session (every window),
-  `--add-profile <name>` (repeatable) creates a profile before any window
-  opens, `--new-window <url|start>` (repeatable) opens another window,
-  cascaded, in the active window's profile or, after `--profile <name>`, in
-  that one, `--new-private-window <url|start>` (repeatable) a private one
-  over the active window's profile, `--delete-profile <name>` (Settings ▸
-  Profiles ▸ Delete, confirmed; prints the confirmation and whether the
-  data store left `WKWebsiteDataStore.allDataStoreIdentifiers` and the
-  folder is gone), `--profiles-sheet` (captures Settings ▸ Profiles),
+  `--new-window <url|start>` (repeatable) opens another window,
+  cascaded, in the active window's Space (switch it first with `--space`
+  for another one), `--new-private-window <url|start>` (repeatable) a
+  private one over the active window's Space, `--delete-space <name>`
+  (Delete Space on the switcher, confirmed; prints the confirmation and
+  whether the Space's data store left
+  `WKWebsiteDataStore.allDataStoreIdentifiers` and its folder is gone; the
+  Default Space is refused),
   `--activate-window n`, `--close-window` (⇧⌘W), `--reopen-closed` (⇧⌘T: the
   active private window's own stack, else the app-wide one),
   `--move-tab w:t:w2` (the move a dragged tab makes, selected in w2),
@@ -77,32 +77,37 @@ no linter or formatter; match surrounding style.
   window's page, e.g. to open a pop-up window or a background tab),
   `--find-text <text>`, `--cli "<browser arguments>"` (one CLI request
   through the router), `--start-download <url>` / `--wait-downloads`,
-  `--create-space <name>[:<profile>]` (repeatable; made before the first
-  window, after the profiles), `--space <n|name>` (what `browser space`
+  `--create-space <name>` (repeatable; a Space with its own profile, made
+  before the first window), `--space <n|name>` (what `browser space`
   runs), `--swipe-rail next|previous` (a two-finger swipe's scroll events
   fed to the rail), `--print-spaces` (one JSON line: every Space with its
-  profile, color, icon, pin count and each window's tabs and selection in
-  it), and
-  `--print-windows` prints every window (kind `normal`/`private`, profile
-  and the mark its chrome shows, current Space and each Space's remembered
+  profile id, archive time, color, icon, pin count and each window's tabs
+  and selection in it), and
+  `--print-windows` prints every window (kind `normal`/`private`, the
+  Space whose data it uses (`dataSpace`) and the mark its chrome shows,
+  current Space and each Space's remembered
   selection, CLI number, frame, page size, pop-up flag,
-  find query, tabs with back/forward lists and zoom, its own closed tabs, the
-  cookies and website data records of its data store and the store's
-  identifier), the default store's cookies and records, Default's history
-  visit count and newest 50 visits' URLs, every profile (folder, History
-  database, visits, saved site decisions), `allDataStoreIdentifiers`, the
+  find query, tabs with back/forward lists, zoom and `dataSpace`, its own
+  closed tabs, the cookies and website data records of its data store and
+  the store's identifier), the default store's cookies and records,
+  Default's history visit count and newest 50 visits' URLs, every Space's
+  data (`spaceData`: folder, History database, visits, saved site
+  decisions, data store cookies), `allDataStoreIdentifiers`, the
   `Profiles/` folders, the favicon files, the windows the session would save,
   how many data stores and web views of closed private windows are still
-  alive, the recently-closed stack (with each entry's profile) and the
+  alive,
+  the recently-closed stack (with each entry's Space) and the
   downloads (with a `private` flag) as one JSON line with a `printedAt` time
   to match a test server's log;
   `--capture-window n` picks the window for the PNG (default: the active
   one; numbers count private windows, unlike the CLI's). The harness's
-  support folder is a temporary one, so profile folders go with it; it
-  deletes every profile it made before exiting, so no WebKit data store is
-  left behind. Pin flags (every one works on the active window's current
-  Space and the rail's pinned outline; a private window's is its profile's
-  first): `--pins-tree` seeds a pinned tree (nested folders, an empty one)
+  support folder is a temporary one, so Space folders go with it; it
+  deletes every Space it made before exiting, so no WebKit data store is
+  left behind (a `--support-dir` run keeps its Spaces and removes only
+  their data stores). Spaces that shared a profile in a `--support-dir`'s
+  files print `spaces: separated …` lines. Pin flags (every one works on the active window's current
+  Space and the rail's pinned outline; a private window's is its Space's
+  ): `--pins-tree` seeds a pinned tree (nested folders, an empty one)
   into Default's Space before the first window (the start page's folder
   cards), `--bookmarks-file <json>` starts from that stage 2
   `bookmarks.json` (version 1 or 2; it migrates into Default's Space),
@@ -116,10 +121,10 @@ no linter or formatter; match surrounding style.
   per match it shows (at most 10), `--pin-folder <name>` sets ⌘D's
   last-used folder in the Space, `--pin-popover` runs ⌘D on the selected
   page and draws its popover into the capture (built in the offscreen
-  window, never a shown panel), `--space-sheet new|<space>[=<name>|<icon>|<color>|<profile>]`
-  captures the New Space (or that Space's Edit Space) sheet, filled but not
-  saved, and `--print-pins` prints every Space
-  (`space:` with profile, color, icon and pin count), each profile's
+  window, never a shown panel), `--space-sheet new|<space>[=<name>|<icon>|<color>|<archive after>]`
+  captures the New Space (or that Space's Edit Space, with "Archive Today
+  tabs after") sheet, filled but not saved, and `--print-pins` prints every Space
+  (`space:` with profile, color, icon and pin count), each Space's
   favorites count and archive time, the current Space's tree, the rail's
   outline rows, Vimium's `b` lines, `spaces.json`'s version and the migrated
   `bookmarks.json` copy, and the Spaces menu as text. Rail actions (in order
@@ -130,10 +135,9 @@ no linter or formatter; match surrounding style.
   tab count before and after),
   `--click-favorite <n|title>[:cmd]`, the selected tab's menu items
   `--pin-tab`, `--unpin-tab`, `--add-favorite`, `--remove-favorite`,
-  `--replace-pin`, `--new-space "<name>|<icon>|<color>|<profile>"` (the
+  `--replace-pin`, `--new-space "<name>|<icon>|<color>"` (the
   switcher's "+" sheet, filled, Create Space pressed; empty parts keep its
-  defaults), `--edit-space "<space>=<name>|<icon>|<color>|<profile>"`,
-  `--delete-space <name>` (confirmed; a profile's last Space is refused),
+  defaults), `--edit-space "<space>=<name>|<icon>|<color>|<archive after>"`,
   `--hover-folder <name>` (the folder preview resting on its row opens),
   `--toggle-rail` (⌘S) and `--print-rail` (one `rail:` JSON line: header,
   favorites, pinned rows and Today tabs with live, selected and "/" state,
@@ -143,13 +147,13 @@ no linter or formatter; match surrounding style.
   (⌘W) on a pinned or favorite tab unloads it to its pin; on a Today tab
   it also archives it. Archive flags (actions, in order): `--archive-today`
   (⇧⌘K), `--restore-archived <n|title>` (a click on Archive row n of the
-  active window's profile, or the one titled so; prints the window's Space
+  active window's Space, or the one titled so; prints the window's Space
   before and after and the selected tab), `--archive-search <text>` (shows
   the sidebar's Archive and types into its search; prints each row with
-  its Space), `--archive-after <choice>[:<profile>]` (Settings ▸ Profiles ▸
-  "Archive Today tabs after", the menu item's action; `never`, `days30`,
+  its Space), `--archive-after <choice>[:<space>]` (Edit Space ▸
+  "Archive Today tabs after", picked and saved; `never`, `days30`,
   `days7`, `hours24`, `hours12`, `hours6`, `hour1`) and `--print-archive`
-  (one `archive:` JSON line: every entry with Space, profile, reason, time
+  (one `archive:` JSON line: every entry with Space, `dataSpace`, reason, time
   and favicon key, newest first, and `archive.json`'s version and count);
   `--archive-seed <n>` (n entries through the importers' `insert`) and
   `--archive-batch <n>` (n more in one `archive(_:)` call, ⇧⌘K's and the
@@ -203,12 +207,14 @@ no linter or formatter; match surrounding style.
   action; sources are only read, Chromium History opens `immutable`):
   `--import-arc [dir]` (default `~/Library/Application Support/Arc`),
   `--import-chrome <dir>`, `--import-safari <zip>`, `--import-html <file>`
-  (repeatable) print `import-plan:` (one JSON line: profile mapping, Spaces
-  with counts and create/skip, favorites, Archive, History per profile with
+  (repeatable) print `import-plan:` (one JSON line: each Arc profile's home
+  Space, Spaces with counts and create/skip/take-over, favorites, Archive,
+  History per home with
   `sourceVisits`, `visits` imported and `olderThanRetention`, rules,
   totals), apply the plan as checked by default and print
-  `import-result:` and one `import-history:` line per profile (added,
-  skipped, seconds); `--import-plan` plans only; `--import-sheet
+  `import-result:` and one `import-history:` line per Space (added,
+  skipped, seconds); `--import-space <name>` points a Chrome, Safari or
+  bookmarks-file import at that Space (the sheet's Space menu); `--import-plan` plans only; `--import-sheet
   [checklist|progress|result]` captures File ▸ Import Browser Data… (on the
   first source flag, else the first source found) with its checklist, at
   30% of History or finished; `--export-pins <file>` /
@@ -216,7 +222,7 @@ no linter or formatter; match surrounding style.
   the file reads back as; `--open-link <url>` (repeatable) is a link from
   another app through the routing rules; `--link-routing-sheet` captures
   Settings ▸ Links from other apps. With `--support-dir` an import keeps
-  its profiles for the next run (only their WebKit data stores are
+  its Spaces for the next run (only their WebKit data stores are
   removed), so a second run shows what a re-import skips.
   `--import-from-private` runs the import from a new private window;
   `import-today:` lines show where each Space's Today tabs went (a normal
@@ -270,53 +276,57 @@ no linter or formatter; match surrounding style.
 
 - `Browser/BrowserWindowManager.swift` — owned by `AppDelegate` (or the
   harness): creates and tracks every `BrowserWindowController` (key and most
-  recently active window, ⌘N with cascade in the active window's profile,
+  recently active window, ⌘N with cascade in the active window's Space,
   ⇧⌘N private windows over it, close onto the stack), owns the app-wide
-  stores (the Archive among them), profiles, `BrowserDownloadManager`, Settings and its Websites,
-  Website Data and Profiles sheets, the recently-closed stack (entries reopen
-  in their Space, else their profile's first), Vimium's global marks, notification-click
+  stores (the Archive among them), the Spaces' profiles, `BrowserDownloadManager`, Settings and its Websites
+  and Website Data sheets, the recently-closed stack (entries reopen
+  in their Space, else their profile's), Vimium's global marks, notification-click
   routing, links from other apps (`outsideTabbedController`: never a private
   window) and the debounced `session.json` (restore every normal window on
-  its current Space, frames clamped to today's screens). It runs every profile's
+  its current Space, frames clamped to today's screens). It runs every Space's
   History retention pass (Settings ▸ Remove history items) at launch, once a
   day and when the setting changes. `BrowserWindowPlacement`
   keeps harness windows off-screen. `BrowserAutomationRouter` (in
   `BrowserAutomationCommand.swift`) picks the CLI's window from
   `automationControllers` (private windows excluded), opens `new-window
-  --profile`, runs `move-to-window` and `spaces` / `space <n|name>`. `BrowserWindowManager+TabMove.swift`
+  --space`, runs `move-to-window` and `spaces` / `space <n|name>`. `BrowserWindowManager+TabMove.swift`
   moves live tabs: `moveTab(_:from:to:at:select:)`, `moveTabToNewWindow`,
   `mergeAllWindows` (tabs keep their Space), `openPopupWindow`; `canMoveTab(from:to:)`
   (`BrowserTabMoveRule`) is the one rule for which windows may exchange tabs:
-  the tab's data context is the target's current Space's (so the same
-  profile), never into a pop-up; a moved tab lands in the target's current
+  the tab's data context is the target's current Space's (every Space has
+  its own, so: the tab's own Space), never into a pop-up; a moved tab lands in the target's current
   Space and keeps its pin or favorite link only while that is the Space's
   and the target has no live tab for it (`linkAfterMove`), else as a Today
   tab.
   `tabbedController` is the window menu commands' new tabs go to (never a
   pop-up window); `windowForNewTabs(from:)` the window a pop-up's tabs go to
-  (same data context). `BrowserWindowManager+Profiles.swift` —
-  `context(for:)` (a profile's data context, made on first use; Default's or
-  a deleted profile's is `defaultContext`), `history(for:)`,
-  `windowMark(for:)` (the current Space when there are several),
-  `windowsClosing(onDeleteOf:)`, `openTabCount(ofProfile:)` and
-  `deleteProfile(_:completion:)` (closes the
-  profile's tabs in every window and Space — a window holding only its tabs
-  closes whole — without Recently Closed, drops its closed entries,
-  deletes its Spaces and favorites, removes it from `profiles.json`, then
-  retries `WKWebsiteDataStore.remove(forIdentifier:)` until its web views
-  are released and deletes its folder). The manager reconciles `spaces`
-  with the profile list at launch and on every profile change, so a new
-  profile gets its Space.
-- `Browser/BrowserProfiles.swift` — `BrowserProfile` (fixed Default id; its
-  folder, `<support>/Profiles/<id>/` for the others, data-store
-  identifier and `archiveAfter`), `BrowserProfileColor` (Folio tokens),
-  `BrowserProfileList` (`profiles.json`, tolerant decoding, unique names,
-  next color),
-  `BrowserProfileStore` and `BrowserWindowMark` ("Private", the profile
-  when there are several, or "Private · Work"). `BrowserWindowMarkView` draws
+  (same data context). `BrowserWindowManager+Profiles.swift` — Spaces and
+  their data: `context(for:)` (a Space's profile's data context, made on
+  first use; Default's or a deleted profile's is `defaultContext`),
+  `history(for:)`, `space(of:)`, `windowMark(for:)` (the window's Space
+  when there are several), `createSpace` (the switcher's "+": a Space
+  with a profile of its own), `canDeleteSpace` (never the Default Space),
+  `deleteSpace` → `deleteProfile(_:completion:)` (closes the
+  Space's tabs in every window — a window holding only its tabs
+  closes whole — without Recently Closed, drops its closed entries and
+  Archive, deletes its Space and favorites, removes the profile from
+  `profiles.json`, then retries `WKWebsiteDataStore.remove(forIdentifier:)`
+  until its web views are released and deletes its folder). At launch the
+  manager adds the profiles of Spaces the Space store separated
+  (`separatedProfiles`), moves Archive entries to their Space's profile
+  (`moveEntries(toProfileOfSpace:)`), and keeps `spaces` reconciled with
+  the profile list and every profile's name and color following its
+  Space (`BrowserProfileStore.follow`).
+- `Browser/BrowserProfiles.swift` — `BrowserProfile`, a Space's data
+  container, never shown (fixed Default id; its folder,
+  `<support>/Profiles/<id>/` for the others, data-store identifier and
+  `archiveAfter`), `BrowserProfileColor` (Folio tokens),
+  `BrowserProfileList` (`profiles.json`, tolerant decoding, `follow`),
+  `BrowserProfileStore` and `BrowserWindowMark` (the Space; "Private" or
+  "Private · Work" in a private window). `BrowserWindowMarkView` draws
   the mark (color dot and eyebrow) in the rail header and before the address
-  field; `BrowserProfilePicker` is the Websites and Website Data sheets'
-  profile picker; `App/BrowserProfilesSheet.swift` is Settings ▸ Profiles.
+  field; `BrowserSpacePicker` is the Websites and Website Data sheets'
+  Space picker (its selection is the Space's profile id).
 - `Browser/BrowserDataContext.swift` — `BrowserWindowKind` (normal or
   private: every place a private window must not write asks it) and
   `BrowserDataContext`, what a window's tabs read and write: its
@@ -478,19 +488,24 @@ no linter or formatter; match surrounding style.
   migration: version 2 `root`, version 1 lists newest first, bad nodes
   skipped, repeated ids dropped) and `BrowserPinOutline` (an outline's
   visible rows and where a drop lands). `BrowserSpaces.swift` —
-  `BrowserSpace` (name, `BrowserSpaceIcon`, color mark, profile, pinned
-  tree, `importedFrom`), `BrowserFavorites` (per profile, at most 12),
-  `BrowserArchiveAfter`, `BrowserSpaceList` (the pure operations: a
-  profile's last Space can't be deleted or moved away, `reconcile(with:)`
-  gives every profile a Space and drops orphans) and `BrowserSpacesFile`
+  `BrowserSpace` (name, `BrowserSpaceIcon`, color mark, its own profile,
+  pinned tree, `importedFrom`), `BrowserFavorites` (per Space, kept by its
+  profile, at most 12), `BrowserArchiveAfter`, `BrowserSpaceList` (the
+  pure operations: `create` refuses a profile another Space has,
+  `isolate(known:)` separates Spaces that share a profile — the first
+  keeps it, every other one moves to a new profile whose id is its own,
+  a missing such profile is reported again —, `reconcile(with:)` gives
+  every profile a Space and drops orphans) and `BrowserSpacesFile`
   (`spaces.json`, tolerant decoding). `BrowserSpaceStore.swift` —
   `BrowserSpaceStore`, the only way in or out of `spaces.json` (Space
   operations, per-Space pin operations with `inSpace:`, favorites with
-  `ofProfile:`; `insert(_:into:at:inSpace:)`, `createSpace(…importedFrom:)`
+  `ofProfile:`; `createSpace(…profiles:)` writes the Space, then its
+  profile (id = the Space's); `insert(_:into:at:inSpace:)`, `adoptSpace`
   and `insertFavorite` are the importers' entry points; a missing file
   starts with one Space per profile and migrates `bookmarks.json` into
   Default's, kept as `bookmarks.json.migrated`; an unreadable one is kept
-  as `.corrupt`) and `BrowserPinUIState` (expanded folders and ⌘D's last
+  as `.corrupt`; on load it isolates shared profiles once and lists
+  `separations` / `separatedProfiles`) and `BrowserPinUIState` (expanded folders and ⌘D's last
   folder per Space in `UserDefaults`). `BrowserPinEditor.swift` is the
   Folio popover (⌘D, Edit Pin, Rename, New Folder) and its child
   panel; `BrowserPinOutlineCell.swift` a row of the rail's outline;
@@ -507,15 +522,19 @@ no linter or formatter; match surrounding style.
   `BrowserNetscapeBookmarks` (parse and write), the neutral model in
   `BrowserImportModel.swift`. `BrowserImportLoader` reads a source off the
   main thread; `BrowserImportPlan.swift` is the pure plan step
-  (`BrowserImportPlanner`: profile mapping — Arc `Default` → Default,
-  `Profile N` → the profile an import made (`importedFrom`) or a new one
-  named after its first Space —, Spaces skipped by `importedFrom`,
-  favorites past 12, Archive ids from Arc's item ids, History counts within
+  (`BrowserImportPlanner`: each Arc Space a Space of its own; each Arc
+  profile's home Space for its History and favorites — Arc `Default` →
+  the Default Space, `Profile N` → the Space whose profile an import
+  marked (`importedFrom` `arc:Profile N`), else its first new Space, else
+  a new one named after its first Space —; an untouched home (no pins,
+  never imported) is taken over by the profile's first new Space;
+  Spaces skipped by `importedFrom`, `retarget` for the Chrome/Safari/HTML
+  Space menu, favorites past 12, Archive ids from Arc's item ids, History counts within
   Settings ▸ Remove history items; `BrowserImportColorMatch`, OKLab hue to
   the nearest Folio color); `BrowserImportChecklist` the sheet's rows and
   result lines; `BrowserImporter` the apply step (store writes on the main
-  actor, a new profile's own Space taken over by its first imported Space,
-  then History per profile through `BrowserHistoryStore.importInBackground`:
+  actor, every new Space with its own profile,
+  then History per home Space through `BrowserHistoryStore.importInBackground`:
   batches on a second connection, duplicates — same address and time —
   skipped, cancel between batches, frecency refreshed after).
   `BrowserWindowManager+Import.swift` plans and runs imports for a window

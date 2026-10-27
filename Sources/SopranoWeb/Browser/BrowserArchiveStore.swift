@@ -162,6 +162,25 @@ final class BrowserArchiveStore {
         removeEntries { $0.profileID == profileID && range.contains($0.archivedAt) }
     }
 
+    /// Entries of a Space that now has another profile (Spaces separated
+    /// from a shared profile) move to it: `profileOfSpace` maps a Space id
+    /// to its profile. One write; nothing happens when every entry is in
+    /// its Space's profile already. Returns how many moved.
+    @discardableResult
+    func moveEntries(toProfileOfSpace profileOfSpace: [UUID: UUID]) -> Int {
+        var moved = 0
+        for index in entries.indices {
+            guard let spaceID = entries[index].spaceID, let profileID = profileOfSpace[spaceID],
+                  entries[index].profileID != profileID
+            else { continue }
+            entries[index].profileID = profileID
+            moved += 1
+        }
+        guard moved > 0 else { return 0 }
+        save()
+        return moved
+    }
+
     private func removeEntries(where shouldRemove: (BrowserArchiveEntry) -> Bool) {
         let count = entries.count
         entries.removeAll { entry in

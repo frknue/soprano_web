@@ -12,13 +12,12 @@ import AppKit
 ///   `--replace-pin`: the selected tab's menu items (Pin Tab, Unpin Tab,
 ///   Add to Favorites, Remove from Favorites, Replace Pin/Favorite with
 ///   Current Page).
-/// - `--new-space "<name>|<icon>|<color>|<profile>"`: the switcher's "+"
-///   sheet, filled (empty parts keep the sheet's defaults) and Create
-///   Space pressed.
-/// - `--edit-space "<space>=<name>|<icon>|<color>|<profile>"`: Edit Space…
-///   on that Space's switcher icon, filled and saved.
-/// - `--delete-space <name>`: Delete Space on its switcher icon,
-///   confirmed.
+/// - `--new-space "<name>|<icon>|<color>"`: the switcher's "+" sheet,
+///   filled (empty parts keep the sheet's defaults) and Create Space
+///   pressed: a Space with its own profile, which the window shows.
+/// - `--edit-space "<space>=<name>|<icon>|<color>|<archive after>"`: Edit
+///   Space… on that Space's switcher icon, filled and saved (`archive
+///   after`: a `BrowserArchiveAfter` value, picked from the sheet's menu).
 /// - `--print-rail`: the active window's rail as one JSON line: header,
 ///   favorites, pinned rows, Today tabs and the switcher, each with its
 ///   live, selected and "/" state, and every tab of the Space with its
@@ -33,22 +32,21 @@ enum SnapshotRailAction {
     case replaceLink
     case newSpace(String)
     case editSpace(String)
-    case deleteSpace(String)
     case printRail
     case hoverFolder(String)
     case toggleRail
 
     static let flags: Set<String> = [
         "--click-pin", "--click-favorite", "--pin-tab", "--unpin-tab", "--add-favorite", "--remove-favorite",
-        "--replace-pin", "--new-space", "--edit-space", "--delete-space", "--print-rail",
+        "--replace-pin", "--new-space", "--edit-space", "--print-rail",
         "--hover-folder", "--toggle-rail",
     ]
 
     static let usage = """
                                [--click-pin <title>[:icon|:cmd-icon]]... [--click-favorite <n|title>[:cmd]]...
                                [--pin-tab] [--unpin-tab] [--add-favorite] [--remove-favorite] [--replace-pin]
-                               [--new-space "<name>|<icon>|<color>|<profile>"]...
-                               [--edit-space "<space>=<name>|<icon>|<color>|<profile>"] [--delete-space <name>]
+                               [--new-space "<name>|<icon>|<color>"]...
+                               [--edit-space "<space>=<name>|<icon>|<color>|<archive after>"]
                                [--print-rail] [--hover-folder <name>] [--toggle-rail]
     """
 
@@ -77,7 +75,6 @@ enum SnapshotRailAction {
         case "--replace-pin": return .replaceLink
         case "--new-space": return .newSpace(try value())
         case "--edit-space": return .editSpace(try value())
-        case "--delete-space": return .deleteSpace(try value())
         case "--print-rail": return .printRail
         case "--hover-folder": return .hoverFolder(try value())
         case "--toggle-rail": return .toggleRail
@@ -136,7 +133,7 @@ enum SnapshotRailAction {
             print("tab-menu: \(title) -> \(Self.describe(tab))")
         case let .newSpace(raw):
             let sheet = controller.makeSpaceSheet(editing: nil)
-            Self.fill(sheet, with: raw, manager: manager)
+            Self.fill(sheet, with: raw)
             sheet.savePressed()
             let space = controller.currentSpaceID.flatMap(manager.spaces.space(id:))
             print("new-space: \(sheet.message.isEmpty ? "created \(space.map(Self.describe) ?? "-"), window shows it" : "refused: \(sheet.message)")")
@@ -147,17 +144,11 @@ enum SnapshotRailAction {
                 return
             }
             let sheet = controller.makeSpaceSheet(editing: space.id)
-            Self.fill(sheet, with: parts[1], manager: manager)
+            Self.fill(sheet, with: parts[1])
             sheet.savePressed()
             let saved = manager.spaces.space(id: space.id)
-            print("edit-space: \(sheet.message.isEmpty ? "saved \(saved.map(Self.describe) ?? "-")" : "refused: \(sheet.message)")")
-        case let .deleteSpace(name):
-            guard let space = Self.space(named: name, in: manager) else {
-                print("delete-space: no Space \(name)")
-                return
-            }
-            let deleted = controller.deleteSpace(space.id, confirmed: true)
-            print("delete-space: \(space.displayName) \(deleted ? "deleted" : "refused (its profile's only Space)")")
+            let archiveAfter = manager.profiles.profile(id: space.profileID)?.archiveAfter.rawValue ?? "-"
+            print("edit-space: \(sheet.message.isEmpty ? "saved \(saved.map(Self.describe) ?? "-"), archive after \(archiveAfter)" : "refused: \(sheet.message)")")
         case .printRail:
             print(Self.railJSON(controller))
         case let .hoverFolder(name):
@@ -179,10 +170,10 @@ enum SnapshotRailAction {
         manager.spaces.spaces.first { $0.displayName == name }
     }
 
-    /// Fills the sheet from "<name>|<icon>|<color>|<profile>" as typing and
-    /// clicking would; empty parts stay as they are.
+    /// Fills the sheet from "<name>|<icon>|<color>|<archive after>" as
+    /// typing and clicking would; empty parts stay as they are.
     @MainActor
-    static func fill(_ sheet: BrowserSpaceSheet, with raw: String, manager: BrowserWindowManager) {
+    static func fill(_ sheet: BrowserSpaceSheet, with raw: String) {
         let parts = raw.split(separator: "|", omittingEmptySubsequences: false).map(String.init)
         func part(_ index: Int) -> String? {
             parts.indices.contains(index) && !parts[index].isEmpty ? parts[index] : nil
@@ -191,7 +182,7 @@ enum SnapshotRailAction {
             name: part(0),
             icon: part(1),
             color: part(2).flatMap(BrowserProfileColor.init(rawValue:)),
-            profileID: part(3).flatMap { manager.profiles.profile(named: $0)?.id }
+            archiveAfter: part(3).flatMap(BrowserArchiveAfter.init(rawValue:))
         )
     }
 
@@ -333,10 +324,11 @@ extension SnapshotCommand {
         }
         let sheet = controller.makeSpaceSheet(editing: spaceID)
         if parts.count == 2 {
-            SnapshotRailAction.fill(sheet, with: parts[1], manager: controller.manager)
+            SnapshotRailAction.fill(sheet, with: parts[1])
         }
         sheet.window?.contentView?.layoutSubtreeIfNeeded()
-        print("space-sheet: \(sheet.window?.title ?? "-") | name \(sheet.nameField.stringValue) | icon \(sheet.iconField.stringValue) | color \(sheet.values.color.rawValue) | \(sheet.profilePicker.button.isHidden ? "one profile" : sheet.profilePicker.button.title) | \(sheet.saveButton.title)\(sheet.saveButton.isEnabled ? "" : " (disabled)")")
+        let archive = sheet.archiveButton.isHidden ? "no archive setting" : "archive after \(sheet.archiveButton.title)"
+        print("space-sheet: \(sheet.window?.title ?? "-") | name \(sheet.nameField.stringValue) | icon \(sheet.iconField.stringValue) | color \(sheet.values.color.rawValue) | \(archive) | \(sheet.saveButton.title)\(sheet.saveButton.isEnabled ? "" : " (disabled)")")
         return sheet
     }
 }

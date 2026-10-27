@@ -76,7 +76,7 @@ final class BrowserSpacesMenu: NSObject, NSMenuDelegate, NSMenuItemValidation {
     private func currentSpaceID() -> UUID? {
         guard let manager = windowManager() else { return nil }
         return manager.tabbedController?.pinSpaceID
-            ?? manager.spaces.firstSpace(ofProfile: BrowserProfile.defaultID)?.id
+            ?? manager.spaces.space(ofProfile: BrowserProfile.defaultID)?.id
     }
 
     func rebuild() {

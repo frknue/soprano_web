@@ -1,13 +1,15 @@
 import Foundation
 
 /// The apply step of an import: writes a `BrowserImportPlan`'s included
-/// items into the app's stores on the main actor (profiles, Spaces and
-/// pins, favorites, the Archive, favicons, link routing), then imports
-/// History off the main thread, one profile after another, in batches
-/// that can be cancelled. Running a plan twice adds nothing the first run
-/// added: Spaces carry `importedFrom`, favorites and overflow pins are
-/// matched by address, Archive entries keep Arc's ids, rules are compared
-/// and History skips visits it holds (same address and time).
+/// items into the app's stores on the main actor (Spaces — each with a
+/// profile of its own — and pins, favorites, the Archive, favicons, link
+/// routing), then imports History off the main thread, one Space after
+/// another, in batches that can be cancelled. Running a plan twice adds
+/// nothing the first run added: Spaces carry `importedFrom`, a source
+/// profile's home Space's profile is marked (`arc:Profile 3`), favorites
+/// and overflow pins are matched by address, Archive entries keep Arc's
+/// ids, rules are compared and History skips visits it holds (same
+/// address and time).
 @MainActor
 final class BrowserImporter {
     struct Stores {
@@ -23,20 +25,22 @@ final class BrowserImporter {
     struct HistoryResult: Sendable, Equatable {
         var id: String
         var title: String
-        var profileName: String
+        /// The Space it went to.
+        var spaceName: String
         var count = BrowserHistoryImportCount()
         var seconds: Double = 0
         var error: String?
     }
 
     struct Summary: Sendable {
-        var profilesCreated: [String] = []
+        /// Spaces this import made (a home made for a source profile's
+        /// History or favorites alone included; a Space taken over counts).
         var spacesCreated = 0
         var spacesSkipped = 0
         var pinsAdded = 0
         var foldersAdded = 0
         var favoritesAdded = 0
-        /// Favorites past the limit, pinned in the profile's first Space.
+        /// Favorites past the limit, pinned in the home Space.
         var favoritesPinned = 0
         var archiveAdded = 0
         var faviconsAdded = 0
@@ -65,10 +69,8 @@ final class BrowserImporter {
     nonisolated static let historyBatchSize = 2_000
 
     let stores: Stores
-    private var profileMap: [String: UUID] = [:]
-    /// A profile this import made → the Space it was given, which the
-    /// profile's first imported Space takes over.
-    private var adoptable: [UUID: UUID] = [:]
+    /// Source profile key → the app profile of its home Space.
+    private var homes: [String: UUID] = [:]
 
     init(stores: Stores) {
         self.stores = stores
@@ -102,39 +104,43 @@ final class BrowserImporter {
                 result.spacesSkipped += 1
                 continue
             }
-            guard space.isIncluded,
-                  let profile = resolveProfile(space.profileKey, in: plan, color: space.color, result: &result)
-            else { continue }
+            guard space.isIncluded else { continue }
             let tree = BrowserPinTree(children: BrowserImportPlanner.pinNodes(space.pinned))
-            var spaceID: UUID?
-            if let given = adoptable[profile.id],
-               stores.spaces.adoptSpace(given, name: space.name, icon: space.icon, color: space.color, pinned: tree, importedFrom: space.id)
+            var made: BrowserSpace?
+            if let adopted = plan.adoptedSpaceID(by: space),
+               stores.spaces.adoptSpace(adopted, name: space.name, icon: space.icon, color: space.color, pinned: tree, importedFrom: space.id)
             {
-                adoptable[profile.id] = nil
-                spaceID = given
+                made = stores.spaces.space(id: adopted)
             } else {
-                spaceID = stores.spaces.createSpace(
+                // The first Space of a source profile without a home yet
+                // becomes its home: its profile is marked for a re-import.
+                let isHome = home(of: space.profileKey, in: plan) == nil
+                made = stores.spaces.createSpace(
                     name: space.name,
                     icon: space.icon,
                     color: space.color,
-                    profileID: profile.id,
                     pinned: tree,
-                    importedFrom: space.id
-                )?.id
+                    importedFrom: space.id,
+                    profileImportedFrom: isHome ? BrowserImportPlanner.arcProfileSource(space.profileKey) : nil,
+                    profiles: stores.profiles
+                )
+                if isHome, let made {
+                    homes[space.profileKey] = made.profileID
+                }
             }
-            guard let spaceID else { continue }
-            spaceMap[space.id] = spaceID
+            guard let made else { continue }
+            spaceMap[space.id] = made.id
             result.spacesCreated += 1
             result.pinsAdded += space.pinCount
             result.foldersAdded += space.folderCount
-            result.firstSpaceID = result.firstSpaceID ?? spaceID
+            result.firstSpaceID = result.firstSpaceID ?? made.id
             if !space.today.isEmpty {
-                result.todayTabs.append((spaceID, space.today))
+                result.todayTabs.append((made.id, space.today))
             }
         }
 
         for favorites in plan.favorites where favorites.isIncluded && !favorites.links.isEmpty {
-            guard let profile = resolveProfile(favorites.profileKey, in: plan, color: nil, result: &result) else { continue }
+            guard let profile = resolveHome(favorites.profileKey, in: plan, result: &result) else { continue }
             var present = Set(stores.spaces.favorites(ofProfile: profile.id).map(\.url))
             var overflow: [BrowserImportedLink] = []
             for link in favorites.links where present.insert(link.url).inserted {
@@ -145,12 +151,7 @@ final class BrowserImporter {
                     overflow.append(link)
                 }
             }
-            guard !overflow.isEmpty else { continue }
-            let imported = plan.spaces.lazy
-                .filter { $0.profileKey == favorites.profileKey }
-                .compactMap { spaceMap[$0.id] }
-                .first { self.stores.spaces.space(id: $0)?.profileID == profile.id }
-            guard let target = imported ?? stores.spaces.firstSpace(ofProfile: profile.id)?.id else { continue }
+            guard !overflow.isEmpty, let target = stores.spaces.space(ofProfile: profile.id)?.id else { continue }
             var pinned = Set(stores.spaces.pins(inSpace: target).map(\.url))
             for link in overflow where pinned.insert(link.url).inserted {
                 let node = BrowserPinNode.pin(BrowserPin(url: link.url, title: link.title, addedAt: link.addedAt ?? Date()))
@@ -161,23 +162,23 @@ final class BrowserImporter {
         }
 
         if let archive = plan.archive, archive.isIncluded {
-            let defaultSpace = stores.spaces.firstSpace(ofProfile: BrowserProfile.defaultID)?.id
+            let defaultSpace = stores.spaces.defaultSpace?.id
+            let planned = Set(plan.spaces.map(\.id))
             let entries = archive.items.compactMap { item -> BrowserArchiveEntry? in
                 guard BrowserArchiveEntry.isArchivable(URL(string: item.link.url)) else { return nil }
-                var spaceID = item.spaceSourceID.flatMap { spaceMap[$0] }
-                var profileID = BrowserProfile.defaultID
-                if let id = spaceID, let space = stores.spaces.space(id: id) {
+                let spaceID: UUID?
+                let profileID: UUID
+                if let id = item.spaceSourceID.flatMap({ spaceMap[$0] }), let space = stores.spaces.space(id: id) {
+                    spaceID = space.id
                     profileID = space.profileID
-                } else if let key = item.spaceSourceID.flatMap({ id in plan.spaces.first { $0.id == id }?.profileKey }) {
-                    // The Space wasn't imported: its profile's Archive
-                    // when that profile exists, else left out (a later
-                    // import that brings the Space brings these too).
-                    guard let mapped = existingProfile(key, in: plan) else { return nil }
-                    profileID = mapped
-                    spaceID = nil
+                } else if let source = item.spaceSourceID, planned.contains(source) {
+                    // The Space wasn't imported: left out (a later import
+                    // that brings the Space brings these too).
+                    return nil
                 } else {
                     // No Space (Little Arc) or one the sidebar doesn't list.
                     spaceID = defaultSpace
+                    profileID = BrowserProfile.defaultID
                 }
                 return BrowserArchiveEntry(
                     id: BrowserImportPlanner.archiveEntryID(for: item),
@@ -214,8 +215,7 @@ final class BrowserImporter {
         }
 
         if !plan.folders.isEmpty {
-            let target = plan.targetSpaceID.flatMap { stores.spaces.space(id: $0) }
-                ?? stores.spaces.firstSpace(ofProfile: BrowserProfile.defaultID)
+            let target = plan.targetSpaceID.flatMap { stores.spaces.space(id: $0) } ?? stores.spaces.defaultSpace
             for folder in plan.folders where folder.isIncluded {
                 guard let target else { break }
                 let root = stores.spaces.pinTree(inSpace: target.id).root
@@ -250,46 +250,46 @@ final class BrowserImporter {
         return stores.favicons.importIcons(icons)
     }
 
-    /// The app profile for a source profile, made (with its Space, which
-    /// the first imported Space takes over) the first time it is needed.
-    private func resolveProfile(
-        _ key: String,
-        in plan: BrowserImportPlan,
-        color: BrowserProfileColor?,
-        result: inout Summary
-    ) -> BrowserProfile? {
-        if let id = profileMap[key] {
+    /// The profile of source profile `key`'s home Space when it exists:
+    /// Default's, the one an earlier import marked, or the Space this
+    /// import made first for it. Nil while it has none.
+    private func home(of key: String, in plan: BrowserImportPlan) -> BrowserProfile? {
+        if let id = homes[key] {
             return stores.profiles.profile(id: id)
         }
         guard let mapping = plan.profile(key: key) else {
             return stores.profiles.profile(id: BrowserProfile.defaultID)
         }
-        let profile: BrowserProfile
-        switch mapping.target {
-        case let .existing(id):
-            guard let existing = stores.profiles.profile(id: id) else { return nil }
-            profile = existing
-        case let .new(name):
-            let source = BrowserImportPlanner.arcProfileSource(key)
-            if let earlier = stores.profiles.profile(importedFrom: source) {
-                profile = earlier
-            } else {
-                profile = stores.profiles.add(name: name, color: color, importedFrom: source)
-                result.profilesCreated.append(profile.name)
-                // The manager reconciles on every profile change; without
-                // it (tests) the store gives the profile its Space here.
-                adoptable[profile.id] = stores.spaces.ensureSpace(forProfile: profile).id
-            }
+        let found: BrowserProfile? = switch mapping.target {
+        case let .existing(id): stores.profiles.profile(id: id)
+        case .new: stores.profiles.profile(importedFrom: BrowserImportPlanner.arcProfileSource(key))
         }
-        profileMap[key] = profile.id
-        return profile
+        if let found {
+            homes[key] = found.id
+        }
+        return found
     }
 
-    /// The app profile a source profile maps to without making one.
-    private func existingProfile(_ key: String, in plan: BrowserImportPlan) -> UUID? {
-        if let id = profileMap[key] { return id }
-        guard case let .existing(id) = plan.profile(key: key)?.target else { return nil }
-        return stores.profiles.profile(id: id)?.id
+    /// The home Space's profile, made (a new Space named after the source
+    /// profile, marked as its home, in the next unused color) when none
+    /// exists yet: a profile whose Spaces weren't imported, or one with
+    /// History alone.
+    private func resolveHome(_ key: String, in plan: BrowserImportPlan, result: inout Summary) -> BrowserProfile? {
+        if let found = home(of: key, in: plan) {
+            return found
+        }
+        let used = Set(stores.spaces.spaces.map(\.color))
+        guard let mapping = plan.profile(key: key), case let .new(name) = mapping.target,
+              let space = stores.spaces.createSpace(
+                  name: name,
+                  color: BrowserProfileColor.allCases.first { !used.contains($0) } ?? .gray,
+                  profileImportedFrom: BrowserImportPlanner.arcProfileSource(key),
+                  profiles: stores.profiles
+              )
+        else { return nil }
+        result.spacesCreated += 1
+        homes[key] = space.profileID
+        return stores.profiles.profile(id: space.profileID)
     }
 
     // MARK: History
@@ -308,14 +308,15 @@ final class BrowserImporter {
         for item in plan.history where item.isIncluded {
             let profile: BrowserProfile
             if let key = item.profileKey {
-                // An Arc profile's History goes to its profile only; one
+                // An Arc profile's History goes to its home Space only; one
                 // that is gone (deleted while the sheet was open) is skipped.
-                guard let mapped = resolveProfile(key, in: plan, color: nil, result: &result) else { continue }
-                profile = mapped
+                guard let home = resolveHome(key, in: plan, result: &result) else { continue }
+                profile = home
             } else {
                 profile = stores.profiles.profile(id: targetProfileID) ?? .defaultProfile
             }
-            jobs.append(HistoryRun.Job(item: item, profile: profile, store: stores.history(profile)))
+            let spaceName = stores.spaces.space(ofProfile: profile.id)?.displayName ?? profile.name
+            jobs.append(HistoryRun.Job(item: item, spaceName: spaceName, store: stores.history(profile)))
         }
         HistoryRun(
             jobs: jobs,
@@ -332,7 +333,8 @@ final class BrowserImporter {
     private final class HistoryRun {
         struct Job: Sendable {
             var item: BrowserImportPlan.History
-            var profile: BrowserProfile
+            /// The Space whose History it goes into.
+            var spaceName: String
             var store: BrowserHistoryStore
         }
 
@@ -385,7 +387,7 @@ final class BrowserImporter {
         }
 
         private func finish(_ job: Job, outcome: Swift.Result<BrowserHistoryImportCount, Error>, seconds: Double) {
-            var entry = HistoryResult(id: job.item.id, title: job.item.title, profileName: job.profile.name)
+            var entry = HistoryResult(id: job.item.id, title: job.item.title, spaceName: job.spaceName)
             entry.seconds = seconds
             switch outcome {
             case let .success(count):

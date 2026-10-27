@@ -206,7 +206,7 @@ extension BrowserWindowState {
     /// tabs still in that Space. Unchanged when there are no Spaces.
     func placedInSpaces(_ list: BrowserSpaceList) -> BrowserWindowState {
         guard let home = currentSpaceID.flatMap(list.space(id:))
-            ?? list.firstSpace(ofProfile: profileID)
+            ?? list.space(ofProfile: profileID)
             ?? list.spaces.first
         else { return self }
         var state = self

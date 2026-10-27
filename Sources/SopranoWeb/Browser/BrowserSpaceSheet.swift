@@ -5,14 +5,18 @@ struct BrowserSpaceSheetValues: Equatable {
     var name: String
     var icon: BrowserSpaceIcon
     var color: BrowserProfileColor
-    var profileID: UUID
+    /// "Archive Today tabs after" (Edit Space; a new Space starts with
+    /// `BrowserArchiveAfter.default`).
+    var archiveAfter: BrowserArchiveAfter
 }
 
 /// The rail switcher's "+" (New Space) and a Space's Edit Space…: its
 /// name, an icon (an emoji or an SF Symbol name, with a few to pick from),
-/// its color mark (the Folio tokens of `BrowserProfileColor`) and its
-/// profile. Presented as a sheet on the browser window. `onSave` returns
-/// nil when the Space was saved, else why not (shown in the sheet).
+/// its color mark (the Folio tokens of `BrowserProfileColor`) and, when
+/// editing, "Archive Today tabs after". Every Space keeps its own cookies,
+/// History and Archive, so there is nothing to share. Presented as a sheet
+/// on the browser window. `onSave` returns nil when the Space was saved,
+/// else why not (shown in the sheet).
 @MainActor
 final class BrowserSpaceSheet: NSWindowController, NSTextFieldDelegate {
     var onSave: ((BrowserSpaceSheetValues) -> String?)?
@@ -38,23 +42,20 @@ final class BrowserSpaceSheet: NSWindowController, NSTextFieldDelegate {
     private let colorLabel = NSTextField(labelWithString: "Color")
     private let colorChoices = NSStackView()
     private var colorButtons: [BrowserSpaceColorButton] = []
-    private let profileLabel = NSTextField(labelWithString: "Profile")
-    let profilePicker: BrowserProfilePicker
-    private let profileNote = NSTextField(labelWithString: "")
+    private let archiveLabel = NSTextField(labelWithString: "Archive Today tabs after")
+    /// Edit Space only: the Space's archive time, a menu of every choice.
+    let archiveButton: ChromeButton
     private let messageLabel = NSTextField(wrappingLabelWithString: "")
     private let rule: ChromeRuleView
     private let cancelButton: ChromeButton
     let saveButton: ChromeButton
 
-    /// `space` nil: New Space (in `profileID`'s profile, the next color).
-    /// `profileLocked`: the Space is its profile's last one, so it can't
-    /// move to another profile.
+    /// `space` nil: New Space (in `color`, archiving after the default
+    /// time); otherwise Edit Space with its `archiveAfter`.
     init(
         space: BrowserSpace?,
-        profileID: UUID,
         color: BrowserProfileColor,
-        profileLocked: Bool,
-        profiles: BrowserProfileStore,
+        archiveAfter: BrowserArchiveAfter,
         theme: AppTheme
     ) {
         isNew = space == nil
@@ -62,17 +63,17 @@ final class BrowserSpaceSheet: NSWindowController, NSTextFieldDelegate {
             name: space?.name ?? "",
             icon: space?.icon ?? .none,
             color: space?.color ?? color,
-            profileID: space?.profileID ?? profileID
+            archiveAfter: archiveAfter
         )
         self.theme = theme
         nameFrame = ChromeFieldView(theme: theme)
         iconFrame = ChromeFieldView(theme: theme)
-        profilePicker = BrowserProfilePicker(profiles: profiles, selected: values.profileID, theme: theme)
+        archiveButton = ChromeButton(title: archiveAfter.title, theme: theme, kind: .standard)
         rule = ChromeRuleView(axis: .horizontal, color: theme.colors.borderSubtle)
         cancelButton = ChromeButton(title: "Cancel", theme: theme, kind: .text, keycap: "esc")
         saveButton = ChromeButton(title: space == nil ? "Create Space" : "Save", theme: theme, kind: .ink, keycap: "↵")
         let window = NSPanel(
-            contentRect: NSRect(x: 0, y: 0, width: 420, height: 330),
+            contentRect: NSRect(x: 0, y: 0, width: 420, height: space == nil ? 280 : 320),
             styleMask: [.titled],
             backing: .buffered,
             defer: false
@@ -85,11 +86,11 @@ final class BrowserSpaceSheet: NSWindowController, NSTextFieldDelegate {
 
         header.stringValue = isNew ? "New Space" : "Edit “\(space?.displayName ?? "")”"
         header.font = ChromeFont.headline
-        for label in [nameLabel, iconLabel, colorLabel, profileLabel] {
+        for label in [nameLabel, iconLabel, colorLabel] {
             label.font = ChromeFont.label
             label.alignment = .right
         }
-        profileNote.font = ChromeFont.meta
+        archiveLabel.font = ChromeFont.label
         messageLabel.font = ChromeFont.meta
         messageLabel.preferredMaxLayoutWidth = 372
 
@@ -135,10 +136,11 @@ final class BrowserSpaceSheet: NSWindowController, NSTextFieldDelegate {
             colorButtons.append(button)
             colorChoices.addArrangedSubview(button)
         }
-        if profileLocked {
-            profilePicker.button.isEnabled = false
-            profileNote.stringValue = "The profile's only Space stays in it."
-        }
+        archiveButton.target = self
+        archiveButton.action = #selector(archivePressed)
+        archiveButton.setAccessibilityLabel("Archive Today tabs after")
+        archiveLabel.isHidden = isNew
+        archiveButton.isHidden = isNew
         cancelButton.target = self
         cancelButton.action = #selector(cancelPressed)
         cancelButton.keyEquivalent = "\u{1b}"
@@ -148,7 +150,7 @@ final class BrowserSpaceSheet: NSWindowController, NSTextFieldDelegate {
 
         let views: [NSView] = [
             header, nameLabel, nameFrame, iconLabel, iconPreview, iconFrame, iconChoices, colorLabel,
-            colorChoices, profileLabel, profilePicker.button, profileNote, messageLabel, rule, cancelButton, saveButton,
+            colorChoices, archiveLabel, archiveButton, messageLabel, rule, cancelButton, saveButton,
         ]
         for view in views {
             view.translatesAutoresizingMaskIntoConstraints = false
@@ -185,16 +187,16 @@ final class BrowserSpaceSheet: NSWindowController, NSTextFieldDelegate {
             colorChoices.topAnchor.constraint(equalTo: iconChoices.bottomAnchor, constant: 14),
             colorChoices.leadingAnchor.constraint(equalTo: nameFrame.leadingAnchor),
 
-            profileLabel.leadingAnchor.constraint(equalTo: nameLabel.leadingAnchor),
-            profileLabel.widthAnchor.constraint(equalToConstant: labelWidth),
-            profileLabel.centerYAnchor.constraint(equalTo: profilePicker.button.centerYAnchor),
-            profilePicker.button.topAnchor.constraint(equalTo: colorChoices.bottomAnchor, constant: 14),
-            profilePicker.button.leadingAnchor.constraint(equalTo: nameFrame.leadingAnchor),
-            profileNote.leadingAnchor.constraint(equalTo: profilePicker.button.trailingAnchor, constant: 8),
-            profileNote.centerYAnchor.constraint(equalTo: profilePicker.button.centerYAnchor),
-            profileNote.trailingAnchor.constraint(lessThanOrEqualTo: rootView.trailingAnchor, constant: -24),
+            archiveLabel.leadingAnchor.constraint(equalTo: rootView.leadingAnchor, constant: 24),
+            archiveLabel.centerYAnchor.constraint(equalTo: archiveButton.centerYAnchor),
+            archiveButton.topAnchor.constraint(equalTo: colorChoices.bottomAnchor, constant: 18),
+            archiveButton.leadingAnchor.constraint(equalTo: archiveLabel.trailingAnchor, constant: 10),
+            archiveButton.widthAnchor.constraint(greaterThanOrEqualToConstant: 96),
 
-            messageLabel.topAnchor.constraint(equalTo: profilePicker.button.bottomAnchor, constant: 12),
+            messageLabel.topAnchor.constraint(
+                equalTo: isNew ? colorChoices.bottomAnchor : archiveButton.bottomAnchor,
+                constant: 12
+            ),
             messageLabel.leadingAnchor.constraint(equalTo: rootView.leadingAnchor, constant: 24),
             messageLabel.trailingAnchor.constraint(lessThanOrEqualTo: rootView.trailingAnchor, constant: -24),
 
@@ -207,9 +209,6 @@ final class BrowserSpaceSheet: NSWindowController, NSTextFieldDelegate {
             cancelButton.trailingAnchor.constraint(equalTo: saveButton.leadingAnchor, constant: -8),
             cancelButton.centerYAnchor.constraint(equalTo: saveButton.centerYAnchor),
         ])
-        profilePicker.onChange = { [weak self] id in self?.values.profileID = id }
-        // One profile: the picker hides; so does its label.
-        profileLabel.isHidden = profilePicker.button.isHidden
         apply(theme: theme)
         refresh()
     }
@@ -225,10 +224,10 @@ final class BrowserSpaceSheet: NSWindowController, NSTextFieldDelegate {
         rootView.layer?.backgroundColor = colors.bgBase.cgColor
         window?.backgroundColor = colors.bgBase
         header.textColor = colors.textPrimary
-        for label in [nameLabel, iconLabel, colorLabel, profileLabel] {
+        for label in [nameLabel, iconLabel, colorLabel] {
             label.textColor = colors.textMuted
         }
-        profileNote.textColor = colors.textMuted
+        archiveLabel.textColor = colors.textMuted
         messageLabel.textColor = colors.danger
         rule.color = colors.borderSubtle
         nameFrame.apply(theme: theme)
@@ -240,7 +239,7 @@ final class BrowserSpaceSheet: NSWindowController, NSTextFieldDelegate {
                 attributes: [.foregroundColor: colors.textMuted, .font: ChromeFont.label]
             )
         }
-        profilePicker.apply(theme: theme)
+        archiveButton.apply(theme: theme)
         cancelButton.apply(theme: theme)
         saveButton.apply(theme: theme)
         iconPreview.theme = theme
@@ -260,7 +259,7 @@ final class BrowserSpaceSheet: NSWindowController, NSTextFieldDelegate {
     }
 
     /// Fills the sheet as typing and clicking would (the harness).
-    func fill(name: String?, icon: String?, color: BrowserProfileColor?, profileID: UUID?) {
+    func fill(name: String?, icon: String?, color: BrowserProfileColor?, archiveAfter: BrowserArchiveAfter?) {
         if let name {
             nameField.stringValue = name
             values.name = name
@@ -272,11 +271,39 @@ final class BrowserSpaceSheet: NSWindowController, NSTextFieldDelegate {
         if let color {
             choose(color: color)
         }
-        if let profileID, profilePicker.button.isEnabled {
-            profilePicker.select(profileID)
-            values.profileID = profilePicker.selectedID
+        if let archiveAfter, !isNew,
+           let item = archiveAfterMenu().items.first(where: { $0.representedObject as? String == archiveAfter.rawValue })
+        {
+            archiveAfterChosen(item)
         }
         refresh()
+    }
+
+    /// "Archive Today tabs after": every choice, the sheet's checked.
+    func archiveAfterMenu() -> NSMenu {
+        let menu = NSMenu()
+        for choice in BrowserArchiveAfter.allCases {
+            let item = NSMenuItem(title: choice.title, action: #selector(archiveAfterChosen(_:)), keyEquivalent: "")
+            item.target = self
+            item.representedObject = choice.rawValue
+            item.state = choice == values.archiveAfter ? .on : .off
+            menu.addItem(item)
+        }
+        return menu
+    }
+
+    @objc private func archivePressed() {
+        archiveAfterMenu().popUp(
+            positioning: nil,
+            at: NSPoint(x: 0, y: archiveButton.bounds.height + 4),
+            in: archiveButton
+        )
+    }
+
+    @objc func archiveAfterChosen(_ sender: NSMenuItem) {
+        guard let raw = sender.representedObject as? String, let choice = BrowserArchiveAfter(rawValue: raw) else { return }
+        values.archiveAfter = choice
+        archiveButton.title = choice.title
     }
 
     private func choose(icon: BrowserSpaceIcon) {

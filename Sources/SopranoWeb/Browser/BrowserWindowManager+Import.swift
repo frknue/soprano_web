@@ -11,7 +11,7 @@ extension BrowserWindowManager {
             spaces: spaces.list,
             archiveIDs: Set(archive.entries.map(\.id)),
             routingRules: linkRouting.rules,
-            targetSpaceID: controller?.pinSpaceID ?? spaces.firstSpace(ofProfile: BrowserProfile.defaultID)?.id,
+            targetSpaceID: controller?.pinSpaceID ?? spaces.space(ofProfile: BrowserProfile.defaultID)?.id,
             historyCutoff: importHistoryCutoff
         )
     }

@@ -14,7 +14,7 @@ struct BrowserObserversTests {
         let url = temporaryURL()
         defer { try? FileManager.default.removeItem(at: url.deletingLastPathComponent()) }
         let store = BrowserSpaceStore(url: url, profiles: [.defaultProfile])
-        let space = try #require(store.firstSpace(ofProfile: BrowserProfile.defaultID)).id
+        let space = try #require(store.space(ofProfile: BrowserProfile.defaultID)).id
         var first = 0
         var second = 0
         let firstWindow = store.changes.observe { first += 1 }

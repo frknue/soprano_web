@@ -26,6 +26,10 @@ Bracketed tags point to [Sources](#sources).
   swipe [H-space].
 - **Profile**: isolates logins, passwords and autofill, history, cookies and cache,
   extensions, Favorites, archive timing and settings. Several Spaces can share one [H-prof].
+  **Soprano Web deviates here (user decision)**: every Space is isolated — its own
+  cookies, website data, History, site decisions, Archive and Favorites — and Spaces never
+  share a profile; there is no Profiles UI. Importing Arc gives each Arc Space its own Space;
+  an Arc Profile's History and Favorites go to the first of its Spaces.
 - **Favorites**: up to 12 icons per Profile above the Space title [H-fav].
 - **Pinned tabs**: belong to one Space and never archive. They snap back to the pinned URL
   (click the icon; a "/" marks a tab that navigated away), ⌘-clicking the icon also opens
