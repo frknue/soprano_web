@@ -401,6 +401,8 @@ app.
   `bookmarks.json.migrated`.
 
 ### Fixed
+- Resuming or retrying a download uses the cookies and website data of the
+  Space it started in, not the Space the window shows now.
 - Reopening a closed tab (`⇧⌘T`) takes it out of the Archive again.
 - A private window's sidebar no longer shows the profile's Archive, and
   Clear Browsing Data ▸ History there also clears its Command Bar pages.

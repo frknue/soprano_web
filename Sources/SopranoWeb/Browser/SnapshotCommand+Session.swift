@@ -813,6 +813,7 @@ struct SnapshotSessionOptions {
                 "state": record.state.rawValue,
                 "progress": Int((record.fractionCompleted * 100).rounded()),
                 "private": record.privateContextID != nil,
+                "profile": record.profileID.uuidString,
             ]
         }
         // A closed window's controller must be released (no retain cycle

@@ -236,7 +236,7 @@ extension BrowserWindowController {
         case let .download(url):
             if let webView = command.webView ?? selectedTab?.webView {
                 let context = tab(for: webView)?.dataContext ?? dataContext
-                downloadManager.start(URLRequest(url: url), in: webView, privateContextID: context.downloadContextID)
+                downloadManager.start(URLRequest(url: url), in: webView, context: context)
             }
         }
     }

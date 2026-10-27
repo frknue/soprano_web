@@ -101,7 +101,7 @@ surrounding style.
   how many data stores and web views of closed private windows are still
   alive,
   the recently-closed stack (with each entry's Space) and the
-  downloads (with a `private` flag) as one JSON line with a `printedAt` time
+  downloads (with a `private` flag and the `profile` they started in) as one JSON line with a `printedAt` time
   to match a test server's log;
   `--capture-window n` picks the window for the PNG (default: the active
   one; numbers count private windows, unlike the CLI's). The harness's
