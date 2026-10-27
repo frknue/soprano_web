@@ -181,32 +181,109 @@ enum BrowserWebStore {
 
     /// GETs `url` without cookies or cache; `url`, every redirect and the
     /// final address stay on `allowedHosts` (a refused redirect ends the
-    /// request with its 3xx status).
-    static func fetch(_ url: URL) async throws -> Data {
+    /// request with its 3xx status). The body streams in and the request
+    /// is cancelled as soon as it (or its declared length) passes `limit`.
+    static func fetch(_ url: URL, limit: Int = maxPackageSize) async throws -> Data {
         guard isAllowedDownload(url) else { throw FetchError.refusedHost(url.host ?? url.absoluteString) }
-        let session = URLSession(configuration: .ephemeral)
+        let collector = CappedCollector(limit: limit)
+        let session = URLSession(configuration: .ephemeral, delegate: collector, delegateQueue: nil)
         defer { session.finishTasksAndInvalidate() }
         var request = URLRequest(url: url)
         request.timeoutInterval = 60
-        let (data, response) = try await session.data(for: request, delegate: RedirectGuard())
+        let (data, response) = try await withTaskCancellationHandler {
+            try await withCheckedThrowingContinuation { continuation in
+                collector.start(session.dataTask(with: request), continuation: continuation)
+            }
+        } onCancel: {
+            collector.cancel()
+        }
         if let final = response.url, !isAllowedDownload(final) {
             throw FetchError.refusedHost(final.host ?? final.absoluteString)
         }
         let status = (response as? HTTPURLResponse)?.statusCode ?? 0
         guard status == 200 else { throw FetchError.status(status) }
         guard !data.isEmpty else { throw FetchError.empty }
-        guard data.count <= maxPackageSize else { throw FetchError.tooLarge }
         return data
     }
 
-    private final class RedirectGuard: NSObject, URLSessionTaskDelegate, Sendable {
+    /// One download's delegate: refuses redirects off `allowedHosts`,
+    /// collects the body and stops it past `limit`. URLSession calls it on
+    /// its serial delegate queue; the lock covers `cancel` from elsewhere.
+    final class CappedCollector: NSObject, URLSessionDataDelegate, @unchecked Sendable {
+        let limit: Int
+        private let lock = NSLock()
+        private var task: URLSessionTask?
+        private var data = Data()
+        private var response: URLResponse?
+        private var failure: Error?
+        private var continuation: CheckedContinuation<(Data, URLResponse), Error>?
+
+        init(limit: Int) {
+            self.limit = limit
+        }
+
+        func start(_ task: URLSessionTask, continuation: CheckedContinuation<(Data, URLResponse), Error>) {
+            lock.withLock {
+                self.task = task
+                self.continuation = continuation
+            }
+            task.resume()
+        }
+
+        func cancel() {
+            lock.withLock { task }?.cancel()
+        }
+
         func urlSession(
             _ session: URLSession,
             task: URLSessionTask,
             willPerformHTTPRedirection response: HTTPURLResponse,
-            newRequest request: URLRequest
-        ) async -> URLRequest? {
-            BrowserWebStore.isAllowedDownload(request.url) ? request : nil
+            newRequest request: URLRequest,
+            completionHandler: @escaping @Sendable (URLRequest?) -> Void
+        ) {
+            completionHandler(BrowserWebStore.isAllowedDownload(request.url) ? request : nil)
+        }
+
+        func urlSession(
+            _ session: URLSession,
+            dataTask: URLSessionDataTask,
+            didReceive response: URLResponse,
+            completionHandler: @escaping @Sendable (URLSession.ResponseDisposition) -> Void
+        ) {
+            let tooLarge = response.expectedContentLength > Int64(limit)
+            lock.withLock {
+                self.response = response
+                if tooLarge { failure = FetchError.tooLarge }
+            }
+            completionHandler(tooLarge ? .cancel : .allow)
+        }
+
+        func urlSession(_ session: URLSession, dataTask: URLSessionDataTask, didReceive data: Data) {
+            let over = lock.withLock {
+                guard failure == nil else { return true }
+                guard self.data.count + data.count <= limit else {
+                    failure = FetchError.tooLarge
+                    self.data = Data()
+                    return true
+                }
+                self.data.append(data)
+                return false
+            }
+            if over { dataTask.cancel() }
+        }
+
+        func urlSession(_ session: URLSession, task: URLSessionTask, didCompleteWithError error: Error?) {
+            let (continuation, result): (CheckedContinuation<(Data, URLResponse), Error>?, Result<(Data, URLResponse), Error>) = lock.withLock {
+                let continuation = self.continuation
+                self.continuation = nil
+                if let failure { return (continuation, .failure(failure)) }
+                if let error { return (continuation, .failure(error)) }
+                guard let response = self.response ?? task.response else {
+                    return (continuation, .failure(URLError(.badServerResponse)))
+                }
+                return (continuation, .success((self.data, response)))
+            }
+            continuation?.resume(with: result)
         }
     }
 }

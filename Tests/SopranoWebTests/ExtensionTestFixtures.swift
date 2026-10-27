@@ -3,9 +3,9 @@ import AppKit
 import CryptoKit
 import Security
 
-/// Generated extension packages for the CRX3 and archive tests: a stored
-/// (uncompressed) ZIP writer that can produce hostile entries, a CRX3
-/// writer with RSA and ECDSA proofs, and throwaway keys.
+/// Generated extension packages for the CRX3 and archive tests: a ZIP
+/// writer (stored or deflated) that can produce hostile entries and
+/// archives, a CRX3 writer with RSA and ECDSA proofs, and throwaway keys.
 enum ExtensionTestFixtures {
     struct ZipEntry {
         var path: String
@@ -13,9 +13,22 @@ enum ExtensionTestFixtures {
         /// The Unix mode kept in the external attributes.
         var mode: UInt32 = 0o100644
         var encrypted = false
+        /// 0 stored, 8 deflated (`data` is compressed when written).
+        var method: UInt16 = 0
+        /// The uncompressed size both headers declare, when it isn't the
+        /// true one.
+        var declaredSize: UInt32?
+        /// The "made by" host: 3 Unix, 0 MS-DOS.
+        var host: UInt8 = 3
+        /// The name the local header gives, when it isn't `path`.
+        var localPath: String?
 
         static func file(_ path: String, _ text: String) -> ZipEntry {
             ZipEntry(path: path, data: Data(text.utf8))
+        }
+
+        static func deflated(_ path: String, _ data: Data) -> ZipEntry {
+            ZipEntry(path: path, data: data, method: 8)
         }
 
         static func directory(_ path: String) -> ZipEntry {
@@ -29,60 +42,97 @@ enum ExtensionTestFixtures {
 
     static let manifest = #"{"manifest_version": 3, "name": "Fixture", "version": "1.0"}"#
 
-    /// A ZIP with `entries` stored as given.
-    static func zip(_ entries: [ZipEntry]) -> Data {
+    /// A ZIP with `entries` written as given and `comment` after its end
+    /// record.
+    static func zip(_ entries: [ZipEntry], comment: Data = Data()) -> Data {
+        let (body, records) = localRecords(entries)
+        let directory = records.reduce(Data(), +)
+        return body + directory + endRecord(count: entries.count, directory: directory, at: body.count, comment: comment)
+    }
+
+    /// A ZIP of `entries` whose end record's comment hides a second,
+    /// complete central directory and end record that list only the
+    /// entries at `paths`: a reader that takes the last end record sees
+    /// just those.
+    static func decoyZip(_ entries: [ZipEntry], listing paths: Set<String>) -> Data {
+        let (body, records) = localRecords(entries)
+        let directory = records.reduce(Data(), +)
+        let listed = Swift.zip(entries, records).filter { paths.contains($0.0.path) }
+        let decoy = listed.map { $0.1 }.reduce(Data(), +)
+        let decoyStart = body.count + directory.count + 22
+        let hidden = decoy + endRecord(count: listed.count, directory: decoy, at: decoyStart, comment: Data())
+        return body + directory + endRecord(count: entries.count, directory: directory, at: body.count, comment: hidden)
+    }
+
+    /// The local headers and data of `entries`, and each entry's central
+    /// directory record.
+    private static func localRecords(_ entries: [ZipEntry]) -> (body: Data, records: [Data]) {
         var body = Data()
-        var directory = Data()
+        var records: [Data] = []
         for entry in entries {
             let name = Data(entry.path.utf8)
+            let localName = Data((entry.localPath ?? entry.path).utf8)
+            let payload = if entry.method == 8 {
+                try! (entry.data as NSData).compressed(using: .zlib) as Data
+            } else {
+                entry.data
+            }
             let crc = crc32(entry.data)
+            let size = entry.declaredSize ?? UInt32(entry.data.count)
             let offset = UInt32(body.count)
             let flags: UInt16 = 0x0800 | (entry.encrypted ? 1 : 0)
             body.append(le32(0x0403_4b50))
             body.append(le16(20))
             body.append(le16(flags))
-            body.append(le16(0))
+            body.append(le16(entry.method))
             body.append(le16(0))
             body.append(le16(0x21))
             body.append(le32(crc))
-            body.append(le32(UInt32(entry.data.count)))
-            body.append(le32(UInt32(entry.data.count)))
-            body.append(le16(UInt16(name.count)))
+            body.append(le32(UInt32(payload.count)))
+            body.append(le32(size))
+            body.append(le16(UInt16(localName.count)))
             body.append(le16(0))
-            body.append(name)
-            body.append(entry.data)
+            body.append(localName)
+            body.append(payload)
 
-            directory.append(le32(0x0201_4b50))
-            directory.append(le16(3 << 8 | 20))
-            directory.append(le16(20))
-            directory.append(le16(flags))
-            directory.append(le16(0))
-            directory.append(le16(0))
-            directory.append(le16(0x21))
-            directory.append(le32(crc))
-            directory.append(le32(UInt32(entry.data.count)))
-            directory.append(le32(UInt32(entry.data.count)))
-            directory.append(le16(UInt16(name.count)))
-            directory.append(le16(0))
-            directory.append(le16(0))
-            directory.append(le16(0))
-            directory.append(le16(0))
-            directory.append(le32(entry.mode << 16))
-            directory.append(le32(offset))
-            directory.append(name)
+            var record = Data()
+            record.append(le32(0x0201_4b50))
+            record.append(le16(UInt16(entry.host) << 8 | 20))
+            record.append(le16(20))
+            record.append(le16(flags))
+            record.append(le16(entry.method))
+            record.append(le16(0))
+            record.append(le16(0x21))
+            record.append(le32(crc))
+            record.append(le32(UInt32(payload.count)))
+            record.append(le32(size))
+            record.append(le16(UInt16(name.count)))
+            record.append(le16(0))
+            record.append(le16(0))
+            record.append(le16(0))
+            record.append(le16(0))
+            record.append(le32(entry.mode << 16))
+            record.append(le32(offset))
+            record.append(name)
+            records.append(record)
         }
-        var zip = body
-        let directoryOffset = UInt32(zip.count)
-        zip.append(directory)
-        zip.append(le32(0x0605_4b50))
-        zip.append(le16(0))
-        zip.append(le16(0))
-        zip.append(le16(UInt16(entries.count)))
-        zip.append(le16(UInt16(entries.count)))
-        zip.append(le32(UInt32(directory.count)))
-        zip.append(le32(directoryOffset))
-        zip.append(le16(0))
-        return zip
+        return (body, records)
+    }
+
+    /// An end-of-central-directory record for `count` entries in
+    /// `directory`, which starts at `offset`.
+    private static func endRecord(count: Int, directory: Data, at offset: Int, comment: Data) -> Data {
+        var record = Data()
+        record.append(le32(0x0605_4b50))
+        record.append(le16(0))
+        record.append(le16(0))
+        record.append(le16(UInt16(count)))
+        record.append(le16(UInt16(count)))
+        record.append(le32(UInt32(directory.count)))
+        record.append(le32(UInt32(offset)))
+        record.append(le16(UInt16(comment.count)))
+        record.append(comment)
+        return record
     }
 
     static var validZip: Data {

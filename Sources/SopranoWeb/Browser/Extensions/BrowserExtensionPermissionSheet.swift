@@ -7,9 +7,25 @@ struct BrowserExtensionPermissionPrompt {
     var extensionName: String
     var icon: NSImage?
     var lines: [String]
+    /// The question above the list; nil: “<name>” wants to:
+    var header: String?
+    var allowTitle = "Allow"
+    var denyTitle = "Don’t Allow"
     /// The window of the tab that asked; nil: the active window.
     var windowID: UUID?
     var resolve: @MainActor (Bool) -> Void
+
+    /// The lines for `permissions` and the sites of `patterns` (all
+    /// websites, or each host), sorted, without repeats.
+    @MainActor
+    static func describe(permissions: [WKWebExtension.Permission], patterns: [WKWebExtension.MatchPattern]) -> [String] {
+        let sites = patterns.map { pattern in
+            pattern.matchesAllHosts || pattern.matchesAllURLs
+                ? "Read and change your data on all websites"
+                : "Read and change your data on \(pattern.host ?? pattern.string)"
+        }
+        return Array(Set(permissions.map { describe($0) } + sites)).sorted()
+    }
 
     /// Chrome's wording for a permission.
     static func describe(_ permission: WKWebExtension.Permission) -> String {
@@ -32,9 +48,10 @@ struct BrowserExtensionPermissionPrompt {
 }
 
 /// The Folio sheet that asks for an extension's runtime permission
-/// request (`permissions.request`, a URL or site): "Allow" or "Don't
-/// Allow". The answer is remembered (granted or denied explicitly, saved
-/// with the extension), so the same request never asks twice.
+/// request (`permissions.request`, a URL or site), what an update newly
+/// asks for, or (Settings ▸ Extensions) an install: "Allow" or "Don't
+/// Allow". A request's answer is remembered (granted or denied explicitly,
+/// saved with the extension), so the same request never asks twice.
 @MainActor
 final class BrowserExtensionPermissionSheet: NSWindowController {
     private let rootView = NSView()
@@ -47,10 +64,10 @@ final class BrowserExtensionPermissionSheet: NSWindowController {
 
     init(prompt: BrowserExtensionPermissionPrompt, theme: AppTheme, onAnswer: @escaping (Bool) -> Void) {
         self.onAnswer = onAnswer
-        header = NSTextField(wrappingLabelWithString: "“\(prompt.extensionName)” wants to:")
+        header = NSTextField(wrappingLabelWithString: prompt.header ?? "“\(prompt.extensionName)” wants to:")
         list = NSTextField(wrappingLabelWithString: prompt.lines.map { "•  \($0)" }.joined(separator: "\n"))
-        allowButton = ChromeButton(title: "Allow", theme: theme, kind: .ink, keycap: "↵")
-        denyButton = ChromeButton(title: "Don’t Allow", theme: theme, kind: .standard, keycap: "esc")
+        allowButton = ChromeButton(title: prompt.allowTitle, theme: theme, kind: .ink, keycap: "↵")
+        denyButton = ChromeButton(title: prompt.denyTitle, theme: theme, kind: .standard, keycap: "esc")
         let window = NSPanel(
             contentRect: NSRect(x: 0, y: 0, width: 420, height: 200),
             styleMask: [.titled],
@@ -139,6 +156,7 @@ extension BrowserExtensions {
         _ context: WKWebExtensionContext,
         tab: (any WKWebExtensionTab)?,
         lines: [String],
+        header: String? = nil,
         resolve: @escaping @MainActor (Bool) -> Void
     ) {
         let windowID = (tab as? BrowserExtensionTab).flatMap { manager?.tab(id: $0.tabID)?.window.id }
@@ -146,6 +164,7 @@ extension BrowserExtensions {
             extensionName: context.webExtension.displayName ?? "An extension",
             icon: context.webExtension.icon(for: CGSize(width: 32, height: 32)),
             lines: lines,
+            header: header,
             windowID: windowID,
             resolve: resolve
         ))

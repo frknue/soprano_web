@@ -108,9 +108,22 @@ final class BrowserExtensionTab: NSObject, WKWebExtensionTab {
         }
     }
 
+    /// `tabs.update({ url })`, through the extensions' load gate
+    /// (`BrowserExtensions.pageLoad`): another app's link asks first, a
+    /// local file or another extension's page is refused.
     func loadURL(_ url: URL, for context: WKWebExtensionContext, completionHandler: @escaping ((any Error)?) -> Void) {
-        if let (window, tab) = location {
+        guard let (window, tab) = location else {
+            completionHandler(nil)
+            return
+        }
+        switch BrowserExtensions.pageLoad(url, extensionID: window.extensions.id(of: context)) {
+        case .load:
             window.navigate(tab, to: url)
+        case .external:
+            window.openExternalLink(url, fromExtension: context.webExtension.displayName ?? "An extension", in: tab)
+        case .refuse:
+            completionHandler(BrowserExtensions.refusal("Extensions can't open \(url.scheme ?? "this") addresses."))
+            return
         }
         completionHandler(nil)
     }

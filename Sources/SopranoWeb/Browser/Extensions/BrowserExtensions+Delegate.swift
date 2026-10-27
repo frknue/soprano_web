@@ -43,7 +43,7 @@ extension BrowserExtensions: WKWebExtensionControllerDelegate {
             completionHandler(nil, nil)
             return
         }
-        if let url = configuration.url, !Self.mayOpen(url) {
+        if let url = configuration.url, Self.pageLoad(url, extensionID: id(of: extensionContext)) != .load {
             completionHandler(nil, Self.refusal("Extensions can't open \(url.scheme ?? "this") addresses."))
             return
         }
@@ -85,7 +85,7 @@ extension BrowserExtensions: WKWebExtensionControllerDelegate {
             completionHandler(nil, Self.refusal("The extension isn't allowed in private windows."))
             return
         }
-        let urls = configuration.tabURLs.filter(Self.mayOpen)
+        let urls = configuration.tabURLs.filter { Self.pageLoad($0, extensionID: id(of: extensionContext)) == .load }
         let moving = configuration.tabs.compactMap { ($0 as? BrowserExtensionTab)?.tab }
         let window: BrowserWindowController
         if urls.isEmpty, let first = moving.first, !configuration.shouldBePrivate,
@@ -129,13 +129,24 @@ extension BrowserExtensions: WKWebExtensionControllerDelegate {
         completionHandler(nil)
     }
 
-    /// Opens an extension page (options) in a new selected tab of the most
-    /// recent window the extension may see.
+    /// Opens a page an extension asks for (its options page, a link or
+    /// `window.open` in its popup) in a new selected tab of the most recent
+    /// window the extension may see, through `pageLoad`: another app's
+    /// link asks first (`openExternalLink(_:fromExtension:in:)`); local
+    /// files, scripts and other extensions' pages are refused.
     func openExtensionPage(_ url: URL, for context: WKWebExtensionContext) {
         guard let manager else { return }
-        if let target = manager.mostRecentlyActive(where: {
+        let decision = Self.pageLoad(url, extensionID: id(of: context))
+        guard decision != .refuse else { return }
+        let target = manager.mostRecentlyActive(where: {
             !$0.isPopup && (context.hasAccessToPrivateData || !$0.kind.isPrivate)
-        }) {
+        })
+        if decision == .external {
+            guard let target, let tab = target.selectedTab else { return }
+            target.openExternalLink(url, fromExtension: context.webExtension.displayName ?? "An extension", in: tab)
+            return
+        }
+        if let target {
             target.newTab(url: url.absoluteString)
             manager.present(target)
         } else {
@@ -188,13 +199,15 @@ extension BrowserExtensions: WKWebExtensionControllerDelegate {
         for extensionContext: WKWebExtensionContext,
         completionHandler: @escaping (Set<WKWebExtension.MatchPattern>, Date?) -> Void
     ) {
-        let lines = matchPatterns.map { pattern in
-            pattern.matchesAllHosts || pattern.matchesAllURLs
-                ? "Read and change your data on all websites"
-                : "Read and change your data on \(pattern.host ?? pattern.string)"
+        // Local files are never granted (`isFilePattern`).
+        let grantable = matchPatterns.filter { !Self.isFilePattern($0.string) }
+        let lines = BrowserExtensionPermissionPrompt.describe(permissions: [], patterns: Array(grantable))
+        guard !grantable.isEmpty else {
+            completionHandler([], nil)
+            return
         }
-        prompt(extensionContext, tab: tab, lines: Array(Set(lines)).sorted()) { [weak self] allowed in
-            completionHandler(allowed ? matchPatterns : [], nil)
+        prompt(extensionContext, tab: tab, lines: lines) { [weak self] allowed in
+            completionHandler(allowed ? grantable : [], nil)
             guard !allowed else { return }
             for pattern in matchPatterns {
                 extensionContext.setPermissionStatus(.deniedExplicitly, for: pattern)
@@ -224,9 +237,9 @@ extension BrowserExtensions: WKWebExtensionControllerDelegate {
 
     // MARK: Native messaging
 
-    /// `runtime.sendNativeMessage`: the handler registered for the
-    /// application identifier (the stand-ins'); none is Chrome's "host not
-    /// found".
+    /// `runtime.sendNativeMessage`: the host registered for the application
+    /// identifier, when it answers this extension (its allowlist); else
+    /// Chrome's "host not found".
     func webExtensionController(
         _ controller: WKWebExtensionController,
         sendMessage message: Any,
@@ -234,7 +247,7 @@ extension BrowserExtensions: WKWebExtensionControllerDelegate {
         for extensionContext: WKWebExtensionContext,
         replyHandler: @escaping (Any?, (any Error)?) -> Void
     ) {
-        guard let handler = nativeMessageHandlers[applicationIdentifier ?? ""] else {
+        guard let handler = Self.allowedNativeHost(nativeHosts, application: applicationIdentifier, extensionID: id(of: extensionContext))?.message else {
             replyHandler(nil, Self.refusal("Specified native messaging host not found."))
             return
         }
@@ -248,19 +261,20 @@ extension BrowserExtensions: WKWebExtensionControllerDelegate {
         }
     }
 
-    /// `runtime.connectNative`: the port handler registered for the
-    /// application identifier. With none, the port opens and closes at
-    /// once with Chrome's "host not found" (`onDisconnect` and
-    /// `runtime.lastError`), as Chrome answers an app that isn't installed:
-    /// a refused connect is a thrown error in WebKit, which an extension
-    /// probing for its desktop app (1Password) doesn't expect.
+    /// `runtime.connectNative`: the port handler of the host registered for
+    /// the application identifier, when it answers this extension. Else the
+    /// port opens and closes at once with Chrome's "host not found"
+    /// (`onDisconnect` and `runtime.lastError`), as Chrome answers an app
+    /// that isn't installed: a refused connect is a thrown error in WebKit,
+    /// which an extension probing for its desktop app (1Password) doesn't
+    /// expect.
     func webExtensionController(
         _ controller: WKWebExtensionController,
         connectUsing port: WKWebExtension.MessagePort,
         for extensionContext: WKWebExtensionContext,
         completionHandler: @escaping ((any Error)?) -> Void
     ) {
-        guard let handler = nativePortHandlers[port.applicationIdentifier ?? ""] else {
+        guard let handler = Self.allowedNativeHost(nativeHosts, application: port.applicationIdentifier, extensionID: id(of: extensionContext))?.port else {
             completionHandler(nil)
             DispatchQueue.main.async {
                 port.disconnect(throwing: Self.refusal("Specified native messaging host not found."))
@@ -277,11 +291,55 @@ extension BrowserExtensions: WKWebExtensionControllerDelegate {
 
     // MARK: Helpers
 
-    /// Extensions open web pages and their own pages, never `javascript:`
-    /// or local files.
-    static func mayOpen(_ url: URL) -> Bool {
+    /// The native host `application` names, when its allowlist has the
+    /// extension (an unknown context, `nil`, never gets one).
+    static func allowedNativeHost(_ hosts: [String: NativeHost], application: String?, extensionID: String?) -> NativeHost? {
+        guard let extensionID, let host = hosts[application ?? ""], host.allows(extensionID) else { return nil }
+        return host
+    }
+
+    /// What becomes of an address an extension asks to load — `tabs.create`,
+    /// `tabs.update`, `windows.create`, a link or `window.open` in its popup
+    /// or options page, its page in a tab navigating away: web pages,
+    /// `about:`, `data:` and its own pages load; another app's link
+    /// (`zoommtg:`, `smb:`) asks first, as a page's link does; local files,
+    /// scripts, blobs, the start page and other extensions' pages never.
+    enum PageLoad: Equatable, Sendable {
+        case load
+        case external
+        case refuse
+    }
+
+    static func pageLoad(_ url: URL, extensionID: String?) -> PageLoad {
         let scheme = url.scheme?.lowercased() ?? ""
-        return ["http", "https", "about", "data", Self.scheme].contains(scheme)
+        switch scheme {
+        case "http", "https", "about", "data":
+            return .load
+        case Self.scheme:
+            guard let extensionID, url.host?.lowercased() == extensionID else { return .refuse }
+            return .load
+        case "", "file", "javascript", "vbscript", "blob", "filesystem", BrowserStartPageSchemeHandler.scheme:
+            return .refuse
+        default:
+            return .external
+        }
+    }
+
+    /// Whether a navigation a page started may show extension `id`'s page
+    /// in that extension's own web view (the tab's is swapped app-side, so
+    /// WebKit's `web_accessible_resources` check never runs): only when
+    /// one of that extension's own frames started it, and in a private
+    /// window only when the extension is allowed there. A web page never
+    /// opens an extension page this way.
+    static func mayShowPage(
+        ofExtension id: String,
+        sourceScheme: String?,
+        sourceHost: String?,
+        isPrivate: Bool,
+        hasPrivateAccess: Bool
+    ) -> Bool {
+        guard sourceScheme?.lowercased() == Self.scheme, sourceHost?.lowercased() == id else { return false }
+        return !isPrivate || hasPrivateAccess
     }
 
     static func refusal(_ message: String) -> NSError {

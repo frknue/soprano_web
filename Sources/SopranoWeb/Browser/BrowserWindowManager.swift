@@ -221,7 +221,10 @@ final class BrowserWindowManager {
             },
         ]
         downloadManager.fallbackWindow = { [weak self] in self?.activeController?.window }
-        downloadManager.profileContext = { [weak self] in self?.context(for: $0) }
+        downloadManager.profileContext = { [weak self] id in
+            guard let self else { return nil }
+            return Self.existingProfileContext(id, profiles: self.profiles, context: self.context(for:))
+        }
         BrowserNotificationCenter.shared.onClick = { [weak self] click in self?.openNotification(click) }
         startHistoryMaintenance()
         tabSleeper.start(manager: self)

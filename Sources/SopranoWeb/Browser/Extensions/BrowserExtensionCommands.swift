@@ -63,7 +63,7 @@ enum BrowserExtensionCommands {
                 switch action {
                 case "install":
                     let record = try await extensions.install(id)
-                    completion(.success("installed " + line(for: extensions.store.record(id: record.id) ?? record, in: extensions)))
+                    completion(.success(installReport(extensions.store.record(id: record.id) ?? record, in: extensions)))
                 case "enable", "disable":
                     try await extensions.setEnabled(id, action == "enable")
                     guard let record = extensions.store.record(id: id) else { throw BrowserExtensions.InstallError.notInstalled(id) }
@@ -125,6 +125,21 @@ enum BrowserExtensionCommands {
             lines.append("screenshot \(screenshot)")
         }
         lines.append(text.trimmingCharacters(in: .whitespacesAndNewlines))
+        return lines.joined(separator: "\n")
+    }
+
+    /// `extension install`'s answer: the record's line, what the extension
+    /// may do and what an update newly asked for (waiting for the user's
+    /// answer in the app).
+    static func installReport(_ record: BrowserExtensionRecord, in extensions: BrowserExtensions) -> String {
+        var lines = ["installed " + line(for: record, in: extensions)]
+        if let context = extensions.context(id: record.id) {
+            let can = BrowserExtensions.permissionLines(of: context.webExtension)
+            lines.append("can: " + (can.isEmpty ? "nothing beyond its own pages" : can.joined(separator: "; ")))
+        }
+        if let pending = extensions.pendingAdditions[record.id] {
+            lines.append("asks for more (not granted until allowed in the app): " + pending.lines.joined(separator: "; "))
+        }
         return lines.joined(separator: "\n")
     }
 }

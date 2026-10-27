@@ -2,11 +2,14 @@ import Foundation
 
 /// An extension's notification as the Mac shows it: Chrome's options
 /// (`title`, `message`, `contextMessage`, list `items`, `progress`, up to
-/// two `buttons`, `silent`) mapped onto one Notification Center entry.
+/// two `buttons`, `silent`) mapped onto one Notification Center entry. The
+/// subtitle names the extension that posted it (the extension can't set
+/// it); its `contextMessage` is the body's last line.
 struct BrowserExtensionNotification: Equatable, Sendable {
     var extensionID: String
     var notificationID: String
     var title: String
+    /// The extension's display name.
     var subtitle: String
     var body: String
     var buttons: [String]
@@ -19,11 +22,11 @@ struct BrowserExtensionNotification: Equatable, Sendable {
     /// Chrome shows at most two buttons.
     static let maximumButtons = 2
 
-    init(extensionID: String, notificationID: String, options: [String: Any]) {
+    init(extensionID: String, extensionName: String, notificationID: String, options: [String: Any]) {
         self.extensionID = extensionID
         self.notificationID = notificationID
         title = options["title"] as? String ?? ""
-        subtitle = options["contextMessage"] as? String ?? ""
+        subtitle = extensionName
         var lines = [options["message"] as? String ?? ""].filter { !$0.isEmpty }
         for item in options["items"] as? [Any] ?? [] {
             guard let item = item as? [String: Any] else { continue }
@@ -33,6 +36,9 @@ struct BrowserExtensionNotification: Equatable, Sendable {
         }
         if let progress = (options["progress"] as? NSNumber)?.intValue {
             lines.append("\(min(max(progress, 0), 100)) %")
+        }
+        if let context = options["contextMessage"] as? String, !context.isEmpty {
+            lines.append(context)
         }
         body = lines.joined(separator: "\n")
         buttons = (options["buttons"] as? [Any] ?? [])
@@ -47,7 +53,14 @@ struct BrowserExtensionNotification: Equatable, Sendable {
 /// the app, a recorder in tests).
 @MainActor
 protocol BrowserExtensionNotificationPosting: AnyObject {
-    /// Shows it; asks macOS for permission the first time (and only then).
+    /// True while macOS hasn't been asked yet whether the app may show
+    /// notifications (asking would bring up the system prompt).
+    func authorizationIsUndetermined() async -> Bool
+    /// Asks macOS for permission (the system prompt the first time, the
+    /// stored answer after); true when allowed.
+    func requestAuthorization() async -> Bool
+    /// Shows it; never asks macOS: fails while the app's permission is
+    /// undetermined or turned off.
     func post(_ notification: BrowserExtensionNotification) async throws
     func remove(identifiers: [String])
     /// `"granted"` or `"denied"`, without asking.
@@ -79,6 +92,11 @@ final class BrowserExtensionNativeHost {
     }
 
     static let maximumPendingEvents = 64
+    /// Live notifications an extension may keep; creating one more takes
+    /// down its oldest (as if closed by the system, `onClosed` with
+    /// `byUser` false) rather than failing, as Chrome's own center drops
+    /// the oldest when full.
+    static let maximumNotifications = 100
 
     let poster: any BrowserExtensionNotificationPosting
     /// Starts the background of an extension with events waiting.
@@ -86,8 +104,25 @@ final class BrowserExtensionNativeHost {
     /// The extension's open pages (its popup, its pages in tabs) as
     /// `clients.matchAll` lists them: `{ url, visible, focused }`.
     var pages: (String) -> [[String: Any]] = { _ in [] }
+    /// The extension's display name, its notifications' subtitle (nil:
+    /// the extension id is shown instead).
+    var displayName: @MainActor (String) -> String? = { _ in nil }
+    /// Asks the user, in the app, whether the extension may show
+    /// notifications. Asked before an extension's notification would bring
+    /// up macOS's own prompt (the app's permission still undetermined), so
+    /// an extension never triggers that prompt unannounced; once the app's
+    /// permission is decided it isn't asked.
+    var confirmNotifications: @MainActor (_ extensionID: String) async -> Bool = { _ in false }
     /// Live notifications: extension id → notification id → its options.
     private(set) var notifications: [String: [String: [String: Any]]] = [:]
+    /// Live notification ids per extension, the oldest first.
+    private var notificationOrder: [String: [String]] = [:]
+    /// Extensions the user refused notifications this session: not asked
+    /// again, their notifications fail.
+    private var refusedNotifications: Set<String> = []
+    /// Questions on screen: concurrent notifications of one extension wait
+    /// for the same answer.
+    private var confirmations: [String: Task<Bool, Never>] = [:]
     private var sinks: [String: Sink] = [:]
     private(set) var pendingEvents: [String: [[String: Any]]] = [:]
 
@@ -131,7 +166,7 @@ final class BrowserExtensionNativeHost {
         case "notifications.getAll":
             return Dictionary(uniqueKeysWithValues: (notifications[extensionID] ?? [:]).keys.map { ($0, true) })
         case "notifications.getPermissionLevel":
-            return await poster.permissionLevel()
+            return refusedNotifications.contains(extensionID) ? "denied" : await poster.permissionLevel()
         case "clients.pages":
             return pages(extensionID)
         default:
@@ -157,14 +192,25 @@ final class BrowserExtensionNativeHost {
     // MARK: - Notifications
 
     /// `create([id], options)`: an empty id gets a new one; an id in use is
-    /// replaced. Returns the id.
+    /// replaced (and counts as the newest). Beyond `maximumNotifications`
+    /// the oldest is taken down. Returns the id.
     private func createNotification(extensionID: String, args: [Any]) async throws -> String {
         let api = "notifications.create"
         var id = args.isEmpty ? "" : try string(args, 0, api)
         if id.isEmpty { id = UUID().uuidString }
         let options = try options(args, 1, api)
-        try await poster.post(BrowserExtensionNotification(extensionID: extensionID, notificationID: id, options: options))
+        try await authorizeNotifications(extensionID: extensionID)
+        try await poster.post(notification(extensionID: extensionID, id: id, options: options))
         notifications[extensionID, default: [:]][id] = options
+        var order = (notificationOrder[extensionID] ?? []).filter { $0 != id }
+        order.append(id)
+        notificationOrder[extensionID] = order
+        while order.count > Self.maximumNotifications {
+            let oldest = order.removeFirst()
+            guard removeNotification(extensionID: extensionID, id: oldest) else { continue }
+            poster.remove(identifiers: [BrowserExtensionNotification.identifier(extensionID: extensionID, notificationID: oldest)])
+            send("notifications.onClosed", [oldest, false], to: extensionID)
+        }
         return id
     }
 
@@ -176,17 +222,63 @@ final class BrowserExtensionNativeHost {
         let changes = try options(args, 1, api)
         guard var options = notifications[extensionID]?[id] else { return false }
         options.merge(changes) { _, new in new }
-        try await poster.post(BrowserExtensionNotification(extensionID: extensionID, notificationID: id, options: options))
+        try await authorizeNotifications(extensionID: extensionID)
+        try await poster.post(notification(extensionID: extensionID, id: id, options: options))
         notifications[extensionID]?[id] = options
         return true
     }
 
     /// `clear(id)`: true when it was live.
     private func clearNotification(extensionID: String, id: String) -> Bool {
-        guard notifications[extensionID]?.removeValue(forKey: id) != nil else { return false }
-        if notifications[extensionID]?.isEmpty == true { notifications[extensionID] = nil }
+        guard removeNotification(extensionID: extensionID, id: id) else { return false }
         poster.remove(identifiers: [BrowserExtensionNotification.identifier(extensionID: extensionID, notificationID: id)])
         return true
+    }
+
+    /// Forgets a live notification (without taking it down); false when it
+    /// wasn't live.
+    private func removeNotification(extensionID: String, id: String) -> Bool {
+        guard notifications[extensionID]?.removeValue(forKey: id) != nil else { return false }
+        notificationOrder[extensionID]?.removeAll { $0 == id }
+        if notifications[extensionID]?.isEmpty == true {
+            notifications[extensionID] = nil
+            notificationOrder[extensionID] = nil
+        }
+        return true
+    }
+
+    /// The notification as shown, under the extension's display name (its
+    /// id when it has none).
+    private func notification(extensionID: String, id: String, options: [String: Any]) -> BrowserExtensionNotification {
+        let name = displayName(extensionID).flatMap { $0.isEmpty ? nil : $0 } ?? extensionID
+        return BrowserExtensionNotification(extensionID: extensionID, extensionName: name, notificationID: id, options: options)
+    }
+
+    /// Before an extension's notification would bring up macOS's prompt
+    /// (the app's permission undetermined), the user is asked in the app
+    /// first (`confirmNotifications`), once per extension and session: only
+    /// a yes asks macOS; a no fails this and every later notification of
+    /// the extension. A decided permission asks nothing.
+    private func authorizeNotifications(extensionID: String) async throws {
+        let refused = Failure(description: "Notifications were not allowed for this extension.")
+        if refusedNotifications.contains(extensionID) { throw refused }
+        guard await poster.authorizationIsUndetermined() else { return }
+        let confirmation: Task<Bool, Never>
+        if let pending = confirmations[extensionID] {
+            confirmation = pending
+        } else {
+            confirmation = Task { await self.confirmNotifications(extensionID) }
+            confirmations[extensionID] = confirmation
+        }
+        let allowed = await confirmation.value
+        confirmations[extensionID] = nil
+        guard allowed else {
+            refusedNotifications.insert(extensionID)
+            throw refused
+        }
+        guard await poster.requestAuthorization() else {
+            throw BrowserNotificationCenter.PostError.notAuthorized
+        }
     }
 
     /// Someone clicked, pressed a button of, or closed a notification.
@@ -197,8 +289,7 @@ final class BrowserExtensionNativeHost {
         case let .button(index):
             send("notifications.onButtonClicked", [notificationID, index], to: extensionID)
         case let .closed(byUser):
-            notifications[extensionID]?[notificationID] = nil
-            if notifications[extensionID]?.isEmpty == true { notifications[extensionID] = nil }
+            _ = removeNotification(extensionID: extensionID, id: notificationID)
             send("notifications.onClosed", [notificationID, byUser], to: extensionID)
         }
     }
@@ -240,6 +331,7 @@ final class BrowserExtensionNativeHost {
                 BrowserExtensionNotification.identifier(extensionID: extensionID, notificationID: $0)
             })
         }
+        notificationOrder[extensionID] = nil
         sinks[extensionID] = nil
         pendingEvents[extensionID] = nil
     }

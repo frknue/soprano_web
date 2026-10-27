@@ -267,9 +267,10 @@ surrounding style.
   and size and draws the popup under the button), `--extensions-sheet`
   (captures Settings ▸ Extensions, prints `extensions-sheet:` rows) and
   `--print-extensions` (one `extensions:` JSON line: each extension's
-  state, version, private access, site access, errors, commands, granted
-  match patterns, the windows and tabs WebKit tracks for it, and the
-  captured window's toolbar buttons with label and badge).
+  state, version, private access, site access, errors, stand-ins, what an
+  update newly asked for and waits for the user (`pending`), commands,
+  granted match patterns, the windows and tabs WebKit tracks for it, and
+  the captured window's toolbar buttons with label and badge).
 - Verify real navigation, Spaces and the agent surface in the dev app. Agents
   launch it on their own, in the background (`open -g` leaves focus with the
   user). It has its own support folder (`Soprano Web Dev`), settings
@@ -679,26 +680,47 @@ surrounding style.
   runs an extension in a private tab only with `hasAccessToPrivateData`);
   contexts load with `chrome-extension://<id>/` and `uniqueIdentifier` =
   id, saved grants restored first, background started at once; install
-  (Web Store id or link, or an unpacked folder, copied), enable, private
-  access, site access, remove (with its data), the hourly-timer daily
-  update check, extension commands. `BrowserExtensionStore.swift` — the
+  (Web Store id or link, or an unpacked folder, copied first, its id read
+  from the copy), enable, private access, site access, remove (with its
+  data), the hourly-timer daily update check, extension commands. Grants:
+  a new extension gets what it asks for (Settings shows the list first
+  through an `InstallConfirmation`; the CLI prints it), an update nothing
+  new (`applyUpdate`; what it newly asks for is `pendingAdditions`, asked
+  in the permission sheet once it loads), `file:` patterns never
+  (`isFilePattern`; WebKit on macOS 26 runs no content script on `file:`
+  pages even with `file:///*` granted). The same id from another source
+  (a folder with a store extension's `key`) is refused without
+  confirmation and otherwise starts over with its data deleted.
+  `BrowserExtensionStore.swift` — the
   only way in or out of `extensions.json` (tolerant, atomic, `.corrupt`)
   and `<support>/Extensions/<id>/`. `BrowserCRX.swift` — extension ids,
   CRX3 parsing and Chrome's store-install verification (every RSA/ECDSA
   proof over the signed message, a key hashing to the id, the Web Store
-  publisher key). `BrowserExtensionArchive.swift` — the ZIP's central
-  directory checked before `ditto` (no symlinks, escapes, duplicates,
-  encryption, ZIP64; size limits), the result walked again, manifest
-  checks. `BrowserWebStore.swift` — inputs, download/update-check URLs,
-  allowed hosts, the `gupdate` answer. `BrowserExtensionAdapters.swift` —
+  publisher key). `BrowserExtensionArchive.swift` — the ZIP read once
+  (one end record at the very end, local headers matching the central
+  directory, no overlaps, symlinks, escapes, duplicates, file/folder
+  clashes, encryption, ZIP64) and unpacked in process from that reading
+  (`openat`/`mkdirat` without following links, deflate through the
+  Compression framework under a running 256 MB cap, CRC checked), the
+  result walked again, manifest checks. `BrowserWebStore.swift` — inputs,
+  download/update-check URLs, allowed hosts, downloads streamed under the
+  size cap, the `gupdate` answer. `BrowserExtensionAdapters.swift` —
   `WKWebExtensionTab`/`WKWebExtensionWindow` over real tabs and windows
   (a window's tabs of every Space) and the lifecycle calls the windows
   make (`tabAttached`/`tabDetached`/`tabClosed`, activation, properties,
   `windowOpened`/`windowClosing`/`windowFocused`).
   `BrowserExtensions+Delegate.swift` — the controller delegate (new tabs and
   windows, options page, permission prompts, action, native messaging
-  handler tables; a host nobody registered answers as Chrome does, "host not
-  found"). `BrowserExtensionShims.swift` — the stand-ins for Chrome APIs
+  hosts: each `NativeHost` has an allowlist of extension ids checked before
+  its handler; anything else answers as Chrome does, "host not found"),
+  and the gates: `pageLoad` decides every load an extension starts
+  (`tabs.create`/`update`, `windows.create`, its popup's links, its page in
+  a tab navigating away: web, `about:`, `data:` and its own pages load,
+  another app's link asks through `openExternalLink(_:fromExtension:in:)`,
+  `file:`, scripts and other extensions' pages never), `mayShowPage` which
+  page navigations may swap a tab into an extension's web view (only that
+  extension's own frames; `allowsExtensionNavigation` in
+  `+Extensions` applies both in `decidePolicyFor`). `BrowserExtensionShims.swift` — the stand-ins for Chrome APIs
   WebKit lacks or gets wrong: a data-driven table (stand-in name → the
   manifest permission or key that asks for it) decides which extensions get
   `soprano-shim.js` (`BrowserExtensionShimScript.swift`), put first in the
@@ -712,7 +734,9 @@ surrounding style.
   through `BrowserNotificationCenter`, `clients.pages`) and sends events over
   the background's `soprano.events` port (held, and the worker woken, while
   it is closed); `BrowserExtensionSocket.swift` runs a worker's WebSocket
-  (`soprano.socket` port; WebKit's never returns in an extension worker).
+  (`soprano.socket` port; WebKit's never returns in an extension worker)
+  under `BrowserExtensionSocketPolicy`: the manifest's `connect-src`,
+  local and private hosts only with host access, 64 per extension.
   Add a stand-in only for a failure `browser extension errors` names, with
   its trigger in the table. `BrowserExtensionPopup.swift` (popups in our own
   popover, sized to the page's max-content), `BrowserExtensionPermissionSheet.swift`,
@@ -746,7 +770,10 @@ surrounding style.
   tab's Vimium controller for verification. `browser extensions` lists the
   installed extensions (state, private, site access, source, error count);
   `browser extension install <store link|id|folder>` (waits until it runs,
-  up to 120 s), `enable|disable|remove|errors <id>`, `update` (check the
+  up to 120 s; prints a `can:` line with what the extension may do and,
+  for an update that asks for more, what waits for the user's answer in
+  the app; refuses an id installed from another source),
+  `enable|disable|remove|errors <id>`, `update` (check the
   Web Store now) and `action <id> [png]` (clicks the toolbar button in the
   default window; prints the popup's address, size and text and saves its
   capture, or "no popup") drive them. `errors` includes the background's

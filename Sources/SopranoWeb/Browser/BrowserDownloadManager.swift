@@ -85,6 +85,18 @@ final class BrowserDownloadManager: NSObject {
         }
     }
 
+    /// Deleting a Space: stops every running download of profile `id`
+    /// (normal or from a private window over it) as Cancel does; the rows
+    /// stay, and their Resume and Retry refuse (the profile is gone).
+    func cancelDownloads(ofProfile id: UUID) {
+        let ids = downloadsByRecord.keys.filter { recordID in
+            store.records.first { $0.id == recordID }?.profileID == id
+        }
+        for recordID in ids {
+            cancel(id: recordID)
+        }
+    }
+
     /// The data context a stopped row continues in: a private row's own
     /// window's (`windowContext`; another window has no such row), else
     /// the normal context of the profile the download started in — never
@@ -225,8 +237,8 @@ final class BrowserDownloadManager: NSObject {
         stopProgressTimerIfIdle()
     }
 
-    /// What `adopt` and Resume/Retry kept for a download until it has a row
-    /// or ends.
+    /// What `adopt` and Resume/Retry kept for a download until the download
+    /// ends or is declined.
     private func dropStartState(_ key: ObjectIdentifier) {
         startingWindows.removeValue(forKey: key)
         origins.removeValue(forKey: key)
@@ -298,6 +310,12 @@ extension BrowserDownloadManager: WKDownloadDelegate {
         if let destination = destinationsByDownload[key] {
             // A resumed download continues into its partial file.
             completionHandler(destination)
+            return
+        }
+        if let origin = origins[key], origin.privateContextID == nil, profileContext(origin.profileID) == nil {
+            // Its Space was deleted while it started: it never gets a row.
+            dropStartState(key)
+            completionHandler(nil)
             return
         }
         let directory = settingsStore.settings.downloadDirectoryURL

@@ -31,22 +31,51 @@ struct BrowserExtensionShimsTests {
     }
 
     @Test func standInsFollowTheManifest() {
+        let policy = "default-src 'self'; connect-src 'self' https://*.1password.com wss://*.1password.com "
+            + "wss://*.1password.ca; script-src 'self' 'wasm-unsafe-eval'"
         let onePassword: [String: Any] = [
             "permissions": ["notifications", "webNavigation", "storage"],
             "host_permissions": ["<all_urls>"],
             "storage": ["managed_schema": "schema.json"],
             "minimum_chrome_version": "140",
-            "content_security_policy": ["extension_pages": "script-src 'self' 'wasm-unsafe-eval'"],
+            "content_security_policy": ["extension_pages": policy],
             "background": ["service_worker": "background.js", "type": "module"],
         ]
         #expect(BrowserExtensionShims.standIns(for: onePassword) == [
             "notifications", "webNavigation", "storage.managed", "userAgent", "permissions", "wasm", "clients", "webSocket",
         ])
         // A storage permission alone is no managed schema; an optional
-        // permission counts.
+        // permission is not granted yet and asks for nothing.
         let small: [String: Any] = ["permissions": ["storage"], "optional_permissions": ["notifications"]]
-        #expect(BrowserExtensionShims.standIns(for: small) == ["notifications"])
+        #expect(BrowserExtensionShims.standIns(for: small).isEmpty)
         #expect(BrowserExtensionShims.standIns(for: ["permissions": ["tabs"]]).isEmpty)
+    }
+
+    @Test func onlyAWorkerWhosePolicyNamesASocketGetsTheWebSocket() {
+        let worker: [String: Any] = ["background": ["service_worker": "w.js"]]
+        func standIns(_ policy: Any?) -> [String] {
+            var manifest = worker
+            manifest["content_security_policy"] = policy
+            return BrowserExtensionShims.standIns(for: manifest)
+        }
+        // No policy, or one that bounds no connection: every address is
+        // open, but nothing says the worker needs a socket.
+        #expect(standIns(nil) == ["clients"])
+        #expect(standIns(["extension_pages": "script-src 'self'"]) == ["clients"])
+        #expect(standIns(["extension_pages": "connect-src https://api.example.com"]) == ["clients"])
+        #expect(standIns(["extension_pages": "connect-src *"]) == ["clients"])
+        // A scheme source or a host source with a socket scheme, in
+        // `connect-src` or in `default-src` without one; MV2's string too.
+        #expect(standIns(["extension_pages": "connect-src 'self' wss:"]) == ["clients", "webSocket"])
+        #expect(standIns(["extension_pages": "default-src 'self' WS://localhost:8080"]) == ["clients", "webSocket"])
+        #expect(standIns("script-src 'self'; connect-src wss://push.example.com/") == ["clients", "webSocket"])
+        // `connect-src` wins over `default-src`.
+        #expect(standIns(["extension_pages": "default-src wss:; connect-src https:"]) == ["clients"])
+        // Background pages are no worker.
+        #expect(BrowserExtensionShims.standIns(for: [
+            "background": ["scripts": ["a.js"]],
+            "content_security_policy": "connect-src wss:",
+        ]).isEmpty)
     }
 
     @Test func moduleWorkerImportsTheShimFirstAndReapplyChangesNothing() throws {
@@ -66,7 +95,7 @@ struct BrowserExtensionShimsTests {
         #expect(try read(folder, "popup.html").contains("<head><script src=\"/soprano-shim.js\"></script><meta"))
         #expect(try read(folder, "page.htm") == "<script src=\"/soprano-shim.js\"></script><p>no head</p>")
         let shim = try read(folder, "soprano-shim.js")
-        #expect(shim.contains(#"new Set(["notifications","clients","webSocket"])"#))
+        #expect(shim.contains(#"new Set(["notifications","clients"])"#))
         #expect(!shim.contains("__SOPRANO_"))
         // nativeMessaging was already asked for: the manifest is untouched.
         #expect(try read(folder, "manifest.json") == manifestBefore)

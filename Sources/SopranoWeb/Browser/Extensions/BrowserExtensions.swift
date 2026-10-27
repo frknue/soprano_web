@@ -47,6 +47,11 @@ final class BrowserExtensions: NSObject {
         case unreadable(String)
         case notInstalled(String)
         case privateNotAllowed
+        /// The id is installed from another source (the Web Store, another
+        /// folder): a folder carrying a store extension's `key` would take
+        /// over its origin, data and grants.
+        case sourceChanged(id: String, installed: BrowserExtensionRecord.Source, new: BrowserExtensionRecord.Source)
+        case cancelled
 
         var description: String {
             switch self {
@@ -55,7 +60,69 @@ final class BrowserExtensions: NSObject {
             case let .unreadable(reason): "WebKit can't load the extension: \(reason)"
             case let .notInstalled(id): "No extension \(id) is installed. Use `extensions` to list them."
             case .privateNotAllowed: "The extension doesn't allow running in private windows (incognito: not_allowed)."
+            case let .sourceChanged(id, installed, new):
+                "\(id) is already installed from \(installed.title). Remove it first (`extension remove \(id)`, "
+                    + "which deletes its data) to install it from \(new.title)."
+            case .cancelled: "The install was cancelled."
             }
+        }
+    }
+
+    /// What an install shows before it lands (Settings ▸ Extensions asks;
+    /// the CLI prints the lines): the permission list of a new extension,
+    /// what an update newly asks for, or a replacement from another source
+    /// (its settings and data reset).
+    struct InstallReview {
+        enum Kind: Equatable {
+            case install
+            case update
+            case replace(installed: BrowserExtensionRecord.Source, new: BrowserExtensionRecord.Source)
+        }
+
+        var id: String
+        var name: String
+        var version: String
+        var icon: NSImage?
+        var kind: Kind
+        /// What it may do, in Chrome's words (an update: only the new).
+        var lines: [String]
+
+        var header: String {
+            switch kind {
+            case .install: "Add “\(name)”? It can:"
+            case .update: "“\(name)” \(version) asks for more. It can now also:"
+            case let .replace(installed, new):
+                "“\(name)” is installed from \(installed.title). Replace it with the one from \(new.title)? "
+                    + "Its settings, permissions and stored data are reset. It can:"
+            }
+        }
+
+        var allowTitle: String {
+            switch kind {
+            case .install: "Add Extension"
+            case .update: "Allow"
+            case .replace: "Replace"
+            }
+        }
+    }
+
+    /// Asks the user about an install; false cancels it.
+    typealias InstallConfirmation = @MainActor (InstallReview) async -> Bool
+
+    /// What an update asks for beyond what the user already granted or
+    /// denied: left ungranted until the user allows it.
+    struct Additions: Equatable, Sendable {
+        var permissions: [String] = []
+        var matchPatterns: [String] = []
+
+        var isEmpty: Bool { permissions.isEmpty && matchPatterns.isEmpty }
+
+        /// The permission sheet's lines.
+        @MainActor var lines: [String] {
+            BrowserExtensionPermissionPrompt.describe(
+                permissions: permissions.map(WKWebExtension.Permission.init(rawValue:)),
+                patterns: matchPatterns.compactMap { try? WKWebExtension.MatchPattern(string: $0) }
+            )
         }
     }
 
@@ -65,6 +132,15 @@ final class BrowserExtensions: NSObject {
     /// A native port for an application identifier; the port stays open
     /// while the handler keeps it.
     typealias NativePortHandler = @MainActor (_ port: WKWebExtension.MessagePort, _ context: WKWebExtensionContext) throws -> Void
+
+    /// A native messaging host: the extensions it answers (Chrome's
+    /// `allowed_origins`, by extension id) and its handlers. Any other
+    /// extension gets "host not found" before a handler runs.
+    struct NativeHost {
+        var allows: @MainActor (_ extensionID: String) -> Bool
+        var message: NativeMessageHandler?
+        var port: NativePortHandler?
+    }
 
     let store: BrowserExtensionStore
     let controller: WKWebExtensionController
@@ -81,8 +157,13 @@ final class BrowserExtensions: NSObject {
     private(set) var backgroundErrors: [String: String] = [:]
     /// Extensions being installed or updated right now.
     private(set) var busy: Set<String> = []
-    var nativeMessageHandlers: [String: NativeMessageHandler] = [:]
-    var nativePortHandlers: [String: NativePortHandler] = [:]
+    /// Native messaging hosts by application identifier, each with its
+    /// allowlist (`allowedNativeHost`).
+    var nativeHosts: [String: NativeHost] = [:]
+    /// What updates newly asked for and the user hasn't allowed yet, by id.
+    private(set) var pendingAdditions: [String: Additions] = [:]
+    /// Extensions whose `pendingAdditions` the sheet asked about this launch.
+    private var askedAdditions: Set<String> = []
     /// The stand-ins' native side (`BrowserExtensionShims`).
     let nativeHost: BrowserExtensionNativeHost
     /// Each shimmed background's open `soprano.events` port, kept alive here.
@@ -124,7 +205,8 @@ final class BrowserExtensions: NSObject {
 
     /// The shim's application id and ports, answered only for an extension
     /// whose installed copy carries the shim (and, for a socket, the
-    /// `webSocket` stand-in).
+    /// `webSocket` stand-in): each host's allowlist, checked before its
+    /// handler runs.
     private func installNativeHost() {
         nativeHost.wake = { [weak self] id in
             self?.contexts[id]?.loadBackgroundContent { _ in }
@@ -135,13 +217,28 @@ final class BrowserExtensions: NSObject {
         BrowserNotificationCenter.shared.onExtensionResponse = { [weak self] id, notificationID, response in
             self?.nativeHost.respond(response, extensionID: id, notificationID: notificationID)
         }
-        nativeMessageHandlers[BrowserExtensionShims.application] = { [weak self] message, context in
-            guard let self else { return nil }
-            let id = self.id(of: context) ?? ""
-            return await self.nativeHost.answer(message, extensionID: id, standIns: self.store.record(id: id)?.standIns ?? [])
+        nativeHost.displayName = { [weak self] id in
+            self?.contexts[id]?.webExtension.displayName ?? self?.store.record(id: id)?.name
         }
-        nativePortHandlers[BrowserExtensionShims.eventsPort] = { [weak self] port, context in
-            guard let self, let id = self.id(of: context), self.store.record(id: id)?.standIns.isEmpty == false else {
+        // Before an extension's first notification raises the system
+        // prompt, the user is asked in the app, naming the extension.
+        nativeHost.confirmNotifications = { [weak self] id in
+            guard let self, let context = self.contexts[id] else { return false }
+            return await withCheckedContinuation { continuation in
+                self.prompt(context, tab: nil, lines: ["Show notifications"]) { allowed in
+                    continuation.resume(returning: allowed)
+                }
+            }
+        }
+        let shimmed: @MainActor (String) -> Bool = { [weak self] id in
+            self?.store.record(id: id)?.standIns.isEmpty == false
+        }
+        nativeHosts[BrowserExtensionShims.application] = NativeHost(allows: shimmed, message: { [weak self] message, context in
+            guard let self, let id = self.id(of: context) else { return nil }
+            return await self.nativeHost.answer(message, extensionID: id, standIns: self.store.record(id: id)?.standIns ?? [])
+        })
+        nativeHosts[BrowserExtensionShims.eventsPort] = NativeHost(allows: shimmed, port: { [weak self] port, context in
+            guard let self, let id = self.id(of: context) else {
                 throw Self.refusal("No native messaging host \(BrowserExtensionShims.eventsPort).")
             }
             self.eventPorts[id]?.disconnect()
@@ -155,23 +252,31 @@ final class BrowserExtensions: NSObject {
             self.nativeHost.attach(extensionID: id) { [weak port] message in
                 port?.sendMessage(message, completionHandler: nil)
             }
-        }
-        nativePortHandlers[BrowserExtensionShims.socketPort] = { [weak self] port, context in
-            guard let self, let id = self.id(of: context),
-                  self.store.record(id: id)?.standIns.contains("webSocket") == true
-            else {
+        })
+        nativeHosts[BrowserExtensionShims.socketPort] = NativeHost(allows: { [weak self] id in
+            self?.store.record(id: id)?.standIns.contains("webSocket") == true
+        }, port: { [weak self] port, context in
+            guard let self, let id = self.id(of: context) else {
                 throw Self.refusal("No native messaging host \(BrowserExtensionShims.socketPort).")
             }
-            let socket = BrowserExtensionSocket(port: port, extensionID: id)
+            guard self.sockets.values.count(where: { $0.extensionID == id }) < BrowserExtensionSocket.maxPerExtension else {
+                throw Self.refusal("Too many open WebSockets.")
+            }
+            let policy = BrowserExtensionSocketPolicy.make(manifest: context.webExtension.manifest) { [weak context] url in
+                guard let context else { return false }
+                return [.grantedExplicitly, .grantedImplicitly].contains(context.permissionStatus(for: url))
+            }
+            let socket = BrowserExtensionSocket(port: port, extensionID: id, policy: policy)
             let key = ObjectIdentifier(socket)
             socket.onFinish = { [weak self] in self?.sockets[key] = nil }
             self.sockets[key] = socket
-        }
+        })
     }
 
     /// The extension's pages open now, as `clients.matchAll` lists them:
     /// its popup and its pages in tabs (visible when shown in a visible
-    /// window; focused in the key window).
+    /// window; focused in the key window). Private windows count only for
+    /// an extension allowed in them.
     func openPages(of id: String) -> [[String: Any]] {
         var pages: [[String: Any]] = []
         if let popup, popup.extensionID == id {
@@ -179,7 +284,8 @@ final class BrowserExtensions: NSObject {
             pages.append(["url": url.absoluteString, "visible": popup.popover.isShown, "focused": popup.popover.isShown])
         }
         let prefix = "\(Self.scheme)://\(id)/"
-        for window in manager?.mostRecentlyActiveFirst(where: { _ in true }) ?? [] {
+        let privateAccess = contexts[id]?.hasAccessToPrivateData == true
+        for window in manager?.mostRecentlyActiveFirst(where: { privateAccess || !$0.kind.isPrivate }) ?? [] {
             for tab in window.tabs {
                 guard let url = tab.webView.url?.absoluteString, url.hasPrefix(prefix) else { continue }
                 let visible = window.selectedTab === tab && window.window?.isVisible == true
@@ -283,6 +389,14 @@ final class BrowserExtensions: NSObject {
                 record.name = webExtension.displayName ?? record.name
                 record.version = webExtension.version ?? record.version
             }
+            // What an update newly asked for runs only once the user allows it.
+            let additions = Self.additions(
+                requestedPermissions: webExtension.requestedPermissions.map(\.rawValue),
+                requestedPatterns: webExtension.allRequestedMatchPatterns.map(\.string),
+                record: current
+            )
+            pendingAdditions[id] = additions.isEmpty ? nil : additions
+            askForAdditions(id)
         } catch {
             loadErrors[id] = Self.describe(error)
         }
@@ -297,6 +411,48 @@ final class BrowserExtensions: NSObject {
         nativeHost.detach(extensionID: id)
         for socket in sockets.values where socket.extensionID == id { socket.close() }
         try? controller.unload(context)
+        changes.notify()
+    }
+
+    /// Shows the permission sheet (on the active window) for what an
+    /// update newly asked for, once per launch: allowed, it is granted;
+    /// refused, it is denied for good, as a refused request is. Without a
+    /// window it waits for the next launch.
+    private func askForAdditions(_ id: String) {
+        guard let additions = pendingAdditions[id], !askedAdditions.contains(id),
+              let context = contexts[id], manager?.activeController?.window != nil
+        else { return }
+        askedAdditions.insert(id)
+        let name = context.webExtension.displayName ?? id
+        prompt(context, tab: nil, lines: additions.lines, header: "“\(name)” was updated and now also wants to:") { [weak self] allowed in
+            self?.decideAdditions(id, allowed: allowed)
+        }
+    }
+
+    /// The user's answer about `pendingAdditions[id]`.
+    func decideAdditions(_ id: String, allowed: Bool) {
+        guard let additions = pendingAdditions.removeValue(forKey: id) else { return }
+        let status: WKWebExtensionContext.PermissionStatus = allowed ? .grantedExplicitly : .deniedExplicitly
+        if let context = contexts[id] {
+            for permission in additions.permissions {
+                context.setPermissionStatus(status, for: WKWebExtension.Permission(rawValue: permission))
+            }
+            for string in additions.matchPatterns {
+                if let pattern = try? WKWebExtension.MatchPattern(string: string) {
+                    context.setPermissionStatus(status, for: pattern)
+                }
+            }
+            persist(context)
+        } else {
+            store.update(id: id) { record in
+                if allowed {
+                    Self.grant(additions, to: &record)
+                } else {
+                    for permission in additions.permissions { record.deniedPermissions[permission] = .distantFuture }
+                    for pattern in additions.matchPatterns { record.deniedMatchPatterns[pattern] = .distantFuture }
+                }
+            }
+        }
         changes.notify()
     }
 
@@ -401,20 +557,30 @@ final class BrowserExtensions: NSObject {
     /// Installs (or updates in place, keeping its settings) the extension
     /// `input` names: an id or Chrome Web Store link (downloaded and
     /// verified), or an unpacked folder (copied). Loads it when enabled.
+    /// `confirm` (Settings ▸ Extensions) is asked before anything lands:
+    /// a new extension's permission list, what an update newly asks for,
+    /// or a replacement from another source. Without it (the CLI, the
+    /// harness) a new extension is granted what it asks for, an update's
+    /// new requests wait for the user's answer in the app, and a
+    /// replacement is refused.
     @discardableResult
-    func install(_ input: String, workingDirectory: URL? = nil) async throws -> BrowserExtensionRecord {
+    func install(
+        _ input: String,
+        workingDirectory: URL? = nil,
+        confirm: InstallConfirmation? = nil
+    ) async throws -> BrowserExtensionRecord {
         guard let source = BrowserWebStore.source(for: input, workingDirectory: workingDirectory) else {
             throw InstallError.badInput(input)
         }
         switch source {
         case let .webStore(id):
-            return try await installFromWebStore(id: id)
+            return try await installFromWebStore(id: id, confirm: confirm)
         case let .folder(url):
-            return try await installFolder(url)
+            return try await installFolder(url, confirm: confirm)
         }
     }
 
-    func installFromWebStore(id: String) async throws -> BrowserExtensionRecord {
+    func installFromWebStore(id: String, confirm: InstallConfirmation? = nil) async throws -> BrowserExtensionRecord {
         busy.insert(id)
         changes.notify()
         defer {
@@ -424,26 +590,29 @@ final class BrowserExtensions: NSObject {
         let package = try await BrowserWebStore.fetch(BrowserWebStore.downloadURL(id: id))
         let staged = store.stagingFolder()
         try await Self.unpackVerified(package, id: id, to: staged)
-        return try await adopt(staged, id: id, source: .webStore)
+        return try await adopt(staged, id: id, source: .webStore, confirm: confirm)
     }
 
-    func installFolder(_ folder: URL) async throws -> BrowserExtensionRecord {
+    /// Copies the folder first and takes the id from the copy's manifest
+    /// (its `key`, else the folder's path), so the folder can't change
+    /// between the id and the package.
+    func installFolder(_ folder: URL, confirm: InstallConfirmation? = nil) async throws -> BrowserExtensionRecord {
         let manifestURL = folder.appendingPathComponent("manifest.json")
         guard let data = try? Data(contentsOf: manifestURL),
-              let manifest = try? BrowserExtensionArchive.checkManifest(data)
+              (try? BrowserExtensionArchive.checkManifest(data)) != nil
         else { throw InstallError.notAFolder(folder.path) }
-        let id = BrowserExtensionID.id(forUnpackedManifest: manifest, folder: folder)
+        let staged = store.stagingFolder()
+        let id = try await Task.detached {
+            let manifest = try BrowserExtensionArchive.copyFolder(folder, to: staged)
+            return BrowserExtensionID.id(forUnpackedManifest: manifest, folder: folder)
+        }.value
         busy.insert(id)
         changes.notify()
         defer {
             busy.remove(id)
             changes.notify()
         }
-        let staged = store.stagingFolder()
-        try await Task.detached {
-            _ = try BrowserExtensionArchive.copyFolder(folder, to: staged)
-        }.value
-        return try await adopt(staged, id: id, source: .folder(folder.path))
+        return try await adopt(staged, id: id, source: .folder(folder.path), confirm: confirm)
     }
 
     /// Parses and verifies a downloaded CRX3 as extension `id` (the Web
@@ -462,10 +631,20 @@ final class BrowserExtensions: NSObject {
 
     /// Moves a checked package in as `id` with the stand-ins it asks for
     /// (`BrowserExtensionShims`, put in after the package's signatures or
-    /// folder were checked), reads it with WebKit, saves its record (a new
-    /// one granted what it asks for: installing is consent, as in Chrome)
-    /// and loads it.
-    private func adopt(_ staged: URL, id: String, source: BrowserExtensionRecord.Source) async throws -> BrowserExtensionRecord {
+    /// folder were checked), reads it with WebKit, saves its record and
+    /// loads it. A new extension is granted what it asks for (installing
+    /// is consent, after `confirm` showed the list, as in Chrome). An
+    /// update keeps the user's grants and grants nothing new: what it
+    /// newly asks for waits for the user (`confirm`, else the permission
+    /// sheet once it loads). The same id from another source (a folder
+    /// carrying a store extension's `key`, another folder) needs `confirm`
+    /// and then starts over: a fresh record, its stored data deleted.
+    private func adopt(
+        _ staged: URL,
+        id: String,
+        source: BrowserExtensionRecord.Source,
+        confirm: InstallConfirmation?
+    ) async throws -> BrowserExtensionRecord {
         let webExtension: WKWebExtension
         let standIns: [String]
         do {
@@ -477,26 +656,67 @@ final class BrowserExtensions: NSObject {
             try? FileManager.default.removeItem(at: staged)
             throw InstallError.unreadable(Self.describe(error))
         }
+        let permissions = webExtension.requestedPermissions.map(\.rawValue)
+        let patterns = webExtension.allRequestedMatchPatterns.map(\.string)
+        let existing = store.record(id: id)
+        let replaced = existing.flatMap { $0.source == source ? nil : $0.source }
+        var record: BrowserExtensionRecord
+        var additions = Additions()
+        if let existing, replaced == nil {
+            record = existing
+            additions = Self.applyUpdate(to: &record, requestedPermissions: permissions, requestedPatterns: patterns, standIns: standIns)
+        } else {
+            record = BrowserExtensionRecord(
+                id: id,
+                source: source,
+                name: webExtension.displayName ?? id,
+                version: webExtension.version ?? ""
+            )
+            Self.adopt(standIns: standIns, into: &record)
+            Self.grantRequested(permissions: permissions, patterns: patterns, to: &record)
+        }
+        let review = InstallReview(
+            id: id,
+            name: webExtension.displayName ?? record.name,
+            version: webExtension.version ?? record.version,
+            icon: webExtension.icon(for: CGSize(width: 32, height: 32)),
+            kind: replaced.map { .replace(installed: $0, new: source) } ?? (existing == nil ? .install : .update),
+            lines: existing != nil && replaced == nil
+                ? additions.lines
+                : Self.permissionLines(of: webExtension)
+        )
+        if let replaced, confirm == nil {
+            try? FileManager.default.removeItem(at: staged)
+            throw InstallError.sourceChanged(id: id, installed: replaced, new: source)
+        }
+        if let confirm, review.kind != .update || !additions.isEmpty {
+            guard await confirm(review) else {
+                try? FileManager.default.removeItem(at: staged)
+                throw InstallError.cancelled
+            }
+            if review.kind == .update {
+                Self.grant(additions, to: &record)
+            }
+        }
         let wasLoaded = contexts[id] != nil
         unload(id)
+        if replaced != nil {
+            nativeHost.forget(id)
+            await removeStoredData(of: id)
+        }
         do {
             try store.installPackage(staged, id: id)
         } catch {
             try? FileManager.default.removeItem(at: staged)
-            if wasLoaded { await load(id) }
+            if wasLoaded, replaced == nil { await load(id) }
             throw error
         }
-        var record = store.record(id: id) ?? Self.newRecord(id: id, source: source, webExtension: webExtension)
         record.source = source
         record.name = webExtension.displayName ?? record.name
         record.version = webExtension.version ?? record.version
-        Self.adopt(standIns: standIns, into: &record)
-        if store.record(id: id) != nil {
-            // An update may ask for more: what it newly requests is granted
-            // unless the user narrowed site access.
-            Self.grantRequested(by: webExtension, to: &record)
-        }
         store.save(record)
+        pendingAdditions[id] = nil
+        askedAdditions.remove(id)
         if record.isEnabled {
             await load(id)
         }
@@ -504,27 +724,69 @@ final class BrowserExtensions: NSObject {
         return store.record(id: id) ?? record
     }
 
-    private static func newRecord(id: String, source: BrowserExtensionRecord.Source, webExtension: WKWebExtension) -> BrowserExtensionRecord {
-        var record = BrowserExtensionRecord(
-            id: id,
-            source: source,
-            name: webExtension.displayName ?? id,
-            version: webExtension.version ?? ""
+    /// What an extension may do, in Chrome's words, for the install sheet
+    /// and the CLI.
+    static func permissionLines(of webExtension: WKWebExtension) -> [String] {
+        BrowserExtensionPermissionPrompt.describe(
+            permissions: Array(webExtension.requestedPermissions),
+            patterns: Array(webExtension.allRequestedMatchPatterns)
         )
-        grantRequested(by: webExtension, to: &record)
-        return record
     }
 
-    /// Grants what the manifest requests (permissions always, sites while
-    /// site access is "On all sites"), never what the user denied.
-    private static func grantRequested(by webExtension: WKWebExtension, to record: inout BrowserExtensionRecord) {
-        for permission in webExtension.requestedPermissions where record.deniedPermissions[permission.rawValue] == nil {
-            record.grantedPermissions[permission.rawValue] = record.grantedPermissions[permission.rawValue] ?? .distantFuture
+    /// A new record's grants: what the manifest requests (permissions
+    /// always, sites while site access is "On all sites"), never what the
+    /// user denied, never local files (`isFilePattern`).
+    static func grantRequested(permissions: [String], patterns: [String], to record: inout BrowserExtensionRecord) {
+        for permission in permissions where record.deniedPermissions[permission] == nil {
+            record.grantedPermissions[permission] = record.grantedPermissions[permission] ?? .distantFuture
         }
         guard record.siteAccess == .allSites else { return }
-        for pattern in webExtension.allRequestedMatchPatterns where record.deniedMatchPatterns[pattern.string] == nil {
-            record.grantedMatchPatterns[pattern.string] = record.grantedMatchPatterns[pattern.string] ?? .distantFuture
+        for pattern in patterns where record.deniedMatchPatterns[pattern] == nil && !isFilePattern(pattern) {
+            record.grantedMatchPatterns[pattern] = record.grantedMatchPatterns[pattern] ?? .distantFuture
         }
+    }
+
+    /// An update's record: the stand-ins its copy carries and nothing
+    /// newly granted. Returns what it asks for beyond what the user
+    /// already granted or denied (`additions`).
+    static func applyUpdate(
+        to record: inout BrowserExtensionRecord,
+        requestedPermissions: [String],
+        requestedPatterns: [String],
+        standIns: [String]
+    ) -> Additions {
+        adopt(standIns: standIns, into: &record)
+        return additions(requestedPermissions: requestedPermissions, requestedPatterns: requestedPatterns, record: record)
+    }
+
+    /// What the manifest requests that the record neither grants nor
+    /// denies: permissions, and sites while site access is "On all sites"
+    /// (never local files). The shim's own `nativeMessaging` is already
+    /// granted by `adopt(standIns:into:)`.
+    static func additions(requestedPermissions: [String], requestedPatterns: [String], record: BrowserExtensionRecord) -> Additions {
+        var additions = Additions()
+        additions.permissions = Array(Set(requestedPermissions.filter {
+            record.grantedPermissions[$0] == nil && record.deniedPermissions[$0] == nil
+        })).sorted()
+        if record.siteAccess == .allSites {
+            additions.matchPatterns = Array(Set(requestedPatterns.filter {
+                record.grantedMatchPatterns[$0] == nil && record.deniedMatchPatterns[$0] == nil && !isFilePattern($0)
+            })).sorted()
+        }
+        return additions
+    }
+
+    static func grant(_ additions: Additions, to record: inout BrowserExtensionRecord) {
+        for permission in additions.permissions { record.grantedPermissions[permission] = .distantFuture }
+        for pattern in additions.matchPatterns { record.grantedMatchPatterns[pattern] = .distantFuture }
+    }
+
+    /// Local files are never granted automatically. WebKit (macOS 26)
+    /// reports a `file:` page's permission as unknown even with
+    /// `file:///*` granted and `<all_urls>` doesn't match `file:` there,
+    /// so this keeps it so should that change.
+    nonisolated static func isFilePattern(_ pattern: String) -> Bool {
+        pattern.lowercased().hasPrefix("file:")
     }
 
     // MARK: - Settings
@@ -601,7 +863,7 @@ final class BrowserExtensions: NSObject {
         var granted: [String: Date] = [:]
         switch record.siteAccess {
         case .allSites:
-            for pattern in requested { granted[pattern] = .distantFuture }
+            for pattern in requested where !Self.isFilePattern(pattern) { granted[pattern] = .distantFuture }
         case .specificSites:
             for host in record.allowedSites {
                 for pattern in Self.sitePatterns(host) { granted[pattern] = .distantFuture }
@@ -634,14 +896,20 @@ final class BrowserExtensions: NSObject {
         guard store.record(id: id) != nil else { throw InstallError.notInstalled(id) }
         unload(id)
         nativeHost.forget(id)
+        await removeStoredData(of: id)
+        store.remove(id: id)
+        loadErrors[id] = nil
+        pendingAdditions[id] = nil
+        changes.notify()
+    }
+
+    /// Deletes what extension `id` stored (storage, IndexedDB, …).
+    private func removeStoredData(of id: String) async {
         let records = await controller.dataRecords(ofTypes: WKWebExtensionController.allExtensionDataTypes)
         let own = records.filter { $0.uniqueIdentifier == id }
         if !own.isEmpty {
             await controller.removeData(ofTypes: WKWebExtensionController.allExtensionDataTypes, from: own)
         }
-        store.remove(id: id)
-        loadErrors[id] = nil
-        changes.notify()
     }
 
     /// Unloads every extension and deletes everything they stored (the
@@ -694,7 +962,7 @@ final class BrowserExtensions: NSObject {
                 let staged = store.stagingFolder()
                 try await Self.unpackVerified(package, id: record.id, to: staged)
                 busy.remove(record.id)
-                _ = try await adopt(staged, id: record.id, source: .webStore)
+                _ = try await adopt(staged, id: record.id, source: .webStore, confirm: nil)
                 updated.append(record.id)
             } catch {
                 busy.remove(record.id)

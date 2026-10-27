@@ -2,9 +2,11 @@
 import AppKit
 import Testing
 
-/// Unpacking extension packages: hostile ZIP entries are refused before
-/// anything is written, a good package lands whole, and an unpacked folder
-/// with a symlink is refused.
+/// Unpacking extension packages: hostile ZIP entries and archives that
+/// could read differently to different readers are refused before
+/// anything is written, a good package (stored or deflated) lands whole,
+/// a bomb stops at the cap, and an unpacked folder with a symlink is
+/// refused.
 struct BrowserExtensionArchiveTests {
     private typealias F = ExtensionTestFixtures
 
@@ -15,6 +17,22 @@ struct BrowserExtensionArchiveTests {
         } catch {
             return error
         }
+    }
+
+    /// Extracting `archive` fails with `failure` and leaves nothing at
+    /// the destination.
+    private func expectRefusal(
+        _ archive: Data,
+        _ failure: BrowserExtensionArchive.Failure,
+        limit: UInt64 = BrowserExtensionArchive.maxUncompressedSize,
+        sourceLocation: SourceLocation = #_sourceLocation
+    ) {
+        let destination = F.temporaryURL()
+        defer { try? FileManager.default.removeItem(at: destination.deletingLastPathComponent()) }
+        #expect(throws: failure, sourceLocation: sourceLocation) {
+            try BrowserExtensionArchive.extract(archive, to: destination, limit: limit)
+        }
+        #expect(!FileManager.default.fileExists(atPath: destination.path), sourceLocation: sourceLocation)
     }
 
     private let manifest = F.ZipEntry.file("manifest.json", F.manifest)
@@ -98,5 +116,77 @@ struct BrowserExtensionArchiveTests {
         try FileManager.default.removeItem(at: source.appendingPathComponent("outside"))
         try BrowserExtensionArchive.copyFolder(source, to: destination)
         #expect(FileManager.default.fileExists(atPath: destination.appendingPathComponent("manifest.json").path))
+    }
+
+    @Test func aDecoyEndRecordIsRefused() {
+        // The real end record's comment holds a decoy directory and end
+        // record listing only the manifest.
+        let archive = F.decoyZip([manifest, .file("../evil.js", "x")], listing: ["manifest.json"])
+        expectRefusal(archive, .ambiguous)
+    }
+
+    @Test func aLocalHeaderThatDiffersFromTheCentralDirectoryIsRefused() {
+        var renamed = F.ZipEntry.file("script.js", "x")
+        renamed.localPath = "../evil.js"
+        expectRefusal(F.zip([manifest, renamed]), .badLocalHeader("script.js"))
+        // Same length, different bytes.
+        renamed.localPath = "SCRIPT.js"
+        expectRefusal(F.zip([manifest, renamed]), .badLocalHeader("script.js"))
+    }
+
+    @Test func aSymlinkFromAnotherHostIsRefused() {
+        var link = F.ZipEntry.symlink("link", to: "/etc/passwd")
+        link.host = 0
+        expectRefusal(F.zip([manifest, link]), .symlink("link"))
+    }
+
+    @Test func aFileAndAFolderOfTheSameNameAreRefused() {
+        expectRefusal(F.zip([manifest, .file("a", "x"), .file("a/b.js", "y")]), .clash("a"))
+        expectRefusal(F.zip([manifest, .file("a/b.js", "y"), .file("A", "x")]), .clash("A"))
+        expectRefusal(F.zip([manifest, .file("lib", "x"), .directory("LIB/sub/")]), .clash("lib"))
+    }
+
+    @Test func aZipBombIsStoppedAtTheCap() {
+        let limit: UInt64 = 64 << 10
+        let zeros = Data(count: 1 << 20)
+        // Declared honestly: refused before anything is written.
+        expectRefusal(
+            F.zip([manifest, .deflated("bomb.js", zeros)]),
+            .tooLarge(UInt64(F.manifest.utf8.count) + (1 << 20)),
+            limit: limit
+        )
+        // Declared small: inflating stops once it passes the declared size.
+        var liar = F.ZipEntry.deflated("bomb.js", zeros)
+        liar.declaredSize = 16
+        expectRefusal(F.zip([manifest, liar]), .corrupt("bomb.js"), limit: limit)
+        // Shorter than declared is refused too.
+        var short = F.ZipEntry.file("short.js", "x")
+        short.declaredSize = 1000
+        expectRefusal(F.zip([manifest, short]), .corrupt("short.js"), limit: limit)
+    }
+
+    @Test func aDeflatedArchiveUnpacksWhole() throws {
+        let destination = F.temporaryURL()
+        defer { try? FileManager.default.removeItem(at: destination.deletingLastPathComponent()) }
+        // Larger than one inflation chunk.
+        let script = Data(String(repeating: "console.log('hi');\n", count: 10_000).utf8)
+        var fromDOS = F.ZipEntry.deflated("js/dos.js", Data("made on DOS".utf8))
+        fromDOS.host = 0
+        var executable = F.ZipEntry.file("run.sh", "#!/bin/sh")
+        executable.mode = 0o100755
+        let archive = F.zip([
+            .deflated("manifest.json", Data(F.manifest.utf8)),
+            .directory("js/"),
+            .deflated("js/background.js", script),
+            fromDOS,
+            executable,
+        ], comment: Data("a comment".utf8))
+        let unpacked = try BrowserExtensionArchive.extract(archive, to: destination)
+        #expect(unpacked["name"] as? String == "Fixture")
+        #expect(try Data(contentsOf: destination.appendingPathComponent("js/background.js")) == script)
+        #expect(try Data(contentsOf: destination.appendingPathComponent("js/dos.js")) == Data("made on DOS".utf8))
+        // Stored modes are ignored.
+        let attributes = try FileManager.default.attributesOfItem(atPath: destination.appendingPathComponent("run.sh").path)
+        #expect((attributes[.posixPermissions] as? NSNumber)?.intValue == 0o644)
     }
 }

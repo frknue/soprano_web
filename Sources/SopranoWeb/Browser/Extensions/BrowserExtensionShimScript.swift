@@ -287,20 +287,24 @@ enum BrowserExtensionShimScript {
             if (parsed.protocol === "https:") parsed.protocol = "wss:";
             if (!/^wss?:$/.test(parsed.protocol) || parsed.hash) throw new DOMException("The URL '" + url + "' is invalid.", "SyntaxError");
             const list = protocols === undefined ? [] : (Array.isArray(protocols) ? protocols : [protocols]).map(String);
+            if (list.some((p) => !/^[!#$%&'*+\-.^_`|~0-9A-Za-z]+$/.test(p)) || new Set(list).size !== list.length) {
+              throw new DOMException("The subprotocol list is invalid.", "SyntaxError");
+            }
             Object.defineProperty(this, "url", { value: parsed.href, enumerable: true });
             this.#origin = parsed.origin;
             this.protocol = ""; this.extensions = ""; this.binaryType = "blob"; this.bufferedAmount = 0;
             this.onopen = null; this.onmessage = null; this.onerror = null; this.onclose = null;
-            this.#connect({ open: parsed.href, protocols: list, userAgent: navigator.userAgent });
+            this.#connect({ open: parsed.href, protocols: list });
           }
           // What a worker posts on a port it just opened can be lost, so
-          // the opening is said again until the app answers.
+          // the opening is said again until the app answers, or until the
+          // socket is closing (a close must not be overtaken by an open).
           #connect(hello) {
             const port = connectNative(socketPort);
             this.#port = port;
             let answered = false, tries = 0;
             const again = () => {
-              if (answered || this.#state === 3) return;
+              if (answered || this.#state >= 2) return;
               if (tries++ >= 20) { this.#fire("error"); this.#closed(1006, "", false); return; }
               try { port.postMessage(hello); } catch (e) {}
               setTimeout(again, 100 * Math.min(tries, 5));
@@ -349,6 +353,9 @@ enum BrowserExtensionShimScript {
           close(code, reason) {
             if (code !== undefined && code !== 1000 && !(code >= 3000 && code <= 4999)) {
               throw new DOMException("The close code must be either 1000, or between 3000 and 4999. " + code + " is neither.", "InvalidAccessError");
+            }
+            if (reason !== undefined && new TextEncoder().encode(String(reason)).length > 123) {
+              throw new DOMException("The close reason must not be greater than 123 UTF-8 bytes.", "SyntaxError");
             }
             if (this.#state >= 2) return;
             this.#state = 2;

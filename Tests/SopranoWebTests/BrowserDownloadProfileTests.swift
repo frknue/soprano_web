@@ -54,6 +54,38 @@ struct BrowserDownloadProfileTests {
         #expect(configuration.websiteDataStore !== a.websiteDataStore)
     }
 
+    @Test func aDeletedSpacesRowNeverResumesInDefault() {
+        let directory = temporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let defaultContext = context(BrowserProfile.defaultID, in: directory)
+        let work = BrowserProfile(name: "Work", color: .blue)
+        let workContext = context(work.id, in: directory)
+        let profiles = BrowserProfileStore(url: directory.appendingPathComponent("profiles.json"))
+        profiles.add(work)
+        let store = BrowserDownloadStore(url: directory.appendingPathComponent("downloads.json"))
+        let manager = BrowserDownloadManager(
+            store: store,
+            settingsStore: BrowserSettingsStore(url: directory.appendingPathComponent("settings.json"))
+        )
+        // The window manager's wiring, with its `context(for:)` (Default for
+        // a profile that no longer exists).
+        manager.profileContext = { id in
+            BrowserWindowManager.existingProfileContext(id, profiles: profiles) { id in
+                id == work.id && profiles.profile(id: id) != nil ? workContext : defaultContext
+            }
+        }
+        let record = store.begin(url: "https://work.example/big.iso", filename: "big.iso", profileID: work.id)
+        store.cancel(id: record.id, resumeData: Data("resume".utf8))
+        let stopped = store.records[0]
+        #expect(manager.dataContext(for: stopped, windowContext: defaultContext) === workContext)
+
+        profiles.remove(id: work.id)
+        #expect(manager.dataContext(for: stopped, windowContext: defaultContext) == nil)
+        // Default's own rows still continue.
+        let own = store.begin(url: "https://default.example/a.zip", filename: "a.zip", profileID: BrowserProfile.defaultID)
+        #expect(manager.dataContext(for: own, windowContext: workContext) === defaultContext)
+    }
+
     @Test func aPrivateRowContinuesOnlyInItsOwnWindow() {
         let directory = temporaryDirectory()
         defer { try? FileManager.default.removeItem(at: directory) }

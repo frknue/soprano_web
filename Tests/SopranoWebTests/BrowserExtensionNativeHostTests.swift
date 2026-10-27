@@ -4,8 +4,9 @@ import Testing
 
 /// The app's side of the shim: only shimmed extensions and their own
 /// stand-ins are answered, Chrome's notification semantics (generated ids,
-/// replace, update merges, clear, per-extension ids), events held until the
-/// background's port opens, and the socket messages a worker may send.
+/// replace, update merges, clear, per-extension ids), notifications named
+/// after their extension, asked for in the app before macOS's prompt and
+/// capped per extension, and events held until the background's port opens.
 @MainActor
 struct BrowserExtensionNativeHostTests {
     private let one = "aeblfdkhhhdcdjpifhhbdiojplfjncoa"
@@ -17,8 +18,19 @@ struct BrowserExtensionNativeHostTests {
         var posted: [BrowserExtensionNotification] = []
         var removed: [String] = []
         var failure: Error?
+        var undetermined = false
+        var authorizationRequests = 0
+
+        func authorizationIsUndetermined() async -> Bool { undetermined }
+
+        func requestAuthorization() async -> Bool {
+            authorizationRequests += 1
+            undetermined = false
+            return true
+        }
 
         func post(_ notification: BrowserExtensionNotification) async throws {
+            if undetermined { throw BrowserNotificationCenter.PostError.notAuthorized }
             if let failure { throw failure }
             posted.append(notification)
         }
@@ -76,7 +88,7 @@ struct BrowserExtensionNativeHostTests {
         _ = await call(host, "notifications.create", ["n", ["title": "Title", "message": "old", "contextMessage": "ctx"]])
         let updated = await call(host, "notifications.update", ["n", ["message": "new"]])
         #expect(updated["value"] as? Bool == true)
-        #expect(recorder.posted.last.map { [$0.title, $0.body, $0.subtitle] } == ["Title", "new", "ctx"])
+        #expect(recorder.posted.last.map { [$0.title, $0.body, $0.subtitle] } == ["Title", "new\nctx", one])
         #expect((await call(host, "notifications.clear", ["n"]))["value"] as? Bool == true)
         #expect((await call(host, "notifications.clear", ["n"]))["value"] as? Bool == false)
         #expect(recorder.removed == ["extension/\(one)/n"])
@@ -105,12 +117,83 @@ struct BrowserExtensionNativeHostTests {
         #expect(host.notifications.isEmpty)
     }
 
+    @Test func theSubtitleNamesTheExtensionAndTheContextMessageEndsTheBody() async {
+        let recorder = Recorder()
+        let host = BrowserExtensionNativeHost(poster: recorder)
+        host.displayName = { id in id == one ? "1Password" : nil }
+        _ = await call(host, "notifications.create", ["n", ["title": "Saved", "message": "Login saved", "contextMessage": "example.com", "subtitle": "Apple"]])
+        _ = await call(host, "notifications.create", ["n", ["title": "x"]], id: other)
+        #expect(recorder.posted.map(\.subtitle) == ["1Password", other])
+        #expect(recorder.posted.first?.body == "Login saved\nexample.com")
+    }
+
+    @Test func anUndecidedPermissionAsksTheUserOnceAndARefusalNeverReachesMacOS() async {
+        let recorder = Recorder()
+        recorder.undetermined = true
+        let host = BrowserExtensionNativeHost(poster: recorder)
+        var asked: [String] = []
+        host.confirmNotifications = { id in
+            asked.append(id)
+            return false
+        }
+        let first = await call(host, "notifications.create", ["n", ["title": "x"]])
+        let second = await call(host, "notifications.create", ["m", ["title": "y"]])
+        #expect(asked == [one])
+        #expect(first["error"] as? String == "Notifications were not allowed for this extension.")
+        #expect(second["error"] as? String == "Notifications were not allowed for this extension.")
+        #expect(recorder.authorizationRequests == 0)
+        #expect(recorder.posted.isEmpty && host.notifications.isEmpty)
+        #expect((await call(host, "notifications.getPermissionLevel", []))["value"] as? String == "denied")
+        host.confirmNotifications = { id in
+            asked.append(id)
+            return true
+        }
+        let allowed = await call(host, "notifications.create", ["n", ["title": "x"]], id: other)
+        #expect(allowed["value"] as? String == "n")
+        #expect(asked == [one, other])
+        #expect(recorder.authorizationRequests == 1)
+        #expect((await call(host, "notifications.create", ["n", ["title": "x"]]))["error"] != nil)
+        #expect(asked == [one, other])
+    }
+
+    @Test func aDecidedPermissionAsksNothing() async {
+        let recorder = Recorder()
+        let host = BrowserExtensionNativeHost(poster: recorder)
+        var asked = 0
+        host.confirmNotifications = { _ in
+            asked += 1
+            return false
+        }
+        let reply = await call(host, "notifications.create", ["n", ["title": "x"]])
+        #expect(reply["value"] as? String == "n")
+        #expect(asked == 0)
+        #expect(recorder.authorizationRequests == 0)
+    }
+
+    @Test func beyondTheCapTheOldestNotificationIsTakenDown() async {
+        let recorder = Recorder()
+        let host = BrowserExtensionNativeHost(poster: recorder)
+        for index in 0..<BrowserExtensionNativeHost.maximumNotifications {
+            _ = await call(host, "notifications.create", ["\(index)", ["title": "x"]])
+        }
+        _ = await call(host, "notifications.create", ["0", ["title": "again"]])
+        #expect(recorder.removed.isEmpty)
+        _ = await call(host, "notifications.create", ["new", ["title": "y"]])
+        #expect(host.notifications[one]?.count == BrowserExtensionNativeHost.maximumNotifications)
+        #expect(host.notifications[one]?["1"] == nil)
+        #expect(host.notifications[one]?["0"] != nil && host.notifications[one]?["new"] != nil)
+        #expect(recorder.removed == ["extension/\(one)/1"])
+        #expect(host.pendingEvents[one]?.last?["event"] as? String == "notifications.onClosed")
+        #expect(host.pendingEvents[one]?.last?["args"] as? [AnyHashable] == ["1", false])
+    }
+
     @Test func listsProgressAndItemsBecomeTheBody() {
-        let notification = BrowserExtensionNotification(extensionID: one, notificationID: "n", options: [
+        let notification = BrowserExtensionNotification(extensionID: one, extensionName: "Name", notificationID: "n", options: [
             "title": "T", "message": "m", "items": [["title": "a", "message": "1"], ["title": "", "message": "2"], "bad"],
             "progress": 140, "silent": true,
         ])
         #expect(notification.body == "m\na: 1\n2\n100 %")
+        #expect(notification.subtitle == "Name")
         #expect(notification.silent)
     }
 
@@ -138,18 +221,5 @@ struct BrowserExtensionNativeHostTests {
         #expect((host.pendingEvents[one]?.first?["args"] as? [String])?.first == "5")
         host.forget(one)
         #expect(host.pendingEvents[one] == nil)
-    }
-
-    @Test func socketMessagesOpenOnlyWebSocketAddresses() {
-        #expect(BrowserExtensionSocket.request(from: ["open": "wss://b5n.1password.com/ws", "protocols": ["a", 3], "userAgent": "UA"])
-            == .open(url: URL(string: "wss://b5n.1password.com/ws")!, protocols: ["a"], userAgent: "UA"))
-        for address in ["https://example.com", "file:///etc/passwd", "ws://user:pw@example.com/", "ws:///nohost", "javascript:alert(1)"] {
-            #expect(BrowserExtensionSocket.request(from: ["open": address]) == nil, "\(address)")
-        }
-        #expect(BrowserExtensionSocket.request(from: ["send": "hi"]) == .send("hi"))
-        #expect(BrowserExtensionSocket.request(from: ["sendBinary": "AAE="]) == .sendBinary(Data([0, 1])))
-        #expect(BrowserExtensionSocket.request(from: ["sendBinary": "%%%"]) == nil)
-        #expect(BrowserExtensionSocket.request(from: ["close": 1000]) == .close(code: 1000, reason: ""))
-        #expect(BrowserExtensionSocket.request(from: "nonsense") == nil)
     }
 }

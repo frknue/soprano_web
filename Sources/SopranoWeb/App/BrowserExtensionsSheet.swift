@@ -32,6 +32,8 @@ final class BrowserExtensionsSheet: NSWindowController, NSTextFieldDelegate {
     private let stack = NSStackView()
     private let doneButton: ChromeButton
     private var rowViews: [RowView] = []
+    /// The install question shown on this sheet, while open.
+    private var confirmSheet: BrowserExtensionPermissionSheet?
 
     init(extensions: BrowserExtensions, theme: AppTheme, currentHost: @escaping () -> String?) {
         self.extensions = extensions
@@ -256,12 +258,44 @@ final class BrowserExtensionsSheet: NSWindowController, NSTextFieldDelegate {
         let extensions = extensions
         Task { @MainActor [weak self] in
             do {
-                let record = try await extensions.install(input)
+                let record = try await extensions.install(input) { [weak self] review in
+                    await self?.confirm(review) ?? false
+                }
                 self?.inputField.stringValue = ""
                 self?.setStatus("Installed \(record.name) \(record.version).")
+            } catch BrowserExtensions.InstallError.cancelled {
+                self?.setStatus("")
             } catch {
                 self?.setStatus("Couldn’t install: \(error.localizedDescription)", isError: true)
             }
+        }
+    }
+
+    /// Shows what an install asks for (the permission sheet, on this
+    /// sheet) and waits for the answer.
+    private func confirm(_ review: BrowserExtensions.InstallReview) async -> Bool {
+        guard let window, confirmSheet == nil else { return false }
+        return await withCheckedContinuation { continuation in
+            let prompt = BrowserExtensionPermissionPrompt(
+                extensionName: review.name,
+                icon: review.icon,
+                lines: review.lines.isEmpty ? ["Nothing beyond its own pages"] : review.lines,
+                header: review.header,
+                allowTitle: review.allowTitle,
+                denyTitle: "Cancel",
+                resolve: { _ in }
+            )
+            let sheet = BrowserExtensionPermissionSheet(prompt: prompt, theme: theme) { [weak self] allowed in
+                self?.confirmSheet = nil
+                continuation.resume(returning: allowed)
+            }
+            confirmSheet = sheet
+            guard let sheetWindow = sheet.window else {
+                confirmSheet = nil
+                continuation.resume(returning: false)
+                return
+            }
+            window.beginSheet(sheetWindow)
         }
     }
 

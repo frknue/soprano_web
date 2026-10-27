@@ -111,6 +111,39 @@ extension BrowserWindowController {
         guard tab.webView.extensionID != nil else { return true }
         return !["http", "https", "file"].contains(url.scheme?.lowercased() ?? "")
     }
+
+    /// The navigation gate for pages, in `decidePolicyFor` before any tab
+    /// opens or swaps its web view. A navigation that leaves its frame (a
+    /// main-frame load, or a ⌘/middle-click link that opens a tab):
+    /// - into an extension page from a web view that isn't that
+    ///   extension's is allowed only when that extension's own frame
+    ///   started it (`mayShowPage`): the swap loads the page app-side,
+    ///   past WebKit's `web_accessible_resources` check, so a web page may
+    ///   never ask for it (frames inside a page still load through WebKit);
+    /// - out of an extension page (its page in a tab) goes through the
+    ///   extensions' load gate (`pageLoad`): never a local file.
+    func allowsExtensionNavigation(_ navigationAction: WKNavigationAction, to url: URL, in tab: BrowserTab) -> Bool {
+        let opensTab = navigationAction.navigationType == .linkActivated
+            && BrowserLinkDisposition.disposition(
+                modifierFlags: navigationAction.modifierFlags,
+                buttonNumber: navigationAction.buttonNumber
+            ) != .currentTab
+        guard navigationAction.targetFrame?.isMainFrame != false || opensTab else { return true }
+        if let context = extensionContext(for: url), let id = extensions.id(of: context), tab.webView.extensionID != id || opensTab {
+            let origin = (navigationAction.value(forKey: "sourceFrame") as? WKFrameInfo)?.securityOrigin
+            return BrowserExtensions.mayShowPage(
+                ofExtension: id,
+                sourceScheme: origin?.protocol,
+                sourceHost: origin?.host,
+                isPrivate: kind.isPrivate,
+                hasPrivateAccess: context.hasAccessToPrivateData
+            )
+        }
+        if let id = tab.webView.extensionID, !webViewFits(tab, url: url) || opensTab {
+            return BrowserExtensions.pageLoad(url, extensionID: id) != .refuse
+        }
+        return true
+    }
 }
 
 /// A menu item that runs a closure.

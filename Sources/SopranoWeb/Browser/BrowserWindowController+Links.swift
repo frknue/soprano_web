@@ -359,7 +359,14 @@ extension BrowserWindowController {
         }
     }
 
-    private func promptExternalApp(_ url: URL, tab: BrowserTab, host: String?) {
+    /// An extension's link to another app (`tabs.update`, its popup's
+    /// link): always asks, naming the extension; never remembered for the
+    /// tab's site.
+    func openExternalLink(_ url: URL, fromExtension name: String, in tab: BrowserTab) {
+        promptExternalApp(url, tab: tab, host: nil, requester: "“\(name)”")
+    }
+
+    private func promptExternalApp(_ url: URL, tab: BrowserTab, host: String?, requester: String? = nil) {
         guard !tab.links.isPromptingExternalApp else { return }
         guard let appURL = NSWorkspace.shared.urlForApplication(toOpen: url) else {
             showNoAppToast(url)
@@ -369,7 +376,7 @@ extension BrowserWindowController {
         let scheme = url.scheme?.lowercased() ?? ""
         let appName = FileManager.default.displayName(atPath: appURL.path)
             .replacingOccurrences(of: ".app", with: "", options: [.anchored, .backwards])
-        let site = host ?? "This page"
+        let site = requester ?? host ?? "This page"
         let alert = NSAlert()
         alert.messageText = "Open “\(appName)”?"
         alert.informativeText = "\(site) wants to open this link in \(appName)."

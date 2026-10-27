@@ -39,13 +39,21 @@ enum BrowserExtensionShims {
 
     /// What in a manifest asks for a stand-in.
     enum Trigger: Equatable, Sendable {
-        /// A permission in `permissions` or `optional_permissions`.
+        /// A permission in `permissions` (one in `optional_permissions` is
+        /// not granted yet and asks for nothing).
         case permission(String)
         /// A value at this key path (`["storage", "managed_schema"]`).
         case key([String])
         /// A string at this key path (or in the object there) containing
         /// the text.
         case text([String], String)
+        /// The extension pages' content security policy lets them connect
+        /// to one of these schemes: a scheme source (`wss:`) or a host
+        /// source (`wss://host`) in its `connect-src`, or in its
+        /// `default-src` without one (`BrowserExtensionSocketPolicy`).
+        case connectScheme([String])
+        /// All of these.
+        case all([Trigger])
     }
 
     struct StandIn: Equatable, Sendable {
@@ -81,25 +89,37 @@ enum BrowserExtensionShims {
         // worker (1Password's popup would stay on "connecting").
         StandIn(name: "clients", triggers: [.key(["background", "service_worker"])]),
         // A worker's `new WebSocket` never returns in WebKit and freezes the
-        // extension (1Password opens one when sign-in succeeds).
-        StandIn(name: "webSocket", triggers: [.key(["background", "service_worker"])]),
+        // extension (1Password opens one when sign-in succeeds); a worker
+        // whose pages' policy names no socket address gets no app socket.
+        StandIn(name: "webSocket", triggers: [
+            .all([.key(["background", "service_worker"]), .connectScheme(["ws", "wss"])]),
+        ]),
     ]
 
     /// The stand-ins `manifest` asks for, in table order.
     static func standIns(for manifest: [String: Any]) -> [String] {
-        let permissions = Set(
-            ((manifest["permissions"] as? [Any] ?? []) + (manifest["optional_permissions"] as? [Any] ?? []))
-                .compactMap { $0 as? String }
-        )
+        let permissions = Set((manifest["permissions"] as? [Any] ?? []).compactMap { $0 as? String })
         return standIns.filter { standIn in
-            standIn.triggers.contains { trigger in
-                switch trigger {
-                case let .permission(name): permissions.contains(name)
-                case let .key(path): value(at: path, in: manifest) != nil
-                case let .text(path, text): strings(in: value(at: path, in: manifest)).contains { $0.contains(text) }
-                }
-            }
+            standIn.triggers.contains { applies($0, to: manifest, permissions: permissions) }
         }.map(\.name)
+    }
+
+    private static func applies(_ trigger: Trigger, to manifest: [String: Any], permissions: Set<String>) -> Bool {
+        switch trigger {
+        case let .permission(name):
+            permissions.contains(name)
+        case let .key(path):
+            value(at: path, in: manifest) != nil
+        case let .text(path, text):
+            strings(in: value(at: path, in: manifest)).contains { $0.contains(text) }
+        case let .connectScheme(schemes):
+            (BrowserExtensionSocketPolicy.connectSources(in: manifest) ?? []).contains { source in
+                let source = source.lowercased()
+                return schemes.contains { source == "\($0):" || source.hasPrefix("\($0)://") }
+            }
+        case let .all(triggers):
+            triggers.allSatisfy { applies($0, to: manifest, permissions: permissions) }
+        }
     }
 
     private static func value(at path: [String], in object: [String: Any]) -> Any? {

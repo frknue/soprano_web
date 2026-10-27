@@ -33,8 +33,12 @@ final class BrowserNotificationCenter: NSObject {
     /// An extension's notification was clicked, a button pressed, or it
     /// was dismissed: extension id, notification id, what happened.
     var onExtensionResponse: ((String, String, BrowserExtensionNativeHost.Response) -> Void)?
+    /// Extension notification categories kept registered.
+    nonisolated static let maximumExtensionCategories = 32
     /// The button sets of extension notifications registered as categories.
-    private var extensionCategories: [String: UNNotificationCategory] = [:]
+    private var extensionCategories = BrowserExtensionNotificationCategories<UNNotificationCategory>(
+        capacity: BrowserNotificationCenter.maximumExtensionCategories
+    )
 
     nonisolated private static let tabKey = "tabID"
     nonisolated private static let documentKey = "document"
@@ -57,7 +61,8 @@ final class BrowserNotificationCenter: NSObject {
     }
 
     /// Asks macOS for permission to show notifications; called the first
-    /// time a site is allowed. Later calls return the stored answer.
+    /// time a site is allowed, or an extension once the user allowed it in
+    /// the app. Later calls return the stored answer.
     func requestAuthorization() async -> Bool {
         guard let center else { return false }
         return (try? await center.requestAuthorization(options: [.alert, .sound])) ?? false
@@ -114,14 +119,15 @@ final class BrowserNotificationCenter: NSObject {
         onExtensionResponse?(extensionID, notificationID, response)
     }
 
-    /// The center once macOS allows notifications: asks the first time
-    /// (only when something is posted), refuses when turned off.
-    private func authorizedCenter() async throws -> UNUserNotificationCenter {
+    /// The center once macOS allows notifications, refusing when turned
+    /// off. `asking`: asks macOS the first time (only when something is
+    /// posted); otherwise an undetermined permission refuses too.
+    private func authorizedCenter(asking: Bool = true) async throws -> UNUserNotificationCenter {
         guard let center else { throw PostError.unavailable }
         let settings = await center.notificationSettings()
         switch settings.authorizationStatus {
         case .notDetermined:
-            guard await requestAuthorization() else { throw PostError.notAuthorized }
+            guard asking, await requestAuthorization() else { throw PostError.notAuthorized }
         case .denied:
             throw PostError.notAuthorized
         default:
@@ -131,27 +137,69 @@ final class BrowserNotificationCenter: NSObject {
     }
 
     /// The category of an extension notification with `buttons`: its
-    /// buttons as actions, and a dismissal reported (`onClosed`).
+    /// buttons as actions, and a dismissal reported (`onClosed`). The
+    /// categories registered are capped (`extensionCategories`).
     private func extensionCategory(buttons: [String], in center: UNUserNotificationCenter) -> String {
         let identifier = (["extension"] + buttons).joined(separator: "\u{1F}")
-        guard extensionCategories[identifier] == nil else { return identifier }
-        let actions = buttons.enumerated().map { index, title in
-            UNNotificationAction(identifier: "\(Self.buttonPrefix)\(index)", title: title, options: [.foreground])
+        let changed = extensionCategories.use(identifier) {
+            UNNotificationCategory(
+                identifier: identifier,
+                actions: buttons.enumerated().map { index, title in
+                    UNNotificationAction(identifier: "\(Self.buttonPrefix)\(index)", title: title, options: [.foreground])
+                },
+                intentIdentifiers: [],
+                options: [.customDismissAction]
+            )
         }
-        extensionCategories[identifier] = UNNotificationCategory(
-            identifier: identifier,
-            actions: actions,
-            intentIdentifiers: [],
-            options: [.customDismissAction]
-        )
-        center.setNotificationCategories(Set(extensionCategories.values))
+        if changed {
+            center.setNotificationCategories(Set(extensionCategories.categories))
+        }
         return identifier
     }
 }
 
+/// The button sets of extension notifications, registered with
+/// Notification Center as categories: extensions choose the button titles,
+/// so at most `capacity` are kept, the least recently used dropped first.
+/// A delivered notification whose category was dropped still shows, without
+/// its buttons and without reporting a dismissal.
+struct BrowserExtensionNotificationCategories<Category> {
+    let capacity: Int
+    /// The least recently used first.
+    private var entries: [(identifier: String, category: Category)] = []
+
+    init(capacity: Int) {
+        self.capacity = capacity
+    }
+
+    var identifiers: [String] { entries.map(\.identifier) }
+    var categories: [Category] { entries.map(\.category) }
+
+    /// Marks the category `identifier` as just used, made by `make` when it
+    /// isn't kept. True when the kept set changed (to be registered again).
+    mutating func use(_ identifier: String, make: () -> Category) -> Bool {
+        if let index = entries.firstIndex(where: { $0.identifier == identifier }) {
+            entries.append(entries.remove(at: index))
+            return false
+        }
+        entries.append((identifier, make()))
+        if entries.count > capacity {
+            entries.removeFirst(entries.count - capacity)
+        }
+        return true
+    }
+}
+
 extension BrowserNotificationCenter: BrowserExtensionNotificationPosting {
+    func authorizationIsUndetermined() async -> Bool {
+        guard let center else { return false }
+        return await center.notificationSettings().authorizationStatus == .notDetermined
+    }
+
+    /// Never brings up macOS's prompt: the host asks the user first and
+    /// then `requestAuthorization()`.
     func post(_ notification: BrowserExtensionNotification) async throws {
-        let center = try await authorizedCenter()
+        let center = try await authorizedCenter(asking: false)
         let content = UNMutableNotificationContent()
         content.title = notification.title
         content.subtitle = notification.subtitle

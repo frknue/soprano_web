@@ -36,6 +36,11 @@ extension BrowserWindowController {
             return
         }
         tab.lifecycle.pendingRestore = nil
+        if let context = extensionContext(for: url), kind.isPrivate, !context.hasAccessToPrivateData {
+            // Not allowed in private windows: its pages don't open here.
+            NSSound.beep()
+            return
+        }
         if !webViewFits(tab, url: url) {
             // An extension page needs its extension's web view; a web page
             // leaving one needs the tab's own again.
@@ -187,8 +192,10 @@ extension BrowserWindowController {
             return
         }
         // During a load the visit isn't recorded yet (it takes the title
-        // then); error pages and the start page are never rows.
-        guard !tab.webView.isLoading, !tab.isStartPage, !tab.isShowingErrorPage,
+        // then); error pages (`errorMessage` lasts until the next
+        // navigation, unlike `isShowingErrorPage`) and the start page are
+        // never rows.
+        guard !tab.webView.isLoading, !tab.isStartPage, tab.errorMessage == nil,
               tab.certificateInterstitial == nil
         else { return }
         tab.dataContext.history.updateTitle(url: url, title: title)
@@ -403,6 +410,12 @@ extension BrowserWindowController: WKNavigationDelegate {
         }
         if navigationAction.shouldPerformDownload {
             decisionHandler(.download)
+            return
+        }
+        if let tab = tab(for: webView), !allowsExtensionNavigation(navigationAction, to: url, in: tab) {
+            // A page asking for an extension's page, or an extension page
+            // for a local file (`allowsExtensionNavigation`).
+            decisionHandler(.cancel)
             return
         }
         if handleLinkNavigation(navigationAction, in: webView) {

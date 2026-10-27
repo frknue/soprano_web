@@ -38,6 +38,18 @@ extension BrowserWindowManager {
         return context
     }
 
+    /// The normal context of profile `id` while it exists (Default always),
+    /// nil once it was deleted: a deleted Space's download row never
+    /// resumes in Default's data store (`context(for:)` falls back to it).
+    static func existingProfileContext(
+        _ id: UUID,
+        profiles: BrowserProfileStore,
+        context: (UUID) -> BrowserDataContext
+    ) -> BrowserDataContext? {
+        guard id == BrowserProfile.defaultID || profiles.profile(id: id) != nil else { return nil }
+        return context(id)
+    }
+
     /// The profile's History (`<its folder>/History.sqlite`), opened on
     /// first use.
     func history(for profile: BrowserProfile) -> BrowserHistoryStore {
@@ -116,7 +128,8 @@ extension BrowserWindowManager {
     /// first; `windowsClosing(onDeleteOf:)` close whole) and its private
     /// windows, none onto Recently Closed; drops its Recently Closed tabs
     /// and its Archive; deletes its Space and Favorites; removes it from
-    /// `profiles.json`; then, once its web views are released, removes its
+    /// `profiles.json` and stops its running downloads (their rows stay,
+    /// and never resume elsewhere); then, once its web views are released, removes its
     /// data store (`WKWebsiteDataStore.remove(forIdentifier:)`) and deletes
     /// its folder (History, site decisions). `completion` gets the data
     /// store removal's error, if it never succeeded. Default can't be
@@ -139,6 +152,8 @@ extension BrowserWindowManager {
         // Everything still holding the profile's stores (Settings sheets,
         // chrome) lets go when the list changes.
         profiles.remove(id: id)
+        // Its downloads stop (keeping their rows): their data store goes.
+        downloadManager.cancelDownloads(ofProfile: id)
         profileContexts[id] = nil
         historyStores[id] = nil
         scheduleSessionSave()

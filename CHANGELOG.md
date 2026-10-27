@@ -322,10 +322,12 @@ app.
 - 1Password: install it from the Chrome Web Store (Settings ▸ Extensions)
   and sign in from its toolbar button. Soprano Web fills in the Chrome
   features WebKit lacks for it and other extensions: notifications (in
-  Notification Center, with their buttons; macOS asks for permission the
-  first time an extension posts one), new-tab tracking, managed storage,
-  Chrome's user agent for extensions that require a Chrome version, and
-  WebSockets in extension workers.
+  Notification Center, with their buttons, attributed to the extension;
+  the first time an extension posts one, Soprano Web asks whether to
+  show its notifications before macOS asks for permission), new-tab
+  tracking, managed storage, Chrome's user agent for extensions that
+  require a Chrome version, and WebSockets in extension workers whose
+  security policy names a WebSocket server.
 - `browser extensions` and `browser extension install|enable|disable|remove|errors|update`
   let scripts and agents manage extensions; `browser extension action <id> [png]`
   clicks an extension's toolbar button and prints (and captures) its popup.
@@ -427,6 +429,11 @@ app.
   Space it started in, not the Space the window shows now.
 - A page that sets its title after it finished loading shows that title in
   History (private windows still write nothing).
+- Resume and Retry on a download row of a deleted Space do nothing
+  (they used to continue in the Default Space's cookies and data).
+  Deleting a Space stops the downloads running in it; their rows stay.
+- A page that sets its title after loading never renames the History row
+  of an error page.
 - Reopening a closed tab (`⇧⌘T`) takes it out of the Archive again.
 - A private window's sidebar no longer shows the profile's Archive, and
   Clear Browsing Data ▸ History there also clears its Command Bar pages.
@@ -452,3 +459,36 @@ app.
 - Muting a tab also mutes media that starts later and stays muted after
   navigating.
 - Typing in the sidebar's search field filters the list as you type.
+
+### Security
+- A web page can no longer open an extension's own pages (options,
+  popup, dashboard) by navigating to their `chrome-extension://` address;
+  only the extension's own pages can. An extension not allowed in
+  private windows doesn't open its pages there either.
+- Extensions can't open local files (`file:`) with `tabs.update`, their
+  popup's links or their pages in tabs, can't open other extensions'
+  pages, and a link of theirs to another app (`zoommtg:`, `smb:`, …)
+  asks first, naming the extension. Extensions are never granted local
+  file access; WebKit doesn't run content scripts on `file:` pages.
+- Settings ▸ Extensions shows what an extension can do before it is
+  added; `browser extension install` prints the list. An update never
+  grants anything new: what it newly asks for waits until you allow it
+  in the permission sheet.
+- An unpacked folder carrying an installed extension's id (its `key`)
+  no longer takes it over: Settings asks before replacing it (its
+  settings, permissions and stored data reset); `browser extension
+  install` refuses.
+- Extension packages unpack in the app from the checked archive
+  directory (no `ditto`): mismatched or overlapping entries, decoy
+  directories, symlinks from any system, a file and a folder of the same
+  name, and packages that unpack past 256 MB are refused. Web Store
+  downloads stop as soon as they pass 256 MB.
+- Native messaging hosts answer only the extensions on their allowlist.
+- WebSockets of extension workers follow the extension's
+  `connect-src`, reach local, private-network and `.local` hosts only
+  with host access to them, refuse redirects and sign-in challenges,
+  and are capped at 64 per extension and 16 MB per message.
+- Extension notifications show the extension's name, at most 100 per
+  extension; an extension that asks for notifications only as optional
+  doesn't get them. `clients.matchAll` no longer lists an extension's
+  pages in private windows it isn't allowed in.

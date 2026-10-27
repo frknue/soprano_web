@@ -155,6 +155,9 @@ struct SnapshotExtensionOptions {
                 "siteAccess": record.siteAccess.rawValue,
                 "allowedSites": record.allowedSites,
                 "errors": BrowserExtensionCommands.errors(of: record.id, in: extensions),
+                // What an update newly asked for, waiting for the user.
+                "pending": extensions.pendingAdditions[record.id].map { $0.permissions + $0.matchPatterns } ?? [],
+                "standIns": record.standIns,
             ]
             if let context {
                 row["baseURL"] = context.baseURL.absoluteString
