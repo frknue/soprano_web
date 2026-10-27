@@ -113,6 +113,8 @@ struct SnapshotSessionOptions {
         case commandBar(SnapshotCommandBarAction)
         /// Little Arc flags (`SnapshotLittleArcAction`).
         case littleArc(SnapshotLittleArcAction)
+        /// Peek flags (`SnapshotPeekAction`).
+        case peek(SnapshotPeekAction)
     }
 
     static let flags: Set<String> = Set([
@@ -125,7 +127,7 @@ struct SnapshotSessionOptions {
         "--dump-tabs", "--save-session", "--capture-window",
         "--create-space", "--space", "--swipe-rail", "--print-spaces", "--delete-space",
     ]).union(SnapshotSleepAction.flags).union(SnapshotBlockerAction.flags).union(SnapshotRailAction.flags)
-        .union(SnapshotArchiveAction.flags).union(SnapshotLittleArcAction.flags)
+        .union(SnapshotArchiveAction.flags).union(SnapshotLittleArcAction.flags).union(SnapshotPeekAction.flags)
     static let usage = """
                                [--session <file>] [--visit <url>] [--select <n>] [--close-tab]
                                [--reopen-closed] [--duplicate] [--go-back] [--reload]
@@ -134,7 +136,7 @@ struct SnapshotSessionOptions {
                                [--move-tab <window>:<tab>:<window>] [--move-to-new-window]
                                [--drop-tab <window>:<tab>:<window>:<gap>]
                                [--drop-outside <window>:<tab>:<x>,<y>] [--merge-windows]
-                               [--click-page X,Y] [--find-text <text>] [--cli "<arguments>"]
+                               [--click-page [cmd-|shift-cmd-|shift-|opt-|middle-]X,Y] [--find-text <text>] [--cli "<arguments>"]
                                [--start-download <url>]
                                [--wait-downloads] [--crash] [--crash-page] [--print-windows]
                                [--dump-tabs] [--save-session <file>] [--capture-window <n>]
@@ -143,6 +145,7 @@ struct SnapshotSessionOptions {
     \(SnapshotRailAction.usage)
     \(SnapshotArchiveAction.usage)
     \(SnapshotLittleArcAction.usage)
+    \(SnapshotPeekAction.usage)
     \(SnapshotCommandBarAction.usage)
     """
 
@@ -252,6 +255,10 @@ struct SnapshotSessionOptions {
                 actions.append(.littleArc(action))
                 return
             }
+            if let action = try SnapshotPeekAction.parse(option, value: value) {
+                actions.append(.peek(action))
+                return
+            }
             if let action = try SnapshotBlockerAction.parse(option, value: value) {
                 actions.append(.blocker(action))
                 return
@@ -317,6 +324,9 @@ struct SnapshotSessionOptions {
             action.perform(in: manager)
             return
         case .littleArc(let action):
+            action.perform(in: manager)
+            return
+        case .peek(let action):
             action.perform(in: manager)
             return
         case let .newWindow(value):
@@ -435,7 +445,8 @@ struct SnapshotSessionOptions {
             // What Window ▸ Move Tab to New Window runs.
             controller.moveSelectedTabToNewWindow()
         case .clickPage(let click):
-            if let webView = controller.selectedTab?.webView {
+            // A Peek covers the page: the click lands in it.
+            if let webView = controller.pageTab?.webView {
                 SnapshotCommand.perform(click, in: webView)
             }
         case .findText(let text):
@@ -472,7 +483,7 @@ struct SnapshotSessionOptions {
             Self.swipeRail(next: next, in: controller, manager: manager)
         case .newWindow, .newPrivateWindow, .deleteSpace, .activateWindow, .moveTab, .dropTab, .dropOutside,
              .mergeWindows, .cli, .waitDownloads, .printWindows, .printSpaces, .reopenClosed, .sleep, .blocker, .rail,
-             .archive, .commandBar, .littleArc:
+             .archive, .commandBar, .littleArc, .peek:
             break
         }
     }

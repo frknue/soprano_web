@@ -40,13 +40,20 @@ enum BrowserOutsideLinkRoute: Equatable, Sendable {
 }
 
 extension BrowserLinkRouting {
-    /// A matching rule wins; otherwise the setting decides.
+    /// A matching rule wins; otherwise the setting decides. A rule whose
+    /// Space is gone (`spaceExists` false) matches nothing, so a later rule
+    /// or the setting decides instead.
     static func route(
         for address: String,
         rules: [BrowserLinkRoutingRule],
-        otherLinks: BrowserOutsideLinkDestination
+        otherLinks: BrowserOutsideLinkDestination,
+        spaceExists: (UUID) -> Bool = { _ in true }
     ) -> BrowserOutsideLinkRoute {
-        if let rule = rule(for: address, in: rules) {
+        let live = rules.filter { rule in
+            guard case let .space(id) = rule.destination else { return true }
+            return spaceExists(id)
+        }
+        if let rule = rule(for: address, in: live) {
             return .rule(rule)
         }
         return switch otherLinks {

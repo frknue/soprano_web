@@ -77,8 +77,9 @@ surrounding style.
   w:t:w2:gap` (the tab list's drop handler; gap 0 is before the first tab),
   `--drop-outside w:t:x,y` (the drag source's handler for a drop no window
   takes, x,y on the harness screen as printed frames), `--merge-windows`,
-  `--click-page [cmd-|shift-cmd-|middle-]X,Y` (a real click into the active
-  window's page, e.g. to open a pop-up window or a background tab),
+  `--click-page [cmd-|shift-cmd-|shift-|opt-|middle-]X,Y` (a real click into the active
+  window's page, the Peek's when one is open, e.g. to open a pop-up window, a
+  background tab or a Peek; `--click` takes the same kinds),
   `--find-text <text>`, `--cli "<browser arguments>"` (one CLI request
   through the router), `--start-download <url>` / `--wait-downloads`,
   `--create-space <name>` (repeatable; a Space with its own profile, made
@@ -234,7 +235,28 @@ surrounding style.
   `--little-to-window` runs ⌘O, `--little-open-in <n|name>` its "Open in"
   menu; `--print-windows` shows `role` and `littleSpace`. CLI: `browser
   little [url] [--space]`, `browser little to-window`; `browser windows`
-  lines are `* n<TAB>kind<TAB>Space<TAB>tabs<TAB>title<TAB>per-Space`.
+  lines are `* n<TAB>kind<TAB>Space<TAB>tabs<TAB>title<TAB>per-Space` (kind
+  `normal`, `little` or `popup`).
+  Peek (`BrowserPeek.swift`, `BrowserWindowController+Peek.swift`,
+  `SnapshotCommand+Peek.swift`; rule and trigger in `BrowserLinkPolicy.swift`):
+  a link from a pinned or favorite tab to another site (host with `www.`
+  dropped, equal or a subdomain is the same site; ports never count) or
+  any ⇧-click opens it; its tab is bound to the window but in no tab list,
+  and `tab(for:)` finds it, so every WebKit callback resolves it. Harness:
+  `--click-page shift-X,Y` (or a plain click after `--pin-tab` on a page
+  whose link leaves the site; serve one page on `127.0.0.1` linking to
+  `localhost`, which count as two sites) opens one through WebKit,
+  `--peek <url>` opens one over the selected tab, `--peek-open-as-tab` runs
+  ⌘O (prints the new tab's place and back list), `--peek-close
+  esc|cmd-w|backdrop|button` closes it that way, `--print-peek` prints one
+  JSON line (address, title bar, back/forward, opener, data Space, private,
+  panel frame, focus, the profile's newest visits, the window's tabs); the
+  capture draws the Peek over the page. CLI: `browser peek <url>`, `browser
+  peek` (status: address, title, back/forward counts, the tab it is over),
+  `browser peek close`, `browser peek open-as-tab`; page commands (`eval`,
+  `click`, `back`) keep acting on the selected tab, so `browser eval` can
+  click a pinned page's link and `browser back` checks the history Open as
+  Tab kept.
   With `--support-dir` an import keeps
   its Spaces for the next run (only their WebKit data stores are
   removed), so a second run shows what a re-import skips.
@@ -826,6 +848,9 @@ site or a CDP flow that cannot use the CLI).
 - Tests use swift-testing (`import Testing`, `@Test`, `#expect`), one
   `struct …Tests` per file. Never `import Foundation` next to `import Testing` in
   a test file; import `AppKit` instead and get Foundation types through it.
+  Never call `performClick` (or anything that spins a nested run loop) in a
+  test: the runner can see the nested loop and end the process silently with
+  exit 0 and no summary; send the action (`NSApp.sendAction`) instead.
 - Settings are plain JSON at `~/.config/soprano-web/settings.json`; session and
   list data live in `~/Library/Application Support/Soprano Web/`. The
   vertical-vs-horizontal choice is configuration (`verticalTabs`); whether the

@@ -159,6 +159,9 @@ struct BrowserCommandRequest: Codable, Equatable, Sendable {
                 throw BrowserAutomationError.invalidArguments(command == "little" ? littleUsage : newWindowUsage)
             }
         }
+        if command == "peek", arguments.count > 1 {
+            throw BrowserAutomationError.invalidArguments(peekUsage)
+        }
 
         return BrowserCommandRequest(
             command: command,
@@ -244,6 +247,7 @@ struct BrowserCommandRequest: Codable, Equatable, Sendable {
     static let newWindowUsage = "Usage: soprano-web browser new-window [url] [--space <n|name>]"
     static let littleUsage = "Usage: soprano-web browser little [url] [--space <n|name>] | [--window n] little to-window"
     static let spaceUsage = "Usage: soprano-web browser [--window n] space <n|name>"
+    static let peekUsage = "Usage: soprano-web browser [--window n] peek [<url>|close|open-as-tab]"
     static let extensionUsage = """
     Usage: soprano-web browser extension install <chrome web store url|id|folder>
            soprano-web browser extension enable|disable|remove|errors <id>
@@ -304,6 +308,7 @@ enum BrowserCommand {
       soprano-web browser [--window n] little to-window
       soprano-web browser [--window n] close-window [n]
       soprano-web browser [--window n] [--tab m] move-to-window <k|new>
+      soprano-web browser [--window n] peek [<url>|close|open-as-tab]
       soprano-web browser [--window n] spaces
       soprano-web browser [--window n] space <n|name>
       soprano-web browser extensions
@@ -312,8 +317,8 @@ enum BrowserCommand {
       soprano-web browser extension action <id> [<popup.png>]
       soprano-web browser extension update
 
-    `windows` lists the open windows (1-based) with their kind (`normal`
-    or `little` for a Little Arc), current Space (a Little Arc's own),
+    `windows` lists the open windows (1-based) with their kind (`normal`,
+    `little` for a Little Arc or `popup`), current Space (a Little Arc's own),
     its tab count, the selected tab's title and every Space's tab count;
     `*` marks the window commands use by default: the key
     window, else the most recently active one. `--window n` targets window n
@@ -351,6 +356,12 @@ enum BrowserCommand {
     Space, or into a new window on the tab's Space (`new`); the tab
     keeps its page and history. It selects nothing and brings no window
     forward; a window left without tabs closes.
+    `peek <url>` opens a Peek over the selected tab (its data context; one
+    per window, a second replaces it), as ⇧-click does; `peek` prints the
+    open Peek (address, title, back and forward counts, the tab it is
+    over); `peek close` closes it (Esc, ⌘W); `peek open-as-tab` makes it a
+    selected Today tab after that tab, history kept (⌘O). Page commands
+    keep working on the selected tab.
     `snapshot` assigns ephemeral refs such as `e1`; pass them back as `@e1`.
     `eval` runs an expression, or an async function body that uses `return`;
     Promises are awaited and the result prints as JSON. A thrown error or a
@@ -571,6 +582,8 @@ enum BrowserAutomationRouter {
             completion(.success(spaceList(for: target, in: manager)))
         case "space":
             completion(switchSpace(request, in: target, manager: manager))
+        case "peek":
+            completion(peek(request, in: target))
         default:
             target.performAutomation(request, completion: completion)
         }
@@ -629,6 +642,47 @@ enum BrowserAutomationRouter {
         let window = manager.number(of: target) ?? 0
         let index = (target.visibleTabs.firstIndex { $0 === tab } ?? 0) + 1
         return .success("window \(window) tab \(index)")
+    }
+
+    /// `peek [<url>|close|open-as-tab]` on `window` (see the help).
+    static func peek(_ request: BrowserCommandRequest, in window: BrowserWindowController) -> Result<String, Error> {
+        switch request.arguments.first {
+        case nil:
+            guard let peek = window.peek else { return .success("no peek") }
+            return .success(peekLine(peek, in: window))
+        case "close":
+            guard window.peek != nil else {
+                return .failure(BrowserAutomationError.unavailable("No Peek is open."))
+            }
+            window.closePeek()
+            return .success("closed peek")
+        case "open-as-tab":
+            guard let tab = window.openPeekAsTab() else {
+                return .failure(BrowserAutomationError.unavailable("No Peek is open."))
+            }
+            let index = (window.visibleTabs.firstIndex { $0 === tab } ?? 0) + 1
+            return .success("tab \(index)\t\(tab.webView.url?.absoluteString ?? "")\tback \(tab.webView.backForwardList.backList.count)")
+        case let input?:
+            guard let opener = window.selectedTab else {
+                return .failure(BrowserAutomationError.unavailable("No tab is open."))
+            }
+            guard let url = BrowserAddressResolver.resolve(input, searchEngines: window.settingsStore.settings.searchEngines),
+                  BrowserWebSchemes.isWeb(url)
+            else {
+                return .failure(BrowserAutomationError.invalidArguments("Invalid browser address: \(input)"))
+            }
+            window.openPeek(url, from: opener)
+            let index = (window.visibleTabs.firstIndex { $0 === opener } ?? 0) + 1
+            return .success("peek \(url.absoluteString) over tab \(index)")
+        }
+    }
+
+    /// `<address>\t<title>\tback n, forward m\tover tab k`.
+    static func peekLine(_ peek: BrowserPeek, in window: BrowserWindowController) -> String {
+        let list = peek.tab.webView.backForwardList
+        let address = peek.tab.webView.url?.absoluteString ?? peek.tab.pendingURL ?? ""
+        let over = (window.visibleTabs.firstIndex { $0.id == peek.openerID } ?? 0) + 1
+        return "\(address)\t\(peek.tab.displayTitle)\tback \(list.backList.count), forward \(list.forwardList.count)\tover tab \(over)"
     }
 
     /// `little [url] [--space]` opens a Little Arc; `little to-window` (on

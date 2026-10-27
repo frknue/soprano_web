@@ -249,8 +249,13 @@ extension BrowserSettings {
         shortcuts = (try? c.decodeIfPresent(BrowserShortcutSettings.self, forKey: .shortcuts)) ?? shortcuts
         globalLittleArcEnabled = (try? c.decodeIfPresent(Bool.self, forKey: .globalLittleArcEnabled))
             ?? globalLittleArcEnabled
+        // A chord the system, text editing or another command uses never
+        // becomes a global hotkey (a hand-edited file included).
+        let keymap = self.keymap
         globalLittleArcShortcut = (try? c.decodeIfPresent(String.self, forKey: .globalLittleArcShortcut))
-            .flatMap { BrowserShortcut($0)?.storageText } ?? globalLittleArcShortcut
+            .flatMap { BrowserShortcut($0) }
+            .flatMap { BrowserGlobalShortcut.isAcceptable($0, keymap: keymap) ? $0.storageText : nil }
+            ?? globalLittleArcShortcut
     }
 }
 

@@ -101,8 +101,8 @@ and bookmarks HTML files, and File ▸ Export Pinned Tabs… as bookmarks HTML.
 
 - Little Arc: built in Stage 4 P3 (links from other apps default to it; ⌥⌘N, global
   shortcut, ⌘O, "Open in", 6 h archive).
-- Peek: links to other sites from pinned tabs and Favorites, and ⇧-clicks, open in an
-  overlay; ⌘O expands it to a tab.
+- Peek: built in Stage 4 P4 (pinned/favorite links to other sites and ⇧-clicks open an
+  overlay in the tab's data context; ⌘O opens it as a tab with its history).
 - Split View: up to 4 panes saved as one sidebar item; ⌃⇧= adds, ⌃⇧- closes, ⌃⇧1…4 focus.
 - Air Traffic Control: "URL contains / equals" → Space, plus the default for links from
   other apps.

@@ -80,7 +80,7 @@ enum SnapshotCommand {
                                [--sidebar history|archive|downloads] [--find] [--settings]
                                [--vertical-tabs] [--collapsed] [--hints] [--help] [--prompt]
                                [--allow-popups <host>] [--tab <url>]... [--sheet] [--print-tabs]
-                               [--click [cmd-|shift-cmd-|middle-]X,Y]...
+                               [--click [cmd-|shift-cmd-|shift-|opt-|middle-]X,Y]...
                                [--sign-in <user:password>] [--sheet-button <title>]
                                [--click-element <css selector>]... [--security-info]
     \(SnapshotSessionOptions.usage)
@@ -707,6 +707,22 @@ enum SnapshotCommand {
                 )
             }
         }
+        // A Peek's page is a second web view over the page.
+        var peekImage: NSImage?
+        if pageImage != nil, let peekWebView = controller.peek?.tab.webView {
+            var finished = false
+            peekWebView.takeSnapshot(with: nil) { image, _ in
+                peekImage = image
+                finished = true
+            }
+            let peekDeadline = Date().addingTimeInterval(5)
+            while !finished, Date() < peekDeadline {
+                _ = RunLoop.current.run(
+                    mode: .default,
+                    before: min(peekDeadline, Date().addingTimeInterval(0.05))
+                )
+            }
+        }
 
         let output = NSImage(size: captureContent.bounds.size)
         output.lockFocus()
@@ -716,6 +732,25 @@ enum SnapshotCommand {
         if let pageImage, let webView = controller.selectedTab?.webView {
             let frame = webView.convert(webView.bounds, to: captureContent)
             pageImage.draw(in: frame)
+        }
+        if let peekImage, let peek = controller.peek,
+           let rep = peek.view.bitmapImageRepForCachingDisplay(in: peek.view.bounds)
+        {
+            // The backdrop and panel chrome, then the Peek's page in it.
+            peek.view.cacheDisplay(in: peek.view.bounds, to: rep)
+            let chrome = NSImage(size: peek.view.bounds.size)
+            chrome.addRepresentation(rep)
+            chrome.draw(in: peek.view.convert(peek.view.bounds, to: captureContent))
+            let webView = peek.tab.webView
+            // The panel's rounded clip, as the layer mask draws it.
+            NSGraphicsContext.saveGraphicsState()
+            NSBezierPath(
+                roundedRect: peek.view.panel.convert(peek.view.panel.bounds, to: captureContent),
+                xRadius: Chrome.Radius.panel,
+                yRadius: Chrome.Radius.panel
+            ).addClip()
+            peekImage.draw(in: webView.convert(webView.bounds, to: captureContent))
+            NSGraphicsContext.restoreGraphicsState()
         }
         // The page snapshot covers the web area; draw the link bubble over it.
         let status = controller.linkStatus

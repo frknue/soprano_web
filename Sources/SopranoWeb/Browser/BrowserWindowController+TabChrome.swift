@@ -100,7 +100,7 @@ extension BrowserWindowController {
     }
 
     func receiveLinkHover(_ body: [String: Any], tab: BrowserTab, frame: WKFrameInfo) {
-        guard frame.isMainFrame, tab.id == selectedTab?.id else { return }
+        guard frame.isMainFrame, tab === pageTab else { return }
         let url = (body["url"] as? String ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
         if url.isEmpty {
             linkStatus.hide()

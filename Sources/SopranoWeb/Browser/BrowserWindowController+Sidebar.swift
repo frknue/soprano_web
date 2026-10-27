@@ -17,7 +17,7 @@ extension BrowserWindowController {
         findBar.isHidden = true
         findQuery = ""
         findBar.setResult(found: false, hasQuery: false)
-        if let tab = selectedTab {
+        if let tab = pageTab {
             tab.webView.find("", configuration: WKFindConfiguration()) { _ in }
             window?.makeFirstResponder(tab.webView)
         }
@@ -54,7 +54,7 @@ extension BrowserWindowController {
     }
 
     func repeatVimiumFind(backwards: Bool) {
-        guard let tab = selectedTab else { return }
+        guard let tab = pageTab else { return }
         guard !lastFindQuery.isEmpty else {
             showVimiumToast("No find query.")
             return
@@ -79,13 +79,13 @@ extension BrowserWindowController {
         if !findBar.isHidden {
             hideFindBar()
         } else {
-            selectedTab?.webView.find("", configuration: WKFindConfiguration()) { _ in }
+            pageTab?.webView.find("", configuration: WKFindConfiguration()) { _ in }
             focusPage()
         }
     }
 
     func performFind(backwards: Bool, updateResult: Bool) {
-        guard let tab = selectedTab else { return }
+        guard let tab = pageTab else { return }
         guard !findQuery.isEmpty else {
             tab.webView.find("", configuration: WKFindConfiguration()) { _ in }
             findBar.setResult(found: false, hasQuery: false)

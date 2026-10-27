@@ -241,6 +241,9 @@ final class BrowserCommandBarView: NSView, NSTextFieldDelegate {
         field.cell?.usesSingleLineMode = true
         field.cell?.isScrollable = true
         field.setAccessibilityLabel("Command Bar")
+        // Below the bar's width (490): a long address (⌘L) scrolls in the
+        // field instead of widening the bar toward the window.
+        field.setContentCompressionResistancePriority(NSLayoutConstraint.Priority(rawValue: 480), for: .horizontal)
         chip.isHidden = true
         scrollView.drawsBackground = false
         scrollView.borderType = .noBorder
@@ -388,7 +391,12 @@ final class BrowserCommandBarView: NSView, NSTextFieldDelegate {
         headerViews.forEach { $0.removeFromSuperview() }
         rowViews = []
         headerViews = []
-        let width = max(surface.bounds.width, Self.width)
+        // The bar narrows in a narrow window (a Little Arc): rows take its
+        // laid-out width, never the full 640.
+        layoutSubtreeIfNeeded()
+        let width = surface.bounds.width > 0
+            ? surface.bounds.width
+            : (bounds.width > 48 ? min(Self.width, bounds.width - 48) : Self.width)
         var y = groups.isEmpty ? 0 : Self.listPadding
         for group in groups {
             if !group.title.isEmpty {

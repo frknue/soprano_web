@@ -103,9 +103,16 @@ extension BrowserWindowController {
         return webView
     }
 
+    /// Vimium's normal mode gets the page's keys first; in a Peek, Esc with
+    /// nothing for Vimium to end (no hints, find, visual mode or typing)
+    /// closes the Peek.
     private func connectKeyHandler(_ tab: BrowserTab) {
-        tab.webView.keyHandler = { [weak vimium = tab.vimium] event in
-            vimium?.handle(event) ?? false
+        tab.webView.keyHandler = { [weak tab] event in
+            guard let tab else { return false }
+            if let controller = tab.vimium?.windowController, controller.closesPeek(on: event, in: tab) {
+                return true
+            }
+            return tab.vimium?.handle(event) ?? false
         }
     }
 
@@ -116,7 +123,8 @@ extension BrowserWindowController {
     /// and bindings; the caller has saved what the page needs to come back
     /// (`lifecycle.pendingRestore`).
     func replaceWebView(of tab: BrowserTab, for url: URL? = nil) {
-        let attached = tabs.contains { $0 === tab }
+        let inPeek = tab === peek?.tab
+        let attached = inPeek || tabs.contains { $0 === tab }
         let previousSelection = previousSelectedTabID
         if attached {
             unbindTab(tab)
@@ -131,8 +139,12 @@ extension BrowserWindowController {
         refreshStateScripts(tab)
         guard attached else { return }
         bindTab(tab)
-        installWebView(tab.webView)
-        tab.webView.isHidden = tab.id != selectedTab?.id
+        if let peek, inPeek {
+            peek.view.install(tab.webView)
+        } else {
+            installWebView(tab.webView)
+            tab.webView.isHidden = tab.id != selectedTab?.id
+        }
         previousSelectedTabID = previousSelection
     }
 
@@ -229,10 +241,15 @@ extension BrowserWindowController {
         saveSession()
     }
 
-    /// Puts a web view in the page area, hidden, under the find bar.
+    /// Puts a web view in the page area, hidden, under the find bar and
+    /// the Peek.
     private func installWebView(_ webView: BrowserWebView) {
         webView.isHidden = true
-        webArea.addSubview(webView)
+        if let peekView = peek?.view {
+            webArea.addSubview(webView, positioned: .below, relativeTo: peekView)
+        } else {
+            webArea.addSubview(webView)
+        }
         webArea.addSubview(findBar, positioned: .above, relativeTo: nil)
         NSLayoutConstraint.activate([
             webView.topAnchor.constraint(equalTo: webArea.topAnchor),
@@ -252,6 +269,9 @@ extension BrowserWindowController {
     @discardableResult
     func detachTab(_ tab: BrowserTab) -> Bool {
         guard let index = tabs.firstIndex(where: { $0 === tab }) else { return false }
+        if peek?.openerID == tab.id {
+            closePeek()
+        }
         let visibleIndex = visibleTabs.firstIndex { $0 === tab }
         let wasSelected = tab.id == selectedTab?.id
         let selectedID = selectedTab?.id
@@ -303,6 +323,9 @@ extension BrowserWindowController {
             return present
         }
         let leavingIDs = Set(present.map(\.id))
+        if let openerID = peek?.openerID, leavingIDs.contains(openerID) {
+            closePeek()
+        }
         let oldVisible = visibleTabs
         let selected = selectedTab
         let wasSelected = selected.map { leavingIDs.contains($0.id) } ?? false
@@ -349,7 +372,7 @@ extension BrowserWindowController {
         return present
     }
 
-    private func bindTab(_ tab: BrowserTab) {
+    func bindTab(_ tab: BrowserTab) {
         let webView = tab.webView
         webView.navigationDelegate = self
         webView.uiDelegate = self
@@ -375,7 +398,7 @@ extension BrowserWindowController {
         }
     }
 
-    private func unbindTab(_ tab: BrowserTab) {
+    func unbindTab(_ tab: BrowserTab) {
         let webView = tab.webView
         webView.navigationDelegate = nil
         webView.uiDelegate = nil
@@ -395,6 +418,7 @@ extension BrowserWindowController {
     /// The window closed: every tab is unbound and released without
     /// selecting (and so loading) the lazily restored ones.
     func tearDown() {
+        closePeek()
         cancelStoreObservations()
         cancelRecentTabs()
         extensions.windowClosing(self)
@@ -452,25 +476,38 @@ extension BrowserWindowController {
             },
             webView.observe(\.canGoBack, options: [.new]) { [weak self, weak tab] _, _ in
                 MainActor.assumeIsolated {
-                    guard let self, let tab, tab.id == self.selectedTab?.id else { return }
-                    self.updateChrome()
+                    guard let self, let tab else { return }
+                    self.historyChanged(tab)
                 }
             },
             webView.observe(\.canGoForward, options: [.new]) { [weak self, weak tab] _, _ in
                 MainActor.assumeIsolated {
-                    guard let self, let tab, tab.id == self.selectedTab?.id else { return }
-                    self.updateChrome()
+                    guard let self, let tab else { return }
+                    self.historyChanged(tab)
                 }
             },
         ]
     }
 
     func metadataChanged(_ tab: BrowserTab) {
+        if tab === peek?.tab {
+            updatePeekChrome()
+            return
+        }
         if tab.id == selectedTab?.id {
             updateChrome()
         }
         updateTabStrip()
         saveSession()
+    }
+
+    /// Back or forward became possible or impossible.
+    private func historyChanged(_ tab: BrowserTab) {
+        if tab === peek?.tab {
+            updatePeekChrome()
+        } else if tab.id == selectedTab?.id {
+            updateChrome()
+        }
     }
 
     // MARK: - Selection
@@ -502,6 +539,10 @@ extension BrowserWindowController {
     func showSelectedTab(leaving previous: BrowserTab?, focus: Bool) {
         guard visibleTabs.indices.contains(selectedIndex) else { return }
         let tab = visibleTabs[selectedIndex]
+        if let peek, peek.openerID != tab.id {
+            // The Peek belongs to the page it opened over.
+            closePeek()
+        }
         for other in tabs {
             other.webView.isHidden = other !== tab
         }
@@ -530,7 +571,7 @@ extension BrowserWindowController {
         }
         updateExtensionButtons()
         if focus {
-            window?.makeFirstResponder(tab.webView)
+            window?.makeFirstResponder(peek?.tab.webView ?? tab.webView)
         }
         saveSession()
     }
@@ -576,6 +617,10 @@ extension BrowserWindowController {
     /// private window goes nowhere). A Space's only tab, when it is the
     /// start page, stays: closing it would only open another.
     func closeTab(id: UUID, archive: Bool = false) {
+        if peek?.tab.id == id {
+            closePeek()
+            return
+        }
         guard let tab = tabs.first(where: { $0.id == id }) else { return }
         if hasSpaces, tab.origin != .today {
             unloadLinkedTab(tab)
@@ -608,8 +653,13 @@ extension BrowserWindowController {
         discardTab(tab)
     }
 
-    /// ⌘W: closes (and archives, for a Today tab) the selected tab.
+    /// ⌘W: closes the Peek when one is open; else closes (and archives,
+    /// for a Today tab) the selected tab.
     func closeSelectedTab() {
+        if peek != nil {
+            closePeek()
+            return
+        }
         guard let tab = selectedTab else { return }
         closeTab(id: tab.id, archive: true)
     }
@@ -680,13 +730,26 @@ extension BrowserWindowController {
     }
 
     /// Copies the tab, back/forward list included, into a new selected Today
-    /// tab right after it in its Space. Nil when there is no such tab.
+    /// tab right after it in its Space. A pop-up or Little Arc has one tab:
+    /// the copy goes to the end of a window showing its Space
+    /// (`windowForNewTabs`), selected and brought forward. Nil when there
+    /// is no such tab.
     @discardableResult
     func duplicateTab(id: UUID) -> BrowserTab? {
         guard let tab = tabs.first(where: { $0.id == id }) else { return nil }
-        let index = tabs.filter { $0.spaceID == tab.spaceID }.firstIndex { $0 === tab } ?? 0
         var state = tab.state
         state.origin = .today
+        if role.isCompact {
+            let (target, _) = manager.windowForNewTabs(from: self)
+            state.spaceID = target.currentSpaceID
+            let copy = target.addRestoredTab(state)
+            target.selectTab(id: copy.id, focus: true)
+            target.updateTabStrip()
+            target.saveSession()
+            manager.present(target)
+            return copy
+        }
+        let index = tabs.filter { $0.spaceID == tab.spaceID }.firstIndex { $0 === tab } ?? 0
         let copy = addRestoredTab(state, at: index + 1)
         selectTab(id: copy.id, focus: true)
         updateTabStrip()
@@ -701,8 +764,11 @@ extension BrowserWindowController {
         extensions.tabChanged(tab, .muted)
     }
 
-    /// The tab of any Space whose web view is `webView`.
+    /// The tab of any Space, or the Peek's, whose web view is `webView`.
     func tab(for webView: WKWebView) -> BrowserTab? {
-        tabs.first { $0.webView === webView }
+        if let tab = peek?.tab, tab.webView === webView {
+            return tab
+        }
+        return tabs.first { $0.webView === webView }
     }
 }

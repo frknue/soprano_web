@@ -123,6 +123,10 @@ final class BrowserWindowManager {
     var extensionsSheet: BrowserExtensionsSheet?
 
     private var settingsWindowController: SettingsWindowController?
+    /// The app's global New Little Arc hotkey (set by the app delegate;
+    /// nil in the harness and tests): Settings shows whether it registered
+    /// and suspends it while recording a new one.
+    var globalHotKey: BrowserGlobalHotKey?
     private var saveTimer: Timer?
     private var observations: [BrowserObservation] = []
     private var historyMaintenanceTimer: Timer?
@@ -335,6 +339,21 @@ final class BrowserWindowManager {
     func tab(id: UUID) -> (window: BrowserWindowController, tab: BrowserTab)? {
         for controller in controllers {
             if let tab = controller.tabs.first(where: { $0.id == id }) {
+                return (controller, tab)
+            }
+        }
+        return nil
+    }
+
+    /// A tab in any window, or a window's Peek: what a page's own callbacks
+    /// (notification answers, extensions' tab objects) look up. Moving and
+    /// selecting use `tab(id:)`, which a Peek is not part of.
+    func tabOrPeek(id: UUID) -> (window: BrowserWindowController, tab: BrowserTab)? {
+        if let found = tab(id: id) {
+            return found
+        }
+        for controller in controllers {
+            if let tab = controller.peek?.tab, tab.id == id {
                 return (controller, tab)
             }
         }
@@ -742,6 +761,7 @@ final class BrowserWindowManager {
             controller.onShowWebsiteData = { [weak self] parent in self?.showWebsiteData(on: parent) }
             controller.onShowLinkRouting = { [weak self] parent in self?.showLinkRouting(on: parent) }
             controller.onShowExtensions = { [weak self] parent in self?.showExtensions(on: parent) }
+            controller.globalHotKey = globalHotKey
             settingsWindowController = controller
             return controller
         }()
@@ -838,18 +858,24 @@ final class BrowserWindowManager {
         last.focusPage()
     }
 
-    /// Where a link from another app goes: a matching rule, else Settings ▸
-    /// Links from other apps ▸ "Open links from other apps in".
+    /// Where a link from another app goes: a matching rule (of a Space that
+    /// still exists), else Settings ▸ Links from other apps ▸ "Open links
+    /// from other apps in".
     func outsideLinkRoute(for url: URL) -> BrowserOutsideLinkRoute {
-        BrowserLinkRouting.route(for: url.absoluteString, rules: linkRouting.rules, otherLinks: linkRouting.otherLinks)
+        BrowserLinkRouting.route(
+            for: url.absoluteString,
+            rules: linkRouting.rules,
+            otherLinks: linkRouting.otherLinks,
+            spaceExists: { [spaces] in spaces.space(id: $0) != nil }
+        )
     }
 
     /// Where a link from another app opens: a rule's Space in a window
     /// showing it, else the most recent normal window switched to it, else
-    /// a new window on it; without a rule for a Space (or when its Space is
-    /// gone), the most recent normal window as it is.
+    /// a new window on it; without a rule for a Space, the most recent
+    /// normal window as it is.
     func windowForOutsideLink(_ url: URL) -> BrowserWindowController {
-        if case let .space(id)? = linkRouting.rule(for: url.absoluteString)?.destination, spaces.space(id: id) != nil {
+        if case let .rule(rule) = outsideLinkRoute(for: url), case let .space(id) = rule.destination {
             if let showing = mostRecentlyActive(where: {
                 $0.role == .normal && $0.kind.acceptsOutsideRequests && $0.currentSpaceID == id
             }) {

@@ -91,7 +91,7 @@ extension BrowserWindowController {
     /// Re-applies remembered decisions and the notification setting to every
     /// tab; also called when settings change.
     func refreshPermissionStates() {
-        for tab in tabs {
+        for tab in tabsWithPeek {
             refreshStateScripts(tab)
             guard !tab.isStartPage,
                   let host = BrowserSitePermissionStore.key(for: tab.webView.url)
@@ -295,7 +295,7 @@ extension BrowserWindowController {
     ) {
         for waiter in waiters {
             // The tab may have moved to another window since it asked.
-            guard let tab = manager.tab(id: waiter.tabID)?.tab else { continue }
+            guard let tab = manager.tabOrPeek(id: waiter.tabID)?.tab else { continue }
             tab.webView.evaluateJavaScript(
                 BrowserPermissionScripts.notificationCall("resolve", [waiter.id, state.rawValue]),
                 in: waiter.frame,
@@ -318,7 +318,7 @@ extension BrowserWindowController {
         let silent = body["silent"] as? Bool ?? false
         let tabID = tab.id
         let acknowledge = { [weak self] (ok: Bool) in
-            guard let tab = self?.manager.tab(id: tabID)?.tab else { return }
+            guard let tab = self?.manager.tabOrPeek(id: tabID)?.tab else { return }
             tab.webView.evaluateJavaScript(
                 BrowserPermissionScripts.notificationCall("shown", [document, id, ok]),
                 in: frame,

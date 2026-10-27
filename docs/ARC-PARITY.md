@@ -79,7 +79,7 @@ Status of Soprano Web: **done**, **partial**, **missing**, **broken**. `BWC` =
 | Favicons | yes | missing | no API: content-world `<link rel=icon>` scan + fetch | 1 |
 | Title tooltip, nav buttons | sidebar header holds back/forward/reload | missing | AppKit | 1 |
 | Split View | ≤4 panes | missing | several `WKWebView`s | 4 |
-| Peek | overlay | missing | overlay `WKWebView` sharing the data store | 4 |
+| Peek | overlay | done (Stage 4 P4): pinned/favorite links to other sites and ⇧-clicks open a Folio panel over the page with its own web view in the tab's data context; ⌘O "Open as Tab" keeps history; Esc, ⌘W, backdrop close (`BrowserPeek.swift`, `BrowserWindowController+Peek.swift`) | a second `WKWebView` the window's delegates resolve (`tab(for:)`) | 4 |
 | Little Arc | small window for external links | done (Stage 4 P3): links from other apps (unless a rule matches), ⌥⌘N, optional global shortcut, ⌘O, "Open in", 6 h archive (`BrowserLittleArc.swift`, `BrowserWindowManager+LittleArc.swift`) | `application(_:open:)`, Carbon `RegisterEventHotKey` | 4 |
 
 ### Address bar and commands

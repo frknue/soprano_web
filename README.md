@@ -247,7 +247,7 @@ call `browser wait-for-load` before `snapshot`, `title` or `get` when the page
 must be loaded. `wait-for selector|url|text` waits for a CSS match, a URL
 substring or visible text, surviving navigations. Waits default to 10 seconds;
 `--timeout` takes up to 120. `--window n` picks a window by its 1-based number
-(`windows` lists them with their kind — `normal` or `little` — Space, tab count and title, `*` marking the
+(`windows` lists them with their kind — `normal`, `little` or `popup` — Space, tab count and title, `*` marking the
 default: the key window, else the most recently active one) and `--tab n` a tab
 of that window, without switching to either; otherwise the default window's
 selected tab is used. `new-window --profile <name>` opens the window in that

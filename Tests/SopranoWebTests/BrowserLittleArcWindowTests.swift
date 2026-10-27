@@ -160,6 +160,26 @@ struct BrowserLittleArcWindowTests {
         #expect(!onHome.tabs.contains { $0 === linked })
     }
 
+    @Test func duplicatingInALittleArcCopiesIntoItsSpacesWindow() {
+        let fixture = makeFixture()
+        defer { fixture.tearDown() }
+        let manager = fixture.manager
+        let onWork = manager.newWindow(spaceID: fixture.work.id)
+        let onHome = manager.newWindow(spaceID: fixture.home.id)
+        let little = manager.newLittleArc(url: "https://example.com/", spaceID: fixture.work.id)
+        manager.present(onHome)
+        let before = onWork.tabs.count
+        // Vimium `yt`, an extension's tabs.duplicate, the harness.
+        let copy = little.duplicateTab(id: little.selectedTab!.id)
+        #expect(copy != nil)
+        #expect(little.tabs.count == 1)
+        #expect(onWork.tabs.count == before + 1)
+        #expect(onWork.selectedTab === copy)
+        #expect(copy?.dataContext === little.dataContext)
+        #expect(copy?.spaceID == fixture.work.id)
+        #expect(!onHome.tabs.contains { $0 === copy })
+    }
+
     @Test func theIdlePassClosesALittleArcAfterSixHoursWithItsTabInTheArchive() throws {
         let fixture = makeFixture()
         defer { fixture.tearDown() }

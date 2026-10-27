@@ -23,12 +23,16 @@ final class BrowserGlobalHotKey {
     private var hotKeyRef: EventHotKeyRef?
     private var handlerInstalled = false
     private var inputSourceObserver: NSObjectProtocol?
+    /// Settings is recording a new shortcut: nothing is registered, so
+    /// the current combination reaches the recorder.
+    private var isSuspended = false
 
     init() {}
 
     /// Registers `shortcut` (nil: none) for `action`, replacing the last
-    /// one. False when the system refused it (another app holds it) or no
-    /// key on the current layout types its character.
+    /// one. False when the system refused it (another app holds it), no
+    /// key on the current or the ASCII-capable layout types its character,
+    /// or registration is suspended (`suspend`).
     @discardableResult
     func register(_ shortcut: BrowserShortcut?, action: @escaping @MainActor () -> Void) -> Bool {
         unregisterCurrent()
@@ -37,11 +41,24 @@ final class BrowserGlobalHotKey {
         guard shortcut != nil else { return true }
         installHandlerIfNeeded()
         observeInputSourceIfNeeded()
-        return registerCurrent()
+        return !isSuspended && registerCurrent()
     }
 
     /// Whether a shortcut is registered now.
     var isRegistered: Bool { hotKeyRef != nil }
+
+    /// While Settings records a shortcut: the registered one lets go.
+    func suspend() {
+        isSuspended = true
+        unregisterCurrent()
+    }
+
+    /// Recording ended: the shortcut registers again.
+    func resume() {
+        guard isSuspended else { return }
+        isSuspended = false
+        _ = registerCurrent()
+    }
 
     // MARK: - Pure helpers
 
@@ -111,7 +128,7 @@ final class BrowserGlobalHotKey {
             queue: .main
         ) { [weak self] _ in
             MainActor.assumeIsolated {
-                guard let self, self.shortcut != nil else { return }
+                guard let self, self.shortcut != nil, !self.isSuspended else { return }
                 _ = self.registerCurrent()
             }
         }
@@ -119,42 +136,52 @@ final class BrowserGlobalHotKey {
 
     // MARK: - Keyboard layout
 
-    /// The key code that types `character` (lowercased) with no modifiers on
-    /// the current layout (UCKeyTranslate over codes 0…127), nil when none
-    /// does. The lowest code wins, so "1" is the number row's key, not the
-    /// keypad's.
+    /// The key code that types `character` (lowercased) with no modifiers:
+    /// on the current layout, else on the ASCII-capable one (Russian,
+    /// Greek or Hebrew have no key for "n"; menu key equivalents fall back
+    /// the same way). Nil when neither has one.
     private static func keyCode(forCharacter character: Character) -> UInt16? {
-        let wanted = String(character).lowercased()
-        guard let layout = currentLayoutData() else { return nil }
-        return layout.withUnsafeBytes { buffer -> UInt16? in
-            guard let pointer = buffer.baseAddress?.assumingMemoryBound(to: UCKeyboardLayout.self) else {
-                return nil
-            }
-            let keyboardType = UInt32(LMGetKbdType())
-            for code in UInt16(0) ..< 128 {
-                if let typed = translate(code, layout: pointer, keyboardType: keyboardType),
-                   String(typed).lowercased() == wanted {
-                    return code
+        let keyboardType = UInt32(LMGetKbdType())
+        let layouts = layoutData().map { data in
+            { (code: UInt16) -> Character? in
+                data.withUnsafeBytes { buffer -> Character? in
+                    guard let pointer = buffer.baseAddress?.assumingMemoryBound(to: UCKeyboardLayout.self) else {
+                        return nil
+                    }
+                    return translate(code, layout: pointer, keyboardType: keyboardType)
                 }
             }
-            return nil
         }
+        return keyCode(forCharacter: character, layouts: layouts)
     }
 
-    /// The 'uchr' data of the current keyboard layout. Input methods without
-    /// one (some CJK input sources) fall back to the ASCII-capable layout
-    /// they type through.
-    private static func currentLayoutData() -> Data? {
+    /// The lowest code 0…127 whose character on the first layout that has
+    /// one is `character` (lowercased), so "1" is the number row's key, not
+    /// the keypad's. Each layout maps a key code to what it types.
+    nonisolated static func keyCode(forCharacter character: Character, layouts: [(UInt16) -> Character?]) -> UInt16? {
+        let wanted = String(character).lowercased()
+        for layout in layouts {
+            if let code = (UInt16(0) ..< 128).first(where: { layout($0).map { String($0).lowercased() } == wanted }) {
+                return code
+            }
+        }
+        return nil
+    }
+
+    /// The 'uchr' data of the current keyboard layout, then of the
+    /// ASCII-capable layout (input methods without one, some CJK input
+    /// sources, type through it).
+    private static func layoutData() -> [Data] {
         let sources = [
             TISCopyCurrentKeyboardLayoutInputSource()?.takeRetainedValue(),
             TISCopyCurrentASCIICapableKeyboardLayoutInputSource()?.takeRetainedValue(),
         ]
-        for case let source? in sources {
-            if let raw = TISGetInputSourceProperty(source, kTISPropertyUnicodeKeyLayoutData) {
-                return Unmanaged<CFData>.fromOpaque(raw).takeUnretainedValue() as Data
+        return sources.compactMap { source in
+            guard let source, let raw = TISGetInputSourceProperty(source, kTISPropertyUnicodeKeyLayoutData) else {
+                return nil
             }
+            return Unmanaged<CFData>.fromOpaque(raw).takeUnretainedValue() as Data
         }
-        return nil
     }
 
     /// What `keyCode` types with no modifiers, dead keys shown as their own
@@ -187,6 +214,58 @@ final class BrowserGlobalHotKey {
             return nil
         }
         return character
+    }
+}
+
+/// Which chords may become the global New Little Arc shortcut, and what
+/// Settings' recorder does with a key press. A global hotkey fires in
+/// every app, so it must never take a chord the system, text editing or
+/// one of Soprano's own commands uses.
+enum BrowserGlobalShortcut {
+    static let fallback = "opt+cmd+n"
+
+    /// Chords other apps and the system rely on that may be missing from
+    /// the keymap (a user can remap ⌘C away in Soprano, not in every app).
+    static let systemChords: Set<BrowserShortcut> = Set([
+        "cmd+a", "cmd+c", "cmd+v", "cmd+x", "cmd+z", "shift+cmd+z", "cmd+q", "cmd+w", "cmd+h", "opt+cmd+h",
+        "cmd+m", "cmd+s", "cmd+p", "cmd+f", "cmd+n", "cmd+t", "cmd+o", "cmd+,", "cmd+tab", "shift+cmd+tab",
+        "cmd+space", "ctrl+space", "opt+cmd+space", "ctrl+cmd+space", "opt+cmd+escape", "ctrl+cmd+q",
+        "ctrl+cmd+f", "opt+cmd+d", "shift+cmd+3", "shift+cmd+4", "shift+cmd+5",
+    ].compactMap(BrowserShortcut.init))
+
+    /// `shortcut` is assignable and taken by nothing: no reserved chord,
+    /// no system chord, no command of `keymap` but New Little Arc.
+    static func isAcceptable(_ shortcut: BrowserShortcut, keymap: BrowserKeymap) -> Bool {
+        guard shortcut.isAssignable,
+              BrowserShortcut.reservedOwner(of: shortcut) == nil,
+              !systemChords.contains(shortcut)
+        else { return false }
+        let command = keymap.command(for: shortcut)
+        return command == nil || command == .newLittleArc
+    }
+
+    enum RecorderAnswer: Equatable {
+        /// Not for the recorder (another window): the key goes on.
+        case pass
+        /// Esc: recording ends, nothing changes.
+        case cancel
+        /// Not acceptable: a beep, the key is swallowed.
+        case refuse
+        case accept(BrowserShortcut)
+    }
+
+    /// What Settings' recorder does with a key-down: only its own window's
+    /// keys are its business.
+    static func recorderAnswer(
+        keyCode: UInt16,
+        shortcut: BrowserShortcut?,
+        inRecorderWindow: Bool,
+        keymap: BrowserKeymap
+    ) -> RecorderAnswer {
+        guard inRecorderWindow else { return .pass }
+        if keyCode == 53 { return .cancel }
+        guard let shortcut, isAcceptable(shortcut, keymap: keymap) else { return .refuse }
+        return .accept(shortcut)
     }
 }
 

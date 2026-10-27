@@ -80,7 +80,7 @@ extension BrowserWindowController {
     /// or off (the site switch), so the page loads again with or without
     /// it; otherwise only new loads follow.
     func applyContentBlockingToTabs(reloadingChanged: Bool) {
-        for tab in tabs {
+        for tab in tabsWithPeek {
             let webView = tab.webView
             let wasBlocking = !webView.contentRuleListIDs.isEmpty
             guard applyContentBlocking(to: tab, pageURL: webView.url),

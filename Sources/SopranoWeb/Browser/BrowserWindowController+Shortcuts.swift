@@ -236,7 +236,7 @@ extension BrowserWindowController {
     /// The page's `keydown` report (`BrowserShortcutScripts.keyReport`):
     /// a Site wins shortcut the page did not `preventDefault` runs.
     func receiveKeyReport(_ body: [String: Any], tab: BrowserTab) {
-        guard tab.id == selectedTab?.id,
+        guard tab === pageTab,
               let code = body["code"] as? String,
               let shortcut = BrowserShortcut(
                   domCode: code,

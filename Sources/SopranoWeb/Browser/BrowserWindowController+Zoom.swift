@@ -7,20 +7,20 @@ extension BrowserWindowController {
     /// ⌘+ (and Vimium `zi`): the selected page's site one step larger, in
     /// every tab of that site that reads the tab's profile's site decisions.
     func zoomIn() {
-        guard let tab = selectedTab else { return }
+        guard let tab = pageTab else { return }
         setZoom(BrowserZoom.zoomedIn(from: tab.zoom), for: tab)
     }
 
     /// ⌘- (and Vimium `zo`).
     func zoomOut() {
-        guard let tab = selectedTab else { return }
+        guard let tab = pageTab else { return }
         setZoom(BrowserZoom.zoomedOut(from: tab.zoom), for: tab)
     }
 
     /// ⌘0, Vimium `z0` and the zoom chip: the site forgets its zoom and
     /// follows Settings ▸ Default page zoom again.
     func resetZoom() {
-        guard let tab = selectedTab else { return }
+        guard let tab = pageTab else { return }
         if let key = BrowserSitePermissionStore.siteKey(for: tab.webView.url) {
             tab.dataContext.sitePermissions.setZoom(nil, host: key)
         }
@@ -50,7 +50,7 @@ extension BrowserWindowController {
     /// Every loaded page with a site (and every start page) takes its
     /// site's zoom: a remembered zoom or the default page zoom changed.
     func applySiteZooms() {
-        for tab in tabs where !tab.isRestorePending {
+        for tab in tabsWithPeek where !tab.isRestorePending {
             let url = tab.webView.url
             guard tab.isStartPage || BrowserSitePermissionStore.siteKey(for: url) != nil else { continue }
             apply(zoom: siteZoom(for: url, in: tab), to: tab)

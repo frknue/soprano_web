@@ -124,6 +124,8 @@ final class BrowserWindowController: NSWindowController {
     var popupBlockedControl: ChromeButton?
     /// The address field's zoom percentage (`updateZoomChip`).
     var zoomChip: ChromeButton?
+    /// The Peek over the page, at most one per window (`openPeek`).
+    var peek: BrowserPeek?
 
     static let verticalSidebarCollapsedKey = "verticalSidebarCollapsed"
     static let toolbarHiddenKey = "toolbarHidden"
@@ -290,6 +292,7 @@ final class BrowserWindowController: NSWindowController {
         guard hasSpaces else { return }
         let context = manager.context(for: space.profileID)
         let contextChanged = context !== dataContext
+        closePeek()
         currentSpaceID = space.id
         dataContext = context
         refreshVisibleTabs()
@@ -680,6 +683,7 @@ final class BrowserWindowController: NSWindowController {
         findBar.apply(theme: theme)
         sidebar.apply(theme: theme)
         linkStatus.apply(theme: theme)
+        peek?.view.apply(theme: theme)
         // A sleeping start page builds with the new theme when it wakes.
         for tab in tabs where tab.isStartPage && !tab.isRestorePending {
             loadStartPage(tab)

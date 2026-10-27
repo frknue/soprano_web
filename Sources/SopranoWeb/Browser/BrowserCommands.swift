@@ -240,9 +240,23 @@ struct BrowserAppCommand: Sendable {
              symbol: "eyeglasses") { $0.manager?.newPrivateWindow() },
         make(.newLittleArc, "New Little Arc", .file, 0, "opt+cmd+n", synonyms: ["little arc", "quick window"],
              symbol: "macwindow.badge.plus") { $0.manager?.newLittleArc(commandBar: true) },
+        // ⌘O: a Peek opens as a tab; a Little Arc's tab moves into its
+        // Space's window.
         make(.openInSpaceWindow, "Open in Space Window", .file, 0, "cmd+o",
-             synonyms: ["little arc", "move to window"], symbol: "arrow.up.left.and.arrow.down.right",
-             state: { .when($0.controller?.role == .little) }) { $0.controller?.moveLittleArcToSpaceWindow() },
+             synonyms: ["little arc", "move to window", "peek", "open as tab"], symbol: "arrow.up.left.and.arrow.down.right",
+             state: { context in
+                 if context.controller?.peek != nil {
+                     return BrowserCommandState(isEnabled: true, title: "Open Peek as Tab")
+                 }
+                 return .when(context.controller?.role == .little)
+             }) { context in
+            guard let controller = context.controller else { return }
+            if controller.peek != nil {
+                controller.openPeekAsTab()
+            } else if controller.role == .little {
+                controller.moveLittleArcToSpaceWindow()
+            }
+        },
         make(
             .reopenClosed, "Reopen Closed Tab", .file, 1, "shift+cmd+t",
             synonyms: ["undo close", "restore tab"], symbol: "arrow.uturn.backward",
@@ -274,7 +288,12 @@ struct BrowserAppCommand: Sendable {
             controller.showCommandBar(.editCurrent)
         },
         make(.closeTab, "Close Tab", .file, 2, "cmd+w", symbol: "xmark",
-             state: { .when(!($0.controller?.tabs.isEmpty ?? true)) }) { $0.controller?.closeSelectedTab() },
+             state: { context in
+                 if context.controller?.peek != nil {
+                     return BrowserCommandState(isEnabled: true, title: "Close Peek")
+                 }
+                 return .when(!(context.controller?.tabs.isEmpty ?? true))
+             }) { $0.controller?.closeSelectedTab() },
         make(
             .closeWindow, "Close Window", .file, 2, "shift+cmd+w", symbol: "macwindow.badge.minus",
             state: { .when(NSApp.keyWindow != nil || $0.controller != nil) },

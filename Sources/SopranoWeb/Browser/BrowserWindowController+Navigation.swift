@@ -4,7 +4,10 @@ import WebKit
 extension BrowserWindowController {
     // MARK: - Navigation
 
+    /// The address bar's load: in the selected tab, which the Peek over it
+    /// leaves.
     func navigateCurrent(to input: String) {
+        closePeek(focusPage: false)
         guard let tab = selectedTab else { return }
         navigate(tab, to: input)
         window?.makeFirstResponder(tab.webView)
@@ -60,7 +63,7 @@ extension BrowserWindowController {
     }
 
     func goBack() {
-        guard let tab = selectedTab else { return }
+        guard let tab = pageTab else { return }
         goBack(tab)
     }
 
@@ -71,7 +74,7 @@ extension BrowserWindowController {
     }
 
     func goForward() {
-        guard let tab = selectedTab else { return }
+        guard let tab = pageTab else { return }
         goForward(tab)
     }
 
@@ -82,7 +85,7 @@ extension BrowserWindowController {
     }
 
     func reloadOrStop() {
-        guard let tab = selectedTab else { return }
+        guard let tab = pageTab else { return }
         if tab.webView.isLoading {
             tab.webView.stopLoading()
         } else if let failed = tab.failedURL, let url = URL(string: failed) {
@@ -96,7 +99,7 @@ extension BrowserWindowController {
     }
 
     func reload() {
-        guard let tab = selectedTab else { return }
+        guard let tab = pageTab else { return }
         reload(tab)
     }
 
@@ -123,7 +126,7 @@ extension BrowserWindowController {
     }
 
     func focusPage() {
-        guard let tab = selectedTab else { return }
+        guard let tab = pageTab else { return }
         window?.makeFirstResponder(tab.webView)
     }
 
@@ -167,7 +170,7 @@ extension BrowserWindowController {
             repeats: false
         ) { [weak self, weak tab] _ in
             MainActor.assumeIsolated {
-                guard let self, let tab, self.tabs.contains(where: { $0 === tab }) else { return }
+                guard let self, let tab, self.tabsWithPeek.contains(where: { $0 === tab }) else { return }
                 tab.sameDocumentTimer = nil
                 guard tab.dataContext.kind.recordsHistory,
                       let url = tab.sameDocumentVisits.takeDueVisit(
@@ -386,7 +389,11 @@ extension BrowserWindowController: WKNavigationDelegate {
             baseURL: nil
         )
         updateTabStrip()
-        updateChrome()
+        if tab === peek?.tab {
+            updatePeekChrome()
+        } else {
+            updateChrome()
+        }
         resolveLoadWaiters(
             for: tab,
             result: .failure(BrowserAutomationError.unavailable(nsError.localizedDescription))
@@ -427,7 +434,7 @@ extension BrowserWindowController: WKNavigationDelegate {
             // swapped for one that can show it.
             decisionHandler(.cancel)
             DispatchQueue.main.async { [weak self, weak tab] in
-                guard let self, let tab, self.tabs.contains(where: { $0 === tab }) else { return }
+                guard let self, let tab, self.tabsWithPeek.contains(where: { $0 === tab }) else { return }
                 self.navigate(tab, to: url)
             }
             return

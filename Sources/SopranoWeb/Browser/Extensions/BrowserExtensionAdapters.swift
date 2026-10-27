@@ -20,24 +20,26 @@ final class BrowserExtensionTab: NSObject, WKWebExtensionTab {
         self.extensions = extensions
     }
 
+    /// Its window and the live tab: a tab of the window or its Peek.
     private var location: (window: BrowserWindowController, tab: BrowserTab)? {
-        extensions.manager?.tab(id: tabID)
+        extensions.manager?.tabOrPeek(id: tabID)
     }
 
     func window(for context: WKWebExtensionContext) -> (any WKWebExtensionWindow)? {
         location.map { extensions.windowAdapter(for: $0.window) }
     }
 
+    /// A Peek counts after the window's tabs.
     func indexInWindow(for context: WKWebExtensionContext) -> Int {
         guard let (window, tab) = location else { return NSNotFound }
-        return window.tabs.firstIndex { $0 === tab } ?? NSNotFound
+        return window.tabsWithPeek.firstIndex { $0 === tab } ?? NSNotFound
     }
 
     /// The tab whose page opened this one (a link with a target, ⌘-click,
     /// `window.open`): Chrome's `openerTabId`, which the webNavigation
     /// stand-in reports as `onCreatedNavigationTarget`.
     func parentTab(for context: WKWebExtensionContext) -> (any WKWebExtensionTab)? {
-        guard let openerID = tab?.links.openerID, let opener = extensions.manager?.tab(id: openerID)?.tab else { return nil }
+        guard let openerID = tab?.links.openerID, let opener = extensions.manager?.tabOrPeek(id: openerID)?.tab else { return nil }
         return extensions.tabAdapter(for: opener)
     }
 
@@ -212,8 +214,9 @@ final class BrowserExtensionWindow: NSObject, WKWebExtensionWindow {
         self.extensions = extensions
     }
 
+    /// Every tab of every Space, then the Peek's.
     func tabs(for context: WKWebExtensionContext) -> [any WKWebExtensionTab] {
-        controller?.tabs.map { extensions.tabAdapter(for: $0) } ?? []
+        controller?.tabsWithPeek.map { extensions.tabAdapter(for: $0) } ?? []
     }
 
     func activeTab(for context: WKWebExtensionContext) -> (any WKWebExtensionTab)? {
@@ -322,7 +325,7 @@ extension BrowserExtensions {
     /// window.
     func windowClosing(_ controller: BrowserWindowController) {
         guard let window = windowAdapters[controller.id] else { return }
-        for tab in controller.tabs {
+        for tab in controller.tabsWithPeek {
             if let adapter = tabAdapters.removeValue(forKey: tab.id) {
                 self.controller.didCloseTab(adapter, windowIsClosing: true)
             }

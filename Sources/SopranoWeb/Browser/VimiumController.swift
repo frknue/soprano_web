@@ -170,6 +170,12 @@ final class VimiumController: NSObject {
         keyMap.reset()
     }
 
+    /// Nothing for Esc to end: normal mode, no pending keys or hints.
+    var isIdle: Bool {
+        guard case .normal = mode else { return false }
+        return !keyMap.hasPendingInput && !isStartingHints
+    }
+
     // MARK: - Modes
 
     private func handleEscape() -> Bool {
@@ -223,7 +229,7 @@ final class VimiumController: NSObject {
     }
 
     private func focusPage() {
-        guard let tab, tab.id == windowController?.selectedTab?.id else { return }
+        guard let tab, tab === windowController?.pageTab else { return }
         tab.webView.window?.makeFirstResponder(tab.webView)
     }
 
@@ -531,7 +537,7 @@ final class VimiumController: NSObject {
     // MARK: - Hints
 
     private func startHints(_ action: VimiumHintMode) {
-        guard let tab, tab.id == windowController?.selectedTab?.id else { return }
+        guard let tab, tab === windowController?.pageTab else { return }
         hintGeneration += 1
         let generation = hintGeneration
         isStartingHints = true

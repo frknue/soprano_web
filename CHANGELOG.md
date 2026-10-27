@@ -10,6 +10,23 @@ app.
 ## [Unreleased]
 
 ### Added
+- Peek: a link from a pinned or favorite tab to another site (host with `www.` dropped;
+  equal or a subdomain is the same site, ports never count) and any ⇧-click open over the
+  page in a rounded panel with its own web view in the tab's data context (History,
+  downloads, sign-in, permissions, content blocking, extensions and Vimium work in it;
+  private windows keep nothing). Title bar with back/forward, "Open as Tab" (⌘O: a Today
+  tab after the opener, history kept) and close (Esc, ⌘W, a click on the dimmed page).
+  One per window; a second replaces it. CLI `browser peek <url>|close|open-as-tab`;
+  harness `--peek`, `--peek-open-as-tab`, `--peek-close`, `--print-peek`, and `shift-`
+  and `opt-` clicks.
+- Little Arc review fixes: Settings' global-shortcut recorder handles only its own
+  window's keys, refuses system, text-editing and in-app chords (also when decoding
+  settings), lets the registered hotkey go while recording and stops when Settings
+  resigns or closes; a refused hotkey shows "(unavailable)" and is retried; the hotkey
+  finds its key on the ASCII-capable layout when the current one (Russian, Greek) has
+  none; duplicating in a Little Arc copies into its Space's window; Command Bar rows fit
+  a narrow bar and a long ⌘L address no longer widens it; a link rule whose Space is gone
+  no longer overrides "Open links from other apps in"; `windows` help names `popup`.
 - Little Arc: a small one-tab window of one Space (compact toolbar with editable address,
   Space mark, "Open in" Space menu, ⌘O "Open in Space Window"), cascaded from the screen's
   top right. Links from other apps open in it unless a link rule matches (Settings ▸ Links

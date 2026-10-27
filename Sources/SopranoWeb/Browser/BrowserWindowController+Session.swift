@@ -126,7 +126,7 @@ extension BrowserWindowController {
     func handleWebContentCrash(_ tab: BrowserTab) {
         let now = Date()
         let action = BrowserCrashPolicy.action(
-            isSelected: tab.id == selectedTab?.id,
+            isSelected: tab.id == selectedTab?.id || tab === peek?.tab,
             previousCrash: tab.lifecycle.lastCrashAt,
             now: now
         )

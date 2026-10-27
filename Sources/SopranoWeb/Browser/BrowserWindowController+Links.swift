@@ -112,7 +112,9 @@ extension BrowserWindowController {
 
     /// `WKUIDelegate` body for `createWebViewWith`: a link with a target or a
     /// `window.open` call becomes a tab after its opener. ⌘ or middle opens
-    /// it in the background. A plain `window.open` that asks for a width or
+    /// it in the background; ⇧, or a pinned or favorite tab's link to
+    /// another site, opens it in a Peek (WebKit's configuration, so the page
+    /// keeps its opener). A plain `window.open` that asks for a width or
     /// height opens a pop-up window of that size instead.
     func createLinkWebView(
         from webView: WKWebView,
@@ -125,22 +127,33 @@ extension BrowserWindowController {
         configuration.preferences = Self.makePreferences()
         let opener = self.tab(for: webView)
         let tab = makeTab(context: opener?.dataContext ?? dataContext, configuration: configuration)
-        let disposition = BrowserLinkDisposition.disposition(
-            modifierFlags: navigationAction.modifierFlags,
-            buttonNumber: navigationAction.buttonNumber
-        )
+        let disposition = navigationAction.navigationType == .linkActivated
+            ? BrowserLinkDisposition.disposition(
+                modifierFlags: navigationAction.modifierFlags,
+                buttonNumber: navigationAction.buttonNumber,
+                origin: opener?.origin ?? .today,
+                pageURL: webView.url,
+                linkURL: navigationAction.request.url,
+                targetsMainFrame: true
+            )
+            : BrowserLinkDisposition.disposition(
+                modifierFlags: navigationAction.modifierFlags,
+                buttonNumber: navigationAction.buttonNumber
+            )
         if let opener {
             if let url = navigationAction.request.url {
                 let now = Date()
                 opener.links.recentlyOpened = opener.links.recentlyOpened
                     .filter { now.timeIntervalSince($0.date) < 5 } + [(url, now)]
             }
-            if disposition == .currentTab, windowFeatures.opensWindow {
+            if disposition == .peek {
+                showPeek(tab, from: opener)
+            } else if disposition == .currentTab, windowFeatures.opensWindow {
                 tab.isStartPage = false
                 tab.links.openerID = opener.id
                 manager.openPopupWindow(with: tab, features: windowFeatures, opener: self)
             } else {
-                insertLinkTab(tab, opener: opener, select: disposition != .backgroundTab)
+                insertLinkTab(tab, opener: linkOpener(opener), select: disposition != .backgroundTab)
             }
         } else {
             tab.isStartPage = false
@@ -159,21 +172,32 @@ extension BrowserWindowController {
 
     /// Link work in `decidePolicyFor navigationAction`, after the scheme and
     /// download checks. A ⌘/⇧⌘/middle click on a link that targets a frame in
-    /// this tab opens a new tab instead (returns true: cancel). A main-frame
+    /// this tab opens a new tab instead, and ⇧ or a pinned or favorite tab's
+    /// link to another site a Peek (returns true: cancel). A main-frame
     /// load gets the pop-up permission of the page it is about to show.
     func handleLinkNavigation(_ navigationAction: WKNavigationAction, in webView: WKWebView) -> Bool {
         guard let url = navigationAction.request.url, let tab = tab(for: webView) else { return false }
         if navigationAction.navigationType == .linkActivated,
-           navigationAction.targetFrame != nil,
+           let targetFrame = navigationAction.targetFrame,
            navigationAction.sourceFrame.webView === webView
         {
             let disposition = BrowserLinkDisposition.disposition(
                 modifierFlags: navigationAction.modifierFlags,
-                buttonNumber: navigationAction.buttonNumber
+                buttonNumber: navigationAction.buttonNumber,
+                origin: tab.origin,
+                pageURL: webView.url,
+                linkURL: url,
+                targetsMainFrame: targetFrame.isMainFrame
             )
-            if disposition != .currentTab {
-                openLinkTab(url, opener: tab, select: disposition == .foregroundTab)
+            switch disposition {
+            case .peek:
+                openPeek(url, from: tab)
                 return true
+            case .backgroundTab, .foregroundTab:
+                openLinkTab(url, opener: linkOpener(tab), select: disposition == .foregroundTab)
+                return true
+            case .currentTab:
+                break
             }
         }
         if navigationAction.targetFrame?.isMainFrame == true {
@@ -187,6 +211,10 @@ extension BrowserWindowController {
     /// `window.close()`: closes the tab; a selected tab returns to the tab
     /// that opened it when that tab is still open.
     func webViewDidClose(_ webView: WKWebView) {
+        if let peekTab = peek?.tab, peekTab.webView === webView {
+            closePeek()
+            return
+        }
         guard let tab = tab(for: webView) else { return }
         let wasSelected = tab.id == selectedTab?.id
         let previousID = selectedTab?.id
@@ -219,7 +247,7 @@ extension BrowserWindowController {
     /// Re-applies the stored pop-up decisions to every open page, e.g. after
     /// a decision changed in Settings.
     func refreshPopupPermissions() {
-        for tab in tabs {
+        for tab in tabsWithPeek {
             applyPopupPermission(tab, pageURL: tab.webView.url)
         }
     }

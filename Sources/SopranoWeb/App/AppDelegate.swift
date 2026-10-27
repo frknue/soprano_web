@@ -50,6 +50,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             self?.windowManager
         }
 
+        manager.globalHotKey = globalHotKey
         applyGlobalHotKey(settingsStore.settings)
         settingsObservation = settingsStore.changes.observe { [weak self] settings in
             self?.applyGlobalHotKey(settings)
@@ -67,15 +68,18 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     /// Registers the global New Little Arc shortcut while the setting is on.
+    /// A refused registration (another app holds it, no key types it) is
+    /// retried with the next settings change; Settings shows it as
+    /// unavailable (`BrowserGlobalHotKey.isRegistered`).
     private func applyGlobalHotKey(_ settings: BrowserSettings) {
         let wanted = settings.globalLittleArcEnabled ? BrowserShortcut(settings.globalLittleArcShortcut) : nil
-        guard wanted != appliedGlobalHotKey else { return }
-        appliedGlobalHotKey = wanted
-        globalHotKey.register(wanted) { [weak self] in
+        guard wanted != appliedGlobalHotKey || (wanted != nil && !globalHotKey.isRegistered) else { return }
+        let registered = globalHotKey.register(wanted) { [weak self] in
             guard let manager = self?.windowManager else { return }
             NSApp.activate()
             manager.newLittleArc(commandBar: true)
         }
+        appliedGlobalHotKey = registered ? wanted : nil
     }
 
     /// Links from other apps: a matching link rule's Space, else a Little

@@ -22,6 +22,20 @@ struct BrowserLittleArcTests {
         #expect(BrowserLinkRouting.route(for: "https://news.example/", rules: [], otherLinks: .littleArc) == .littleArc)
     }
 
+    @Test func aRuleWhoseSpaceIsGoneLeavesTheLinkToTheSetting() {
+        let gone = UUID()
+        let rule = BrowserLinkRoutingRule(match: .contains, value: "docs.example", destination: .space(gone))
+        let route = BrowserLinkRouting.route(
+            for: "https://docs.example/a", rules: [rule], otherLinks: .littleArc, spaceExists: { $0 != gone }
+        )
+        #expect(route == .littleArc)
+        // A later rule of a live Space takes it instead.
+        let live = BrowserLinkRoutingRule(match: .contains, value: "example", destination: .space(UUID()))
+        #expect(BrowserLinkRouting.route(
+            for: "https://docs.example/a", rules: [rule, live], otherLinks: .littleArc, spaceExists: { $0 != gone }
+        ) == .rule(live))
+    }
+
     @Test func theRoutingFileKeepsTheChoiceAndDefaultsToLittleArc() throws {
         let file = BrowserLinkRoutingFile(rules: [meet], otherLinks: .mostRecentWindow)
         let data = try JSONEncoder().encode(file)

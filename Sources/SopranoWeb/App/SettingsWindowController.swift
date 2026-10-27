@@ -63,8 +63,12 @@ final class SettingsWindowController: NSWindowController, NSTextFieldDelegate {
         button.widthAnchor.constraint(equalToConstant: 168).isActive = true
         return button
     }()
-    /// The key monitor while the global shortcut is being recorded.
+    /// The key monitor and window observers while the global shortcut is
+    /// being recorded.
     private var globalShortcutMonitor: Any?
+    private var globalShortcutObservers: [NSObjectProtocol] = []
+    /// The registered global hotkey (the app's; nil in the harness).
+    var globalHotKey: BrowserGlobalHotKey?
     private lazy var searchEnginesButton: ChromeButton = {
         let button = ChromeButton(title: "Manage…", theme: theme, kind: .standard)
         button.target = self
@@ -560,38 +564,68 @@ final class SettingsWindowController: NSWindowController, NSTextFieldDelegate {
         return stack
     }
 
+    /// "(unavailable)" when the switch is on but the system refused the
+    /// shortcut (another app holds it, or no key types it).
     private var globalLittleArcTitle: String {
-        let shortcut = BrowserShortcut(settingsStore.settings.globalLittleArcShortcut)?.display ?? "⌥⌘N"
-        return "Little Arc anywhere: \(shortcut)"
+        let settings = settingsStore.settings
+        let shortcut = BrowserShortcut(settings.globalLittleArcShortcut)?.display ?? "⌥⌘N"
+        let unavailable = settings.globalLittleArcEnabled && globalShortcutMonitor == nil
+            && globalHotKey.map { !$0.isRegistered } == true
+        return "Little Arc anywhere: \(shortcut)" + (unavailable ? " (unavailable)" : "")
     }
 
     @objc private func globalLittleArcChanged() {
         let value = globalLittleArcSwitch.isOn
         settingsStore.update { $0.globalLittleArcEnabled = value }
+        globalLittleArcButton.title = globalLittleArcTitle
     }
 
-    /// The next shortcut typed (with ⌘ or ⌃, or ⌥ on a named key) becomes the
-    /// global one and turns it on; Esc cancels.
+    /// The next acceptable shortcut typed in Settings (with ⌘ or ⌃, or ⌥
+    /// on a named key; nothing the system, text editing or another command
+    /// uses: `BrowserGlobalShortcut`) becomes the global one and turns it
+    /// on; anything else beeps. Esc, leaving the window or closing it
+    /// cancels. Keys typed in other windows pass by, and the registered
+    /// hotkey lets go meanwhile so its own combination can be typed.
     @objc private func recordGlobalLittleArc() {
         guard globalShortcutMonitor == nil else { return }
+        globalHotKey?.suspend()
         globalLittleArcButton.title = "Type a shortcut…"
         globalShortcutMonitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { [weak self] event in
             guard let self else { return event }
-            if event.keyCode == 53 {
+            switch BrowserGlobalShortcut.recorderAnswer(
+                keyCode: event.keyCode,
+                shortcut: BrowserShortcut(event: event),
+                inRecorderWindow: event.window != nil && event.window === self.window,
+                keymap: self.settingsStore.settings.keymap
+            ) {
+            case .pass:
+                return event
+            case .cancel:
                 self.finishRecordingGlobalShortcut(nil)
-                return nil
+            case .refuse:
+                NSSound.beep()
+            case let .accept(shortcut):
+                self.finishRecordingGlobalShortcut(shortcut)
             }
-            guard let shortcut = BrowserShortcut(event: event), shortcut.isAssignable else { return nil }
-            self.finishRecordingGlobalShortcut(shortcut)
             return nil
+        }
+        if let window {
+            globalShortcutObservers = [NSWindow.didResignKeyNotification, NSWindow.willCloseNotification].map { name in
+                NotificationCenter.default.addObserver(forName: name, object: window, queue: .main) { [weak self] _ in
+                    MainActor.assumeIsolated { self?.finishRecordingGlobalShortcut(nil) }
+                }
+            }
         }
     }
 
     private func finishRecordingGlobalShortcut(_ shortcut: BrowserShortcut?) {
-        if let monitor = globalShortcutMonitor {
-            NSEvent.removeMonitor(monitor)
-            globalShortcutMonitor = nil
-        }
+        guard let monitor = globalShortcutMonitor else { return }
+        NSEvent.removeMonitor(monitor)
+        globalShortcutMonitor = nil
+        globalShortcutObservers.forEach(NotificationCenter.default.removeObserver)
+        globalShortcutObservers = []
+        // The old shortcut comes back first; a new one replaces it.
+        globalHotKey?.resume()
         if let shortcut {
             settingsStore.update {
                 $0.globalLittleArcShortcut = shortcut.storageText
