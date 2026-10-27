@@ -43,7 +43,8 @@ struct BrowserSearchEnginesTests {
         #expect(BrowserSearchEngines.default.resolve("b tree") == nil)
         #expect(BrowserSearchEngines.default.resolve("g string") == nil)
         #expect(BrowserAddressResolver.resolve("b tree")?.absoluteString == "https://duckduckgo.com/?q=b%20tree")
-        #expect(BrowserSearchEngines.default.all.allSatisfy(\.keyword.isEmpty))
+        let keywords = BrowserSearchEngines.default.all.map(\.keyword)
+        #expect(keywords == ["", "", ""])
     }
 
     @Test func templatesMustBeHTTPWithAHostAndPercentS() {
