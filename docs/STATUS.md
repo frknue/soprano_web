@@ -24,7 +24,7 @@ contract is `docs/STAGE-3-PLAN.md`.
 | Branch | Base | State |
 |---|---|---|
 | `feat/stage-3` | `main` | Squash-merged as #3. 518 tests green in debug and release. |
-| `feat/stage-4` | `main` | In progress: P0 done (528 tests green in debug and release); P1 next. |
+| `feat/stage-4` | `main` | In progress: P0 and P1 done (561 tests green in debug and release); P2 next. |
 | `feat/stage-3-search`, `feat/stage-3-import` | — | Merged into `feat/stage-3`; no further work there. |
 
 ## Done
@@ -32,6 +32,7 @@ contract is `docs/STAGE-3-PLAN.md`.
 | Phase | Commits | What |
 |---|---|---|
 | Stage 4 P0 | `c1e00aa`, `36ba6c3`, `a16a68f` | macOS 26 floor (tools 6.2, `LSMinimumSystemVersion` 26.0); downloads resume and retry in the profile they started in; a title set after the load renames its History row |
+| Stage 4 P1 | `e57986c` and the commits after it | Web extensions on `WKWebExtension`: one app-wide controller, Chrome Web Store install with full CRX3 check, unpacked folders, daily updates, tab/window adapters, toolbar buttons and popups, permission sheets, site access, private access, commands, Settings ▸ Extensions, `browser extension` CLI |
 | P1 | `24c13c0` | Spaces model and store, bookmarks → per-Space pins, `bookmarks.json` migration |
 | P2 | `c886ddf`, `98d8d7a` | A window shows one Space; per-tab data context; session v3 |
 | P3 | `2f601a1`, `628c07c` | Rail (Space header, Favorites, pinned outline, Today, switcher), live pinned/favorite tabs, New/Edit Space sheet |
@@ -44,6 +45,16 @@ contract is `docs/STAGE-3-PLAN.md`.
 P0 live check in the dev app (2026-10-27, `browser goto` to a local page that sets
 `document.title` 1 s after `load`): its `History.sqlite` row read `127.0.0.1` right after
 the load and `Late Title Smoke` 3 s later, one visit.
+
+P1 live check in the dev app (2026-10-27, built-in blocker off, local page loading
+`pagead2.googlesyndication.com/pagead/js/adsbygoogle.js` and jQuery from
+`code.jquery.com`): without extensions both load; `browser extension install` of uBlock
+Origin Lite from its store link (2026.1026.1812, verified and unpacked in ~1 s); 4 s
+later the ad still loaded (WebKit was still compiling its rulesets), 25 s later the ad
+script is blocked and jQuery loads, also on reload of an older tab. Wappalyzer 6.12.8
+installs with no errors and badges pages. A local test extension saw `onInstalled`,
+`tabs.onCreated`, `onActivated`, `onUpdated` (loading, complete), content-script
+messaging, its context-menu item and its popup.
 
 Real Arc folder on this Mac (read-only harness import into a temporary support folder):
 4 Spaces, 161 pins in 48 folders, 13 favorites, 147 archived tabs, 1 link rule, 46,873
@@ -58,7 +69,7 @@ second import creates nothing.
    presses, ⌃Tab release, shifted-punctuation remaps in the menu bar, a real drag in the
    rail outline, the Command Bar's rounded corners in Folio Ink, Delete Space from the
    switcher's menu (the CLI has no Space create/delete).
-2. Stage 4: the next open phase of `docs/STAGE-4-PLAN.md`.
+2. Stage 4 P2 (1Password) of `docs/STAGE-4-PLAN.md`.
 
 Known, not planned: each tab change rebuilds every rail row (~40 ms with 20+ tabs); batch
 closes do it once.

@@ -307,6 +307,20 @@ app.
   apps open (imported from Arc's Air Traffic Control: an address that
   contains, is or starts with some text opens in a chosen Space or the most
   recent window's Space), with Delete.
+- Chrome extensions: Settings ▸ Extensions installs one from its Chrome Web
+  Store link or id (the package's signatures are checked as Chrome checks a
+  store install, including the Web Store's own) or loads an unpacked folder,
+  and lists them with an on/off switch, "Allow in private windows", site
+  access (on all sites, on specific sites, when you click it) and Remove.
+  Store extensions update daily. Extensions run in every Space and see the
+  real tabs and windows; their toolbar buttons show badges and open their
+  popups, their context-menu items appear in the page menu, their keyboard
+  shortcuts work (never over the app's own), and the Extensions menu and
+  the Command Bar list their commands. When an extension asks for more
+  access, a sheet asks once and remembers the answer. uBlock Origin Lite
+  and Wappalyzer run; 1Password does not yet.
+- `browser extensions` and `browser extension install|enable|disable|remove|errors|update`
+  let scripts and agents manage extensions.
 
 ### Changed
 - Soprano Web requires macOS 26 or later.

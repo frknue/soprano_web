@@ -255,6 +255,21 @@ surrounding style.
   (⇧⌘D), `--copy-url` / `--copy-markdown` (print the pasteboard: the
   harness's own named one, never the general pasteboard). The Command Bar
   and the ⌃Tab overlay are drawn over the page in the capture.
+  Extension flags (the harness's controller is its own, emptied at exit,
+  and never checks for updates; `--support-dir` loads the extensions
+  installed there — copy the dev app's `extensions.json` and `Extensions/`
+  into a temporary folder rather than pointing at its folder):
+  `--extension <folder|id|store link>` (repeatable; installs through
+  Settings' path after the first window opens and waits until it runs),
+  `--extension-private <id>`, `--extension-site-access
+  <id>=all|click|<host>`, `--extension-action <id>` (clicks its toolbar
+  button in the captured window; prints `extension-popup:` with address
+  and size and draws the popup under the button), `--extensions-sheet`
+  (captures Settings ▸ Extensions, prints `extensions-sheet:` rows) and
+  `--print-extensions` (one `extensions:` JSON line: each extension's
+  state, version, private access, site access, errors, commands, granted
+  match patterns, the windows and tabs WebKit tracks for it, and the
+  captured window's toolbar buttons with label and badge).
 - Verify real navigation, Spaces and the agent surface in the dev app. Agents
   launch it on their own, in the background (`open -g` leaves focus with the
   user). It has its own support folder (`Soprano Web Dev`), settings
@@ -655,6 +670,43 @@ surrounding style.
   site's tabs) and the lock sheet's "Block ads on this site" accessory.
   `BrowserContentBlockingPolicy` documents why a switched-off site loses
   the lists per tab instead of getting a compiled exceptions list.
+- `Browser/Extensions/` — Chrome extensions on `WKWebExtension`.
+  `BrowserExtensions.swift` (manager-owned, `manager.extensions`): the one
+  app-wide `WKWebExtensionController` (fixed storage identifier; the
+  harness's is a throwaway one emptied at exit — on macOS 26 a
+  `.nonPersistent()` controller's extensions get no events),
+  `makeTabConfiguration` puts it on every tab, private ones too (WebKit
+  runs an extension in a private tab only with `hasAccessToPrivateData`);
+  contexts load with `chrome-extension://<id>/` and `uniqueIdentifier` =
+  id, saved grants restored first, background started at once; install
+  (Web Store id or link, or an unpacked folder, copied), enable, private
+  access, site access, remove (with its data), the hourly-timer daily
+  update check, extension commands. `BrowserExtensionStore.swift` — the
+  only way in or out of `extensions.json` (tolerant, atomic, `.corrupt`)
+  and `<support>/Extensions/<id>/`. `BrowserCRX.swift` — extension ids,
+  CRX3 parsing and Chrome's store-install verification (every RSA/ECDSA
+  proof over the signed message, a key hashing to the id, the Web Store
+  publisher key). `BrowserExtensionArchive.swift` — the ZIP's central
+  directory checked before `ditto` (no symlinks, escapes, duplicates,
+  encryption, ZIP64; size limits), the result walked again, manifest
+  checks. `BrowserWebStore.swift` — inputs, download/update-check URLs,
+  allowed hosts, the `gupdate` answer. `BrowserExtensionAdapters.swift` —
+  `WKWebExtensionTab`/`WKWebExtensionWindow` over real tabs and windows
+  (a window's tabs of every Space) and the lifecycle calls the windows
+  make (`tabAttached`/`tabDetached`/`tabClosed`, activation, properties,
+  `windowOpened`/`windowClosing`/`windowFocused`).
+  `BrowserExtensions+Delegate.swift` — the controller delegate (new tabs and
+  windows, options page, permission prompts, action, native messaging
+  handler tables for P2). `BrowserExtensionPopup.swift` (popups in our own
+  popover, sized to the page's max-content), `BrowserExtensionPermissionSheet.swift`,
+  `BrowserExtensionActionButton.swift` (toolbar button with badge),
+  `BrowserExtensionCommands.swift` (the CLI). `BrowserWindowController+Extensions`
+  — toolbar buttons for the selected tab, clicks and button menus, the
+  Command Bar's extension rows and which web view an extension page needs
+  (`webViewFits`: a tab swaps its web view going to or from one). WebKit
+  puts extensions' context-menu items into the page menu itself.
+  `App/BrowserExtensionsSheet.swift` is Settings ▸ Extensions; the
+  Extensions menu is built in `MainMenu.swift`.
 - `Browser/BrowserPageScripts.swift` — every injected page script and the
   `sopranoWeb` message channel; messages are accepted only from the world (page or
   isolated) their type was written for.
@@ -674,7 +726,11 @@ surrounding style.
 - `Browser/BrowserAutomationCommand.swift`, `BrowserAutomationSocket.swift`,
   `BrowserAutomation.swift` — the `browser` CLI over a user-only Unix socket and
   the `@e1` snapshot/action scripts. `browser vimium <keys>` feeds the selected
-  tab's Vimium controller for verification.
+  tab's Vimium controller for verification. `browser extensions` lists the
+  installed extensions (state, private, site access, source, error count);
+  `browser extension install <store link|id|folder>` (waits until it runs,
+  up to 120 s), `enable|disable|remove|errors <id>` and `update` (check the
+  Web Store now) drive them.
 - `Browser/VimiumController.swift`, `VimiumKeyMap.swift`, `VimiumPageScripts.swift`,
   `VimiumPanels.swift`, `BrowserWebView.swift` — the native Vimium mode layer.
 - `Browser/SnapshotCommand*.swift`, `SnapshotPageTools.swift` — offscreen UI harness.
