@@ -1,9 +1,9 @@
 # Status
 
-Paused 2026-10-25 by Furkan, mid stage 3. Nothing of stage 3 is on `main`; `main` @c1154c4
-is stage 2 and must stay untouched until stage 3 is finished and Furkan asks for the
-merge. Never run `scripts/install.sh` from a stage 3 branch: launching it converts the
-real `bookmarks.json` into `spaces.json`.
+Resumed 2026-10-27. Nothing of stage 3 is on `main`; `main` @c1154c4 is stage 2 and must
+stay untouched until stage 3 is finished and Furkan asks for the merge. Never run
+`scripts/install.sh` from a stage 3 branch: launching it converts the real
+`bookmarks.json` into `spaces.json`.
 
 ## Goal
 
@@ -13,13 +13,12 @@ Arc, Chrome and Safari. Arc stops opening on 2026-12-22. The design contract, in
 Furkan's final decisions (pinned tabs replace bookmarks; a Space's color is a mark only),
 is `docs/STAGE-3-PLAN.md`.
 
-## Branches (all pushed to origin)
+## Branches
 
 | Branch | Base | State |
 |---|---|---|
-| `feat/stage-3` | `main` | P1 committed and green (`24c13c0`). P2 committed as WIP on top: the app builds, the test target does not compile, nothing verified. This file lives here. |
-| `feat/stage-3-search` | `24c13c0` | P5 custom search engines, complete but never built or tested. |
-| `feat/stage-3-import` | `c1154c4` | Import readers (pure, no UI), complete but never built or tested. |
+| `feat/stage-3` | `main` | P1, P2, P5 (search engines) and the import readers, merged, built and green (432 tests). This file lives here. |
+| `feat/stage-3-search`, `feat/stage-3-import` | — | Merged into `feat/stage-3`; no further work there. |
 
 ## Done
 
@@ -39,34 +38,20 @@ is `docs/STAGE-3-PLAN.md`.
 
 ## Next — start here
 
-1. **Finish P2 on `feat/stage-3`** (windows show one Space at a time; plan section
-   "Windows and tabs"). Already written: `BrowserTab.dataContext`/`spaceID`/origin, window
-   `currentSpaceID` with selection remembered per Space, `visibleTabs`, per-tab contexts
-   in the Navigation, Links, Permissions, SignIn, Sleep, Zoom, ContentBlocking, Downloads
-   and TabActions extensions, `BrowserWindowController+Spaces.swift`
-   (`switchToSpace`), `BrowserSpaceSwitching.swift` (index and wrap math),
-   `BrowserSpacesMenu.swift` (replaces the deleted `BrowserBookmarksMenu.swift`), session
-   version 3 with v2 migration, the tab move rule against the target's current Space,
-   CLI `browser spaces` / `browser space`, harness `--space`, `--create-space`,
-   `--print-spaces` and a rail swipe.
-   Left to do:
-   - The test target doesn't compile: `#require` on a mutating member at
-     `Tests/SopranoWebTests/BrowserSessionRestoreTests.swift:120` and
-     `BrowserSitePermissionOverlayTests.swift:59`. Fix them, then run `swift test`.
-   - Review the diff against the plan (it was written in one pass, never run).
-   - Harness proof the plan asks for: tabs in two Spaces of different profiles loading
-     from a local test server; `--print-windows` must show each tab's visits and cookies
-     in its own profile, including a tab that finished loading while its Space was hidden.
-     Capture a PNG after switching and look at it.
-   - Note the shortcut decisions (⌃1…⌃9, ⌥⌘←/→) in AGENTS.md and update its Architecture
-     section for the new files.
-2. Merge `feat/stage-3-search` into `feat/stage-3` (expect conflicts in
-   `BrowserModel.swift`, `BrowserWindowController.swift`, `+AddressBar`, `+Navigation`,
-   `SnapshotCommand.swift` and `AGENTS.md`), then build and test.
-3. Merge `feat/stage-3-import` (new files only), then build and run the reader tests.
-4. Then P3 rail UI, P4 Archive, P6 Command Bar and shortcut registry, P7 import pipeline
-   and UI, as in the plan. Last: CHANGELOG `[Unreleased]`, ROADMAP §3, `swift test -c
-   release`, and the merge to `main` only when Furkan asks.
+P2 is finished (`98d8d7a`): the review found and fixed sign-in answers crossing profiles
+and ⌘W reopening a Space's lone start tab. Harness proof: tabs of Default and Work Spaces
+in one window load from a local server; the Default tab that finished while its Space
+was hidden recorded its visit and cookie only in Default.
+
+1. P3 rail UI and live pinned/favorite tabs (plan "Rail" and the pinned-tab bullets of
+   "Windows and tabs"). Merge All Windows must turn a pin-linked tab into a Today tab when
+   the target already has a live tab for that pin.
+2. P4 Archive, P6 Command Bar and shortcut registry, P7 import pipeline and UI.
+3. Last: CHANGELOG `[Unreleased]`, ROADMAP §3, `swift test -c release`, and the merge to
+   `main` only when Furkan asks.
+
+Known, not stage 3: resuming or retrying a download uses the current Space's web view,
+not the profile it came from (download records carry no profile).
 
 ## Open questions
 
