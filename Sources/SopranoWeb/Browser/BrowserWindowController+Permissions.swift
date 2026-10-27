@@ -34,13 +34,13 @@ extension BrowserWindowController {
         let webView = tab.webView
         tab.observations.append(webView.observe(\.cameraCaptureState, options: [.new]) { [weak self, weak tab] _, _ in
             MainActor.assumeIsolated {
-                guard let self, let tab, tab.id == self.selectedTab?.id else { return }
+                guard let self, let tab, tab === self.pageTab else { return }
                 self.updateCaptureIndicator()
             }
         })
         tab.observations.append(webView.observe(\.microphoneCaptureState, options: [.new]) { [weak self, weak tab] _, _ in
             MainActor.assumeIsolated {
-                guard let self, let tab, tab.id == self.selectedTab?.id else { return }
+                guard let self, let tab, tab === self.pageTab else { return }
                 self.updateCaptureIndicator()
             }
         })
@@ -132,7 +132,7 @@ extension BrowserWindowController {
     }
 
     func updateCaptureIndicator() {
-        let webView = selectedTab?.webView
+        let webView = pageTab?.webView
         toolbar.captureIndicator.update(BrowserCaptureStatus(
             camera: .init(webView?.cameraCaptureState ?? .none),
             microphone: .init(webView?.microphoneCaptureState ?? .none)
@@ -140,7 +140,7 @@ extension BrowserWindowController {
     }
 
     func performCaptureAction(_ action: BrowserCaptureStatus.Action) {
-        guard let webView = selectedTab?.webView else { return }
+        guard let webView = pageTab?.webView else { return }
         switch action {
         case .stopCamera:
             webView.setCameraCaptureState(.none)

@@ -187,12 +187,18 @@ final class BrowserShortcutsSheet: NSWindowController {
 
     /// Assigns `shortcut` to `id` as recording it does: saved when free,
     /// otherwise the row shows the conflict (Swap or Cancel) or the
-    /// refusal. Returns what the keymap answered.
+    /// refusal; the global New Little Arc chord, while on, is refused.
+    /// Returns what the keymap answered.
     @discardableResult
     func record(_ shortcut: BrowserShortcut, for id: BrowserCommandID) -> BrowserKeymap.Assignment {
         recording = nil
         var keymap = keymap
-        let result = keymap.assign(shortcut, to: id)
+        let result: BrowserKeymap.Assignment
+        if let owner = BrowserGlobalShortcut.owner(of: shortcut, for: id, settings: settingsStore.settings) {
+            result = .reserved(owner)
+        } else {
+            result = keymap.assign(shortcut, to: id)
+        }
         switch result {
         case .assigned:
             conflict = nil

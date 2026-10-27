@@ -115,6 +115,8 @@ struct SnapshotSessionOptions {
         case littleArc(SnapshotLittleArcAction)
         /// Peek flags (`SnapshotPeekAction`).
         case peek(SnapshotPeekAction)
+        /// Split View flags (`SnapshotSplitAction`).
+        case split(SnapshotSplitAction)
     }
 
     static let flags: Set<String> = Set([
@@ -128,6 +130,7 @@ struct SnapshotSessionOptions {
         "--create-space", "--space", "--swipe-rail", "--print-spaces", "--delete-space",
     ]).union(SnapshotSleepAction.flags).union(SnapshotBlockerAction.flags).union(SnapshotRailAction.flags)
         .union(SnapshotArchiveAction.flags).union(SnapshotLittleArcAction.flags).union(SnapshotPeekAction.flags)
+        .union(SnapshotSplitAction.flags)
     static let usage = """
                                [--session <file>] [--visit <url>] [--select <n>] [--close-tab]
                                [--reopen-closed] [--duplicate] [--go-back] [--reload]
@@ -146,6 +149,7 @@ struct SnapshotSessionOptions {
     \(SnapshotArchiveAction.usage)
     \(SnapshotLittleArcAction.usage)
     \(SnapshotPeekAction.usage)
+    \(SnapshotSplitAction.usage)
     \(SnapshotCommandBarAction.usage)
     """
 
@@ -259,6 +263,10 @@ struct SnapshotSessionOptions {
                 actions.append(.peek(action))
                 return
             }
+            if let action = try SnapshotSplitAction.parse(option, value: value) {
+                actions.append(.split(action))
+                return
+            }
             if let action = try SnapshotBlockerAction.parse(option, value: value) {
                 actions.append(.blocker(action))
                 return
@@ -327,6 +335,9 @@ struct SnapshotSessionOptions {
             action.perform(in: manager)
             return
         case .peek(let action):
+            action.perform(in: manager)
+            return
+        case .split(let action):
             action.perform(in: manager)
             return
         case let .newWindow(value):
@@ -483,7 +494,7 @@ struct SnapshotSessionOptions {
             Self.swipeRail(next: next, in: controller, manager: manager)
         case .newWindow, .newPrivateWindow, .deleteSpace, .activateWindow, .moveTab, .dropTab, .dropOutside,
              .mergeWindows, .cli, .waitDownloads, .printWindows, .printSpaces, .reopenClosed, .sleep, .blocker, .rail,
-             .archive, .commandBar, .littleArc, .peek:
+             .archive, .commandBar, .littleArc, .peek, .split:
             break
         }
     }

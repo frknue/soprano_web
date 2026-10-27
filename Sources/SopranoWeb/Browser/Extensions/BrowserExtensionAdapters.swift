@@ -160,9 +160,11 @@ final class BrowserExtensionTab: NSObject, WKWebExtensionTab {
         completionHandler(nil)
     }
 
+    /// The tab whose page the window shows: the Peek's while one is open,
+    /// else the selected tab.
     func isSelected(for context: WKWebExtensionContext) -> Bool {
         guard let (window, tab) = location else { return false }
-        return window.selectedTab === tab
+        return window.pageTab === tab
     }
 
     /// One selected tab per window: selecting activates it; deselecting
@@ -219,8 +221,10 @@ final class BrowserExtensionWindow: NSObject, WKWebExtensionWindow {
         controller?.tabsWithPeek.map { extensions.tabAdapter(for: $0) } ?? []
     }
 
+    /// The page the window shows: the Peek's while one is open (what an
+    /// action button or `activeTab` should reach), else the selected tab.
     func activeTab(for context: WKWebExtensionContext) -> (any WKWebExtensionTab)? {
-        controller?.selectedTab.map { extensions.tabAdapter(for: $0) }
+        controller?.pageTab.map { extensions.tabAdapter(for: $0) }
     }
 
     func windowType(for context: WKWebExtensionContext) -> WKWebExtension.WindowType {

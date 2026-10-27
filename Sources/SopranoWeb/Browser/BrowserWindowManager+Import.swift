@@ -71,9 +71,13 @@ extension BrowserWindowManager {
             ? controller
             : (outsideTabbedController.flatMap { $0.hasSpaces ? $0 : nil } ?? newWindow())
         guard let target, target.hasSpaces else { return summary }
-        for (spaceID, links) in summary.todayTabs {
-            for link in links {
+        for (spaceID, links, splitIndices) in summary.todayTabs {
+            let opened = links.map { link in
                 target.addRestoredTab(BrowserTabState(url: link.url, title: link.title, spaceID: spaceID))
+            }
+            // Arc's split views stay split views.
+            for indices in splitIndices where indices.allSatisfy(opened.indices.contains) {
+                target.makeSplit(of: indices.map { opened[$0] })
             }
         }
         if let first = summary.firstSpaceID {

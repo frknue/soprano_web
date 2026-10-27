@@ -74,7 +74,7 @@ final class MainMenuController: NSObject, NSMenuItemValidation {
         add(editMenu, to: main)
 
         let viewMenu = NSMenu(title: BrowserAppCommand.Menu.view.rawValue)
-        addSections([0, 1, 2, 3, 4, 5], of: .view, to: viewMenu, keymap: keymap)
+        addSections([0, 1, 2, 3, 4, 5, 6], of: .view, to: viewMenu, keymap: keymap)
         add(viewMenu, to: main)
 
         let historyMenu = NSMenu(title: BrowserAppCommand.Menu.history.rawValue)
@@ -188,9 +188,9 @@ final class MainMenuController: NSObject, NSMenuItemValidation {
         guard let command = command(of: menuItem) else { return true }
         guard let manager = windowManager() else { return false }
         let state = command.state(BrowserCommandContext(manager: manager))
-        if let title = state.title {
-            menuItem.title = title
-        }
+        // A title for one moment ("Close Peek") goes back to the
+        // command's own once the moment passes.
+        menuItem.title = command.menuTitle(for: state)
         return state.isEnabled
     }
 

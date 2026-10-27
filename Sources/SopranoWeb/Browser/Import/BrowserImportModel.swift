@@ -92,6 +92,9 @@ struct BrowserImportedSpace: Sendable, Equatable {
     var pinned: [BrowserImportedNode]
     /// Today tabs in sidebar order (split views and folders flattened).
     var today: [BrowserImportedLink]
+    /// Arc's split views among them: each the indices of its tabs in
+    /// `today` (2–4).
+    var todaySplits: [[Int]] = []
 }
 
 /// A profile's favorites (Arc's top apps), in order. Not capped here.

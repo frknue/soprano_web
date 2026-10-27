@@ -49,11 +49,12 @@ extension BrowserWindowController {
         return BrowserPinOutline.rows(currentPinTree, expanded: manager.pinUIState.expandedFolders)
     }
 
-    /// Refreshes the rail: its sections and the Today tabs.
+    /// Refreshes the rail: its sections and the Today rows (a split is one
+    /// row).
     func updateRail() {
-        guard let selected = selectedTab else { return }
+        guard let selected = selectedTab, let selectedRowID else { return }
         verticalTabsView.update(content: railContent(selected: selected))
-        verticalTabsView.update(tabs: todayTabs.map(tabItem), selectedID: selected.id)
+        verticalTabsView.update(tabs: todayRows.compactMap(rowItem), selectedID: selectedRowID)
     }
 
     private func railContent(selected: BrowserTab) -> BrowserRailContent {
@@ -97,15 +98,15 @@ extension BrowserWindowController {
 
     // MARK: - Today tabs
 
-    /// A Today row dragged to index `index` of the Today tabs.
+    /// A Today row dragged to index `index` of the Today rows.
     func moveTodayTab(id: UUID, toTodayIndex index: Int) {
-        let linked = visibleTabs.count - todayTabs.count
-        moveTab(id: id, toIndex: linked + index)
+        moveRow(id: id, toIndex: index, in: todayRows)
     }
 
-    /// Gap `gap` of the Today tabs as a gap of `visibleTabs`.
+    /// Gap `gap` of the Today rows as a gap of `visibleTabs` (past the last
+    /// row: the end, after every tab).
     func visibleGap(forTodayGap gap: Int) -> Int {
-        visibleTabs.count - todayTabs.count + gap
+        visibleGap(forRowGap: gap, in: todayRows)
     }
 
     /// Gap `gap` of `visibleTabs` as `attachTab`'s index (counted among the

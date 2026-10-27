@@ -45,6 +45,9 @@ enum BrowserMemoryPressure: String, Sendable {
 enum BrowserTabSleepExemption: String, Equatable, Sendable {
     /// The selected tab of its window.
     case selected
+    /// A pane of the split on screen (`BrowserSplit`): visible, though
+    /// not focused.
+    case visiblePane
     /// Nothing to release: already asleep, or restored and never loaded.
     case notLoaded
     case playingAudio
@@ -64,6 +67,8 @@ enum BrowserTabSleepExemption: String, Equatable, Sendable {
 /// What the sleep policy reads from one tab.
 struct BrowserTabSleepCandidate: Equatable, Sendable {
     var isSelected = false
+    /// A pane of its window's split on screen other than the focused one.
+    var isVisiblePane = false
     var isLoaded = true
     var isPlayingAudio = false
     var isCapturing = false
@@ -83,6 +88,7 @@ enum BrowserTabSleepPolicy {
     /// when it may sleep.
     static func exemption(for candidate: BrowserTabSleepCandidate) -> BrowserTabSleepExemption? {
         if candidate.isSelected { return .selected }
+        if candidate.isVisiblePane { return .visiblePane }
         if !candidate.isLoaded { return .notLoaded }
         if candidate.isPopup { return .popup }
         if candidate.isPlayingAudio { return .playingAudio }

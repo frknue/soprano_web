@@ -9,10 +9,10 @@ extension BrowserWindowController {
     var extensions: BrowserExtensions { manager.extensions }
 
     /// One button per extension this window runs (a private window: only
-    /// those allowed in private windows), showing its action for the
-    /// selected tab.
+    /// those allowed in private windows), showing its action for the page
+    /// shown (the Peek's while one is open).
     func updateExtensionButtons() {
-        let tab = selectedTab.map { extensions.tabAdapter(for: $0) }
+        let tab = pageTab.map { extensions.tabAdapter(for: $0) }
         let items = extensions.loadedContexts(for: self).map { id, context -> BrowserExtensionToolbarItem in
             let action = context.action(for: tab)
             let name = context.webExtension.displayName ?? id
@@ -30,12 +30,13 @@ extension BrowserWindowController {
         toolbar.setExtensionButtons(items)
     }
 
-    /// A click on an extension's button: its action for the selected tab
-    /// (a user gesture, so `activeTab` grants the page); WebKit fires
-    /// `action.onClicked` or asks for the popup.
+    /// A click on an extension's button: its action for the page shown
+    /// (the Peek's while one is open; a user gesture, so `activeTab`
+    /// grants that page); WebKit fires `action.onClicked` or asks for the
+    /// popup.
     func performExtensionAction(_ id: String) {
         guard let context = extensions.context(id: id) else { return }
-        let tab = selectedTab.map { extensions.tabAdapter(for: $0) }
+        let tab = pageTab.map { extensions.tabAdapter(for: $0) }
         context.performAction(for: tab)
     }
 
@@ -44,7 +45,7 @@ extension BrowserWindowController {
     func extensionMenu(_ id: String) -> NSMenu? {
         guard let context = extensions.context(id: id) else { return nil }
         let menu = NSMenu()
-        let tab = selectedTab.map { extensions.tabAdapter(for: $0) }
+        let tab = pageTab.map { extensions.tabAdapter(for: $0) }
         let title = NSMenuItem(title: context.webExtension.displayName ?? id, action: nil, keyEquivalent: "")
         title.isEnabled = false
         menu.addItem(title)
@@ -114,7 +115,8 @@ extension BrowserWindowController {
 
     /// The navigation gate for pages, in `decidePolicyFor` before any tab
     /// opens or swaps its web view. A navigation that leaves its frame (a
-    /// main-frame load, or a ⌘/middle-click link that opens a tab):
+    /// main-frame load, or a link click that opens a tab, a Peek or a split
+    /// pane, as `handleLinkNavigation` decides it):
     /// - into an extension page from a web view that isn't that
     ///   extension's is allowed only when that extension's own frame
     ///   started it (`mayShowPage`): the swap loads the page app-side,
@@ -126,7 +128,11 @@ extension BrowserWindowController {
         let opensTab = navigationAction.navigationType == .linkActivated
             && BrowserLinkDisposition.disposition(
                 modifierFlags: navigationAction.modifierFlags,
-                buttonNumber: navigationAction.buttonNumber
+                buttonNumber: navigationAction.buttonNumber,
+                origin: tab.origin,
+                pageURL: tab.webView.url,
+                linkURL: url,
+                targetsMainFrame: navigationAction.targetFrame?.isMainFrame ?? true
             ) != .currentTab
         guard navigationAction.targetFrame?.isMainFrame != false || opensTab else { return true }
         if let context = extensionContext(for: url), let id = extensions.id(of: context), tab.webView.extensionID != id || opensTab {

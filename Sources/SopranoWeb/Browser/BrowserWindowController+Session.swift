@@ -5,8 +5,8 @@ extension BrowserWindowController {
     // MARK: - Session
 
     /// What the session saves for this window: every tab of every Space,
-    /// the current Space (a Little Arc's own Space) and each Space's
-    /// selection.
+    /// the current Space (a Little Arc's own Space), each Space's
+    /// selection and the split views.
     var windowState: BrowserWindowState {
         let ids = tabs.map(\.id)
         return BrowserWindowState(
@@ -19,7 +19,8 @@ extension BrowserWindowController {
             spaceSelections: spaceSelections.compactMap { spaceID, tabID in
                 ids.firstIndex(of: tabID).map { BrowserSpaceSelection(spaceID: spaceID, index: $0) }
             }.sorted { $0.index < $1.index },
-            role: role == .little ? .little : .normal
+            role: role == .little ? .little : .normal,
+            splits: splits.compactMap { $0.state(windowTabs: ids) }
         )
     }
 
@@ -31,9 +32,10 @@ extension BrowserWindowController {
 
     /// Adds a saved window's tabs (placed in today's Spaces,
     /// `BrowserWindowState.placedInSpaces`), each in its Space with its
-    /// profile's context, and each Space's selection. Only the current
-    /// Space's selected tab loads; the others load on first selection. A
-    /// current Space without tabs gets a start tab.
+    /// profile's context, each Space's selection and the split views
+    /// (`BrowserSplit.restored`). Only what the current Space shows loads;
+    /// the others load on first selection. A current Space without tabs
+    /// gets a start tab.
     func restoreTabs(_ state: BrowserWindowState) {
         var restored: [BrowserTab] = []
         for tab in state.tabs {
@@ -41,6 +43,13 @@ extension BrowserWindowController {
         }
         for selection in state.spaceSelections where restored.indices.contains(selection.index) {
             spaceSelections[selection.spaceID] = restored[selection.index].id
+        }
+        if allowsSplits {
+            splits += BrowserSplit.restored(
+                state.splits,
+                tabIDs: restored.map(\.id),
+                spaceIDs: restored.map(\.spaceID)
+            )
         }
         guard !tabs.isEmpty else { return }
         let selected = restored.indices.contains(state.selectedIndex) ? restored[state.selectedIndex] : nil
@@ -71,7 +80,7 @@ extension BrowserWindowController {
         tab.lifecycle.pendingRestore = nil
         if let sleep = tab.lifecycle.sleep {
             tab.lifecycle.sleep = nil
-            if tab.id == selectedTab?.id {
+            if isShown(tab) {
                 showWakeSnapshot(sleep.snapshot, for: tab)
             }
             metadataChanged(tab)
@@ -126,7 +135,7 @@ extension BrowserWindowController {
     func handleWebContentCrash(_ tab: BrowserTab) {
         let now = Date()
         let action = BrowserCrashPolicy.action(
-            isSelected: tab.id == selectedTab?.id || tab === peek?.tab,
+            isSelected: isShown(tab) || tab === peek?.tab,
             previousCrash: tab.lifecycle.lastCrashAt,
             now: now
         )

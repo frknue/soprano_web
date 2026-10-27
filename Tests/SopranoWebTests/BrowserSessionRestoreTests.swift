@@ -71,7 +71,7 @@ struct BrowserSessionRestoreTests {
 
         let loaded = store.load()
         #expect(loaded == session)
-        #expect(loaded?.version == 4)
+        #expect(loaded?.version == BrowserSession.currentVersion)
         #expect(loaded?.windows.map(\.frame?.rect) == [
             NSRect(x: 40, y: 60, width: 1280, height: 800),
             NSRect(x: 900, y: 20, width: 900, height: 700),
@@ -172,7 +172,7 @@ struct BrowserSessionRestoreTests {
 
         store.save(BrowserSession(windows: loaded.windows, savedAt: Date()))
         let resaved = try #require(store.load())
-        #expect(resaved.version == 4)
+        #expect(resaved.version == BrowserSession.currentVersion)
         #expect(resaved.windows == loaded.windows)
         let object = try JSONSerialization.jsonObject(with: Data(contentsOf: store.url)) as? [String: Any]
         let window = (object?["windows"] as? [[String: Any]])?.first

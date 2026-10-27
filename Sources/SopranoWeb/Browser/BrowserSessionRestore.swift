@@ -219,6 +219,7 @@ extension BrowserWindowState {
             state.tabs = selected.map { [$0] } ?? []
             state.selectedIndex = 0
             state.spaceSelections = []
+            state.splits = []
             for index in state.tabs.indices {
                 state.tabs[index].spaceID = nil
                 state.tabs[index].origin = .today

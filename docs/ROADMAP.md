@@ -103,7 +103,8 @@ and bookmarks HTML files, and File ▸ Export Pinned Tabs… as bookmarks HTML.
   shortcut, ⌘O, "Open in", 6 h archive).
 - Peek: built in Stage 4 P4 (pinned/favorite links to other sites and ⇧-clicks open an
   overlay in the tab's data context; ⌘O opens it as a tab with its history).
-- Split View: up to 4 panes saved as one sidebar item; ⌃⇧= adds, ⌃⇧- closes, ⌃⇧1…4 focus.
+- Split View: built in Stage 4 P5 (2–4 panes with resizable dividers as one rail row and
+  strip item; ⌃⇧= / ⌃⇧- / ⌃⇧1…4, ⌥-click, drop on a pane edge; saved in session v5).
 - Air Traffic Control: "URL contains / equals" → Space, plus the default for links from
   other apps.
 - Mini Player: when you leave a playing video's tab, its web view moves into a floating

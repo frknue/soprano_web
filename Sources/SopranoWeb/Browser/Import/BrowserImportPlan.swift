@@ -83,6 +83,8 @@ struct BrowserImportPlan: Sendable {
         var profileKey: String
         var pinned: [BrowserImportedNode]
         var today: [BrowserImportedLink]
+        /// Arc's split views among `today`, as indices of `today`.
+        var todaySplits: [[Int]] = []
         var pinCount: Int
         var folderCount: Int
         /// The Space an earlier import made from it: skipped.
@@ -336,6 +338,7 @@ enum BrowserImportPlanner {
                 profileKey: space.profileKey,
                 pinned: space.pinned,
                 today: space.today,
+                todaySplits: space.todaySplits,
                 pinCount: counts.pins,
                 folderCount: counts.folders,
                 existingSpaceID: existing,

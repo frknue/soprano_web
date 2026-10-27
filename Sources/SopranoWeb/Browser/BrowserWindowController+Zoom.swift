@@ -62,16 +62,17 @@ extension BrowserWindowController {
         if tab.webView.pageZoom != zoom {
             tab.webView.pageZoom = zoom
         }
-        if tab.id == selectedTab?.id {
+        if tab === pageTab {
             updateZoomChip()
         }
     }
 
-    /// The percentage chip in the address field while the selected page's
-    /// zoom differs from the default; clicking it resets the site (⌘0).
+    /// The percentage chip in the address field while the page's zoom (the
+    /// Peek's when one is open) differs from the default; clicking it
+    /// resets that site (⌘0).
     func updateZoomChip() {
         let defaultZoom = settingsStore.settings.defaultZoom
-        guard let tab = selectedTab, !tab.isRestorePending, !BrowserZoom.isSame(tab.zoom, defaultZoom) else {
+        guard let tab = pageTab, !tab.isRestorePending, !BrowserZoom.isSame(tab.zoom, defaultZoom) else {
             zoomChip?.isHidden = true
             return
         }

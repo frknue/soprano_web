@@ -8,7 +8,8 @@ extension BrowserWindowManager {
     /// `archiveAfter` (`BrowserArchivePolicy`), measured from
     /// `lifecycle.lastActiveAt` on the sleeper's clock, goes into the
     /// Archive (reason auto), every window's in one Archive write. A
-    /// window's selected tab is in use, so its idle time starts over first.
+    /// window's selected tab and the other panes of its split on screen are
+    /// in use, so their idle time starts over first.
     /// A Little Arc left alone for 6 hours (`BrowserLittleArcIdle`; its
     /// lone tab ages while the window is not key) closes, its tab into the
     /// Archive when it holds a page. Returns the new entries.
@@ -28,7 +29,9 @@ extension BrowserWindowManager {
             }
         }
         for controller in controllers where controller.hasSpaces {
-            controller.selectedTab?.lifecycle.lastActiveAt = now
+            for tab in controller.shownTabs {
+                tab.lifecycle.lastActiveAt = now
+            }
             for tab in controller.tabs {
                 guard let profile = profiles.profile(id: tab.dataContext.profileID),
                       BrowserArchivePolicy.shouldArchive(

@@ -6,7 +6,7 @@ struct BrowserLinkDispositionTests {
     @Test func plainClicksStayInTheTab() {
         #expect(BrowserLinkDisposition.disposition(modifierFlags: [], buttonNumber: 1) == .currentTab)
         #expect(BrowserLinkDisposition.disposition(modifierFlags: [], buttonNumber: 0) == .currentTab)
-        #expect(BrowserLinkDisposition.disposition(modifierFlags: .option, buttonNumber: 1) == .currentTab)
+        #expect(BrowserLinkDisposition.disposition(modifierFlags: .option, buttonNumber: 1) == .splitPane)
         // Right button (2) is not a middle click.
         #expect(BrowserLinkDisposition.disposition(modifierFlags: [], buttonNumber: 2) == .currentTab)
     }

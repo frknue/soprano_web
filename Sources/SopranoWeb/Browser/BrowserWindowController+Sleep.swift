@@ -9,6 +9,7 @@ extension BrowserWindowController {
         let webView = tab.webView
         return BrowserTabSleepCandidate(
             isSelected: tab.id == selectedTab?.id,
+            isVisiblePane: isVisiblePane(tab),
             isLoaded: !tab.isRestorePending && webView.url != nil,
             isPlayingAudio: tab.isPlayingAudio,
             isCapturing: webView.cameraCaptureState != .none

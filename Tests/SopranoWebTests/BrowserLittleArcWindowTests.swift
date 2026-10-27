@@ -219,6 +219,6 @@ struct BrowserLittleArcWindowTests {
         #expect(saved?.role == .little)
         #expect(saved?.currentSpaceID == fixture.work.id)
         #expect(saved?.tabs.count == 1)
-        #expect(session.version == 4)
+        #expect(session.version == BrowserSession.currentVersion)
     }
 }

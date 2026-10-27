@@ -222,6 +222,8 @@ final class BrowserGlobalHotKey {
 /// every app, so it must never take a chord the system, text editing or
 /// one of Soprano's own commands uses.
 enum BrowserGlobalShortcut {
+    /// The default chord, and the one a stored chord that is taken falls
+    /// back to (`BrowserSettings` decoding).
     static let fallback = "opt+cmd+n"
 
     /// Chords other apps and the system rely on that may be missing from
@@ -242,6 +244,17 @@ enum BrowserGlobalShortcut {
         else { return false }
         let command = keymap.command(for: shortcut)
         return command == nil || command == .newLittleArc
+    }
+
+    /// Who holds `shortcut` against command `id` in Settings ▸ Keyboard
+    /// shortcuts: the global New Little Arc hotkey while it is on (it
+    /// fires before any menu, so no other command may take its chord);
+    /// nil when nothing does.
+    static func owner(of shortcut: BrowserShortcut, for id: BrowserCommandID, settings: BrowserSettings) -> String? {
+        guard settings.globalLittleArcEnabled, id != .newLittleArc,
+              BrowserShortcut(settings.globalLittleArcShortcut) == shortcut
+        else { return nil }
+        return "Little Arc anywhere"
     }
 
     enum RecorderAnswer: Equatable {

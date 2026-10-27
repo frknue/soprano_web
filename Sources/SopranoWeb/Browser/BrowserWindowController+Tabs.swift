@@ -143,7 +143,7 @@ extension BrowserWindowController {
             peek.view.install(tab.webView)
         } else {
             installWebView(tab.webView)
-            tab.webView.isHidden = tab.id != selectedTab?.id
+            applyPaneLayout()
         }
         previousSelectedTabID = previousSelection
     }
@@ -242,7 +242,8 @@ extension BrowserWindowController {
     }
 
     /// Puts a web view in the page area, hidden, under the find bar and
-    /// the Peek.
+    /// the Peek, filling it. Its sides are kept on the web view, so a
+    /// split's pane layout (`applyPaneLayout`) can turn them off.
     private func installWebView(_ webView: BrowserWebView) {
         webView.isHidden = true
         if let peekView = peek?.view {
@@ -251,10 +252,12 @@ extension BrowserWindowController {
             webArea.addSubview(webView)
         }
         webArea.addSubview(findBar, positioned: .above, relativeTo: nil)
-        NSLayoutConstraint.activate([
-            webView.topAnchor.constraint(equalTo: webArea.topAnchor),
+        webView.pageEdgeConstraints = [
             webView.leadingAnchor.constraint(equalTo: webArea.leadingAnchor),
             webView.trailingAnchor.constraint(equalTo: webArea.trailingAnchor),
+        ]
+        NSLayoutConstraint.activate(webView.pageEdgeConstraints + [
+            webView.topAnchor.constraint(equalTo: webArea.topAnchor),
             webView.bottomAnchor.constraint(equalTo: webArea.bottomAnchor),
         ])
     }
@@ -275,6 +278,8 @@ extension BrowserWindowController {
         let visibleIndex = visibleTabs.firstIndex { $0 === tab }
         let wasSelected = tab.id == selectedTab?.id
         let selectedID = selectedTab?.id
+        // A pane leaves its split; a focused one hands the focus to a pane.
+        let paneSuccessor = removeFromSplits([tab.id])
         unbindTab(tab)
         if wasSelected, !findBar.isHidden {
             tab.webView.find("", configuration: WKFindConfiguration()) { _ in }
@@ -297,10 +302,13 @@ extension BrowserWindowController {
             // The current Space's last tab left; it shows a start tab.
             selectedIndex = 0
             newTab()
+        } else if wasSelected, let paneSuccessor, visibleTabs.contains(where: { $0.id == paneSuccessor }) {
+            selectTab(id: paneSuccessor, focus: true)
         } else if wasSelected, let visibleIndex {
             selectTab(index: min(visibleIndex, visibleTabs.count - 1), focus: true)
         } else if let selectedID, let kept = visibleTabs.firstIndex(where: { $0.id == selectedID }) {
             selectedIndex = kept
+            applyPaneLayout()
             updateTabStrip()
         }
         saveSession()
@@ -329,8 +337,10 @@ extension BrowserWindowController {
         let oldVisible = visibleTabs
         let selected = selectedTab
         let wasSelected = selected.map { leavingIDs.contains($0.id) } ?? false
-        // Where the selection goes: the first tab after it that stays.
-        let successor = selected.flatMap { selected in
+        // Where the selection goes: a pane of its split that stays, else
+        // the first tab after it that stays.
+        let paneSuccessor = removeFromSplits(leavingIDs)
+        let successor = paneSuccessor ?? selected.flatMap { selected in
             oldVisible.firstIndex { $0 === selected }.flatMap { index in
                 oldVisible[(index + 1)...].first { !leavingIDs.contains($0.id) }?.id
             }
@@ -366,6 +376,7 @@ extension BrowserWindowController {
             selectTab(index: target, focus: true)
         } else if let selectedID = selected?.id, let kept = visibleTabs.firstIndex(where: { $0.id == selectedID }) {
             selectedIndex = kept
+            applyPaneLayout()
             updateTabStrip()
         }
         saveSession()
@@ -418,6 +429,7 @@ extension BrowserWindowController {
     /// The window closed: every tab is unbound and released without
     /// selecting (and so loading) the lazily restored ones.
     func tearDown() {
+        splits.removeAll()
         closePeek()
         cancelStoreObservations()
         cancelRecentTabs()
@@ -512,8 +524,13 @@ extension BrowserWindowController {
 
     // MARK: - Selection
 
-    /// Selects tab `id`, switching to its Space when it is in another one.
+    /// Selects tab `id`, switching to its Space when it is in another one;
+    /// a split's id selects its focused pane.
     func selectTab(id: UUID, focus: Bool) {
+        if let split = split(id: id) {
+            selectTab(id: split.focusedTabID, focus: focus)
+            return
+        }
         guard let tab = tabs.first(where: { $0.id == id }) else { return }
         if hasSpaces, let spaceID = tab.spaceID, spaceID != currentSpaceID {
             switchToSpace(spaceID, selecting: id, focus: focus)
@@ -531,11 +548,12 @@ extension BrowserWindowController {
         showSelectedTab(leaving: previous, focus: focus)
     }
 
-    /// Shows `visibleTabs[selectedIndex]` (every other page hidden), loads
-    /// it when it is not loaded, remembers it as its Space's selection and
-    /// refreshes the tab list and chrome. `previous` is the tab selected
-    /// before (of this or, on a Space switch, the Space left); its idle time
-    /// starts now.
+    /// Shows `visibleTabs[selectedIndex]` (with the other panes of its
+    /// split, which it focuses; every other page hidden), loads what is
+    /// shown when it is not loaded, remembers it as its Space's selection
+    /// and refreshes the tab list and chrome. `previous` is the tab
+    /// selected before (of this or, on a Space switch, the Space left);
+    /// the idle time of what leaves the screen starts now.
     func showSelectedTab(leaving previous: BrowserTab?, focus: Bool) {
         guard visibleTabs.indices.contains(selectedIndex) else { return }
         let tab = visibleTabs[selectedIndex]
@@ -543,10 +561,15 @@ extension BrowserWindowController {
             // The Peek belongs to the page it opened over.
             closePeek()
         }
-        for other in tabs {
-            other.webView.isHidden = other !== tab
+        let leavingPage = previous.map(pageTabs(of:)) ?? []
+        if let index = splits.firstIndex(where: { $0.contains(tab.id) }) {
+            splits[index].focus(tab.id)
         }
-        tabWasUsed(tab)
+        applyPaneLayout()
+        let shown = shownTabs
+        for pane in shown {
+            tabWasUsed(pane)
+        }
         recentTabs.touch(tab.id)
         if commandBar.isOpen, previous?.id != tab.id {
             // ⌘L's address and ⌘T's results were the old tab's.
@@ -554,14 +577,22 @@ extension BrowserWindowController {
         }
         if let previous, previous.id != tab.id {
             previousSelectedTabID = previous.id
-            previous.lifecycle.lastActiveAt = tab.lifecycle.lastActiveAt
-            removeWakeSnapshot(previous)
+            for leaving in leavingPage where !shown.contains(where: { $0 === leaving }) {
+                leaving.lifecycle.lastActiveAt = tab.lifecycle.lastActiveAt
+                removeWakeSnapshot(leaving)
+            }
         }
         if let spaceID = currentSpaceID {
             spaceSelections[spaceID] = tab.id
         }
         if tab.isStartPage, staleStartTabs.remove(tab.id) != nil {
             loadStartPage(tab)
+        }
+        for pane in shown where pane !== tab {
+            if pane.isStartPage, staleStartTabs.remove(pane.id) != nil {
+                loadStartPage(pane)
+            }
+            prepareSelectedTab(pane)
         }
         prepareSelectedTab(tab)
         updateTabStrip()
@@ -615,10 +646,15 @@ extension BrowserWindowController {
     /// pin instead (`unloadLinkedTab`). The window's last tab closes the
     /// window instead, which goes onto the stack as one window entry (a
     /// private window goes nowhere). A Space's only tab, when it is the
-    /// start page, stays: closing it would only open another.
+    /// start page, stays: closing it would only open another. A split's id
+    /// closes every pane (`closeSplit`).
     func closeTab(id: UUID, archive: Bool = false) {
         if peek?.tab.id == id {
             closePeek()
+            return
+        }
+        if split(id: id) != nil {
+            closeSplit(id: id, archive: archive)
             return
         }
         guard let tab = tabs.first(where: { $0.id == id }) else { return }
@@ -697,10 +733,11 @@ extension BrowserWindowController {
 
     // MARK: - Tab list
 
-    /// Refreshes the tab strip and the rail from `visibleTabs`.
+    /// Refreshes the tab strip and the rail from `visibleTabs`: one item
+    /// per tab, one per split (`stripRows`).
     func updateTabStrip() {
-        guard let selectedTab else { return }
-        tabStrip.update(tabs: visibleTabs.map(tabItem), selectedID: selectedTab.id)
+        guard let selectedRowID else { return }
+        tabStrip.update(tabs: stripRows.compactMap(rowItem), selectedID: selectedRowID)
         updateRail()
     }
 

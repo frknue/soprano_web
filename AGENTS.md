@@ -61,7 +61,7 @@ surrounding style.
   sheets, session restore and crashes, address-bar typing, tab audio and hover,
   site permissions, print/PDF/save and context menus, Clear Browsing Data and
   downloads. Window flags run in order on the active window:
-  `--session <file>` restores a version 1, 2 or 3 session (every window),
+  `--session <file>` restores a version 1–5 session (every window),
   `--new-window <url|start>` (repeatable) opens another window,
   cascaded, in the active window's Space (switch it first with `--space`
   for another one), `--new-private-window <url|start>` (repeatable) a
@@ -257,6 +257,22 @@ surrounding style.
   `click`, `back`) keep acting on the selected tab, so `browser eval` can
   click a pinned page's link and `browser back` checks the history Open as
   Tab kept.
+  Split View (`BrowserSplit`, `BrowserWindowController+Split.swift`): 2–4
+  tabs of one Space side by side; the focused pane is `selectedTab`, the
+  other panes are `isVisiblePane` (never sleep or archive). Harness:
+  `--split <url|start>` (repeatable) adds a pane right of the focused one,
+  `--split-command add|close|1…4` runs ⌃⇧= (with the Command Bar), ⌃⇧- or
+  ⌃⇧n through the registry, `--split-focus n`, `--split-resize d:x` drags
+  divider d to x points of the page area (its drag handler),
+  `--split-drop [w:]t:<x|left|right>` runs the page area's drop handler
+  for tab t (of window w) at x (prints the pane the edge math gave),
+  `--split-separate`, `--print-splits` (per window: splits with panes, tab
+  numbers, origins, ratios, frames, dividers, sleep exemptions, the rail's
+  Today rows, the strip's items, `tabs` lines and the session's split
+  state); `--click-page opt-X,Y` ⌥-clicks a link into a new pane; the
+  capture draws every pane and the focus ring. CLI: `browser split [url]`,
+  `browser split close`, `browser split focus n`; `browser tabs` marks
+  panes `split s, pane p of k`, and `eval` & co. act on the focused pane.
   With `--support-dir` an import keeps
   its Spaces for the next run (only their WebKit data stores are
   removed), so a second run shows what a re-import skips.

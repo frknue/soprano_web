@@ -7,11 +7,16 @@ enum BrowserLinkDisposition: Equatable, Sendable {
     case foregroundTab
     /// A Peek over the page (`BrowserWindowController.openPeek`).
     case peek
+    /// A new pane of the page's split (`BrowserWindowController
+    /// .openLinkPane`).
+    case splitPane
 
     /// `WKNavigationAction.buttonNumber` is a bitmask (left 1, right 2,
     /// middle 4). ⌘-click and middle-click open a background tab; adding ⇧
-    /// brings it to the front. ⇧ alone opens a Peek. Every other click
-    /// stays in the tab.
+    /// brings it to the front. ⇧ alone opens a Peek, ⌥ alone a split pane.
+    /// Every other click stays in the tab. WebKit doesn't treat ⌥-click
+    /// as a download (`shouldPerformDownload` is only the `download`
+    /// attribute), so it reaches the link handling.
     static func disposition(
         modifierFlags: NSEvent.ModifierFlags,
         buttonNumber: Int
@@ -19,7 +24,8 @@ enum BrowserLinkDisposition: Equatable, Sendable {
         let flags = modifierFlags.intersection(.deviceIndependentFlagsMask)
         let isMiddle = buttonNumber & 4 != 0
         guard flags.contains(.command) || isMiddle else {
-            return flags.contains(.shift) ? .peek : .currentTab
+            if flags.contains(.shift) { return .peek }
+            return flags.contains(.option) ? .splitPane : .currentTab
         }
         return flags.contains(.shift) ? .foregroundTab : .backgroundTab
     }
@@ -28,7 +34,7 @@ enum BrowserLinkDisposition: Equatable, Sendable {
     /// own disposition, and a plain click from a pinned or favorite tab to
     /// another site (`BrowserPeekRule.isOtherSite`) that would load in the
     /// main frame opens a Peek too. Only web links (http, https) open a
-    /// Peek; ⇧ on anything else stays in the tab.
+    /// Peek or a split pane; ⇧ or ⌥ on anything else stays in the tab.
     static func disposition(
         modifierFlags: NSEvent.ModifierFlags,
         buttonNumber: Int,
@@ -40,8 +46,8 @@ enum BrowserLinkDisposition: Equatable, Sendable {
         let base = disposition(modifierFlags: modifierFlags, buttonNumber: buttonNumber)
         let isWeb = ["http", "https"].contains(linkURL?.scheme?.lowercased() ?? "")
         switch base {
-        case .peek:
-            return isWeb ? .peek : .currentTab
+        case .peek, .splitPane:
+            return isWeb ? base : .currentTab
         case .currentTab:
             guard isWeb, targetsMainFrame, origin != .today,
                   BrowserPeekRule.isOtherSite(from: pageURL, to: linkURL)
@@ -49,6 +55,20 @@ enum BrowserLinkDisposition: Equatable, Sendable {
             return .peek
         case .backgroundTab, .foregroundTab:
             return base
+        }
+    }
+
+    /// A `window.open` or a link's new window that is not a link click
+    /// (scripted): ⌘ or middle still open a background tab and ⇧⌘ a
+    /// foreground one; ⇧ or ⌥ held by chance change nothing (no Peek or
+    /// split pane, so a sized pop-up stays a pop-up).
+    static func scriptedDisposition(
+        modifierFlags: NSEvent.ModifierFlags,
+        buttonNumber: Int
+    ) -> BrowserLinkDisposition {
+        switch disposition(modifierFlags: modifierFlags, buttonNumber: buttonNumber) {
+        case .peek, .splitPane, .currentTab: .currentTab
+        case let other: other
         }
     }
 

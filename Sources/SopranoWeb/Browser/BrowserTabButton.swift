@@ -4,7 +4,8 @@ import QuartzCore
 /// One tab in the strip or the rail: favicon (a spinner while loading), title,
 /// an audio glyph while the tab plays sound or is muted, and the close button
 /// on the active tab and under the pointer. Selection is a raised surface; a
-/// sleeping tab's favicon and title are dimmed.
+/// sleeping tab's favicon and title are dimmed. A split's row shows every
+/// pane's favicon, the focused pane's title.
 @MainActor
 final class BrowserTabButton: NSView {
     enum DragPhase {
@@ -40,6 +41,10 @@ final class BrowserTabButton: NSView {
     var contextMenuProvider: ((UUID) -> NSMenu?)?
 
     private let iconView = NSImageView()
+    /// A split's other panes' favicons, after the first pane's.
+    private let paneIcons = NSStackView()
+    private var labelAfterIcon: NSLayoutConstraint!
+    private var labelAfterPanes: NSLayoutConstraint!
     private let spinner = BrowserTabSpinner()
     /// "/" on a compact pinned tab whose page moved on.
     private let awayBadge = NSTextField(labelWithString: "/")
@@ -100,6 +105,12 @@ final class BrowserTabButton: NSView {
         label.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
         addSubview(label)
 
+        paneIcons.translatesAutoresizingMaskIntoConstraints = false
+        paneIcons.orientation = .horizontal
+        paneIcons.spacing = 3
+        paneIcons.isHidden = true
+        addSubview(paneIcons)
+
         audioButton.target = self
         audioButton.action = #selector(audioPressed)
         closeButton.target = self
@@ -116,6 +127,8 @@ final class BrowserTabButton: NSView {
         addSubview(accessories)
 
         iconLeading = iconView.leadingAnchor.constraint(equalTo: leadingAnchor, constant: 10)
+        labelAfterIcon = label.leadingAnchor.constraint(equalTo: iconView.trailingAnchor, constant: 8)
+        labelAfterPanes = label.leadingAnchor.constraint(equalTo: paneIcons.trailingAnchor, constant: 8)
         NSLayoutConstraint.activate([
             iconLeading,
             iconView.centerYAnchor.constraint(equalTo: centerYAnchor),
@@ -130,7 +143,9 @@ final class BrowserTabButton: NSView {
             awayBadge.leadingAnchor.constraint(equalTo: iconView.trailingAnchor, constant: 1),
             awayBadge.centerYAnchor.constraint(equalTo: iconView.bottomAnchor, constant: -1),
 
-            label.leadingAnchor.constraint(equalTo: iconView.trailingAnchor, constant: 8),
+            labelAfterIcon,
+            paneIcons.leadingAnchor.constraint(equalTo: iconView.trailingAnchor, constant: 3),
+            paneIcons.centerYAnchor.constraint(equalTo: centerYAnchor),
             label.trailingAnchor.constraint(lessThanOrEqualTo: accessories.leadingAnchor, constant: -4),
             label.centerYAnchor.constraint(equalTo: centerYAnchor),
 
@@ -251,15 +266,9 @@ final class BrowserTabButton: NSView {
     private func refreshContent() {
         let colors = theme.colors
         label.stringValue = item.title
-        if let favicon = item.favicon {
-            iconView.image = favicon
-            iconView.contentTintColor = nil
-        } else {
-            let configuration = NSImage.SymbolConfiguration(pointSize: 12, weight: .regular)
-            iconView.image = NSImage(systemSymbolName: "globe", accessibilityDescription: nil)?
-                .withSymbolConfiguration(configuration)
-            iconView.contentTintColor = colors.textMuted
-        }
+        let isSplit = item.panes.count > 1
+        setIcon(iconView, isSplit ? item.panes[0].favicon : item.favicon)
+        refreshPaneIcons(isSplit ? Array(item.panes.dropFirst()) : [])
         iconView.isHidden = item.isLoading
         spinner.color = colors.textMuted
         spinner.isAnimating = item.isLoading
@@ -273,7 +282,9 @@ final class BrowserTabButton: NSView {
         audioButton.toolTip = item.isMuted ? "Unmute tab" : "Mute tab"
         audioButton.apply(theme: theme)
 
-        if let url = item.url?.absoluteString, !url.isEmpty {
+        if isSplit {
+            toolTip = "Split View\n" + item.panes.map { ($0.isFocused ? "▸ " : "   ") + $0.title }.joined(separator: "\n")
+        } else if let url = item.url?.absoluteString, !url.isEmpty {
             toolTip = "\(item.title)\n\(url)"
         } else {
             toolTip = item.title
@@ -286,12 +297,54 @@ final class BrowserTabButton: NSView {
         }
         // Asleep: the page was released; the tab reads as inactive.
         iconView.alphaValue = item.isAsleep ? 0.4 : 1
+        paneIcons.alphaValue = item.isAsleep ? 0.4 : 1
         label.alphaValue = item.isAsleep ? 0.55 : 1
         label.isHidden = isCompact
         accessories.isHidden = isCompact
         awayBadge.isHidden = !(isCompact && item.isAway)
         awayBadge.textColor = colors.textMuted
         refresh()
+    }
+
+    /// `image`, else a globe in the muted color.
+    private func setIcon(_ view: NSImageView, _ image: NSImage?) {
+        if let image {
+            view.image = image
+            view.contentTintColor = nil
+        } else {
+            let configuration = NSImage.SymbolConfiguration(pointSize: 12, weight: .regular)
+            view.image = NSImage(systemSymbolName: "globe", accessibilityDescription: nil)?
+                .withSymbolConfiguration(configuration)
+            view.contentTintColor = theme.colors.textMuted
+        }
+    }
+
+    /// The favicons after the first pane's; the label follows the last.
+    private func refreshPaneIcons(_ panes: [BrowserTabPaneItem]) {
+        while paneIcons.arrangedSubviews.count > panes.count {
+            let view = paneIcons.arrangedSubviews[paneIcons.arrangedSubviews.count - 1]
+            paneIcons.removeArrangedSubview(view)
+            view.removeFromSuperview()
+        }
+        while paneIcons.arrangedSubviews.count < panes.count {
+            let view = NSImageView()
+            view.translatesAutoresizingMaskIntoConstraints = false
+            view.imageScaling = .scaleProportionallyUpOrDown
+            NSLayoutConstraint.activate([
+                view.widthAnchor.constraint(equalToConstant: 16),
+                view.heightAnchor.constraint(equalToConstant: 16),
+            ])
+            paneIcons.addArrangedSubview(view)
+        }
+        for (view, pane) in zip(paneIcons.arrangedSubviews, panes) {
+            if let view = view as? NSImageView {
+                setIcon(view, pane.favicon)
+            }
+        }
+        let shows = !panes.isEmpty && !isCompact
+        paneIcons.isHidden = !shows
+        labelAfterIcon.isActive = !shows
+        labelAfterPanes.isActive = shows
     }
 
     override func layout() {

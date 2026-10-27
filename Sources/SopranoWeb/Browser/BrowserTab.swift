@@ -19,6 +19,9 @@ struct BrowserTabItem: Equatable {
     var isLinked = false
     /// A linked tab whose page left its pin's address: the "/" mark.
     var isAway = false
+    /// A split's row (`id` is the split's): every pane, left to right;
+    /// empty for a tab.
+    var panes: [BrowserTabPaneItem] = []
 
     static func == (lhs: BrowserTabItem, rhs: BrowserTabItem) -> Bool {
         lhs.id == rhs.id
@@ -31,6 +34,19 @@ struct BrowserTabItem: Equatable {
             && lhs.isAsleep == rhs.isAsleep
             && lhs.isLinked == rhs.isLinked
             && lhs.isAway == rhs.isAway
+            && lhs.panes == rhs.panes
+    }
+}
+
+/// One pane of a split's row: its favicon beside the others; the focused
+/// pane's title is the row's.
+struct BrowserTabPaneItem: Equatable {
+    var title: String
+    var favicon: NSImage?
+    var isFocused: Bool
+
+    static func == (lhs: BrowserTabPaneItem, rhs: BrowserTabPaneItem) -> Bool {
+        lhs.title == rhs.title && lhs.favicon === rhs.favicon && lhs.isFocused == rhs.isFocused
     }
 }
 

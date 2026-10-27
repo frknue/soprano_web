@@ -69,7 +69,7 @@ final class BrowserWindowController: NSWindowController {
     let tabStrip: BrowserTabStripView
     let findBar: BrowserFindBar
     let sidebar: BrowserSidebarView
-    let webArea = NSView()
+    let webArea = BrowserPageAreaView()
     let linkStatus = BrowserLinkStatusView()
     private let hairline: ChromeRuleView
     let sidebarDivider: ChromeRuleView
@@ -126,6 +126,10 @@ final class BrowserWindowController: NSWindowController {
     var zoomChip: ChromeButton?
     /// The Peek over the page, at most one per window (`openPeek`).
     var peek: BrowserPeek?
+    /// The window's split views (`BrowserSplit`); a tab is in at most one.
+    var splits: [BrowserSplit] = []
+    /// The page area's panes, dividers, focus ring and drop marker.
+    lazy var splitPage = BrowserSplitPage(theme: theme)
 
     static let verticalSidebarCollapsedKey = "verticalSidebarCollapsed"
     static let toolbarHiddenKey = "toolbarHidden"
@@ -684,6 +688,7 @@ final class BrowserWindowController: NSWindowController {
         sidebar.apply(theme: theme)
         linkStatus.apply(theme: theme)
         peek?.view.apply(theme: theme)
+        splitPage.apply(theme: theme)
         // A sleeping start page builds with the new theme when it wakes.
         for tab in tabs where tab.isStartPage && !tab.isRestorePending {
             loadStartPage(tab)

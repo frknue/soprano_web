@@ -48,8 +48,9 @@ final class BrowserImporter {
         /// "Open links from other apps in" as the import set it (Arc's
         /// `defaultDestination`); nil when it didn't.
         var otherLinks: BrowserOutsideLinkDestination?
-        /// The Today tabs to open, by the Space they belong to.
-        var todayTabs: [(spaceID: UUID, links: [BrowserImportedLink])] = []
+        /// The Today tabs to open, by the Space they belong to, with Arc's
+        /// split views among them (indices of `links`).
+        var todayTabs: [(spaceID: UUID, links: [BrowserImportedLink], splits: [[Int]])] = []
         /// The first Space this import made (the window switches to it).
         var firstSpaceID: UUID?
         var history: [HistoryResult] = []
@@ -138,7 +139,7 @@ final class BrowserImporter {
             result.foldersAdded += space.folderCount
             result.firstSpaceID = result.firstSpaceID ?? made.id
             if !space.today.isEmpty {
-                result.todayTabs.append((made.id, space.today))
+                result.todayTabs.append((made.id, space.today, space.todaySplits))
             }
         }
 

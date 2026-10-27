@@ -685,31 +685,34 @@ enum SnapshotCommand {
         let base = NSImage(size: captureContent.bounds.size)
         base.addRepresentation(baseRep)
 
-        var pageImage: NSImage?
+        // Every page on screen: the selected tab, or each pane of its split.
+        var pageImages: [(webView: BrowserWebView, image: NSImage)] = []
         if privacySheet == nil, !options.showSettings, !options.showHelp, !options.showPrompt,
            websitesSheet == nil, searchEnginesSheet == nil, shortcutsSheet == nil, spaceSheet == nil,
            extensionsSheet == nil,
            importOutcome.window == nil,
            !options.showFind,
-           captureWindow === window,
-           controller.selectedTab?.lifecycle.crashView == nil,
-           let webView = controller.selectedTab?.webView {
-            var finished = false
-            webView.takeSnapshot(with: nil) { image, _ in
-                pageImage = image
-                finished = true
-            }
-            let pageDeadline = Date().addingTimeInterval(5)
-            while !finished, Date() < pageDeadline {
-                _ = RunLoop.current.run(
-                    mode: .default,
-                    before: min(pageDeadline, Date().addingTimeInterval(0.05))
-                )
+           captureWindow === window
+        {
+            for tab in controller.shownTabs where tab.lifecycle.crashView == nil {
+                let webView = tab.webView
+                var finished = false
+                webView.takeSnapshot(with: nil) { image, _ in
+                    if let image { pageImages.append((webView, image)) }
+                    finished = true
+                }
+                let pageDeadline = Date().addingTimeInterval(5)
+                while !finished, Date() < pageDeadline {
+                    _ = RunLoop.current.run(
+                        mode: .default,
+                        before: min(pageDeadline, Date().addingTimeInterval(0.05))
+                    )
+                }
             }
         }
         // A Peek's page is a second web view over the page.
         var peekImage: NSImage?
-        if pageImage != nil, let peekWebView = controller.peek?.tab.webView {
+        if !pageImages.isEmpty, let peekWebView = controller.peek?.tab.webView {
             var finished = false
             peekWebView.takeSnapshot(with: nil) { image, _ in
                 peekImage = image
@@ -729,9 +732,18 @@ enum SnapshotCommand {
         NSColor.clear.setFill()
         captureContent.bounds.fill()
         base.draw(in: captureContent.bounds)
-        if let pageImage, let webView = controller.selectedTab?.webView {
-            let frame = webView.convert(webView.bounds, to: captureContent)
-            pageImage.draw(in: frame)
+        for (webView, image) in pageImages {
+            image.draw(in: webView.convert(webView.bounds, to: captureContent))
+        }
+        // A split's focus ring sits over the focused pane's page.
+        let ring = controller.splitPage.focusRing
+        if pageImages.count > 1, !ring.isHidden, ring.window === captureWindow,
+           let rep = ring.bitmapImageRepForCachingDisplay(in: ring.bounds)
+        {
+            ring.cacheDisplay(in: ring.bounds, to: rep)
+            let image = NSImage(size: ring.bounds.size)
+            image.addRepresentation(rep)
+            image.draw(in: ring.convert(ring.bounds, to: captureContent))
         }
         if let peekImage, let peek = controller.peek,
            let rep = peek.view.bitmapImageRepForCachingDisplay(in: peek.view.bounds)

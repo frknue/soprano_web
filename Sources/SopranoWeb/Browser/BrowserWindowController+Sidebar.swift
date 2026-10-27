@@ -12,14 +12,18 @@ extension BrowserWindowController {
         findBar.focus()
     }
 
-    func hideFindBar() {
+    /// Closes the find bar and clears the page's matches; `focus` gives the
+    /// page the keyboard back.
+    func hideFindBar(focus: Bool = true) {
         vimiumFindActive = false
         findBar.isHidden = true
         findQuery = ""
         findBar.setResult(found: false, hasQuery: false)
         if let tab = pageTab {
             tab.webView.find("", configuration: WKFindConfiguration()) { _ in }
-            window?.makeFirstResponder(tab.webView)
+            if focus {
+                window?.makeFirstResponder(tab.webView)
+            }
         }
         viewNeedsLayout()
     }

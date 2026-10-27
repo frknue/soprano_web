@@ -203,11 +203,15 @@ struct BrowserArcImportReader: Sendable {
         if containerPairs.isEmpty { containerPairs = ArcJSON.pairs(json["newContainerIDs"]) }
         var pinned: [BrowserImportedNode] = []
         var today: [BrowserImportedLink] = []
+        var todaySplits: [[Int]] = []
         for pair in containerPairs {
             guard let containerID = pair.value as? String else { continue }
             switch ArcJSON.enumCase(pair.key)?.name ?? "" {
             case "pinned": pinned += sidebar.children(of: containerID)
-            case "unpinned": today += sidebar.children(of: containerID).flatMap(\.links)
+            case "unpinned":
+                let found = sidebar.todayLinks(of: containerID)
+                todaySplits += found.splits.map { split in split.map { $0 + today.count } }
+                today += found.links
             default: continue
             }
         }
@@ -230,7 +234,8 @@ struct BrowserArcImportReader: Sendable {
             color: color,
             profileKey: ArcJSON.profileKey(json["profile"]) ?? BrowserImportedProfile.defaultKey,
             pinned: pinned,
-            today: today
+            today: today,
+            todaySplits: todaySplits
         )
     }
 
@@ -353,10 +358,47 @@ private struct ArcSidebar {
     /// The tree under a container (a Space's pinned or unpinned container,
     /// a favorites container): lists become folders, tabs links, split views
     /// and other containers are flattened into their tabs, items without a
-    /// URL are dropped.
+    /// URL are dropped. Pins are saved links, not open tabs, so a pinned
+    /// split view's tabs stay separate pins.
     func children(of containerID: String) -> [BrowserImportedNode] {
         var visited: Set<String> = [containerID]
         return nodes(items[containerID]?.childrenIDs ?? [], visited: &visited)
+    }
+
+    /// A Today container's tabs in sidebar order (folders and other
+    /// containers flattened, as `children(of:)` gives them) and its split
+    /// views, each as the indices of its tabs in that list: the first
+    /// `BrowserSplit.maximumPanes` of them (a split view nested in another
+    /// counts as its tabs); one with fewer than two tabs is no split.
+    func todayLinks(of containerID: String) -> (links: [BrowserImportedLink], splits: [[Int]]) {
+        var visited: Set<String> = [containerID]
+        var links: [BrowserImportedLink] = []
+        var splits: [[Int]] = []
+        collect(items[containerID]?.childrenIDs ?? [], visited: &visited, links: &links, splits: &splits, inSplit: false)
+        return (links, splits)
+    }
+
+    private func collect(
+        _ ids: [String],
+        visited: inout Set<String>,
+        links: inout [BrowserImportedLink],
+        splits: inout [[Int]],
+        inSplit: Bool
+    ) {
+        for id in ids {
+            guard visited.insert(id).inserted, let item = items[id] else { continue }
+            switch item.kind {
+            case "tab":
+                if let link = item.link { links.append(link) }
+            case "splitView" where !inSplit:
+                let start = links.count
+                collect(item.childrenIDs, visited: &visited, links: &links, splits: &splits, inSplit: true)
+                let panes = Array((start..<links.count).prefix(BrowserSplit.maximumPanes))
+                if panes.count >= 2 { splits.append(panes) }
+            default:
+                collect(item.childrenIDs, visited: &visited, links: &links, splits: &splits, inSplit: inSplit)
+            }
+        }
     }
 
     private func nodes(_ ids: [String], visited: inout Set<String>) -> [BrowserImportedNode] {

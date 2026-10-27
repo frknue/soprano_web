@@ -94,11 +94,7 @@ extension BrowserWindowController {
             }
 
         case "tabs":
-            let lines = visibleTabs.enumerated().map { index, tab in
-                let selected = tab.id == selectedTab?.id ? "*" : " "
-                return "\(selected) \(index + 1)\t\(tab.displayTitle)\t\(tab.state.url ?? "about:start")"
-            }
-            completion(.success(lines.joined(separator: "\n")))
+            completion(.success(automationTabLines().joined(separator: "\n")))
 
         case "new-tab":
             let url = arguments.first

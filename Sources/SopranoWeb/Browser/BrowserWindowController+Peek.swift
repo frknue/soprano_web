@@ -92,13 +92,18 @@ extension BrowserWindowController {
         extensions.tabAttached(tab, to: self)
         updatePeekChrome()
         window?.makeFirstResponder(tab.webView)
+        refreshChromeForPageTab()
     }
 
     /// Closes the Peek and releases its page; the selected tab's page takes
-    /// the focus the Peek had (`focusPage`).
+    /// the focus the Peek had (`focusPage`). An open find bar searched the
+    /// Peek's page, so it closes with it.
     func closePeek(focusPage: Bool = true) {
         guard let peek else { return }
         let hadFocus = peekHasFocus
+        if !findBar.isHidden {
+            hideFindBar(focus: false)
+        }
         self.peek = nil
         let tab = peek.tab
         unbindTab(tab)
@@ -110,6 +115,16 @@ extension BrowserWindowController {
         if focusPage, hadFocus, let selected = selectedTab {
             window?.makeFirstResponder(selected.webView)
         }
+        refreshChromeForPageTab()
+    }
+
+    /// What follows the page shown (the Peek's or the selected tab's): the
+    /// zoom chip, the capture indicator and the extensions' toolbar
+    /// buttons.
+    private func refreshChromeForPageTab() {
+        updateZoomChip()
+        updateCaptureIndicator()
+        updateExtensionButtons()
     }
 
     /// ⌘O / "Open as Tab": the Peek's web view becomes a selected Today tab
@@ -159,13 +174,16 @@ extension BrowserWindowController {
         )
     }
 
-    /// Esc in the Peek's page closes the Peek when Vimium has nothing to
-    /// end: an Esc that leaves a text field, hints, visual mode or Vimium's
-    /// find goes to Vimium first, the next one closes the Peek.
+    /// Esc in the Peek's page closes the Peek when Vimium and the page have
+    /// nothing to end: an Esc that leaves a text field, hints, visual
+    /// mode, Vimium's find or the find bar goes to them first, the next
+    /// one closes the Peek; in element fullscreen it is WebKit's.
     func closesPeek(on event: NSEvent, in tab: BrowserTab) -> Bool {
         guard let peek, peek.tab === tab, event.keyCode == 53,
               event.modifierFlags.intersection([.command, .control, .option, .shift]).isEmpty,
               !vimiumFindActive,
+              findBar.isHidden,
+              tab.webView.fullscreenState == .notInFullscreen,
               tab.vimium?.isIdle ?? true
         else { return false }
         closePeek()

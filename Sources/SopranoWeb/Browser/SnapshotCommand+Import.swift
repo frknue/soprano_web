@@ -217,12 +217,17 @@ struct SnapshotImportOptions {
             return
         }
         print("import-result: \(Self.json(Self.resultObject(finished, seconds: Date().timeIntervalSince(started))))")
-        for (spaceID, links) in finished.todayTabs {
+        for (spaceID, links, splits) in finished.todayTabs {
             let holders = manager.controllers.filter { window in window.tabs.contains { $0.spaceID == spaceID } }
             let tabs = holders.reduce(0) { total, window in total + window.tabs.filter { $0.spaceID == spaceID }.count }
             let kinds = holders.map { $0.kind.isPrivate ? "private" : "normal" }.joined(separator: ",")
             let shown = holders.contains { $0.currentSpaceID == spaceID } ? "shown" : "hidden"
-            print("import-today: \(links.count) imported, \(tabs) tabs of the Space in \(holders.count) window(s) [\(kinds)], Space \(shown)")
+            let made = holders.flatMap { window in
+                window.splits.filter { split in window.tabs.contains { $0.id == split.focusedTabID && $0.spaceID == spaceID } }
+            }
+            print("import-today: \(links.count) imported, \(tabs) tabs of the Space in \(holders.count) window(s) [\(kinds)], "
+                + "Space \(shown), \(splits.count) Arc split view(s) -> \(made.count) split(s) "
+                + "[\(made.map { String($0.tabIDs.count) }.joined(separator: ","))]")
         }
         for history in finished.history {
             print(String(

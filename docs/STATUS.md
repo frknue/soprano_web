@@ -24,7 +24,7 @@ contract is `docs/STAGE-3-PLAN.md`.
 | Branch | Base | State |
 |---|---|---|
 | `feat/stage-3` | `main` | Squash-merged as #3. 518 tests green in debug and release. |
-| `feat/stage-4` | `main` | In progress: P0–P4 and the review fixes done (655 tests green in debug); 1Password sign-in (Furkan) and P5 next. |
+| `feat/stage-4` | `main` | In progress: P0–P5 and the review fixes done (675 tests green in debug); 1Password sign-in (Furkan) and P6 (Site Control Center) next. |
 | `feat/stage-3-search`, `feat/stage-3-import` | — | Merged into `feat/stage-3`; no further work there. |
 
 ## Done
@@ -37,6 +37,7 @@ contract is `docs/STAGE-3-PLAN.md`.
 | Stage 4 review fixes | `6e165fe` | P1/P2 security and P0 reviews: web pages can't open extension pages app-side; one load gate for extensions (no `file:`, other apps ask); install shows permissions, updates grant nothing new; folder id takeover refused; in-process ZIP extraction (no `ditto`); native-host allowlists; worker WebSocket policy (`connect-src`, local hosts need host access, caps); attributed, capped notifications; deleted-Space downloads never resume in Default and stop on delete |
 | Stage 4 P3 | see `git log` | Little Arc (window role normal/popup/little; links from other apps → rule, else Little Arc or most recent window; Arc `defaultDestination` import; ⌥⌘N + Carbon global shortcut; ⌘O and "Open in"; 6 h idle close into the Archive; session v4; CLI `little`, `windows` kind column) and review fixes P2-1, P2-2, P3-1, P3-2, P3-3 with tests (ditto/zip ZIP fixtures) |
 | Stage 4 P4 | see `git log` | Peek (pinned/favorite links to other sites by host rule, ⇧-click; overlay panel with its own web view in the opener's data context, routed through `tab(for:)`; Open as Tab ⌘O keeps history; Esc/⌘W/backdrop close; one per window; CLI `peek`, harness `--peek*`, `shift-`/`opt-` clicks) and P3 review fixes P2-A–D, P3-E–H with tests. Harness check: a pinned `127.0.0.1` page's plain click on a `localhost` link opened a Peek (History in Default), a link inside it navigated (back list `b.html`), ⌘O made tab 2 of 2 and `browser back` returned to `b.html`; same-site and Today plain clicks stayed in the tab; a private window's Peek recorded nothing |
+| Stage 4 P5 | see `git log` | Split View (`BrowserSplit`: 2–4 panes of one Space, dividers with saved ratios, one rail row with every pane's favicon and one strip item; ⌃⇧= with the Command Bar, ⌃⇧-, ⌃⇧1…4, ⌥-click (WebKit never flags it a download; it reaches `handleLinkNavigation`), drop on a pane edge, "Open in Split View"; the focused pane is the selected tab; visible panes exempt from sleep/archive; session v5; Arc Today split views import; Peek covers the whole split; CLI `split`, `tabs` pane marks; harness `--split*`, `--print-splits`) and P4 review fixes P2-1–P2-4, P3-5–P3-8 with tests. Harness: 2-pane rail and 4-pane strip captures, `--click-page opt-` opened example.com as pane 2 |
 | P1 | `24c13c0` | Spaces model and store, bookmarks → per-Space pins, `bookmarks.json` migration |
 | P2 | `c886ddf`, `98d8d7a` | A window shows one Space; per-tab data context; session v3 |
 | P3 | `2f601a1`, `628c07c` | Rail (Space header, Favorites, pinned outline, Today, switcher), live pinned/favorite tabs, New/Edit Space sheet |
@@ -130,7 +131,7 @@ its welcome page, no update additions pending; only 1Password keeps `webSocket`.
    presses, ⌃Tab release, shifted-punctuation remaps in the menu bar, a real drag in the
    rail outline, the Command Bar's rounded corners in Folio Ink, Delete Space from the
    switcher's menu (the CLI has no Space create/delete).
-3. Stage 4 P5 (Split View) of `docs/STAGE-4-PLAN.md` (⌥-click: `BrowserLinkDisposition` keeps ⌥ as `currentTab` until then; harness `--click-page opt-X,Y` exists).
+3. Stage 4 P6 (Site Control Center) of `docs/STAGE-4-PLAN.md` (code map `docs/research/p6-p12.md`). P5 by hand: a real tab drag onto a pane edge (the harness calls the page area's drop handler) and a real divider drag.
 
 Known, not planned: each tab change rebuilds every rail row (~40 ms with 20+ tabs); batch
 closes do it once.

@@ -33,10 +33,7 @@ extension BrowserWindowController {
             showSelectedTab(leaving: leaving, focus: focus)
         } else {
             if let leaving {
-                previousSelectedTabID = leaving.id
-                leaving.lifecycle.lastActiveAt = manager.tabSleeper.now()
-                leaving.webView.isHidden = true
-                removeWakeSnapshot(leaving)
+                leavePage(of: leaving)
             }
             if focus {
                 newTab(focusAddress: true)
@@ -83,10 +80,7 @@ extension BrowserWindowController {
         let leaving = selectedTab
         setCurrentSpace(space)
         if let leaving {
-            previousSelectedTabID = leaving.id
-            leaving.lifecycle.lastActiveAt = manager.tabSleeper.now()
-            leaving.webView.isHidden = true
-            removeWakeSnapshot(leaving)
+            leavePage(of: leaving)
         }
         return true
     }

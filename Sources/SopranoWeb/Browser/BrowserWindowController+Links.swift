@@ -113,9 +113,10 @@ extension BrowserWindowController {
     /// `WKUIDelegate` body for `createWebViewWith`: a link with a target or a
     /// `window.open` call becomes a tab after its opener. ⌘ or middle opens
     /// it in the background; ⇧, or a pinned or favorite tab's link to
-    /// another site, opens it in a Peek (WebKit's configuration, so the page
-    /// keeps its opener). A plain `window.open` that asks for a width or
-    /// height opens a pop-up window of that size instead.
+    /// another site, opens it in a Peek, ⌥ in a new split pane (WebKit's
+    /// configuration, so the page keeps its opener). A plain `window.open`
+    /// that asks for a width or height opens a pop-up window of that size
+    /// instead; a scripted one never opens a Peek or a pane.
     func createLinkWebView(
         from webView: WKWebView,
         configuration: WKWebViewConfiguration,
@@ -136,7 +137,7 @@ extension BrowserWindowController {
                 linkURL: navigationAction.request.url,
                 targetsMainFrame: true
             )
-            : BrowserLinkDisposition.disposition(
+            : BrowserLinkDisposition.scriptedDisposition(
                 modifierFlags: navigationAction.modifierFlags,
                 buttonNumber: navigationAction.buttonNumber
             )
@@ -148,6 +149,8 @@ extension BrowserWindowController {
             }
             if disposition == .peek {
                 showPeek(tab, from: opener)
+            } else if disposition == .splitPane {
+                insertLinkPane(tab, opener: linkOpener(opener))
             } else if disposition == .currentTab, windowFeatures.opensWindow {
                 tab.isStartPage = false
                 tab.links.openerID = opener.id
@@ -172,9 +175,10 @@ extension BrowserWindowController {
 
     /// Link work in `decidePolicyFor navigationAction`, after the scheme and
     /// download checks. A ⌘/⇧⌘/middle click on a link that targets a frame in
-    /// this tab opens a new tab instead, and ⇧ or a pinned or favorite tab's
-    /// link to another site a Peek (returns true: cancel). A main-frame
-    /// load gets the pop-up permission of the page it is about to show.
+    /// this tab opens a new tab instead, ⇧ or a pinned or favorite tab's
+    /// link to another site a Peek, ⌥ a split pane (returns true: cancel).
+    /// A main-frame load gets the pop-up permission of the page it is
+    /// about to show.
     func handleLinkNavigation(_ navigationAction: WKNavigationAction, in webView: WKWebView) -> Bool {
         guard let url = navigationAction.request.url, let tab = tab(for: webView) else { return false }
         if navigationAction.navigationType == .linkActivated,
@@ -193,6 +197,9 @@ extension BrowserWindowController {
             case .peek:
                 openPeek(url, from: tab)
                 return true
+            case .splitPane:
+                openLinkPane(url, from: linkOpener(tab))
+                return true
             case .backgroundTab, .foregroundTab:
                 openLinkTab(url, opener: linkOpener(tab), select: disposition == .foregroundTab)
                 return true
@@ -204,6 +211,31 @@ extension BrowserWindowController {
             applyPopupPermission(tab, pageURL: url)
         }
         return false
+    }
+
+    /// ⌥-click: `url` in a new Today tab beside `opener` that joins its
+    /// split right of it (a split of the two when it has none), focused.
+    /// When the split is full, or the window has no splits (a pop-up, a
+    /// Little Arc), it opens as a foreground tab instead.
+    @discardableResult
+    func openLinkPane(_ url: URL, from opener: BrowserTab) -> BrowserTab {
+        let tab = insertLinkPane(makeTab(context: opener.dataContext), opener: opener)
+        navigate(tab, to: url)
+        return tab
+    }
+
+    /// `insertLinkTab` for a tab made for a split pane, which then joins
+    /// `opener`'s split (`openLinkPane`).
+    @discardableResult
+    func insertLinkPane(_ tab: BrowserTab, opener: BrowserTab) -> BrowserTab {
+        let joins = allowsSplits && tabs.contains { $0 === opener }
+            && opener.spaceID == currentSpaceID
+            && !(split(containing: opener.id)?.isFull ?? false)
+        insertLinkTab(tab, opener: opener, select: !joins)
+        if joins {
+            addPane(tab, to: opener, at: nil, focus: true)
+        }
+        return tab
     }
 
     // MARK: - window.close()

@@ -163,7 +163,7 @@ struct BrowserSettings: Codable, Equatable, Sendable {
     /// with the Command Bar whichever app is in front.
     var globalLittleArcEnabled: Bool = false
     /// That shortcut, as `"opt+cmd+n"`.
-    var globalLittleArcShortcut: String = "opt+cmd+n"
+    var globalLittleArcShortcut: String = BrowserGlobalShortcut.fallback
 
     static let `default` = BrowserSettings()
 
@@ -250,12 +250,19 @@ extension BrowserSettings {
         globalLittleArcEnabled = (try? c.decodeIfPresent(Bool.self, forKey: .globalLittleArcEnabled))
             ?? globalLittleArcEnabled
         // A chord the system, text editing or another command uses never
-        // becomes a global hotkey (a hand-edited file included).
+        // becomes a global hotkey (a hand-edited file included): a taken
+        // chord falls back to the default, and when that one is taken too
+        // the hotkey stays off rather than steal a command's chord.
         let keymap = self.keymap
-        globalLittleArcShortcut = (try? c.decodeIfPresent(String.self, forKey: .globalLittleArcShortcut))
-            .flatMap { BrowserShortcut($0) }
-            .flatMap { BrowserGlobalShortcut.isAcceptable($0, keymap: keymap) ? $0.storageText : nil }
-            ?? globalLittleArcShortcut
+        let stored = (try? c.decodeIfPresent(String.self, forKey: .globalLittleArcShortcut)).flatMap { BrowserShortcut($0) }
+        let fallback = BrowserShortcut(BrowserGlobalShortcut.fallback)
+        if let stored, BrowserGlobalShortcut.isAcceptable(stored, keymap: keymap) {
+            globalLittleArcShortcut = stored.storageText
+        } else if let fallback, BrowserGlobalShortcut.isAcceptable(fallback, keymap: keymap) {
+            globalLittleArcShortcut = fallback.storageText
+        } else {
+            globalLittleArcEnabled = false
+        }
     }
 }
 
@@ -506,6 +513,8 @@ struct BrowserWindowState: Codable, Equatable, Sendable {
     /// Normal or Little Arc (pop-ups are never saved); missing before
     /// version 4: normal.
     var role: BrowserWindowRole = .normal
+    /// The window's split views (version 5); none before.
+    var splits: [BrowserSplitState] = []
 }
 
 /// A Space's remembered tab in a saved window: its index in the window's
@@ -527,6 +536,7 @@ extension BrowserWindowState {
         spaceSelections = (try? c.decodeIfPresent(LossyArray<BrowserSpaceSelection>.self, forKey: .spaceSelections))?
             .elements ?? []
         role = (try? c.decodeIfPresent(BrowserWindowRole.self, forKey: .role)) ?? .normal
+        splits = (try? c.decodeIfPresent(LossyArray<BrowserSplitState>.self, forKey: .splits))?.elements ?? []
     }
 
     /// The selected tab's title, as the Window menu showed it.
@@ -554,9 +564,10 @@ extension BrowserTabState {
 /// the window's profile (`BrowserWindowState.placedInSpaces`). Version 3
 /// adds each window's `currentSpaceID` and `spaceSelections` and each
 /// tab's `spaceID` and pin or favorite link. Version 4 adds each window's
-/// `role` (`normal` or `little`); older windows are normal.
+/// `role` (`normal` or `little`); older windows are normal. Version 5 adds
+/// each window's `splits` (`BrowserSplitState`); older windows have none.
 struct BrowserSession: Codable, Equatable, Sendable {
-    static let currentVersion = 4
+    static let currentVersion = 5
 
     /// The version of the file this was read from; new sessions are current.
     var version = Self.currentVersion

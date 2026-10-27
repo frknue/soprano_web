@@ -162,6 +162,16 @@ struct BrowserCommandRequest: Codable, Equatable, Sendable {
         if command == "peek", arguments.count > 1 {
             throw BrowserAutomationError.invalidArguments(peekUsage)
         }
+        if command == "split" {
+            let valid: Bool
+            switch arguments.first {
+            case nil: valid = true
+            case "close": valid = arguments.count == 1
+            case "focus": valid = arguments.count == 2 && (Int(arguments[1]) ?? 0) > 0
+            default: valid = arguments.count == 1
+            }
+            guard valid else { throw BrowserAutomationError.invalidArguments(splitUsage) }
+        }
 
         return BrowserCommandRequest(
             command: command,
@@ -248,6 +258,7 @@ struct BrowserCommandRequest: Codable, Equatable, Sendable {
     static let littleUsage = "Usage: soprano-web browser little [url] [--space <n|name>] | [--window n] little to-window"
     static let spaceUsage = "Usage: soprano-web browser [--window n] space <n|name>"
     static let peekUsage = "Usage: soprano-web browser [--window n] peek [<url>|close|open-as-tab]"
+    static let splitUsage = "Usage: soprano-web browser [--window n] split [<url>|close|focus <n>]"
     static let extensionUsage = """
     Usage: soprano-web browser extension install <chrome web store url|id|folder>
            soprano-web browser extension enable|disable|remove|errors <id>
@@ -309,6 +320,7 @@ enum BrowserCommand {
       soprano-web browser [--window n] close-window [n]
       soprano-web browser [--window n] [--tab m] move-to-window <k|new>
       soprano-web browser [--window n] peek [<url>|close|open-as-tab]
+      soprano-web browser [--window n] split [<url>|close|focus <n>]
       soprano-web browser [--window n] spaces
       soprano-web browser [--window n] space <n|name>
       soprano-web browser extensions
@@ -362,6 +374,12 @@ enum BrowserCommand {
     over); `peek close` closes it (Esc, ⌘W); `peek open-as-tab` makes it a
     selected Today tab after that tab, history kept (⌘O). Page commands
     keep working on the selected tab.
+    `split <url>` opens `url` (the start page without one) in a new pane
+    right of the focused one: a split view of 2–4 tabs side by side, as
+    ⌃⇧= and ⌥-click do; `split close` closes the focused pane (⌃⇧-, its
+    tab as ⌘W closes it); `split focus n` focuses pane n, left to right
+    (⌃⇧1…4). The focused pane is the selected tab every tab command uses;
+    `tabs` marks each pane with `split s, pane p of k`.
     `snapshot` assigns ephemeral refs such as `e1`; pass them back as `@e1`.
     `eval` runs an expression, or an async function body that uses `return`;
     Promises are awaited and the result prints as JSON. A thrown error or a
@@ -584,6 +602,8 @@ enum BrowserAutomationRouter {
             completion(switchSpace(request, in: target, manager: manager))
         case "peek":
             completion(peek(request, in: target))
+        case "split":
+            completion(target.performSplitCommand(request.arguments))
         default:
             target.performAutomation(request, completion: completion)
         }

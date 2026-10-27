@@ -18,6 +18,9 @@ enum BrowserCommandID: String, CaseIterable, Sendable {
     case zoomIn = "zoom-in", zoomOut = "zoom-out", actualSize = "actual-size"
     case toggleSidebar = "toggle-sidebar", toggleRail = "toggle-rail", toggleToolbar = "toggle-toolbar"
     case fullScreen = "full-screen"
+    case splitAdd = "split-add", splitClose = "split-close"
+    case splitPane1 = "split-pane-1", splitPane2 = "split-pane-2", splitPane3 = "split-pane-3"
+    case splitPane4 = "split-pane-4"
     case showHistory = "show-history", showArchive = "show-archive", showDownloads = "show-downloads"
     case clearBrowsingData = "clear-browsing-data"
     case space1 = "space-1", space2 = "space-2", space3 = "space-3", space4 = "space-4", space5 = "space-5"
@@ -112,6 +115,12 @@ struct BrowserAppCommand: Sendable {
         } else {
             run(context)
         }
+    }
+
+    /// The menu item's title in `state`: the moment's ("Close Peek"),
+    /// else the command's own.
+    func menuTitle(for state: BrowserCommandState) -> String {
+        state.title ?? title
     }
 
     // MARK: Table
@@ -211,6 +220,16 @@ struct BrowserAppCommand: Sendable {
                     context.controller?.selectTab(number: number)
                 }
             }
+        )
+    }
+
+    /// ⌃⇧1…⌃⇧4: pane `number` of the split on screen.
+    private static func splitPaneCommand(_ id: BrowserCommandID, number: Int) -> BrowserAppCommand {
+        make(
+            id, "Focus Split Pane \(number)", .view, 6, "ctrl+shift+\(number)",
+            synonyms: ["split view", "pane \(number)"], symbol: "rectangle.split.2x1", inBar: false,
+            state: { .when(($0.controller?.shownSplit?.tabIDs.count ?? 0) >= number) },
+            run: { $0.controller?.focusPane(number: number) }
         )
     }
 
@@ -354,9 +373,9 @@ struct BrowserAppCommand: Sendable {
         make(.searchActions, "Search Actions…", .view, 0, "shift+cmd+p", synonyms: ["command palette", "commands"],
              symbol: "command", inBar: false, state: hasWindow) { $0.controller?.showCommandBar(.actions) },
         make(.back, "Back", .view, 1, "cmd+[", symbol: "chevron.left",
-             state: { .when($0.controller?.selectedTab?.webView.canGoBack ?? false) }) { $0.controller?.goBack() },
+             state: { .when($0.controller?.pageTab?.webView.canGoBack ?? false) }) { $0.controller?.goBack() },
         make(.forward, "Forward", .view, 1, "cmd+]", symbol: "chevron.right",
-             state: { .when($0.controller?.selectedTab?.webView.canGoForward ?? false) }) {
+             state: { .when($0.controller?.pageTab?.webView.canGoForward ?? false) }) {
             $0.controller?.goForward()
         },
         make(.home, "Home", .view, 1, "shift+cmd+h", synonyms: ["start page"], symbol: "house", state: hasWindow) {
@@ -365,7 +384,7 @@ struct BrowserAppCommand: Sendable {
         make(.reload, "Reload", .view, 2, "cmd+r", synonyms: ["refresh"], symbol: "arrow.clockwise",
              state: hasWindow) { $0.controller?.reloadOrStop() },
         make(.stop, "Stop", .view, 2, "cmd+.", symbol: "xmark.circle",
-             state: { .when($0.controller?.isSelectedTabLoading ?? false) }) { $0.controller?.stopLoading() },
+             state: { .when($0.controller?.isPageLoading ?? false) }) { $0.controller?.stopLoading() },
         make(.zoomIn, "Zoom In", .view, 3, "cmd+=", synonyms: ["bigger"], symbol: "plus.magnifyingglass",
              state: hasWindow) { $0.controller?.zoomIn() },
         make(.zoomOut, "Zoom Out", .view, 3, "cmd+-", synonyms: ["smaller"], symbol: "minus.magnifyingglass",
@@ -389,6 +408,25 @@ struct BrowserAppCommand: Sendable {
             run: { $0.controller?.toggleToolbar() }
         ),
         system(.fullScreen, "Enter Full Screen", .view, 5, "ctrl+cmd+f", "toggleFullScreen:"),
+        make(
+            .splitAdd, "Add Split Pane", .view, 6, "ctrl+shift+=", synonyms: ["split view", "side by side", "new pane"],
+            symbol: "rectangle.split.2x1",
+            state: { context in
+                guard let controller = context.controller else { return .disabled }
+                return .when(controller.allowsSplits && !(controller.shownSplit?.isFull ?? false))
+            },
+            run: { $0.controller?.addSplitPane(commandBar: true) }
+        ),
+        make(
+            .splitClose, "Close Split Pane", .view, 6, "ctrl+shift+-", synonyms: ["split view", "close pane"],
+            symbol: "xmark.rectangle",
+            state: { .when($0.controller?.shownSplit != nil) },
+            run: { $0.controller?.closeFocusedPane() }
+        ),
+        splitPaneCommand(.splitPane1, number: 1),
+        splitPaneCommand(.splitPane2, number: 2),
+        splitPaneCommand(.splitPane3, number: 3),
+        splitPaneCommand(.splitPane4, number: 4),
 
         // History
         make(.showHistory, "Show All History", .history, 0, "cmd+y", symbol: "clock", state: hasWindow) {

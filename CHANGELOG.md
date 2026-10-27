@@ -10,6 +10,19 @@ app.
 ## [Unreleased]
 
 ### Added
+- Split View: 2–4 tabs of one Space side by side with resizable dividers (ratios saved),
+  one rail row (every pane's favicon) and one strip item. ⌃⇧= adds a pane (a new tab with
+  the Command Bar), ⌃⇧- closes the focused pane, ⌃⇧1…4 focus a pane, ⌥-click on a web link
+  opens it in a new pane, a tab dragged onto a pane's left or right edge joins there, and a
+  tab's menu has "Open in Split View"; a split row's menu separates or closes it. The
+  focused pane (accent ring) is the selected tab for every command, Vimium and the CLI;
+  clicking a pane focuses it. Panes keep their origin; visible panes never sleep or
+  archive (`visiblePane`), Today panes archive like any Today tab. A Peek covers the whole
+  page area and belongs to the focused pane. Session version 5 saves splits (older files
+  migrate with none); Arc's Today split views import as splits (pinned ones stay pins).
+  CLI `browser split [url]|close|focus <n>`, `tabs` marks panes; harness `--split`,
+  `--split-command`, `--split-focus`, `--split-resize`, `--split-drop`,
+  `--split-separate`, `--print-splits`.
 - Peek: a link from a pinned or favorite tab to another site (host with `www.` dropped;
   equal or a subdomain is the same site, ports never count) and any ⇧-click open over the
   page in a rounded panel with its own web view in the tab's data context (History,
@@ -19,6 +32,14 @@ app.
   One per window; a second replaces it. CLI `browser peek <url>|close|open-as-tab`;
   harness `--peek`, `--peek-open-as-tab`, `--peek-close`, `--print-peek`, and `shift-`
   and `opt-` clicks.
+- Peek (P4 review): menu titles return to "Close Tab" / "Open in Space Window" after a
+  Peek closes; ⌘[ / ⌘] / ⌘. state, the zoom chip, the capture indicator and extension
+  actions (`activeTab`, toolbar buttons) follow the Peek's page; Esc in a Peek ends the
+  find bar or element fullscreen first and closing a Peek closes its find bar; a scripted
+  `window.open` with ⇧ held never becomes a Peek; the extension navigation gate uses the
+  link disposition WebKit's click really gets. The global Little Arc chord is reserved in
+  Keyboard Shortcuts while on, and a stored chord that is taken falls back to ⌥⌘N or turns
+  the hotkey off.
 - Little Arc review fixes: Settings' global-shortcut recorder handles only its own
   window's keys, refuses system, text-editing and in-app chords (also when decoding
   settings), lets the registered hotkey go while recording and stops when Settings

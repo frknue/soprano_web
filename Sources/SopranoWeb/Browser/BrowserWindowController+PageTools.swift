@@ -12,12 +12,13 @@ extension BrowserWindowController {
         return !tab.isStartPage && !tab.isShowingErrorPage && tab.webView.url != nil
     }
 
-    var isSelectedTabLoading: Bool {
-        selectedTab?.webView.isLoading ?? false
+    /// The page shown (the Peek's when one is open) is loading: ⌘. stops it.
+    var isPageLoading: Bool {
+        pageTab?.webView.isLoading ?? false
     }
 
     func stopLoading() {
-        selectedTab?.webView.stopLoading()
+        pageTab?.webView.stopLoading()
     }
 
     // MARK: Print

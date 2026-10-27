@@ -75,7 +75,8 @@ extension BrowserWindowController {
     // MARK: - Rail walk
 
     /// ⌥⌘↓ / ⌥⌘↑: the next or previous rail item (favorites, the pinned
-    /// outline's shown pins, Today tabs), selecting its tab or opening it.
+    /// outline's shown pins, Today rows: a split is one, its focused pane),
+    /// selecting its tab or opening it.
     func walkRail(step: Int) {
         let current: BrowserRailWalk.Item? = selectedTab.map { tab in
             switch tab.origin {
@@ -94,15 +95,23 @@ extension BrowserWindowController {
                 .filter { shown.contains($0.id) || current == .pin($0.id) }
             items = spaces.favorites(ofProfile: profileID).map { .favorite($0.id) }
                 + pins.map { .pin($0.id) }
-                + todayTabs.map { .tab($0.id) }
+                + todayRows.map(walkItem)
         } else {
-            items = visibleTabs.map { .tab($0.id) }
+            items = todayRows.map(walkItem)
         }
         switch BrowserRailWalk.step(items, from: current, by: step) {
         case let .favorite(id)?: openFavorite(id)
         case let .pin(id)?: openPin(id)
         case let .tab(id)?: selectTab(id: id, focus: true)
         case nil: break
+        }
+    }
+
+    /// A Today row as the rail walk sees it: a split is its focused pane.
+    private func walkItem(_ row: BrowserTabRow) -> BrowserRailWalk.Item {
+        switch row {
+        case let .tab(id): .tab(id)
+        case let .split(id): .tab(split(id: id)?.focusedTabID ?? id)
         }
     }
 
