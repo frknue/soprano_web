@@ -36,7 +36,8 @@ no linter or formatter; match surrounding style.
 - The user works on this Mac while agents run: prefix every build, test,
   harness and local test server with `taskpolicy -b`, pass `-j 2` (or `-j 1`) to
   Swift, run one heavy process at a time, and run at most one agent that builds.
-  Nothing an agent runs may take focus, show a window or trigger a system prompt.
+  Nothing an agent runs may take focus or trigger a system prompt; the dev app
+  (below) is the one window an agent shows.
 - Verify UI with the offscreen snapshot command and read the PNG:
 
   ```bash
@@ -251,10 +252,16 @@ no linter or formatter; match surrounding style.
   (⇧⌘D), `--copy-url` / `--copy-markdown` (print the pasteboard: the
   harness's own named one, never the general pasteboard). The Command Bar
   and the ⌃Tab overlay are drawn over the page in the capture.
-- Verify real navigation and the agent surface against a running dev app:
+- Verify real navigation, Spaces and the agent surface in the dev app. Agents
+  launch it on their own, in the background (`open -g` leaves focus with the
+  user). It has its own support folder (`Soprano Web Dev`), settings
+  (`~/.config/soprano-web-dev`) and WebKit container, so the installed app's
+  data stays untouched. The CLI has no Space create/delete: make Spaces first
+  with the harness on the dev app's folder while it isn't running (`snapshot --support-dir
+  "$HOME/Library/Application Support/Soprano Web Dev" --new-space "Work||"`).
 
   ```bash
-  open -n ".build/debug/Soprano Web Dev.app"
+  open -g -n ".build/debug/Soprano Web Dev.app"
   APP=".build/debug/Soprano Web Dev.app/Contents/MacOS/SopranoWeb"
   "$APP" browser goto https://example.com
   "$APP" browser wait-for-load
@@ -262,8 +269,10 @@ no linter or formatter; match surrounding style.
   "$APP" browser vimium "gg"       # drive normal-mode keys without the keyboard
   ```
 
-- Do not launch the GUI or run `./scripts/dev.sh` without `--build-only` unless
-  the user asks. After a verified change to the app or packaging, run
+- Launch only the dev app, only with `open -g -n` (`./scripts/dev.sh` without
+  `--build-only` activates it), and quit it when done with `pkill -f
+  'Soprano Web Dev.app/Contents/MacOS/SopranoWeb'` (the installed app's
+  executable has the same name). After a verified change to the app or packaging, run
   `./scripts/install.sh` as the last step: it replaces
   `/Applications/Soprano Web.app` without restarting a running instance, and the
   update lands on next launch. Report the result.

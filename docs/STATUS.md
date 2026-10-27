@@ -1,8 +1,14 @@
 # Status
 
-Stage 3 is merged to `main` (#3, `2fdbdaa`, 2026-10-27) and installed in
+Stage 3 is merged to `main` (#3, `2fdbdaa`, 2026-10-27), followed by #4 (`727eca4`: every
+Space has its own profile, so its own cookies, History and Archive), and installed in
 `/Applications/Soprano Web.app`. Its first launch migrates `bookmarks.json` into
 `spaces.json` (kept as `bookmarks.json.migrated`) and the session to version 3.
+
+Live check of #4 in the running dev app (2026-10-27; Work Space made through the New
+Space path, then driven over the `browser` CLI against a local server): a cookie set in
+Default is absent from Work's requests and `document.cookie` and the reverse, and each
+Space's visits land only in its own `History.sqlite`.
 
 ## Goal
 
@@ -39,9 +45,12 @@ second import creates nothing.
 
 ## Next — start here
 
-1. GUI check by Furkan (agents may not launch the app): Site wins / Press twice with
-   real key presses, ⌃Tab release, shifted-punctuation remaps in the menu bar, a real
-   drag in the rail outline, the Command Bar's rounded corners in Folio Ink.
+1. GUI check. Agents may launch the dev app (`open -g -n ".build/debug/Soprano Web
+   Dev.app"`; its own support folder and WebKit container) and drive it over the
+   `browser` CLI. What needs a person's hands: Site wins / Press twice with real key
+   presses, ⌃Tab release, shifted-punctuation remaps in the menu bar, a real drag in the
+   rail outline, the Command Bar's rounded corners in Folio Ink, Delete Space from the
+   switcher's menu (the CLI has no Space create/delete).
 2. Stage 4 (`docs/ROADMAP.md` §4).
 
 Known, not stage 3: resuming or retrying a download uses the current Space's web view,
