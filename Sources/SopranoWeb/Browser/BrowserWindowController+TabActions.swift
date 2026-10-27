@@ -3,7 +3,8 @@ import AppKit
 extension BrowserWindowController {
     // MARK: - Tab context menu
 
-    /// Reload, Duplicate, Mute, Copy Link, Keep This Site Awake, Move Tab
+    /// Reload, Duplicate, Mute, Copy Link, Keep This Site Awake, Pin Tab /
+    /// Unpin Tab and Add to / Remove from Favorites (with Spaces), Move Tab
     /// to New Window, the close actions and Reopen Closed Tab for one tab
     /// of the current Space. `closeAfterTitle` names the run after it:
     /// "Close Tabs Below" in the rail, "… to the Right" in the strip.
@@ -30,11 +31,15 @@ extension BrowserWindowController {
         add("Keep This Site Awake", #selector(toggleKeepAwakeFromMenu(_:)), enabled: awakeHost != nil)
         menu.items.last?.state = awakeHost.map(tab.dataContext.sitePermissions.keepsAwake(host:)) == true ? .on : .off
         menu.addItem(.separator())
+        if hasSpaces {
+            addLinkItems(for: tab, hasPage: hasPage, add: add)
+            menu.addItem(.separator())
+        }
         add("Move Tab to New Window", #selector(moveTabToNewWindowFromMenu(_:)))
         menu.addItem(.separator())
         add("Close Tab", #selector(closeTabFromMenu(_:)))
-        add("Close Other Tabs", #selector(closeOtherTabsFromMenu(_:)), enabled: visibleTabs.count > 1)
-        add(closeAfterTitle, #selector(closeTabsAfterFromMenu(_:)), enabled: index < visibleTabs.count - 1)
+        add("Close Other Tabs", #selector(closeOtherTabsFromMenu(_:)), enabled: !otherClosable(keeping: id).isEmpty)
+        add(closeAfterTitle, #selector(closeTabsAfterFromMenu(_:)), enabled: !closable(after: id).isEmpty)
         menu.addItem(.separator())
         add("Reopen Closed Tab", #selector(reopenClosedTabFromMenu(_:)), enabled: canReopenClosedTab)
         return menu
@@ -45,18 +50,57 @@ extension BrowserWindowController {
         toggleMute(tab)
     }
 
-    /// Closes every tab of the current Space but `id` and selects it.
-    func closeOtherTabs(keeping id: UUID) {
-        guard visibleTabs.contains(where: { $0.id == id }) else { return }
-        closeTabs(visibleTabs.filter { $0.id != id }.map(\.id), thenSelect: id)
+    /// Pin Tab / Unpin Tab, Add to / Remove from Favorites, and for a
+    /// linked tab whose page moved on: back to its pinned page, or Replace
+    /// Pin (Favorite) with Current Page.
+    private func addLinkItems(
+        for tab: BrowserTab,
+        hasPage: Bool,
+        add: (String, Selector, Bool) -> Void
+    ) {
+        let away = isAway(tab)
+        switch tab.origin {
+        case .today:
+            add("Pin Tab", #selector(pinTabFromMenu(_:)), hasPage)
+            add("Add to Favorites", #selector(addToFavoritesFromMenu(_:)), hasPage && canAddFavorite(for: tab))
+        case .pinned:
+            add("Unpin Tab", #selector(unpinTabFromMenu(_:)), true)
+            add("Add to Favorites", #selector(addToFavoritesFromMenu(_:)), hasPage && canAddFavorite(for: tab))
+            add("Back to Pinned Page", #selector(resetLinkedTabFromMenu(_:)), away)
+            add("Replace Pin with Current Page", #selector(replaceLinkFromMenu(_:)), away)
+        case .favorite:
+            add("Pin Tab", #selector(pinTabFromMenu(_:)), hasPage)
+            add("Remove from Favorites", #selector(removeFromFavoritesFromMenu(_:)), true)
+            add("Back to Favorite Page", #selector(resetLinkedTabFromMenu(_:)), away)
+            add("Replace Favorite with Current Page", #selector(replaceLinkFromMenu(_:)), away)
+        }
     }
 
-    /// Closes every tab of the current Space after `id` (below it in the
+    /// The tabs Close Other Tabs closes: the current Space's Today tabs
+    /// but `id` (every other tab in a window without Spaces); pinned and
+    /// favorite tabs stay.
+    private func otherClosable(keeping id: UUID) -> [UUID] {
+        visibleTabs.filter { $0.id != id && (!hasSpaces || $0.origin == .today) }.map(\.id)
+    }
+
+    /// The Today tabs after `id` (below it in the rail, right of it in the
+    /// strip).
+    private func closable(after id: UUID) -> [UUID] {
+        guard let index = visibleTabs.firstIndex(where: { $0.id == id }) else { return [] }
+        return visibleTabs[(index + 1)...].filter { !hasSpaces || $0.origin == .today }.map(\.id)
+    }
+
+    /// Closes the current Space's other Today tabs and selects `id`.
+    func closeOtherTabs(keeping id: UUID) {
+        guard visibleTabs.contains(where: { $0.id == id }) else { return }
+        closeTabs(otherClosable(keeping: id), thenSelect: id)
+    }
+
+    /// Closes the current Space's Today tabs after `id` (below it in the
     /// rail, right of it in the strip). The selection stays, or moves to
     /// `id` when it was closed.
     func closeTabs(after id: UUID) {
-        guard let index = visibleTabs.firstIndex(where: { $0.id == id }) else { return }
-        let closing = visibleTabs[(index + 1)...].map(\.id)
+        let closing = closable(after: id)
         guard !closing.isEmpty else { return }
         let selected = selectedTab.map(\.id).flatMap { closing.contains($0) ? nil : $0 } ?? id
         closeTabs(closing, thenSelect: selected)
@@ -114,5 +158,30 @@ extension BrowserWindowController {
 
     @objc func reopenClosedTabFromMenu(_ sender: NSMenuItem) {
         reopenClosedTab()
+    }
+
+    @objc func pinTabFromMenu(_ sender: NSMenuItem) {
+        guard let tab = menuTab(sender) else { return }
+        pinTab(tab)
+    }
+
+    @objc func unpinTabFromMenu(_ sender: NSMenuItem) {
+        guard let tab = menuTab(sender) else { return }
+        unpinTab(tab)
+    }
+
+    @objc func addToFavoritesFromMenu(_ sender: NSMenuItem) {
+        guard let tab = menuTab(sender) else { return }
+        addTabToFavorites(tab)
+    }
+
+    @objc func removeFromFavoritesFromMenu(_ sender: NSMenuItem) {
+        guard let tab = menuTab(sender) else { return }
+        removeTabFromFavorites(tab)
+    }
+
+    @objc func resetLinkedTabFromMenu(_ sender: NSMenuItem) {
+        guard let tab = menuTab(sender) else { return }
+        resetLinkedTab(tab, keepingPage: false)
     }
 }

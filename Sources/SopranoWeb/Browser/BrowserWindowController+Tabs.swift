@@ -142,7 +142,15 @@ extension BrowserWindowController {
         let context = space.map { manager.context(for: $0.profileID) } ?? dataContext
         let tab = makeTab(context: context)
         tab.spaceID = space?.id
-        tab.origin = space == nil ? .today : state.origin
+        // A link whose pin or favorite is gone, or that already has a live
+        // tab here, becomes a Today tab.
+        tab.origin = space.map { space in
+            BrowserPinLinks.originAfterMove(
+                state.origin,
+                into: spaces.linkTargets(inSpace: space.id),
+                live: tabs.map(\.origin)
+            )
+        } ?? .today
         tab.title = state.url == nil && state.title.isEmpty ? "New Tab" : state.title
         tab.zoom = settingsStore.settings.defaultZoom
         tab.favicon = state.url.flatMap { context.faviconStore.image(forAddress: $0) }
@@ -427,9 +435,7 @@ extension BrowserWindowController {
             loadStartPage(tab)
         }
         prepareSelectedTab(tab)
-        let items = visibleTabs.map(\.item)
-        tabStrip.update(tabs: items, selectedID: tab.id)
-        verticalTabsView.update(tabs: items, selectedID: tab.id)
+        updateTabStrip()
         updateChrome()
         if focus {
             window?.makeFirstResponder(tab.webView)
@@ -469,12 +475,18 @@ extension BrowserWindowController {
     // MARK: - Closing and reopening
 
     /// Closes a tab onto the recently-closed stack (a private window's own)
-    /// with its Space and its index there. The window's last tab closes the
-    /// window instead, which goes onto the stack as one window entry (a
-    /// private window goes nowhere). A Space's only tab, when it is the
-    /// start page, stays: closing it would only open another.
+    /// with its Space and its index there. A pinned or favorite tab
+    /// unloads back to its pin instead (`unloadLinkedTab`). The window's
+    /// last tab closes the window instead, which goes onto the stack as
+    /// one window entry (a private window goes nowhere). A Space's only
+    /// tab, when it is the start page, stays: closing it would only open
+    /// another.
     func closeTab(id: UUID) {
         guard let tab = tabs.first(where: { $0.id == id }) else { return }
+        if hasSpaces, tab.origin != .today {
+            unloadLinkedTab(tab)
+            return
+        }
         guard tabs.count > 1 else {
             manager.closeWindow(self)
             return
@@ -530,11 +542,11 @@ extension BrowserWindowController {
 
     // MARK: - Tab list
 
+    /// Refreshes the tab strip and the rail from `visibleTabs`.
     func updateTabStrip() {
         guard let selectedTab else { return }
-        let list = visibleTabs.map(\.item)
-        tabStrip.update(tabs: list, selectedID: selectedTab.id)
-        verticalTabsView.update(tabs: list, selectedID: selectedTab.id)
+        tabStrip.update(tabs: visibleTabs.map(tabItem), selectedID: selectedTab.id)
+        updateRail()
     }
 
     /// Moves the current Space's tab to `index` of the Space's tabs

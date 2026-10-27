@@ -42,6 +42,9 @@ final class BrowserTabStripView: NSView {
     private var tabWidth: CGFloat = 0
     private var visibleStart = 0
     private var visibleCount = 0
+    /// Pinned and favorite tabs: first, icon-only, never in the overflow.
+    private var linkedIDs: Set<UUID> = []
+    private var compactCount = 0
     private let dragSource = BrowserTabDragSource()
     private let dropMarker = BrowserTabDropMarker()
 
@@ -55,6 +58,7 @@ final class BrowserTabStripView: NSView {
     private static let maximumTabWidth: CGFloat = 220
     private static let controlsWidth: CGFloat = 58
     private static let tabHeight: CGFloat = 30
+    private static let compactTabWidth: CGFloat = 38
     /// How far above or below the strip the pointer may stray before a
     /// reorder becomes a drag out of the strip.
     private static let detachSlack: CGFloat = 16
@@ -108,8 +112,10 @@ final class BrowserTabStripView: NSView {
                 rebuild(tabs: tabs)
             }
         }
+        linkedIDs = Set(tabs.filter(\.isLinked).map(\.id))
         for tab in tabs {
             buttons[tab.id]?.item = tab
+            buttons[tab.id]?.isCompact = tab.isLinked
         }
         if var drag, Set(drag.order) != Set(order) {
             drag.order = order
@@ -153,14 +159,32 @@ final class BrowserTabStripView: NSView {
         layoutTabs(animated: false)
     }
 
+    /// Where the Today run starts, after the compact pinned tabs.
+    private var regularLeading: CGFloat {
+        Self.trafficLightInset + CGFloat(compactCount) * Self.compactTabWidth
+    }
+
     private func layoutTabs(animated: Bool) {
-        let left = Self.trafficLightInset
+        let fullOrder = drag?.order ?? order
+        compactCount = fullOrder.prefix { linkedIDs.contains($0) }.count
+        let displayOrder = Array(fullOrder.dropFirst(compactCount))
+        let left = regularLeading
         let right = Self.controlsWidth
         let available = max(0, bounds.width - left - right)
-        let displayOrder = drag?.order ?? order
 
         let newTabSize: CGFloat = 22
         let overflowSize: CGFloat = 22
+        let y = floor((bounds.height - Self.tabHeight) / 2)
+        for (index, id) in fullOrder.prefix(compactCount).enumerated() {
+            guard let button = buttons[id] else { continue }
+            button.isHidden = false
+            button.frame = NSRect(
+                x: Self.trafficLightInset + CGFloat(index) * Self.compactTabWidth,
+                y: y,
+                width: Self.compactTabWidth - 2,
+                height: Self.tabHeight
+            )
+        }
 
         guard !displayOrder.isEmpty else {
             newTabButton.frame = NSRect(
@@ -171,8 +195,10 @@ final class BrowserTabStripView: NSView {
             )
             overflowButton.isHidden = true
             overflowButton.frame = .zero
-            visibleIDs = []
+            visibleIDs = Array(fullOrder.prefix(compactCount))
             overflowIDs = []
+            visibleStart = 0
+            visibleCount = 0
             return
         }
 
@@ -198,7 +224,7 @@ final class BrowserTabStripView: NSView {
         visibleStart = start
         self.visibleCount = visibleCount
         let visibleRange = start..<(start + visibleCount)
-        visibleIDs = Array(displayOrder[visibleRange])
+        visibleIDs = Array(fullOrder.prefix(compactCount)) + Array(displayOrder[visibleRange])
         overflowIDs = Array(displayOrder[..<start]) + Array(displayOrder[(start + visibleCount)...])
         overflowButton.isHidden = overflowIDs.isEmpty
 
@@ -216,7 +242,6 @@ final class BrowserTabStripView: NSView {
             height: overflowSize
         )
 
-        let y = floor((bounds.height - Self.tabHeight) / 2)
         let animate = animated && !NSWorkspace.shared.accessibilityDisplayShouldReduceMotion
         for (index, id) in displayOrder.enumerated() {
             guard let button = buttons[id] else { continue }
@@ -258,6 +283,7 @@ final class BrowserTabStripView: NSView {
 
         for tab in tabs {
             let button = BrowserTabButton(item: tab, theme: theme)
+            button.isCompact = tab.isLinked
             button.onSelect = { [weak self] id in self?.onSelect?(id) }
             button.onClose = { [weak self] id in self?.onClose?(id) }
             button.onToggleMute = { [weak self] id in self?.onToggleMute?(id) }
@@ -274,7 +300,8 @@ final class BrowserTabStripView: NSView {
         let x = point.x
         switch phase {
         case .began:
-            guard let button = buttons[id] else { return }
+            // Pinned and favorite tabs keep their place.
+            guard let button = buttons[id], !linkedIDs.contains(id) else { return }
             addSubview(button, positioned: .above, relativeTo: nil)
             drag = Drag(id: id, order: order, grabOffset: x - button.frame.minX, pointerX: x)
         case .moved:
@@ -289,11 +316,11 @@ final class BrowserTabStripView: NSView {
             }
             drag.pointerX = x
             let slot = BrowserTabReorder.slot(
-                at: x - Self.trafficLightInset,
+                at: x - regularLeading,
                 pitch: tabWidth,
                 count: visibleCount
             )
-            drag.order = BrowserTabReorder.moving(id, to: visibleStart + slot, in: drag.order)
+            drag.order = BrowserTabReorder.moving(id, to: compactCount + visibleStart + slot, in: drag.order)
             self.drag = drag
             layoutTabs(animated: true)
         case .ended:
@@ -331,7 +358,7 @@ final class BrowserTabStripView: NSView {
     override func performDragOperation(_ sender: any NSDraggingInfo) -> Bool {
         dropMarker.isHidden = true
         guard let id = BrowserTabDragSource.tabID(in: sender), canAcceptTab?(id) == true else { return false }
-        let index = dropIndex(for: sender)
+        let index = compactCount + dropIndex(for: sender)
         // The move can close the source window; let the session finish first.
         DispatchQueue.main.async { [weak self] in
             self?.onDropTab?(id, index)
@@ -346,7 +373,7 @@ final class BrowserTabStripView: NSView {
         }
         let index = dropIndex(for: sender)
         dropMarker.frame = NSRect(
-            x: Self.trafficLightInset + CGFloat(index - visibleStart) * tabWidth - 2,
+            x: regularLeading + CGFloat(index - visibleStart) * tabWidth - 2,
             y: floor((bounds.height - Self.tabHeight) / 2),
             width: 2,
             height: Self.tabHeight
@@ -359,7 +386,7 @@ final class BrowserTabStripView: NSView {
     private func dropIndex(for sender: any NSDraggingInfo) -> Int {
         BrowserTabReorder.stripInsertionIndex(
             x: convert(sender.draggingLocation, from: nil).x,
-            leading: Self.trafficLightInset,
+            leading: regularLeading,
             tabWidth: tabWidth,
             visibleStart: visibleStart,
             visibleCount: visibleCount

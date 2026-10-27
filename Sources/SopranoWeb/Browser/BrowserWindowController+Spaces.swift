@@ -69,17 +69,26 @@ extension BrowserWindowController {
     // MARK: - Spaces changing under the window
 
     /// The Spaces changed (created, renamed, reordered, deleted, given
-    /// another profile). A window on a deleted Space shows another one of
-    /// its profile (else the first); tabs of a deleted Space close onto
-    /// Recently Closed; a tab whose Space now uses another profile comes
-    /// back in that profile (its page reloads there, back/forward list
-    /// kept), since a web view keeps its data store for life.
+    /// another profile, pins or favorites edited). A window on a deleted
+    /// Space shows another one of its profile (else the first); a tab
+    /// whose pin or favorite is gone becomes a Today tab; tabs of a deleted
+    /// Space close onto Recently Closed; a tab whose Space now uses another
+    /// profile comes back in that profile (its page reloads there,
+    /// back/forward list kept), since a web view keeps its data store for
+    /// life.
     func spacesChanged() {
         guard hasSpaces, !tabs.isEmpty else { return }
         if let current = currentSpaceID, spaces.space(id: current) == nil,
            let next = spaces.firstSpace(ofProfile: profileID) ?? spaces.spaces.first
         {
             switchToSpace(next.id, focus: false)
+        }
+        var targets: [UUID: BrowserPinLinks.Targets] = [:]
+        for tab in tabs where tab.origin != .today {
+            guard let spaceID = tab.spaceID else { continue }
+            let spaceTargets = targets[spaceID] ?? spaces.linkTargets(inSpace: spaceID)
+            targets[spaceID] = spaceTargets
+            tab.origin = BrowserPinLinks.validated(tab.origin, in: spaceTargets)
         }
         for tab in tabs where tab.spaceID.flatMap(spaces.space(id:)) == nil {
             closeTab(id: tab.id)
@@ -106,12 +115,22 @@ extension BrowserWindowController {
     private func reopenInItsSpace(_ tab: BrowserTab) {
         let index = tabs.filter { $0.spaceID == tab.spaceID }.firstIndex { $0 === tab }
         let wasSelected = tab.id == selectedTab?.id
-        let copy = addRestoredTab(tab.state, at: index)
+        var state = tab.state
+        state.origin = .today
+        let copy = addRestoredTab(state, at: index)
         if wasSelected {
             selectTab(id: copy.id, focus: false)
         }
         detachTab(tab)
         discardTab(tab)
+        // The copy takes over the link once the original is gone (while
+        // its pin or favorite is still the Space's).
+        copy.origin = BrowserPinLinks.originAfterMove(
+            tab.origin,
+            into: copy.spaceID.map(spaces.linkTargets(inSpace:)) ?? BrowserPinLinks.Targets(),
+            live: tabs.map(\.origin)
+        )
+        refreshVisibleTabs()
     }
 
     /// Profile `profileID` is being deleted: a window on one of its Spaces

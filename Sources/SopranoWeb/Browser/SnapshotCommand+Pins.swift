@@ -1,9 +1,11 @@
 import AppKit
 
 /// Snapshot flags for Spaces and their pinned folders. Results print as
-/// `space…:` / `pin…:` lines; the ⌘D popover is built and captured
-/// offscreen, never shown. Every flag works on the window's pin Space
-/// (`BrowserWindowController.pinSpaceID`: its current Space).
+/// `space…:` / `pin…:` lines; the ⌘D popover, the rail's folder preview
+/// and the New Space sheet are built and captured offscreen, never shown.
+/// Every flag works on the window's pin Space
+/// (`BrowserWindowController.pinSpaceID`: its current Space) and the
+/// rail's pinned outline.
 extension SnapshotCommand {
     struct PinOptions {
         /// `--bookmarks-file <json>`: copied in as stage 2's
@@ -11,13 +13,20 @@ extension SnapshotCommand {
         /// it becomes Default's Space's pins).
         var file: String?
         /// `--pins-tree`: seeds nested folders into Default's Space before
-        /// the first window (also seeded into the window's Space by any
-        /// `--sidebar` when it has no pins).
+        /// the first window.
         var seedTree = false
-        /// `--expand-folder <name|all>` (repeatable).
+        /// `--expand-folder <name|all>` (repeatable): the rail's outline.
         var expand: [String] = []
-        /// `--pin-search <text>`: typed into the sidebar's search.
+        /// `--pin-search <text>`: typed into the folder preview's search
+        /// (the first folder's preview without `--pin-preview`).
         var search: String?
+        /// `--pin-preview <folder>`: the rail's hover preview of a folder,
+        /// captured.
+        var preview: String?
+        /// `--space-sheet new|<space>[=<name>|<icon>|<color>|<profile>]`:
+        /// the New Space (or Edit Space) sheet, filled but not saved, is
+        /// what the PNG shows.
+        var spaceSheet: String?
         /// `--pin-drop <title>:on|above:<row>` (repeatable): the outline's
         /// drop handler, rows as `--print-pins` numbers them.
         var drops: [(title: String, drop: BrowserPinOutline.Drop)] = []
@@ -30,14 +39,15 @@ extension SnapshotCommand {
         var print = false
 
         var isActive: Bool {
-            seedTree || !expand.isEmpty || search != nil || !drops.isEmpty || lastFolder != nil || popover || print
+            seedTree || !expand.isEmpty || !drops.isEmpty || lastFolder != nil || popover || print
         }
     }
 
     static let pinsUsage = """
                                    [--bookmarks-file <json>] [--pins-tree] [--expand-folder <name|all>]...
-                                   [--pin-search <text>] [--pin-drop <title>:on|above:<row>]...
+                                   [--pin-search <text>] [--pin-preview <folder>] [--pin-drop <title>:on|above:<row>]...
                                    [--pin-folder <name>] [--pin-popover] [--print-pins]
+                                   [--space-sheet new|<space>[=<name>|<icon>|<color>|<profile>]]
     """
 
     /// Parses `option` if it is a pin flag; false means not ours.
@@ -73,6 +83,10 @@ extension SnapshotCommand {
             options.popover = true
         case "--print-pins":
             options.print = true
+        case "--pin-preview":
+            options.preview = try value()
+        case "--space-sheet":
+            options.spaceSheet = try value()
         default:
             return false
         }
@@ -109,16 +123,15 @@ extension SnapshotCommand {
         store.insert(.folder(BrowserPinFolder(name: "Later")), inSpace: spaceID)
     }
 
-    /// After the sidebar opens: expand, search and drop, then print.
+    /// After the first window opens: expand and drop on the rail's outline,
+    /// then print.
     static func runPinScenario(_ options: PinOptions, controller: BrowserWindowController) {
-        let store = controller.spaces
-        let sidebar = controller.sidebar
         for name in options.expand {
             let folders = controller.currentPinTree.folderEntries().filter {
                 $0.id != BrowserPinTree.rootID && (name == "all" || $0.name == name)
             }
             for folder in folders {
-                sidebar.setFolderExpanded(folder.id, true)
+                controller.setPinFolderExpanded(folder.id, true)
             }
         }
         if let name = options.lastFolder, let spaceID = controller.pinSpaceID {
@@ -126,20 +139,14 @@ extension SnapshotCommand {
             controller.manager.pinUIState.setLastFolderID(folder?.id, inSpace: spaceID)
         }
         for (title, drop) in options.drops {
-            guard let node = sidebar.outlineRows.first(where: { $0.node.title == title })?.node else {
+            guard let node = controller.railOutlineRows.first(where: { $0.node.title == title })?.node else {
                 print("pin-drop: no visible row titled \(title)")
                 continue
             }
-            let destination = sidebar.bookmarkDestination(for: node.id, drop: drop)
-            let moved = sidebar.performBookmarkDrop(node.id, drop: drop)
+            let destination = controller.bookmarkDestination(for: node.id, drop: drop)
+            let moved = controller.performBookmarkDrop(node.id, drop: drop)
             let target = destination.flatMap { controller.currentPinTree.folder(id: $0.folderID)?.displayName } ?? "-"
             print("pin-drop: \(title) \(drop) -> \(moved ? "moved into \(target) at \(destination?.index ?? -1)" : "refused")")
-        }
-        if let search = options.search, let spaceID = controller.pinSpaceID {
-            sidebar.setSearchText(search)
-            for entry in store.matchingPins(search, inSpace: spaceID) {
-                print("pin-search: \(entry.pin.displayTitle) — \(entry.pathText)")
-            }
         }
         if options.print {
             printPins(controller)
@@ -176,7 +183,7 @@ extension SnapshotCommand {
             }
         }
         walk(controller.currentPinTree.root, depth: 0)
-        for (index, row) in controller.sidebar.outlineRows.enumerated() {
+        for (index, row) in controller.railOutlineRows.enumerated() {
             let mark = row.node.isFolder ? (row.isExpanded ? "▾ " : "▸ ") : "  "
             print("pin-outline: \(index) \(String(repeating: "  ", count: row.depth))\(mark)\(row.node.title)")
         }

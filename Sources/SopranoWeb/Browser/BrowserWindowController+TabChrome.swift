@@ -28,7 +28,8 @@ extension BrowserWindowController {
         tabStrip.contextMenuProvider = { [weak self] id in
             self?.tabContextMenu(for: id, closeAfterTitle: "Close Tabs to the Right")
         }
-        verticalTabsView.onReorder = { [weak self] id, index in self?.moveTab(id: id, toIndex: index) }
+        // The rail lists the Today tabs; its indices count those.
+        verticalTabsView.onReorder = { [weak self] id, index in self?.moveTodayTab(id: id, toTodayIndex: index) }
         verticalTabsView.onToggleMute = { [weak self] id in self?.toggleMute(id: id) }
         verticalTabsView.contextMenuProvider = { [weak self] id in
             self?.tabContextMenu(for: id, closeAfterTitle: "Close Tabs Below")
@@ -38,7 +39,10 @@ extension BrowserWindowController {
         tabStrip.onDropTab = { [weak self] id, index in self?.dropTab(id: id, at: index) }
         tabStrip.onDragOut = { [weak self] id, point in self?.tabDraggedOut(id: id, to: point) }
         verticalTabsView.canAcceptTab = { [weak self] id in self?.canAcceptDroppedTab(id: id) ?? false }
-        verticalTabsView.onDropTab = { [weak self] id, index in self?.dropTab(id: id, at: index) }
+        verticalTabsView.onDropTab = { [weak self] id, index in
+            guard let self else { return }
+            self.dropTab(id: id, at: self.visibleGap(forTodayGap: index))
+        }
         verticalTabsView.onDragOut = { [weak self] id, point in self?.tabDraggedOut(id: id, to: point) }
 
         sidebar.faviconProvider = { [weak self] address in

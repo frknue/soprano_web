@@ -151,7 +151,7 @@ final class BrowserSpacesMenu: NSObject, NSMenuDelegate, NSMenuItemValidation {
                     keyEquivalent: ""
                 )
                 item.target = self
-                item.representedObject = pin.url
+                item.representedObject = pin.id
                 item.toolTip = pin.url
                 item.image = Self.menuImage(favicons.image(forAddress: pin.url))
                 menu.addItem(item)
@@ -179,12 +179,13 @@ final class BrowserSpacesMenu: NSObject, NSMenuDelegate, NSMenuItemValidation {
         }
     }
 
-    /// Opens in the active window's tab, or a new window when none is open.
+    /// Selects the pin's live tab in the active window or opens one linked
+    /// to it; a new window on its address when none is open.
     @objc private func openBookmark(_ sender: NSMenuItem) {
-        guard let url = sender.representedObject as? String, let manager = windowManager() else { return }
+        guard let id = sender.representedObject as? UUID, let manager = windowManager() else { return }
         if let controller = manager.tabbedController {
-            controller.navigateCurrent(to: url)
-        } else {
+            controller.openPin(id)
+        } else if let url = sender.toolTip {
             _ = manager.newWindow(url: url)
         }
     }
@@ -218,7 +219,8 @@ final class BrowserSpacesMenu: NSObject, NSMenuDelegate, NSMenuItemValidation {
             if !item.keyEquivalent.isEmpty {
                 line += "  [\(shortcut(item))]"
             }
-            if let url = item.representedObject as? String {
+            if item.representedObject is UUID, let url = item.toolTip {
+                // A pin: its address.
                 line += "  <\(url)>"
             }
             if !item.isEnabled {

@@ -280,6 +280,12 @@ final class BrowserSpaceStore {
         }
     }
 
+    /// What a tab of Space `spaceID` may be linked to (its pins, its
+    /// profile's favorites); nothing for an unknown Space.
+    func linkTargets(inSpace spaceID: UUID) -> BrowserPinLinks.Targets {
+        list.space(id: spaceID).map(list.linkTargets(of:)) ?? BrowserPinLinks.Targets()
+    }
+
     // MARK: Favorites (per profile, at most 12)
 
     func favorites(ofProfile profileID: UUID) -> [BrowserPin] {

@@ -65,4 +65,13 @@ final class BrowserProfilePicker: NSObject {
         refresh()
         onChange?(id)
     }
+
+    /// Picks `id` as the menu would (the harness).
+    func select(_ id: UUID) {
+        let resolved = profiles.resolvedID(id)
+        guard resolved != selectedID else { return }
+        selectedID = resolved
+        refresh()
+        onChange?(resolved)
+    }
 }

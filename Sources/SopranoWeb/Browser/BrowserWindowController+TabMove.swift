@@ -41,7 +41,7 @@ extension BrowserWindowController {
         else {
             return false
         }
-        manager.moveTab(tab, from: source, to: self, at: insertion, select: true)
+        manager.moveTab(tab, from: source, to: self, at: spaceIndex(forVisibleGap: insertion), select: true)
         return true
     }
 

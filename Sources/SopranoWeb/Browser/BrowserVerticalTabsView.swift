@@ -1,23 +1,41 @@
 import AppKit
 
-/// Arc-style vertical tab rail. Tabs stack down the left edge, with the new-tab
-/// button in the header; the rail keeps the window controls clear at the top.
-/// Dragging a row reorders the rail live and commits the move on release;
-/// dragging it off the rail starts a system drag session that another
-/// window's tab list takes, or that opens a new window where it ends. A
-/// sideways two-finger swipe anywhere on the rail switches Spaces
-/// (`onSwipeSpace`); swipes on the page stay the page's back/forward.
+/// What the rail shows above and below the Today tabs.
+struct BrowserRailContent: Equatable {
+    /// A normal window: Favorites, Pinned, the "Today" head and the Space
+    /// switcher. A private or pop-up window shows its tabs only.
+    var showsSpaces = false
+    var favorites: [BrowserRailFavorite] = []
+    var pins: [BrowserRailPinRow] = []
+    var spaces: [BrowserRailSpace] = []
+}
+
+/// Arc-style vertical tab rail, top to bottom: the Space header (its icon,
+/// name and color mark; a private window's mark), the profile's Favorites
+/// grid, the Space's pinned outline, the "Today" head with "+ New Tab" and
+/// the Today tabs, and the Space switcher; the rail keeps the window
+/// controls clear at the top. Dragging a Today row reorders the rail live
+/// and commits the move on release; dragging it off the rail starts a
+/// system drag session that another window's tab list takes, or that
+/// opens a new window where it ends. A sideways two-finger swipe anywhere
+/// on the rail switches Spaces (`onSwipeSpace`); swipes on the page stay
+/// the page's back/forward.
 @MainActor
 final class BrowserVerticalTabsView: NSView {
     var onSelect: ((UUID) -> Void)?
     var onClose: ((UUID) -> Void)?
-    var onNewTab: (() -> Void)?
+    var onNewTab: (() -> Void)? {
+        get { todayHeader.onNewTab }
+        set { todayHeader.onNewTab = newValue }
+    }
+    /// A Today row dragged to index n of the Today tabs.
     var onReorder: ((UUID, Int) -> Void)?
     var onToggleMute: ((UUID) -> Void)?
     var contextMenuProvider: ((UUID) -> NSMenu?)?
     /// Whether a tab dragged over the rail may drop here.
     var canAcceptTab: ((UUID) -> Bool)?
-    /// A dragged tab dropped into gap n of the rail (0: above the first).
+    /// A dragged tab dropped into gap n of the Today tabs (0: above the
+    /// first).
     var onDropTab: ((UUID, Int) -> Void)?
     /// This rail's tab was dropped where no window took it.
     var onDragOut: ((UUID, NSPoint) -> Void)? {
@@ -29,22 +47,34 @@ final class BrowserVerticalTabsView: NSView {
     var onSwipeSpace: ((Int) -> Void)?
     private var swipe = BrowserSpaceSwipe()
 
+    /// The Favorites grid, the pinned outline and the Space switcher; the
+    /// window controller wires their callbacks.
+    let favoritesView: BrowserRailFavoritesView
+    let pinsView: BrowserRailPinsView
+    let switcher: BrowserRailSpaceSwitcher
+    let todayHeader: BrowserRailTodayHeader
+    private(set) var content = BrowserRailContent()
+
     private var theme: AppTheme
     private var buttons: [UUID: BrowserTabButton] = [:]
     private var order: [UUID] = []
+    private(set) var todayItems: [BrowserTabItem] = []
     private var rowWidthConstraints: [UUID: NSLayoutConstraint] = [:]
-    private var selectedID: UUID?
+    private(set) var selectedID: UUID?
     /// The dragged tab and the rail's live order while a row is dragged.
     private var drag: (id: UUID, order: [UUID])?
-    /// "Tabs", or the window's mark: "Private", its profile, or both.
+    /// The current Space (icon, name, color mark), or the window's mark:
+    /// "Private", its profile, or both.
     private let headerLabel: BrowserWindowMarkView
-    private let newTabButton: ChromeIconButton
     private let scrollView = BrowserRailScrollView()
     private let documentView = FlippedDocumentView()
+    private let sections = BrowserVerticalTabStack()
     private let stack = BrowserVerticalTabStack()
     private let divider: ChromeRuleView
     private let dragSource = BrowserTabDragSource()
     private let dropMarker = BrowserTabDropMarker()
+    private var scrollToSwitcher: NSLayoutConstraint!
+    private var scrollToBottom: NSLayoutConstraint!
 
     static let preferredWidth: CGFloat = 232
     private static let controlsTop: CGFloat = 46
@@ -56,26 +86,17 @@ final class BrowserVerticalTabsView: NSView {
     init(theme: AppTheme) {
         self.theme = theme
         self.headerLabel = BrowserWindowMarkView(theme: theme, fallback: "Tabs")
-        self.newTabButton = ChromeIconButton(
-            symbolName: "plus",
-            accessibilityLabel: "New Tab",
-            pointSize: 11,
-            size: 22,
-            target: nil,
-            action: nil
-        )
         self.divider = ChromeRuleView(axis: .vertical, color: theme.colors.borderSubtle)
+        self.favoritesView = BrowserRailFavoritesView(theme: theme)
+        self.pinsView = BrowserRailPinsView(theme: theme)
+        self.switcher = BrowserRailSpaceSwitcher(theme: theme)
+        self.todayHeader = BrowserRailTodayHeader(theme: theme)
         super.init(frame: .zero)
         translatesAutoresizingMaskIntoConstraints = false
         wantsLayer = true
 
         headerLabel.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
         addSubview(headerLabel)
-
-        newTabButton.target = self
-        newTabButton.action = #selector(newTabPressed)
-        newTabButton.toolTip = "New tab (⌘T)"
-        addSubview(newTabButton)
 
         scrollView.translatesAutoresizingMaskIntoConstraints = false
         scrollView.drawsBackground = false
@@ -88,38 +109,54 @@ final class BrowserVerticalTabsView: NSView {
         documentView.translatesAutoresizingMaskIntoConstraints = false
         scrollView.documentView = documentView
 
+        sections.translatesAutoresizingMaskIntoConstraints = false
+        sections.orientation = .vertical
+        sections.alignment = .leading
+        sections.spacing = 10
+        sections.distribution = .fill
+        sections.detachesHiddenViews = true
+        documentView.addSubview(sections)
+        documentView.addSubview(dropMarker)
+
         stack.translatesAutoresizingMaskIntoConstraints = false
         stack.orientation = .vertical
         stack.alignment = .leading
         stack.spacing = 4
         stack.distribution = .fill
-        documentView.addSubview(stack)
-        documentView.addSubview(dropMarker)
+        for view in [favoritesView, pinsView, todayHeader, stack] as [NSView] {
+            sections.addArrangedSubview(view)
+            view.widthAnchor.constraint(equalTo: sections.widthAnchor).isActive = true
+        }
+        sections.setCustomSpacing(4, after: todayHeader)
 
+        addSubview(switcher)
         addSubview(divider)
         registerForDraggedTypes([.browserTab])
 
+        scrollToSwitcher = scrollView.bottomAnchor.constraint(equalTo: switcher.topAnchor)
+        scrollToBottom = scrollView.bottomAnchor.constraint(equalTo: bottomAnchor, constant: -8)
         NSLayoutConstraint.activate([
             headerLabel.topAnchor.constraint(equalTo: topAnchor, constant: Self.controlsTop),
             headerLabel.leadingAnchor.constraint(equalTo: leadingAnchor, constant: 16),
-            headerLabel.trailingAnchor.constraint(lessThanOrEqualTo: newTabButton.leadingAnchor, constant: -8),
+            headerLabel.trailingAnchor.constraint(lessThanOrEqualTo: trailingAnchor, constant: -16),
 
-            newTabButton.centerYAnchor.constraint(equalTo: headerLabel.centerYAnchor),
-            newTabButton.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -12),
-
-            scrollView.topAnchor.constraint(equalTo: headerLabel.bottomAnchor, constant: 8),
+            scrollView.topAnchor.constraint(equalTo: headerLabel.bottomAnchor, constant: 10),
             scrollView.leadingAnchor.constraint(equalTo: leadingAnchor),
             scrollView.trailingAnchor.constraint(equalTo: trailingAnchor),
-            scrollView.bottomAnchor.constraint(equalTo: bottomAnchor, constant: -8),
+            scrollToBottom,
+
+            switcher.leadingAnchor.constraint(equalTo: leadingAnchor),
+            switcher.trailingAnchor.constraint(equalTo: trailingAnchor),
+            switcher.bottomAnchor.constraint(equalTo: bottomAnchor),
 
             documentView.leadingAnchor.constraint(equalTo: scrollView.contentView.leadingAnchor),
             documentView.topAnchor.constraint(equalTo: scrollView.contentView.topAnchor),
             documentView.widthAnchor.constraint(equalTo: scrollView.contentView.widthAnchor),
 
-            stack.leadingAnchor.constraint(equalTo: documentView.leadingAnchor, constant: 16),
-            stack.trailingAnchor.constraint(equalTo: documentView.trailingAnchor, constant: -16),
-            stack.topAnchor.constraint(equalTo: documentView.topAnchor, constant: 2),
-            stack.bottomAnchor.constraint(equalTo: documentView.bottomAnchor, constant: -8),
+            sections.leadingAnchor.constraint(equalTo: documentView.leadingAnchor, constant: 16),
+            sections.trailingAnchor.constraint(equalTo: documentView.trailingAnchor, constant: -16),
+            sections.topAnchor.constraint(equalTo: documentView.topAnchor, constant: 2),
+            sections.bottomAnchor.constraint(equalTo: documentView.bottomAnchor, constant: -8),
 
             divider.topAnchor.constraint(equalTo: topAnchor),
             divider.trailingAnchor.constraint(equalTo: trailingAnchor),
@@ -127,6 +164,7 @@ final class BrowserVerticalTabsView: NSView {
             divider.widthAnchor.constraint(equalToConstant: Chrome.hairline),
         ])
 
+        update(content: content)
         apply(theme: theme)
     }
 
@@ -135,6 +173,27 @@ final class BrowserVerticalTabsView: NSView {
         fatalError("init(coder:) is not supported")
     }
 
+    /// The sections around the Today tabs.
+    func update(content: BrowserRailContent) {
+        let modeChanged = content.showsSpaces != self.content.showsSpaces
+        self.content = content
+        favoritesView.update(content.favorites)
+        pinsView.update(content.pins)
+        switcher.update(content.spaces)
+        favoritesView.isHidden = !content.showsSpaces || content.favorites.isEmpty
+        pinsView.isHidden = !content.showsSpaces || content.pins.isEmpty
+        switcher.isHidden = !content.showsSpaces
+        if modeChanged || scrollToSwitcher.isActive != content.showsSpaces {
+            todayHeader.setShowsLabel(content.showsSpaces)
+            scrollToBottom.isActive = false
+            scrollToSwitcher.isActive = false
+            (content.showsSpaces ? scrollToSwitcher : scrollToBottom).isActive = true
+        }
+        needsLayout = true
+    }
+
+    /// The Today tabs (every tab in a window without Spaces) and the
+    /// selected tab, which may be a pinned or favorite one.
     func update(tabs: [BrowserTabItem], selectedID: UUID) {
         let ids = tabs.map(\.id)
         if ids != order {
@@ -148,6 +207,7 @@ final class BrowserVerticalTabsView: NSView {
                 rebuild(tabs: tabs)
             }
         }
+        todayItems = tabs
         for tab in tabs {
             buttons[tab.id]?.item = tab
         }
@@ -159,7 +219,14 @@ final class BrowserVerticalTabsView: NSView {
         layoutSubtreeIfNeeded()
         if let button = buttons[selectedID] {
             button.scrollToVisible(button.bounds)
+        } else if let row = pinsView.rowView(for: selectedPinID ?? UUID()) {
+            row.scrollToVisible(row.bounds)
         }
+    }
+
+    /// The pin whose live tab is selected.
+    private var selectedPinID: UUID? {
+        content.pins.first { $0.isSelected }?.id
     }
 
     func clear() {
@@ -173,6 +240,7 @@ final class BrowserVerticalTabsView: NSView {
         }
         buttons.removeAll()
         order.removeAll()
+        todayItems.removeAll()
         selectedID = nil
         drag = nil
     }
@@ -181,17 +249,21 @@ final class BrowserVerticalTabsView: NSView {
         self.theme = theme
         layer?.backgroundColor = theme.colors.bgPanel.cgColor
         headerLabel.apply(theme: theme)
-        newTabButton.apply(theme: theme)
         divider.color = theme.colors.borderSubtle
         for button in buttons.values {
             button.apply(theme: theme)
         }
+        favoritesView.apply(theme: theme)
+        pinsView.apply(theme: theme)
+        switcher.apply(theme: theme)
+        todayHeader.apply(theme: theme)
         dropMarker.apply(theme: theme)
         needsDisplay = true
     }
 
-    /// The header shows the window's mark ("Private", its profile, or
-    /// both), or "Tabs" when there is none.
+    /// The header shows the current Space (icon, name, color mark), or a
+    /// window without Spaces' mark ("Private", its profile, or both), or
+    /// "Tabs" when there is none.
     func setMark(_ mark: BrowserWindowMark) {
         headerLabel.set(mark)
     }
@@ -318,12 +390,8 @@ final class BrowserVerticalTabsView: NSView {
         }
         let pitch = Self.rowHeight + stack.spacing
         let gap = CGFloat(dropIndex(for: sender)) * pitch - stack.spacing / 2
-        dropMarker.frame = NSRect(
-            x: stack.frame.minX,
-            y: stack.frame.minY + gap - 1,
-            width: stack.frame.width,
-            height: 2
-        )
+        let list = documentView.convert(stack.bounds, from: stack)
+        dropMarker.frame = NSRect(x: list.minX, y: list.minY + gap - 1, width: list.width, height: 2)
         dropMarker.isHidden = false
         return .move
     }
@@ -334,10 +402,6 @@ final class BrowserVerticalTabsView: NSView {
             rowPitch: Self.rowHeight + stack.spacing,
             count: order.count
         )
-    }
-
-    @objc private func newTabPressed() {
-        onNewTab?()
     }
 
     // MARK: - Swiping between Spaces

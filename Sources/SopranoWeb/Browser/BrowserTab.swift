@@ -14,6 +14,11 @@ struct BrowserTabItem: Equatable {
     var isMuted: Bool
     /// The tab sleeps: its page was released and reloads when selected.
     var isAsleep = false
+    /// The live tab of a pin or favorite: the strip shows it compact (its
+    /// icon only), before the Today tabs.
+    var isLinked = false
+    /// A linked tab whose page left its pin's address: the "/" mark.
+    var isAway = false
 
     static func == (lhs: BrowserTabItem, rhs: BrowserTabItem) -> Bool {
         lhs.id == rhs.id
@@ -24,6 +29,8 @@ struct BrowserTabItem: Equatable {
             && lhs.isPlayingAudio == rhs.isPlayingAudio
             && lhs.isMuted == rhs.isMuted
             && lhs.isAsleep == rhs.isAsleep
+            && lhs.isLinked == rhs.isLinked
+            && lhs.isAway == rhs.isAway
     }
 }
 

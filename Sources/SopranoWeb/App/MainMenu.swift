@@ -165,7 +165,7 @@ final class MainMenuController: NSObject, NSMenuItemValidation {
             menu: spacesMenu,
             commands: [
                 item("Bookmark This Page", #selector(bookmark), "d"),
-                item("Show Bookmarks", #selector(showBookmarks), "b", [.command, .option]),
+                item("Show Pinned Tabs", #selector(showPinnedTabs), "b", [.command, .option]),
             ],
             windowManager: windowManager
         )
@@ -395,8 +395,8 @@ final class MainMenuController: NSObject, NSMenuItemValidation {
         controller()?.showSidebar(section: .history)
     }
 
-    @objc private func showBookmarks() {
-        controller()?.showSidebar(section: .bookmarks)
+    @objc private func showPinnedTabs() {
+        controller()?.showRail()
     }
 
     @objc private func showDownloads() {
@@ -470,7 +470,7 @@ final class MainMenuController: NSObject, NSMenuItemValidation {
         ⌘[  Back               ⌘]  Forward
         ⌘R  Reload             ⌘F  Find in page
         ⌘D  Bookmark           ⌘Y  History
-        ⌥⌘B Bookmarks          ⌥⌘L Downloads
+        ⌥⌘B Pinned tabs        ⌥⌘L Downloads
         ⌘= / ⌘- / ⌘0  Zoom in / out / reset
         ⌘P  Print              ⇧⌘S Save as
         ⇧⌘P Command palette    ⌘.  Stop loading

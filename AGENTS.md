@@ -41,7 +41,7 @@ no linter or formatter; match surrounding style.
 
   ```bash
   taskpolicy -b .build/debug/SopranoWeb snapshot --out /tmp/sw.png --size 1440x900 \
-      --theme folio-paper [--url <url>] [--sidebar history|bookmarks|downloads] \
+      --theme folio-paper [--url <url>] [--sidebar history|downloads] \
       [--find] [--settings] [--vertical-tabs] [--collapsed] [--print-tabs] …
   ```
 
@@ -101,23 +101,42 @@ no linter or formatter; match surrounding style.
   support folder is a temporary one, so profile folders go with it; it
   deletes every profile it made before exiting, so no WebKit data store is
   left behind. Pin flags (every one works on the active window's current
-  Space; a private window's is its profile's first): `--sidebar` seeds a pinned tree
-  (nested folders, an empty one) when the Space has no pins, `--pins-tree`
-  seeds Default's Space before the first window (the start page's folder
+  Space and the rail's pinned outline; a private window's is its profile's
+  first): `--pins-tree` seeds a pinned tree (nested folders, an empty one)
+  into Default's Space before the first window (the start page's folder
   cards), `--bookmarks-file <json>` starts from that stage 2
   `bookmarks.json` (version 1 or 2; it migrates into Default's Space),
-  `--expand-folder <name|all>` (repeatable) opens outline folders,
+  `--expand-folder <name|all>` (repeatable) opens the rail's outline folders,
   `--pin-drop <title>:on|above:<row>` (repeatable) runs the outline's drop
-  handler (`performBookmarkDrop`, what a real drop calls; rows as
-  `--print-pins` numbers them; prints moved or refused), `--pin-search
-  <text>` types into the sidebar search, `--pin-folder <name>` sets ⌘D's
+  handler (`performBookmarkDrop`, what a real drop on the rail calls; rows
+  as `--print-pins` numbers them; prints moved or refused), `--pin-preview
+  <folder>` opens the rail's hover preview of that folder and draws it into
+  the capture, `--pin-search <text>` types into the preview's search (the
+  first folder's without `--pin-preview`) and prints `pin-search:` per
+  match, `--pin-folder <name>` sets ⌘D's
   last-used folder in the Space, `--pin-popover` runs ⌘D on the selected
   page and draws its popover into the capture (built in the offscreen
-  window, never a shown panel) and `--print-pins` prints every Space
+  window, never a shown panel), `--space-sheet new|<space>[=<name>|<icon>|<color>|<profile>]`
+  captures the New Space (or that Space's Edit Space) sheet, filled but not
+  saved, and `--print-pins` prints every Space
   (`space:` with profile, color, icon and pin count), each profile's
-  favorites count and archive time, the current Space's tree, the outline
-  rows, Vimium's `b` lines, `spaces.json`'s version and the migrated
-  `bookmarks.json` copy, and the Spaces menu as text. Sleep and zoom flags:
+  favorites count and archive time, the current Space's tree, the rail's
+  outline rows, Vimium's `b` lines, `spaces.json`'s version and the migrated
+  `bookmarks.json` copy, and the Spaces menu as text. Rail actions (in order
+  with the window actions, through the handlers a real click calls):
+  `--click-pin <title>[:icon|:cmd-icon]` (the pin's row, its icon — reset —
+  or ⌘ on its icon — reset, keeping the page in a new Today tab; prints the
+  selected tab with its id and the tab count before and after),
+  `--click-favorite <n|title>[:cmd]`, the selected tab's menu items
+  `--pin-tab`, `--unpin-tab`, `--add-favorite`, `--remove-favorite`,
+  `--replace-pin`, `--new-space "<name>|<icon>|<color>|<profile>"` (the
+  switcher's "+" sheet, filled, Create Space pressed; empty parts keep its
+  defaults), `--edit-space "<space>=<name>|<icon>|<color>|<profile>"`,
+  `--delete-space <name>` (confirmed; a profile's last Space is refused)
+  and `--print-rail` (one `rail:` JSON line: header, favorites, pinned rows
+  and Today tabs with live, selected and "/" state, the switcher, every tab
+  of the Space with its link, and the Recently Closed count). `--close-tab`
+  on a pinned or favorite tab unloads it to its pin. Sleep and zoom flags:
   `--sleep-after <seconds>` (a test threshold; the idle pass runs on the
   real timer four times per threshold), `--tab-sleep <setting>`,
   `--default-zoom <percent>`, `--support-dir <dir>` (a support folder kept
@@ -202,7 +221,9 @@ no linter or formatter; match surrounding style.
   (`BrowserTabMoveRule`) is the one rule for which windows may exchange tabs:
   the tab's data context is the target's current Space's (so the same
   profile), never into a pop-up; a moved tab lands in the target's current
-  Space as a Today tab.
+  Space and keeps its pin or favorite link only while that is the Space's
+  and the target has no live tab for it (`linkAfterMove`), else as a Today
+  tab.
   `tabbedController` is the window menu commands' new tabs go to (never a
   pop-up window); `windowForNewTabs(from:)` the window a pop-up's tabs go to
   (same data context). `BrowserWindowManager+Profiles.swift` —
@@ -244,9 +265,11 @@ no linter or formatter; match surrounding style.
   layout, wiring, settings and theme (Folio Ink always for a private window).
   A normal window shows one Space at a time: `currentSpaceID` (nil in
   private and pop-up windows, `hasSpaces`), `tabs` holds every live tab of
-  every Space, `visibleTabs` the current Space's (what `selectedIndex`,
-  ⌘1…⌘9, Vimium `gt`/`gT`/`<<`/`>>`, the tab lists and the CLI's tab
-  numbers count), `spaceSelections` each Space's selected tab. The
+  every Space, `visibleTabs` the current Space's — favorite tabs, then
+  pinned tabs, then Today tabs (`BrowserPinLinks.order`; what
+  `selectedIndex`, ⌘1…⌘9, Vimium `gt`/`gT`/`<<`/`>>`, the strip and the
+  CLI's tab numbers count; `refreshVisibleTabs` keeps the selection),
+  `spaceSelections` each Space's selected tab. The
   window's `dataContext` is the current Space's profile's; every per-tab
   operation and WebKit callback uses the tab's own `BrowserTab.dataContext`
   (history, site decisions, favicons, connection security and sign-in
@@ -256,10 +279,25 @@ no linter or formatter; match surrounding style.
   `pinSpaceID` is the Space whose pins every pin surface reads and writes
   (the current Space; a private window's profile's first; `currentPinTree`
   its tree).
+  `+Pins` — live pinned and favorite tabs: `liveTab(for:)`, `openPin` /
+  `openFavorite` (select the live tab, else open one linked to it; a
+  favorite's tab follows the window into another Space of its profile),
+  `pinIconPressed` / `resetLinkedTab` (back to the pinned address; ⌘ keeps
+  the page in a new Today tab), `unloadLinkedTab` (⌘W: no Recently
+  Closed), `isAway` (the "/" mark), `tabItem`, `replaceLink`, `pinTab` /
+  `unpinTab`, `addTabToFavorites` / `removeTabFromFavorites`. `+Rail` —
+  what the rail shows (`railMark`, `railOutlineRows`: expanded folders plus
+  the selected pin's, `updateRail`) and its handlers: favorites, the
+  outline's clicks, menus and drops (`bookmarkDestination` /
+  `performBookmarkDrop`), the folder preview, the Today index mapping, and
+  the switcher's New Space / Edit Space sheet (`makeSpaceSheet`) and
+  Delete Space. `BrowserPinLinks.swift` is the pure part: link validation,
+  `originAfterMove`, `isAway`, the tab order and the icon field's parsing.
   `+Spaces` — `switchToSpace` (⌃1…⌃9 via the Spaces menu, ⌥⌘←/⌥⌘→, the
   rail's swipe, CLI; an empty Space opens a start-page Today tab, and ⌘W
   doesn't close a Space's lone start tab), `spacesChanged` (deleted Space,
-  Space moved to another profile: its tabs reopen there) and
+  Space moved to another profile: its tabs reopen there; a tab whose pin
+  or favorite is gone becomes a Today tab) and
   `closeTabs(ofProfile:)`. `BrowserSpaceSwitching.swift` is the pure
   index/wrap and selection math and `BrowserSpaceSwipe`.
   Its behavior lives in extension files
@@ -268,7 +306,7 @@ no linter or formatter; match surrounding style.
   the tab lists call, the find query a moved tab carries), `+Navigation`
   (`WKNavigationDelegate`), `+UIDelegate`
   (`WKUIDelegate`), `+Downloads` (hand-off to the download manager), `+Sidebar`,
-  `+Bookmarks` (⌘D and the star's popover, the sidebar's Open All in Tabs,
+  `+Bookmarks` (⌘D and the star's popover, the rail's Open All in Tabs,
   New Folder, Edit/Rename and Delete with its confirmation, all on the
   current Space's pins),
   `+Vimium`, `+Session` (window state, lazy restore, crash recovery,
@@ -347,8 +385,8 @@ no linter or formatter; match surrounding style.
   Default's, kept as `bookmarks.json.migrated`; an unreadable one is kept
   as `.corrupt`) and `BrowserPinUIState` (expanded folders and ⌘D's last
   folder per Space in `UserDefaults`). `BrowserPinEditor.swift` is the
-  Folio popover (⌘D, Edit Bookmark, Rename, New Folder) and its child
-  panel; `BrowserPinOutlineCell.swift` an outline row;
+  Folio popover (⌘D, Edit Pin, Rename, New Folder) and its child
+  panel; `BrowserPinOutlineCell.swift` a row of the rail's outline;
   `BrowserSpacesMenu.swift` the Spaces menu (stage 2's Bookmarks menu):
   every Space on ⌃1…⌃9 with the active window's checked, Next/Previous
   Space on ⌥⌘→/⌥⌘←, then the active window's Space's pin tree, rebuilt on
@@ -406,12 +444,18 @@ no linter or formatter; match surrounding style.
   `sopranoWeb` message channel; messages are accepted only from the world (page or
   isolated) their type was written for.
 - `Browser/BrowserToolbarView.swift`, `BrowserAddressBarController.swift`,
-  `BrowserAddressSuggestions.swift`, `BrowserTabStripView.swift`,
-  `BrowserVerticalTabsView.swift`, `BrowserTabButton.swift`,
+  `BrowserAddressSuggestions.swift`, `BrowserTabStripView.swift` (favorite
+  and pinned tabs first, icon-only), `BrowserVerticalTabsView.swift` (the
+  rail: Space header, Favorites, the pinned outline, Today with "+ New
+  Tab", the switcher), `BrowserRailPinsView.swift` (the Favorites grid and
+  the pinned outline with its drag and drop), `BrowserRailSpaceSwitcher.swift`
+  (the switcher, the "Today" head, `BrowserSpaceIconDrawing`),
+  `BrowserPinFolderPreview.swift` (a folder's hover preview with search),
+  `BrowserSpaceSheet.swift` (New Space / Edit Space), `BrowserTabButton.swift`,
   `BrowserTabDragSession.swift` (a tab's system drag session and drop marker),
   `BrowserTabReorder.swift` (drag and drop index math),
-  `BrowserSidebarView.swift`, `BrowserFindBar.swift`, `BrowserStartPage.swift`,
-  `BrowserErrorPage.swift` — chrome and local pages.
+  `BrowserSidebarView.swift` (History and Downloads), `BrowserFindBar.swift`,
+  `BrowserStartPage.swift`, `BrowserErrorPage.swift` — chrome and local pages.
 - `Browser/BrowserAutomationCommand.swift`, `BrowserAutomationSocket.swift`,
   `BrowserAutomation.swift` — the `browser` CLI over a user-only Unix socket and
   the `@e1` snapshot/action scripts. `browser vimium <keys>` feeds the selected

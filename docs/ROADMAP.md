@@ -70,13 +70,14 @@ Left:
 
 ## 3. Arc's organization model and import
 
-- Spaces: name, emoji or SF Symbol, theme color, a profile per Space; Pinned and Today
-  sections; switch with ⌃1…⌃9, ⌥⌘←/→ and a two-finger swipe.
-- Favorites: icon grid per profile above the Space title (Arc caps it at 12).
-- Pinned tabs: remember the pinned URL, mark a tab that navigated away, reset on icon click,
-  ⌘-click the icon to reset and keep the current page in a new tab, Replace Pin with
-  Current Page.
-- Folders: nested, never archived, searchable preview on hover.
+Built so far on `feat/stage-3` (see `CHANGELOG.md` and `docs/STAGE-3-PLAN.md`): Spaces
+(name, emoji or SF Symbol, color mark, a profile per Space; ⌃1…⌃9, ⌥⌘←/→, a two-finger
+swipe and the rail's switcher with New Space / Edit Space), per-profile Favorites (12),
+pinned trees replacing bookmarks, and live pinned and favorite tabs in the rail (the "/"
+mark, reset on icon click, ⌘-click keeps the page, Replace Pin with Current Page, ⌘W
+unloads to the pin, searchable folder preview on hover); custom search engines with `%s`
+templates and keywords.
+
 - Today tabs archive after idle time (per profile: never, 30 days, 7 days, 24 h, 12 h, 6 h,
   1 h; Arc defaults to 12 h). Archive view: searchable, restores into the original Space.
 - Command Bar on ⌘T (tabs, history, Spaces, actions behind `/`, settings, site search on
@@ -85,7 +86,6 @@ Left:
   Bar, as Arc's menu-item metadata does.
 - ⌃Tab switches between recent tabs; ⌥⌘↑/↓ walks the sidebar; ⇧⌘C copies the URL, ⌥⇧⌘C
   as Markdown; ⇧⌘K clears Today; ⇧⌘D toggles the toolbar.
-- Custom search engines with `%s` templates and keywords.
 - Import from Arc: `StorableSidebar.json` (Spaces with their profiles, Favorites per
   profile, pinned trees, Today tabs), `StorableArchiveItems.json`, the favicon caches,
   each profile's Chromium `History`, `StorableLinkRouting.json`. Read Arc's folder in

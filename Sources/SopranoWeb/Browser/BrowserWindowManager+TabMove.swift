@@ -14,11 +14,14 @@ extension BrowserWindowManager {
         BrowserTabMoveRule.allows(tabContext: tab.dataContext.id, from: source.id, to: target.moveRuleWindow)
     }
 
-    /// Moves `tab` into `target`'s current Space as a Today tab at `index`
-    /// of that Space (nil: the end). `select` selects it there and brings
-    /// `target` forward; otherwise neither window's selection changes
-    /// except where the tab left. An emptied `source` closes without going
-    /// onto Recently Closed.
+    /// Moves `tab` into `target`'s current Space at `index` of that Space
+    /// (nil: the end). It stays linked to its pin or favorite while that
+    /// is the target Space's and `target` has no live tab for it yet
+    /// (`BrowserPinLinks.originAfterMove`); otherwise it lands as a Today
+    /// tab. `select` selects it there and brings `target` forward;
+    /// otherwise neither window's selection changes except where the tab
+    /// left. An emptied `source` closes without going onto Recently
+    /// Closed.
     func moveTab(
         _ tab: BrowserTab,
         from source: BrowserWindowController,
@@ -30,7 +33,7 @@ extension BrowserWindowManager {
         let find = source.findQuery(carriedBy: tab)
         source.detachTab(tab)
         tab.spaceID = target.currentSpaceID
-        tab.origin = .today
+        tab.origin = linkAfterMove(tab, into: target)
         target.attachTab(tab, at: index, select: select)
         if select {
             target.carryFind(find)
@@ -64,7 +67,7 @@ extension BrowserWindowManager {
         let find = source.findQuery(carriedBy: tab)
         source.detachTab(tab)
         tab.spaceID = controller.currentSpaceID
-        tab.origin = .today
+        tab.origin = linkAfterMove(tab, into: controller)
         controller.attachTab(tab, select: true)
         controller.carryFind(find)
         if raise {
@@ -108,7 +111,8 @@ extension BrowserWindowManager {
 
     /// Window ▸ Merge All Windows: every tab of the other windows that
     /// merge into the active window moves into it, after its tabs and in
-    /// window order, each keeping its Space and pin or favorite link; its
+    /// window order, each keeping its Space and its pin or favorite link
+    /// unless the active window already has a live tab for it; its
     /// selected tab stays selected. The emptied windows close without going
     /// onto Recently Closed. Pop-up windows, and windows of another kind or
     /// private context, stay as they are.
@@ -126,6 +130,7 @@ extension BrowserWindowManager {
                 }
             }
             for tab in tabs {
+                tab.origin = linkAfterMove(tab, into: target)
                 target.attachTab(tab, select: false)
             }
             closeIfEmptied(source)
@@ -183,5 +188,19 @@ extension BrowserWindowManager {
             window.orderBack(nil)
         }
         window.displayIfNeeded()
+    }
+}
+
+extension BrowserWindowManager {
+    /// The link `tab` keeps when it joins `target` in Space `tab.spaceID`
+    /// (set before): its pin or favorite must be that Space's and `target`
+    /// must have no live tab for it yet.
+    func linkAfterMove(_ tab: BrowserTab, into target: BrowserWindowController) -> BrowserTabOrigin {
+        guard target.hasSpaces, let spaceID = tab.spaceID else { return .today }
+        return BrowserPinLinks.originAfterMove(
+            tab.origin,
+            into: spaces.linkTargets(inSpace: spaceID),
+            live: target.tabs.filter { $0 !== tab }.map(\.origin)
+        )
     }
 }

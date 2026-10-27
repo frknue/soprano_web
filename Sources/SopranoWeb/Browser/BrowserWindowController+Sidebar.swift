@@ -138,8 +138,6 @@ extension BrowserWindowController {
             showClearBrowsingData()
         case .downloads:
             downloads.clearFinished()
-        case .bookmarks:
-            break
         }
     }
 

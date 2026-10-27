@@ -1,10 +1,10 @@
 import AppKit
 
-/// ⌘D and the star's popover, and what the sidebar's Bookmarks outline asks
-/// for: open, Open All in Tabs, New Folder, Edit/Rename and Delete. All of
-/// it reads and writes the pins of the window's current Space
-/// (`pinSpaceID`; a private window's: its profile's first Space). Private
-/// windows may pin too (a deliberate save).
+/// ⌘D and the star's popover, and what the rail's pinned outline asks
+/// for: Open All in Tabs, New Folder, Edit/Rename and Delete. All of it
+/// reads and writes the pins of the window's current Space (`pinSpaceID`;
+/// a private window's: its profile's first Space). Private windows may
+/// pin too (a deliberate save).
 extension BrowserWindowController {
     // MARK: - ⌘D and the star
 
@@ -104,44 +104,49 @@ extension BrowserWindowController {
 
     // MARK: - Sidebar and menu actions
 
-    /// Opens every pin in the folder (subfolders included) in new tabs and
-    /// selects the first.
+    /// Opens every pin in the folder (subfolders included) and selects the
+    /// first: each pin's live tab, opened where it has none (plain tabs in
+    /// a window without Spaces).
     func openBookmarkFolderInTabs(_ id: UUID) {
         guard let folder = currentPinTree.folder(id: id), let first = folder.allPins.first else { return }
-        let firstTab = newTab(url: first.url, select: false)
-        for pin in folder.allPins.dropFirst() {
-            newTab(url: pin.url, select: false)
+        guard hasSpaces else {
+            let firstTab = newTab(url: first.url, select: false)
+            for pin in folder.allPins.dropFirst() {
+                newTab(url: pin.url, select: false)
+            }
+            if tabs.contains(where: { $0 === firstTab }) {
+                selectTab(id: firstTab.id, focus: true)
+            }
+            return
         }
-        if tabs.contains(where: { $0 === firstTab }) {
-            selectTab(id: firstTab.id, focus: true)
+        for pin in folder.allPins.reversed() {
+            openPin(pin.id)
         }
     }
 
-    /// Adds "New Folder" in `parentID` at `index`, shows it in the outline
-    /// and opens the editor on it to name it.
+    /// Adds "New Folder" in `parentID` at `index`, shows it in the rail's
+    /// outline and opens the editor on it to name it.
     func newBookmarkFolder(in parentID: UUID, at index: Int?) {
         guard let spaceID = pinSpaceID,
               let folder = spaces.addPinFolder(name: "New Folder", in: parentID, at: index, inSpace: spaceID)
         else { return }
-        sidebar.revealBookmarkNode(folder.id)
-        guard let window, let anchor = sidebar.anchorView(forBookmarkNode: folder.id),
+        revealPinNode(folder.id)
+        guard let window,
               let editor = makeBookmarkEditor(for: folder.id, heading: "New Folder", showsURL: false)
         else { return }
-        bookmarkEditorPanel.show(editor, below: anchor, in: window)
+        bookmarkEditorPanel.show(editor, below: pinAnchorView(folder.id), in: window)
     }
 
-    /// Edit Bookmark (name, address, folder) or Rename (a folder), under
-    /// the row.
+    /// Edit Pin (name, address, folder) or Rename (a folder), under its
+    /// row in the rail.
     func editBookmarkNodeFromSidebar(_ id: UUID) {
         guard let window, let node = currentPinTree.node(id: id) else { return }
-        guard let anchor = sidebar.anchorView(forBookmarkNode: id),
-              let editor = makeBookmarkEditor(
-                  for: id,
-                  heading: node.isFolder ? "Rename Folder" : "Edit Bookmark",
-                  showsURL: !node.isFolder
-              )
-        else { return }
-        bookmarkEditorPanel.show(editor, below: anchor, in: window)
+        guard let editor = makeBookmarkEditor(
+            for: id,
+            heading: node.isFolder ? "Rename Folder" : "Edit Pin",
+            showsURL: !node.isFolder
+        ) else { return }
+        bookmarkEditorPanel.show(editor, below: pinAnchorView(id), in: window)
     }
 
     /// Deletes a pin or an empty folder at once; a folder with contents

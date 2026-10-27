@@ -215,7 +215,10 @@ extension BrowserWindowState {
         for index in state.tabs.indices {
             let space = state.tabs[index].spaceID.flatMap(list.space(id:)) ?? home
             state.tabs[index].spaceID = space.id
-            state.tabs[index].origin = Self.origin(state.tabs[index].origin, in: space, list: list)
+            state.tabs[index].origin = BrowserPinLinks.validated(
+                state.tabs[index].origin,
+                in: list.linkTargets(of: space)
+            )
         }
         var seen: Set<UUID> = []
         state.spaceSelections = spaceSelections.filter { selection in
@@ -224,17 +227,6 @@ extension BrowserWindowState {
                 && seen.insert(selection.spaceID).inserted
         }
         return state
-    }
-
-    private static func origin(_ origin: BrowserTabOrigin, in space: BrowserSpace, list: BrowserSpaceList) -> BrowserTabOrigin {
-        switch origin {
-        case .today:
-            return .today
-        case let .pinned(id):
-            return space.pinned.node(id: id)?.pin == nil ? .today : origin
-        case let .favorite(id):
-            return list.favorites(ofProfile: space.profileID).item(id: id) == nil ? .today : origin
-        }
     }
 }
 

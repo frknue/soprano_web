@@ -107,6 +107,8 @@ struct SnapshotSessionOptions {
         case sleep(SnapshotSleepAction)
         /// Content blocker flags (`SnapshotBlockerAction`).
         case blocker(SnapshotBlockerAction)
+        /// Rail flags (`SnapshotRailAction`).
+        case rail(SnapshotRailAction)
     }
 
     static let flags: Set<String> = Set([
@@ -119,7 +121,7 @@ struct SnapshotSessionOptions {
         "--dump-tabs", "--save-session", "--capture-window",
         "--add-profile", "--profile", "--delete-profile", "--profiles-sheet",
         "--create-space", "--space", "--swipe-rail", "--print-spaces",
-    ]).union(SnapshotSleepAction.flags).union(SnapshotBlockerAction.flags)
+    ]).union(SnapshotSleepAction.flags).union(SnapshotBlockerAction.flags).union(SnapshotRailAction.flags)
     static let usage = """
                                [--session <file>] [--visit <url>] [--select <n>] [--close-tab]
                                [--reopen-closed] [--duplicate] [--go-back] [--reload]
@@ -135,6 +137,7 @@ struct SnapshotSessionOptions {
                                [--add-profile <name>]... [--profile <name>] [--delete-profile <name>]
                                [--profiles-sheet] [--create-space <name>[:<profile>]]...
                                [--space <n|name>] [--swipe-rail next|previous] [--print-spaces]
+    \(SnapshotRailAction.usage)
     """
 
     var restoreFrom: URL?
@@ -242,6 +245,10 @@ struct SnapshotSessionOptions {
             actions.append(.swipeRail(next: raw == "next"))
         case "--print-spaces": actions.append(.printSpaces)
         default:
+            if let action = try SnapshotRailAction.parse(option, value: value) {
+                actions.append(.rail(action))
+                return
+            }
             if let action = try SnapshotBlockerAction.parse(option, value: value) {
                 actions.append(.blocker(action))
                 return
@@ -292,6 +299,9 @@ struct SnapshotSessionOptions {
     private func perform(_ action: Action, in manager: BrowserWindowManager) {
         switch action {
         case .sleep(let action):
+            action.perform(in: manager)
+            return
+        case .rail(let action):
             action.perform(in: manager)
             return
         case .blocker(let action):
@@ -457,7 +467,7 @@ struct SnapshotSessionOptions {
         case .swipeRail(let next):
             Self.swipeRail(next: next, in: controller, manager: manager)
         case .newWindow, .newPrivateWindow, .deleteProfile, .activateWindow, .moveTab, .dropTab, .dropOutside,
-             .mergeWindows, .cli, .waitDownloads, .printWindows, .printSpaces, .reopenClosed, .sleep, .blocker:
+             .mergeWindows, .cli, .waitDownloads, .printWindows, .printSpaces, .reopenClosed, .sleep, .blocker, .rail:
             break
         }
     }

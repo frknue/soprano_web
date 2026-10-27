@@ -80,13 +80,13 @@ extension BrowserWindowController {
                 self?.showSidebar(section: .history)
             },
             CommandItem(
-                id: "bookmarks",
-                icon: "bookmark",
-                label: "Show Bookmarks",
-                description: "Open the bookmark list",
+                id: "pinned-tabs",
+                icon: "pin",
+                label: "Show Pinned Tabs",
+                description: "Show the rail with the Space's pinned tabs",
                 shortcut: ["⌥⌘B"]
             ) { [weak self] in
-                self?.showSidebar(section: .bookmarks)
+                self?.showRail()
             },
             CommandItem(
                 id: "downloads",

@@ -73,7 +73,7 @@ enum SnapshotCommand {
     static let usage = """
     usage: SopranoWeb snapshot --out <png> [--url <url>] [--size 1500x940]
                                [--theme folio-paper|folio-ink|<id>] [--wait <seconds>]
-                               [--sidebar history|bookmarks|downloads] [--find] [--settings]
+                               [--sidebar history|downloads] [--find] [--settings]
                                [--vertical-tabs] [--collapsed] [--hints] [--help] [--prompt]
                                [--allow-popups <host>] [--tab <url>]... [--sheet] [--print-tabs]
                                [--click [cmd-|shift-cmd-|middle-]X,Y]...
@@ -426,7 +426,6 @@ enum SnapshotCommand {
             if history.visitCount() == 0 {
                 history.importVisits(Self.seededHistory(now: Date()))
             }
-            seedPinTree(spaces, inSpace: controller.pinSpaceID)
             if downloads.records.isEmpty, !options.session.startsDownloads {
                 let finished = downloads.begin(
                     url: "https://example.com/files/report.pdf",
@@ -575,6 +574,8 @@ enum SnapshotCommand {
             printTabs(controller)
         }
         let bookmarkPopover = makePinPopover(options.pins, controller: controller)
+        let pinPreview = makePinPreview(options.pins, controller: controller)
+        let spaceSheet = makeSpaceSheet(options.pins, controller: controller)
 
         let captureWindow: NSWindow
         let privacySheet = makePrivacySheet(options.privacy, controller: controller)
@@ -605,7 +606,8 @@ enum SnapshotCommand {
             }
             print("sheet: " + texts.joined(separator: " | "))
         }
-        let captured = websitesSheet?.window ?? profilesSheet?.window ?? searchEnginesSheet?.window ?? captureWindow
+        let captured = websitesSheet?.window ?? profilesSheet?.window ?? searchEnginesSheet?.window
+            ?? spaceSheet?.window ?? captureWindow
         guard let captureContent = captured.contentView else {
             FileHandle.standardError.write(Data("Snapshot could not find the window to capture.\n".utf8))
             exit(1)
@@ -623,7 +625,7 @@ enum SnapshotCommand {
 
         var pageImage: NSImage?
         if privacySheet == nil, !options.showSettings, !options.showHelp, !options.showPrompt,
-           websitesSheet == nil, profilesSheet == nil, searchEnginesSheet == nil, !options.showFind,
+           websitesSheet == nil, profilesSheet == nil, searchEnginesSheet == nil, spaceSheet == nil, !options.showFind,
            captureWindow === window,
            controller.selectedTab?.lifecycle.crashView == nil,
            let webView = controller.selectedTab?.webView {
@@ -668,14 +670,15 @@ enum SnapshotCommand {
             image.addRepresentation(rep)
             image.draw(in: dropdown.convert(dropdown.bounds, to: captureContent))
         }
-        if let bookmarkPopover, bookmarkPopover.window === captureWindow,
-           let rep = bookmarkPopover.bitmapImageRepForCachingDisplay(in: bookmarkPopover.bounds)
+        for overlay in [bookmarkPopover, pinPreview].compactMap({ $0 })
+            where overlay.window === captureWindow && spaceSheet == nil
         {
-            // The popover hangs over the page, which is drawn after the chrome.
-            bookmarkPopover.cacheDisplay(in: bookmarkPopover.bounds, to: rep)
-            let image = NSImage(size: bookmarkPopover.bounds.size)
+            // Popovers hang over the page, which is drawn after the chrome.
+            guard let rep = overlay.bitmapImageRepForCachingDisplay(in: overlay.bounds) else { continue }
+            overlay.cacheDisplay(in: overlay.bounds, to: rep)
+            let image = NSImage(size: overlay.bounds.size)
             image.addRepresentation(rep)
-            image.draw(in: bookmarkPopover.convert(bookmarkPopover.bounds, to: captureContent))
+            image.draw(in: overlay.convert(overlay.bounds, to: captureContent))
         }
         if options.showSheet {
             drawAttachedSheet(of: window, in: captureContent)

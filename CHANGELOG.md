@@ -207,8 +207,34 @@ app.
   off (or back on) for that site and reloads its open tabs. Settings ▸ Websites
   lists those sites ("Ad blocking: Off") with Remove; private windows keep the
   switch until they close, and each profile has its own.
+- The rail (vertical tabs) shows the current Space from top to bottom: its
+  icon, name and color, the profile's Favorites as a grid of icons, the
+  Space's pinned tabs and folders, then Today with "+ New Tab" and your other
+  tabs, and a Space switcher at the bottom. Click a Space's icon to switch;
+  "+" opens New Space (name, an emoji or SF Symbol icon, color and profile);
+  right-click an icon ▸ Edit Space… or Delete Space (a profile's last Space
+  can't be deleted).
+- Pinned tabs and Favorites stay in place: clicking one opens its tab, or
+  goes back to the one already open in this window. `⌘W` on a pinned or
+  favorite tab closes it back to its pin and does not add it to Recently
+  Closed. A pinned tab that moved on to another page shows "/": click its icon
+  to go back to the pinned page, `⌘`-click the icon to go back and keep the
+  page in a new tab.
+- Right-click a tab ▸ Pin Tab / Unpin Tab, Add to Favorites / Remove from
+  Favorites (up to 12 per profile), Back to Pinned Page and Replace Pin with
+  Current Page; right-click a pin or favorite in the rail for Replace with
+  Current Page, Edit Pin…, New Folder and Delete. `⌘D` still pins the page
+  into the current Space.
+- Rest the pointer on a pinned folder to preview its pins and search them.
+  Drag pins and folders in the rail to reorder them or move them into folders.
+- With horizontal tabs, the Space's favorite and pinned tabs come first in
+  the strip, as icons.
 
 ### Changed
+- Bookmarks are the current Space's pinned tabs in the rail now; the right
+  sidebar keeps History and Downloads. Spaces ▸ Show Pinned Tabs (`⌥⌘B`)
+  shows the rail. Close Other Tabs and Close Tabs Below / to the Right leave
+  pinned and favorite tabs open.
 - History lives in a SQLite database (`History.sqlite`) instead of
   `history.json` and keeps every visit, not just the last 5,000. Your existing
   history moves over on first launch; the old file stays as

@@ -90,7 +90,7 @@ struct MainMenuTests {
         #expect(main.item(withTitle: "Bookmarks") == nil)
         let spaces = main.item(withTitle: "Spaces")?.submenu
         let commands = spaces?.items.filter { !$0.isSeparatorItem } ?? []
-        #expect(commands.map(\.title) == ["Next Space", "Previous Space", "Bookmark This Page", "Show Bookmarks"])
+        #expect(commands.map(\.title) == ["Next Space", "Previous Space", "Bookmark This Page", "Show Pinned Tabs"])
         let right = String(Character(UnicodeScalar(UInt16(NSRightArrowFunctionKey))!))
         let left = String(Character(UnicodeScalar(UInt16(NSLeftArrowFunctionKey))!))
         #expect(commands[0].keyEquivalent == right)
