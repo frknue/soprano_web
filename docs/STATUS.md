@@ -1,9 +1,8 @@
 # Status
 
-Stage 3 is built on `feat/stage-3` (2026-10-27) and waits for Furkan: a real-key GUI check
-and the merge to `main` only when he asks. `main` @c1154c4 is stage 2. Never run
-`scripts/install.sh` from this branch before that merge: launching it converts the real
-`bookmarks.json` into `spaces.json`.
+Stage 3 is merged to `main` (#3, `2fdbdaa`, 2026-10-27) and installed in
+`/Applications/Soprano Web.app`. Its first launch migrates `bookmarks.json` into
+`spaces.json` (kept as `bookmarks.json.migrated`) and the session to version 3.
 
 ## Goal
 
@@ -17,7 +16,7 @@ is `docs/STAGE-3-PLAN.md`.
 
 | Branch | Base | State |
 |---|---|---|
-| `feat/stage-3` | `main` | P1–P7 built, reviewed, fixed. `swift test` and `swift test -c release`: 518 tests green. Not pushed since `e646afd`. |
+| `feat/stage-3` | `main` | Squash-merged as #3. 518 tests green in debug and release. |
 | `feat/stage-3-search`, `feat/stage-3-import` | — | Merged into `feat/stage-3`; no further work there. |
 
 ## Done
@@ -43,8 +42,7 @@ second import creates nothing.
 1. GUI check by Furkan (agents may not launch the app): Site wins / Press twice with
    real key presses, ⌃Tab release, shifted-punctuation remaps in the menu bar, a real
    drag in the rail outline, the Command Bar's rounded corners in Folio Ink.
-2. Merge to `main` and `scripts/install.sh` only when Furkan asks. First launch migrates
-   `bookmarks.json` into `spaces.json` (kept as `bookmarks.json.migrated`).
+2. Stage 4 (`docs/ROADMAP.md` §4).
 
 Known, not stage 3: resuming or retrying a download uses the current Space's web view,
 not the profile it came from (download records carry no profile). A History row keeps
