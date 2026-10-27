@@ -82,9 +82,15 @@ final class BrowserExtensionPopup: NSObject, NSPopoverDelegate, WKUIDelegate, WK
 
     /// Sizes the popover to the page's content within Chrome's bounds.
     func fitToContent() {
+        // The page laid out at its own (max-content) width, as Chrome sizes
+        // a popup, not at the popover's current width.
         let script = """
-        (() => { const d = document.documentElement, b = document.body;
-          return [Math.max(d.scrollWidth, b ? b.scrollWidth : 0), Math.max(d.scrollHeight, b ? b.scrollHeight : 0)]; })()
+        (() => { const d = document.documentElement, s = d.style, width = s.width, height = s.height;
+          s.width = 'max-content'; s.height = 'auto';
+          const r = d.getBoundingClientRect();
+          const size = [Math.ceil(r.width), Math.ceil(Math.max(r.height, document.body ? document.body.scrollHeight : 0))];
+          s.width = width; s.height = height;
+          return size; })()
         """
         webView.evaluateJavaScript(script) { [weak self] result, _ in
             MainActor.assumeIsolated {

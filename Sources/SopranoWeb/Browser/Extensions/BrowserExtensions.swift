@@ -33,7 +33,11 @@ final class BrowserExtensions: NSObject {
     enum Storage {
         /// The app: extension storage kept across launches.
         case persistent
-        /// The harness: nothing an extension stores outlives the run.
+        /// The harness: a controller of its own for the run, emptied at
+        /// the end (`removeAllData`). Not `.nonPersistent()`: on macOS 26
+        /// its extensions get no events (`tabs.onCreated`,
+        /// `tabs.onUpdated`, `runtime.onInstalled`), while the same
+        /// extension under a persistent controller gets them all.
         case volatile
     }
 
@@ -96,7 +100,7 @@ final class BrowserExtensions: NSObject {
         store = BrowserExtensionStore(supportDirectory: supportDirectory)
         let configuration: WKWebExtensionController.Configuration = switch storage {
         case .persistent: WKWebExtensionController.Configuration(identifier: Self.controllerIdentifier)
-        case .volatile: .nonPersistent()
+        case .volatile: WKWebExtensionController.Configuration(identifier: UUID())
         }
         // Extension pages and workers get the tabs' user agent: WebKit stops
         // extension workers whose agent differs and doesn't restart them.
@@ -533,6 +537,15 @@ final class BrowserExtensions: NSObject {
         store.remove(id: id)
         loadErrors[id] = nil
         changes.notify()
+    }
+
+    /// Unloads every extension and deletes everything they stored (the
+    /// harness's controller at the end of a run).
+    func removeAllData() async {
+        for id in Array(contexts.keys) { unload(id) }
+        let records = await controller.dataRecords(ofTypes: WKWebExtensionController.allExtensionDataTypes)
+        guard !records.isEmpty else { return }
+        await controller.removeData(ofTypes: WKWebExtensionController.allExtensionDataTypes, from: records)
     }
 
     // MARK: - Updates

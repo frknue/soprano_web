@@ -816,6 +816,16 @@ enum SnapshotCommand {
                 _ = RunLoop.current.run(mode: .default, before: Date().addingTimeInterval(0.05))
             }
         }
+        // The run's extension controller leaves nothing stored behind.
+        var extensionDataRemoved = false
+        Task { @MainActor in
+            await manager.extensions.removeAllData()
+            extensionDataRemoved = true
+        }
+        let extensionDeadline = Date().addingTimeInterval(10)
+        while !extensionDataRemoved, Date() < extensionDeadline {
+            _ = RunLoop.current.run(mode: .default, before: Date().addingTimeInterval(0.05))
+        }
         manager.isTerminating = true
         for open in manager.controllers {
             open.window?.orderOut(nil)
