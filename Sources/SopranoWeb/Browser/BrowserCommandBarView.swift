@@ -175,6 +175,8 @@ final class BrowserCommandBarController {
         case let .favorite(id): "favorite \(id.uuidString)"
         case let .space(id): "space \(id.uuidString)"
         case let .command(id): "command \(id.rawValue)"
+        case let .extensionCommand(extensionID, commandID): "extension-command \(extensionID) \(commandID)"
+        case let .extensionAction(id): "extension-action \(id)"
         case let .settings(page): "settings \(page.rawValue)"
         case .startPage: "start page"
         }

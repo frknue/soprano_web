@@ -93,13 +93,13 @@ extension BrowserWindowController {
             let state = command.state(context)
             guard state.isEnabled else { return nil }
             return BrowserCommandBarInput.Action(
-                id: command.id,
+                target: .command(command.id),
                 title: state.title ?? command.title,
                 synonyms: command.synonyms,
                 shortcut: keymap.shortcut(for: command.id)?.display ?? "",
                 symbol: command.symbol
             )
-        }
+        } + extensionCommandBarActions()
         return BrowserCommandBarInput(
             query: text,
             mode: mode,
@@ -142,6 +142,12 @@ extension BrowserWindowController {
         case let .command(id):
             id.command.perform(in: BrowserCommandContext(manager: manager, controller: self))
             focusPageIfUnfocused()
+        case let .extensionCommand(extensionID, commandID):
+            focusPageIfUnfocused()
+            extensions.performCommand(extensionID: extensionID, commandID: commandID)
+        case let .extensionAction(id):
+            focusPageIfUnfocused()
+            performExtensionAction(id)
         case let .settings(page):
             manager.showSettings(page: page)
             focusPageIfUnfocused()

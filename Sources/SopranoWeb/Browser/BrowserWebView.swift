@@ -14,6 +14,10 @@ final class BrowserWebView: WKWebView {
     /// content controller, by identifier (WebKit has no getter).
     var contentRuleListIDs: [String] = []
 
+    /// The extension whose configuration made this web view (it shows that
+    /// extension's pages); nil for a web page's.
+    var extensionID: String?
+
     override func willOpenMenu(_ menu: NSMenu, with event: NSEvent) {
         super.willOpenMenu(menu, with: event)
         let target = contextMenuTarget.flatMap { $0.isFresh(at: Date()) ? $0 : nil }
@@ -36,10 +40,12 @@ final class BrowserWebView: WKWebView {
     }
 
     override func keyDown(with event: NSEvent) {
-        // ⌃ and ⌥ shortcuts (⌃Tab) may arrive as plain key-downs.
+        // ⌃ and ⌥ shortcuts (⌃Tab) may arrive as plain key-downs; so may
+        // an extension's shortcut.
         if !event.modifierFlags.intersection([.command, .control, .option]).isEmpty,
            let controller = window?.windowController as? BrowserWindowController,
            controller.routePageShortcut(event, in: self)
+            || controller.extensions.performCommand(for: event, in: controller)
         {
             return
         }

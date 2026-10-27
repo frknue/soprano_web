@@ -75,7 +75,7 @@ extension BrowserWindowController {
             metadataChanged(tab)
         }
         tab.suppressNextHistoryRecord = true
-        if let data = state.interactionState {
+        if let data = state.interactionState, state.url.flatMap(URL.init(string:)).map({ webViewFits(tab, url: $0) }) ?? true {
             // Restoring the archived list also navigates to its current item.
             tab.webView.interactionState = data
             if let current = tab.webView.backForwardList.currentItem?.url,
@@ -88,7 +88,7 @@ extension BrowserWindowController {
         }
         if let value = state.url,
            let url = URL(string: value),
-           ["http", "https", "file", "about", "blob", "data"].contains(url.scheme?.lowercased() ?? "")
+           ["http", "https", "file", "about", "blob", "data", BrowserExtensions.scheme].contains(url.scheme?.lowercased() ?? "")
         {
             navigate(tab, to: url)
         } else {
@@ -107,6 +107,7 @@ extension BrowserWindowController {
     /// Releases a tab that left the window for good (closed). The caller
     /// detaches it first.
     func discardTab(_ tab: BrowserTab) {
+        extensions.tabClosed(tab)
         resolveLoadWaiters(
             for: tab,
             result: .failure(BrowserAutomationError.unavailable("The tab was closed."))

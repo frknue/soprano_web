@@ -31,11 +31,16 @@ extension BrowserWindowController {
             return
         }
         let scheme = url.scheme?.lowercased() ?? ""
-        guard ["http", "https", "file", "about", "blob", "data"].contains(scheme) else {
+        guard ["http", "https", "file", "about", "blob", "data", BrowserExtensions.scheme].contains(scheme) else {
             NSWorkspace.shared.open(url)
             return
         }
         tab.lifecycle.pendingRestore = nil
+        if !webViewFits(tab, url: url) {
+            // An extension page needs its extension's web view; a web page
+            // leaving one needs the tab's own again.
+            replaceWebView(of: tab, for: url)
+        }
         if reloadCrashedEntry(tab, at: url) { return }
         tab.isStartPage = false
         tab.errorMessage = nil
@@ -402,6 +407,16 @@ extension BrowserWindowController: WKNavigationDelegate {
         }
         if handleLinkNavigation(navigationAction, in: webView) {
             decisionHandler(.cancel)
+            return
+        }
+        if navigationAction.targetFrame?.isMainFrame == true, let tab = tab(for: webView), !webViewFits(tab, url: url) {
+            // Into or out of an extension page: the tab's web view is
+            // swapped for one that can show it.
+            decisionHandler(.cancel)
+            DispatchQueue.main.async { [weak self, weak tab] in
+                guard let self, let tab, self.tabs.contains(where: { $0 === tab }) else { return }
+                self.navigate(tab, to: url)
+            }
             return
         }
         if navigationAction.targetFrame?.isMainFrame != false,

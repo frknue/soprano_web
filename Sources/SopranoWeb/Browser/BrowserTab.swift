@@ -222,11 +222,15 @@ final class BrowserWindow: NSWindow {
 
     /// A key WebKit hands back after a Site wins or Press twice forward is
     /// answered here, before any view or the menu, wherever focus went.
+    /// Then an extension's shortcut (one the app doesn't use) runs.
     override func performKeyEquivalent(with event: NSEvent) -> Bool {
-        if let controller = windowController as? BrowserWindowController,
-           let consumed = controller.consumeHandedBackKey(event), consumed
-        {
-            return true
+        if let controller = windowController as? BrowserWindowController {
+            if let consumed = controller.consumeHandedBackKey(event), consumed {
+                return true
+            }
+            if controller.extensions.performCommand(for: event, in: controller) {
+                return true
+            }
         }
         return super.performKeyEquivalent(with: event)
     }

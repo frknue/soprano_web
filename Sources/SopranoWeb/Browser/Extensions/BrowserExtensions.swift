@@ -1,0 +1,647 @@
+import AppKit
+import CryptoKit
+import WebKit
+
+/// Chrome extensions on `WKWebExtension`, owned by the window manager: the
+/// one app-wide `WKWebExtensionController` every tab's configuration
+/// carries (`makeTabConfiguration`), the installed extensions
+/// (`BrowserExtensionStore`) loaded into it as contexts with stable
+/// `chrome-extension://<id>/` origins, installs from the Chrome Web Store
+/// (CRX3 verified as Chrome verifies a store install) or an unpacked
+/// folder, the daily update check, and the tab and window adapters
+/// (`BrowserExtensionAdapters.swift`). The delegate side lives in
+/// `BrowserExtensions+Delegate.swift`.
+///
+/// Extensions are app-wide: one controller serves every Space, each tab
+/// keeps its own data store. Private web views carry the controller too;
+/// WebKit runs an extension in them only when its context has
+/// `hasAccessToPrivateData` (Settings ▸ Extensions ▸ "Allow in private
+/// windows"), recognizing them by their non-persistent data store and
+/// their own user content controller.
+@MainActor
+final class BrowserExtensions: NSObject {
+    /// The scheme of every extension's pages (`chrome-extension://<id>/`),
+    /// so extensions that build their own URLs keep working and storage
+    /// survives relaunches.
+    static let scheme = "chrome-extension"
+    /// The controller's storage: the same for every launch of this app
+    /// (the dev app has its own WebKit container).
+    static let controllerIdentifier = UUID(uuidString: "5F0C8E2A-3D41-4E6B-9A7C-2B1D0E4F6A01")!
+    /// How often installed Web Store extensions are checked for updates.
+    static let updateInterval: TimeInterval = 86_400
+
+    enum Storage {
+        /// The app: extension storage kept across launches.
+        case persistent
+        /// The harness: nothing an extension stores outlives the run.
+        case volatile
+    }
+
+    enum InstallError: Error, CustomStringConvertible {
+        case badInput(String)
+        case notAFolder(String)
+        case unreadable(String)
+        case notInstalled(String)
+        case privateNotAllowed
+
+        var description: String {
+            switch self {
+            case let .badInput(input): "“\(input)” is not an extension id, Chrome Web Store link or folder"
+            case let .notAFolder(path): "\(path) is not a folder with a manifest.json"
+            case let .unreadable(reason): "WebKit can't load the extension: \(reason)"
+            case let .notInstalled(id): "No extension \(id) is installed. Use `extensions` to list them."
+            case .privateNotAllowed: "The extension doesn't allow running in private windows (incognito: not_allowed)."
+            }
+        }
+    }
+
+    /// A native-messaging answer for an application identifier (P2's
+    /// stand-ins answer `runtime.sendNativeMessage` here).
+    typealias NativeMessageHandler = @MainActor (_ message: Any, _ context: WKWebExtensionContext) async throws -> Any?
+    /// A native port for an application identifier; the port stays open
+    /// while the handler keeps it.
+    typealias NativePortHandler = @MainActor (_ port: WKWebExtension.MessagePort, _ context: WKWebExtensionContext) throws -> Void
+
+    let store: BrowserExtensionStore
+    let controller: WKWebExtensionController
+    weak var manager: BrowserWindowManager?
+    /// Installs, removals, enabling, loading and settings changes.
+    let changes = BrowserObservers<Void>()
+    /// An action's icon, badge, title or enabled state changed.
+    let actionChanges = BrowserObservers<Void>()
+    /// Loaded contexts by extension id.
+    private(set) var contexts: [String: WKWebExtensionContext] = [:]
+    /// Why an enabled extension isn't loaded, by id.
+    private(set) var loadErrors: [String: String] = [:]
+    /// Why a loaded extension's background page or worker didn't start.
+    private(set) var backgroundErrors: [String: String] = [:]
+    /// Extensions being installed or updated right now.
+    private(set) var busy: Set<String> = []
+    var nativeMessageHandlers: [String: NativeMessageHandler] = [:]
+    var nativePortHandlers: [String: NativePortHandler] = [:]
+
+    private let checksForUpdates: Bool
+    private var updateTimer: Timer?
+    private var notificationObservers: [NSObjectProtocol] = []
+    var tabAdapters: [UUID: BrowserExtensionTab] = [:]
+    var windowAdapters: [UUID: BrowserExtensionWindow] = [:]
+    /// The popup shown by `presentActionPopup`, while open.
+    var popup: BrowserExtensionPopup?
+    /// Permission prompts waiting for the sheet, oldest first.
+    var pendingPrompts: [BrowserExtensionPermissionPrompt] = []
+    var promptSheet: BrowserExtensionPermissionSheet?
+
+    init(supportDirectory: URL, storage: Storage, checksForUpdates: Bool) {
+        WKWebExtension.MatchPattern.registerCustomURLScheme(Self.scheme)
+        store = BrowserExtensionStore(supportDirectory: supportDirectory)
+        let configuration: WKWebExtensionController.Configuration = switch storage {
+        case .persistent: WKWebExtensionController.Configuration(identifier: Self.controllerIdentifier)
+        case .volatile: .nonPersistent()
+        }
+        // Extension pages and workers get the tabs' user agent: WebKit stops
+        // extension workers whose agent differs and doesn't restart them.
+        configuration.webViewConfiguration.applicationNameForUserAgent = BrowserUserAgent.applicationName
+        // The Default Space's store, the one `defaultContext` uses.
+        configuration.defaultWebsiteDataStore = .default()
+        controller = WKWebExtensionController(configuration: configuration)
+        self.checksForUpdates = checksForUpdates
+        super.init()
+        controller.delegate = self
+        observeContextNotifications()
+    }
+
+    /// Loads every enabled extension and starts the update check.
+    func start(manager: BrowserWindowManager) {
+        self.manager = manager
+        for record in store.records where record.isEnabled {
+            Task { await self.load(record.id) }
+        }
+        guard checksForUpdates else { return }
+        let timer = Timer(timeInterval: 3600, repeats: true) { [weak self] _ in
+            MainActor.assumeIsolated {
+                guard let self else { return }
+                Task { await self.checkForUpdates(force: false) }
+            }
+        }
+        RunLoop.main.add(timer, forMode: .common)
+        updateTimer = timer
+        // A minute after launch, so it never competes with the session.
+        DispatchQueue.main.asyncAfter(deadline: .now() + 60) { [weak self] in
+            guard let self else { return }
+            Task { await self.checkForUpdates(force: false) }
+        }
+    }
+
+    // MARK: - Lookup
+
+    var records: [BrowserExtensionRecord] { store.records }
+
+    func context(id: String) -> WKWebExtensionContext? {
+        contexts[id]
+    }
+
+    /// The installed extension whose context is `context`.
+    func id(of context: WKWebExtensionContext) -> String? {
+        contexts.first { $0.value === context }?.key
+    }
+
+    /// Loaded extensions that run in `controller`'s window (a private
+    /// window: those allowed in private windows), in install order.
+    func loadedContexts(for window: BrowserWindowController?) -> [(id: String, context: WKWebExtensionContext)] {
+        store.records.compactMap { record in
+            guard let context = contexts[record.id] else { return nil }
+            if window?.kind.isPrivate == true, !context.hasAccessToPrivateData { return nil }
+            return (record.id, context)
+        }
+    }
+
+    /// Whether `manifest` says `incognito: "not_allowed"`.
+    static func forbidsPrivate(_ webExtension: WKWebExtension) -> Bool {
+        (webExtension.manifest["incognito"] as? String) == "not_allowed"
+    }
+
+    // MARK: - Loading
+
+    /// Loads `id`'s package into the controller with its saved state
+    /// (permissions, private access); a failure is kept in `loadErrors`.
+    func load(_ id: String) async {
+        guard contexts[id] == nil, let record = store.record(id: id), record.isEnabled else { return }
+        do {
+            let webExtension = try await WKWebExtension(resourceBaseURL: store.folder(for: id))
+            // The record may have changed (disabled, removed) meanwhile.
+            guard contexts[id] == nil, let current = store.record(id: id), current.isEnabled else { return }
+            let context = WKWebExtensionContext(for: webExtension)
+            context.uniqueIdentifier = id
+            context.baseURL = URL(string: "\(Self.scheme)://\(id)/")!
+            context.isInspectable = true
+            context.inspectionName = webExtension.displayName ?? current.name
+            restore(current, into: context)
+            try controller.load(context)
+            contexts[id] = context
+            loadErrors[id] = nil
+            if webExtension.hasBackgroundContent {
+                // As Chrome does at install and launch: the worker registers
+                // its listeners (context menus, tab events, rules) now, not
+                // on the first event that would need it.
+                Task { [weak self] in
+                    do {
+                        try await context.loadBackgroundContent()
+                    } catch {
+                        guard let self, self.contexts[id] === context else { return }
+                        self.backgroundErrors[id] = Self.describe(error)
+                        self.changes.notify()
+                    }
+                }
+            }
+            store.update(id: id) { record in
+                record.name = webExtension.displayName ?? record.name
+                record.version = webExtension.version ?? record.version
+            }
+        } catch {
+            loadErrors[id] = Self.describe(error)
+        }
+        changes.notify()
+    }
+
+    func unload(_ id: String) {
+        guard let context = contexts.removeValue(forKey: id) else { return }
+        backgroundErrors[id] = nil
+        if popup?.extensionID == id { closePopup() }
+        try? controller.unload(context)
+        changes.notify()
+    }
+
+    /// The record's saved grants and choices, applied before `load`.
+    private func restore(_ record: BrowserExtensionRecord, into context: WKWebExtensionContext) {
+        context.grantedPermissions = Dictionary(
+            record.grantedPermissions.map { (WKWebExtension.Permission(rawValue: $0.key), $0.value) },
+            uniquingKeysWith: { first, _ in first }
+        )
+        context.deniedPermissions = Dictionary(
+            record.deniedPermissions.map { (WKWebExtension.Permission(rawValue: $0.key), $0.value) },
+            uniquingKeysWith: { first, _ in first }
+        )
+        context.grantedPermissionMatchPatterns = Self.patterns(record.grantedMatchPatterns)
+        context.deniedPermissionMatchPatterns = Self.patterns(record.deniedMatchPatterns)
+        context.hasRequestedOptionalAccessToAllHosts = record.requestedOptionalAccessToAllHosts
+        context.hasAccessToPrivateData = record.allowsPrivate && !Self.forbidsPrivate(context.webExtension)
+    }
+
+    private static func patterns(_ saved: [String: Date]) -> [WKWebExtension.MatchPattern: Date] {
+        var result: [WKWebExtension.MatchPattern: Date] = [:]
+        for (string, date) in saved {
+            if let pattern = try? WKWebExtension.MatchPattern(string: string) {
+                result[pattern] = date
+            }
+        }
+        return result
+    }
+
+    /// Saves what WebKit now grants and denies `context`.
+    func persist(_ context: WKWebExtensionContext) {
+        guard let id = id(of: context) else { return }
+        store.update(id: id) { record in
+            record.grantedPermissions = Dictionary(
+                context.grantedPermissions.map { ($0.key.rawValue, $0.value) },
+                uniquingKeysWith: { first, _ in first }
+            )
+            record.deniedPermissions = Dictionary(
+                context.deniedPermissions.map { ($0.key.rawValue, $0.value) },
+                uniquingKeysWith: { first, _ in first }
+            )
+            record.grantedMatchPatterns = Dictionary(
+                context.grantedPermissionMatchPatterns.map { ($0.key.string, $0.value) },
+                uniquingKeysWith: { first, _ in first }
+            )
+            record.deniedMatchPatterns = Dictionary(
+                context.deniedPermissionMatchPatterns.map { ($0.key.string, $0.value) },
+                uniquingKeysWith: { first, _ in first }
+            )
+            record.requestedOptionalAccessToAllHosts = context.hasRequestedOptionalAccessToAllHosts
+        }
+    }
+
+    private func observeContextNotifications() {
+        let permissionNames: [Notification.Name] = [
+            WKWebExtensionContext.permissionsWereGrantedNotification,
+            WKWebExtensionContext.permissionsWereDeniedNotification,
+            WKWebExtensionContext.grantedPermissionsWereRemovedNotification,
+            WKWebExtensionContext.deniedPermissionsWereRemovedNotification,
+            WKWebExtensionContext.permissionMatchPatternsWereGrantedNotification,
+            WKWebExtensionContext.permissionMatchPatternsWereDeniedNotification,
+            WKWebExtensionContext.grantedPermissionMatchPatternsWereRemovedNotification,
+            WKWebExtensionContext.deniedPermissionMatchPatternsWereRemovedNotification,
+        ]
+        for name in permissionNames {
+            notificationObservers.append(NotificationCenter.default.addObserver(
+                forName: name,
+                object: nil,
+                queue: .main
+            ) { [weak self] notification in
+                let context = notification.object as? WKWebExtensionContext
+                MainActor.assumeIsolated {
+                    guard let self, let context else { return }
+                    self.persist(context)
+                }
+            })
+        }
+        notificationObservers.append(NotificationCenter.default.addObserver(
+            forName: WKWebExtensionContext.errorsDidUpdateNotification,
+            object: nil,
+            queue: .main
+        ) { [weak self] _ in
+            MainActor.assumeIsolated {
+                self?.changes.notify()
+            }
+        })
+    }
+
+    // MARK: - Install
+
+    /// Installs (or updates in place, keeping its settings) the extension
+    /// `input` names: an id or Chrome Web Store link (downloaded and
+    /// verified), or an unpacked folder (copied). Loads it when enabled.
+    @discardableResult
+    func install(_ input: String, workingDirectory: URL? = nil) async throws -> BrowserExtensionRecord {
+        guard let source = BrowserWebStore.source(for: input, workingDirectory: workingDirectory) else {
+            throw InstallError.badInput(input)
+        }
+        switch source {
+        case let .webStore(id):
+            return try await installFromWebStore(id: id)
+        case let .folder(url):
+            return try await installFolder(url)
+        }
+    }
+
+    func installFromWebStore(id: String) async throws -> BrowserExtensionRecord {
+        busy.insert(id)
+        changes.notify()
+        defer {
+            busy.remove(id)
+            changes.notify()
+        }
+        let package = try await BrowserWebStore.fetch(BrowserWebStore.downloadURL(id: id))
+        let staged = store.stagingFolder()
+        try await Self.unpackVerified(package, id: id, to: staged)
+        return try await adopt(staged, id: id, source: .webStore)
+    }
+
+    func installFolder(_ folder: URL) async throws -> BrowserExtensionRecord {
+        let manifestURL = folder.appendingPathComponent("manifest.json")
+        guard let data = try? Data(contentsOf: manifestURL),
+              let manifest = try? BrowserExtensionArchive.checkManifest(data)
+        else { throw InstallError.notAFolder(folder.path) }
+        let id = BrowserExtensionID.id(forUnpackedManifest: manifest, folder: folder)
+        busy.insert(id)
+        changes.notify()
+        defer {
+            busy.remove(id)
+            changes.notify()
+        }
+        let staged = store.stagingFolder()
+        try await Task.detached {
+            _ = try BrowserExtensionArchive.copyFolder(folder, to: staged)
+        }.value
+        return try await adopt(staged, id: id, source: .folder(folder.path))
+    }
+
+    /// Parses and verifies a downloaded CRX3 as extension `id` (the Web
+    /// Store's publisher proof required) and unpacks it into `staged`, off
+    /// the main thread.
+    nonisolated static func unpackVerified(_ package: Data, id: String, to staged: URL) async throws {
+        try await Task.detached {
+            let crx = try BrowserCRX3.parse(package)
+            let archive = try crx.verify(
+                expectedID: id,
+                publisherKeyHashes: [BrowserCRX3.webStorePublisherKeyHash]
+            )
+            _ = try BrowserExtensionArchive.extract(archive, to: staged)
+        }.value
+    }
+
+    /// Moves a checked package in as `id`, reads it with WebKit, saves its
+    /// record (a new one granted what it asks for: installing is consent,
+    /// as in Chrome) and loads it.
+    private func adopt(_ staged: URL, id: String, source: BrowserExtensionRecord.Source) async throws -> BrowserExtensionRecord {
+        let webExtension: WKWebExtension
+        do {
+            webExtension = try await WKWebExtension(resourceBaseURL: staged)
+        } catch {
+            try? FileManager.default.removeItem(at: staged)
+            throw InstallError.unreadable(Self.describe(error))
+        }
+        let wasLoaded = contexts[id] != nil
+        unload(id)
+        do {
+            try store.installPackage(staged, id: id)
+        } catch {
+            try? FileManager.default.removeItem(at: staged)
+            if wasLoaded { await load(id) }
+            throw error
+        }
+        var record = store.record(id: id) ?? Self.newRecord(id: id, source: source, webExtension: webExtension)
+        record.source = source
+        record.name = webExtension.displayName ?? record.name
+        record.version = webExtension.version ?? record.version
+        if store.record(id: id) != nil {
+            // An update may ask for more: what it newly requests is granted
+            // unless the user narrowed site access.
+            Self.grantRequested(by: webExtension, to: &record)
+        }
+        store.save(record)
+        if record.isEnabled {
+            await load(id)
+        }
+        changes.notify()
+        return store.record(id: id) ?? record
+    }
+
+    private static func newRecord(id: String, source: BrowserExtensionRecord.Source, webExtension: WKWebExtension) -> BrowserExtensionRecord {
+        var record = BrowserExtensionRecord(
+            id: id,
+            source: source,
+            name: webExtension.displayName ?? id,
+            version: webExtension.version ?? ""
+        )
+        grantRequested(by: webExtension, to: &record)
+        return record
+    }
+
+    /// Grants what the manifest requests (permissions always, sites while
+    /// site access is "On all sites"), never what the user denied.
+    private static func grantRequested(by webExtension: WKWebExtension, to record: inout BrowserExtensionRecord) {
+        for permission in webExtension.requestedPermissions where record.deniedPermissions[permission.rawValue] == nil {
+            record.grantedPermissions[permission.rawValue] = record.grantedPermissions[permission.rawValue] ?? .distantFuture
+        }
+        guard record.siteAccess == .allSites else { return }
+        for pattern in webExtension.allRequestedMatchPatterns where record.deniedMatchPatterns[pattern.string] == nil {
+            record.grantedMatchPatterns[pattern.string] = record.grantedMatchPatterns[pattern.string] ?? .distantFuture
+        }
+    }
+
+    // MARK: - Settings
+
+    func setEnabled(_ id: String, _ enabled: Bool) async throws {
+        guard store.record(id: id) != nil else { throw InstallError.notInstalled(id) }
+        store.update(id: id) { $0.isEnabled = enabled }
+        if enabled {
+            await load(id)
+        } else {
+            unload(id)
+            loadErrors[id] = nil
+        }
+        changes.notify()
+    }
+
+    func setAllowsPrivate(_ id: String, _ allowed: Bool) throws {
+        guard store.record(id: id) != nil else { throw InstallError.notInstalled(id) }
+        if allowed, let context = contexts[id], Self.forbidsPrivate(context.webExtension) {
+            throw InstallError.privateNotAllowed
+        }
+        store.update(id: id) { $0.allowsPrivate = allowed }
+        contexts[id]?.hasAccessToPrivateData = allowed
+        changes.notify()
+    }
+
+    /// Settings ▸ Extensions ▸ Site access. "On all sites" grants every
+    /// site the extension asks for; "On specific sites" only
+    /// `allowedSites`; "When you click" none (the toolbar button grants the
+    /// page it is clicked on).
+    func setSiteAccess(_ id: String, _ access: BrowserExtensionRecord.SiteAccess) throws {
+        guard store.record(id: id) != nil else { throw InstallError.notInstalled(id) }
+        store.update(id: id) { $0.siteAccess = access }
+        applySiteAccess(id)
+    }
+
+    /// Adds (or removes) `host` to the sites of "On specific sites" and
+    /// switches to it.
+    func setSite(_ id: String, host: String, allowed: Bool) throws {
+        guard store.record(id: id) != nil else { throw InstallError.notInstalled(id) }
+        let host = Self.siteHost(host)
+        guard !host.isEmpty else { return }
+        store.update(id: id) { record in
+            record.siteAccess = .specificSites
+            record.allowedSites.removeAll { $0 == host }
+            if allowed { record.allowedSites.append(host) }
+        }
+        applySiteAccess(id)
+    }
+
+    /// `https://www.Example.com/a` → `example.com`.
+    nonisolated static func siteHost(_ text: String) -> String {
+        let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        let host = URL(string: trimmed)?.host ?? URL(string: "https://\(trimmed)")?.host ?? trimmed
+        return host.hasPrefix("www.") ? String(host.dropFirst(4)) : host
+    }
+
+    /// The match patterns for a host of "On specific sites".
+    nonisolated static func sitePatterns(_ host: String) -> [String] {
+        ["*://\(host)/*", "*://*.\(host)/*"]
+    }
+
+    /// Puts the record's site access into the loaded context (or, when not
+    /// loaded, into the record's saved grants).
+    private func applySiteAccess(_ id: String) {
+        guard var record = store.record(id: id) else { return }
+        let requested: [String]
+        if let context = contexts[id] {
+            requested = context.webExtension.allRequestedMatchPatterns.map(\.string)
+        } else {
+            requested = Array(record.grantedMatchPatterns.keys)
+        }
+        var granted: [String: Date] = [:]
+        switch record.siteAccess {
+        case .allSites:
+            for pattern in requested { granted[pattern] = .distantFuture }
+        case .specificSites:
+            for host in record.allowedSites {
+                for pattern in Self.sitePatterns(host) { granted[pattern] = .distantFuture }
+            }
+        case .onClick:
+            break
+        }
+        if let context = contexts[id] {
+            for pattern in context.grantedPermissionMatchPatterns.keys where granted[pattern.string] == nil {
+                context.setPermissionStatus(.unknown, for: pattern)
+            }
+            for string in granted.keys {
+                if let pattern = try? WKWebExtension.MatchPattern(string: string) {
+                    context.setPermissionStatus(.grantedExplicitly, for: pattern)
+                }
+            }
+            if record.siteAccess != .allSites {
+                context.hasRequestedOptionalAccessToAllHosts = false
+            }
+            persist(context)
+        } else {
+            record.grantedMatchPatterns = granted
+            store.save(record)
+        }
+        changes.notify()
+    }
+
+    /// Removes `id`: unloads it, deletes what it stored and its package.
+    func remove(_ id: String) async throws {
+        guard store.record(id: id) != nil else { throw InstallError.notInstalled(id) }
+        unload(id)
+        let records = await controller.dataRecords(ofTypes: WKWebExtensionController.allExtensionDataTypes)
+        let own = records.filter { $0.uniqueIdentifier == id }
+        if !own.isEmpty {
+            await controller.removeData(ofTypes: WKWebExtensionController.allExtensionDataTypes, from: own)
+        }
+        store.remove(id: id)
+        loadErrors[id] = nil
+        changes.notify()
+    }
+
+    // MARK: - Updates
+
+    /// Asks the Web Store for newer versions of the store extensions not
+    /// checked for a day (all with `force`), then installs each after the
+    /// same verification as an install. Returns the ids updated.
+    @discardableResult
+    func checkForUpdates(force: Bool) async -> [String] {
+        let now = Date()
+        let due = store.records.filter { record in
+            guard record.source == .webStore, !busy.contains(record.id) else { return false }
+            return force || record.lastUpdateCheck.map { now.timeIntervalSince($0) >= Self.updateInterval } ?? true
+        }
+        guard !due.isEmpty else { return [] }
+        let answer: [String: BrowserWebStore.Update]
+        do {
+            let data = try await BrowserWebStore.fetch(BrowserWebStore.updateCheckURL(due.map { ($0.id, $0.version) }))
+            answer = BrowserWebStore.parseUpdateCheck(data)
+        } catch {
+            return []
+        }
+        for record in due {
+            store.update(id: record.id) { $0.lastUpdateCheck = now }
+        }
+        var updated: [String] = []
+        for record in due {
+            guard let update = answer[record.id],
+                  BrowserWebStore.isNewer(update.version, than: record.version),
+                  BrowserWebStore.isAllowedDownload(update.codebase)
+            else { continue }
+            busy.insert(record.id)
+            changes.notify()
+            do {
+                let package = try await BrowserWebStore.fetch(update.codebase)
+                if let expected = update.sha256?.lowercased(), !expected.isEmpty,
+                   Self.sha256Hex(package) != expected
+                {
+                    throw BrowserCRX3.Failure.badSignature("package hash")
+                }
+                let staged = store.stagingFolder()
+                try await Self.unpackVerified(package, id: record.id, to: staged)
+                busy.remove(record.id)
+                _ = try await adopt(staged, id: record.id, source: .webStore)
+                updated.append(record.id)
+            } catch {
+                busy.remove(record.id)
+                loadErrors[record.id] = contexts[record.id] == nil ? "Update failed: \(Self.describe(error))" : nil
+            }
+            changes.notify()
+        }
+        return updated
+    }
+
+    /// SHA-256 as lowercase hex, for the update check's `hash_sha256`.
+    private static func sha256Hex(_ data: Data) -> String {
+        SHA256.hash(data: data).map { String(format: "%02x", $0) }.joined()
+    }
+
+    static func describe(_ error: Error) -> String {
+        error.localizedDescription
+    }
+
+    // MARK: - Commands
+
+    /// Runs the extension shortcut `event` names (not one of the app's own
+    /// shortcuts) in `window`'s extensions. True when one ran.
+    func performCommand(for event: NSEvent, in window: BrowserWindowController) -> Bool {
+        guard event.type == .keyDown else { return false }
+        if let shortcut = BrowserShortcut(event: event),
+           window.settingsStore.settings.keymap.command(for: shortcut) != nil
+        {
+            return false
+        }
+        for (_, context) in loadedContexts(for: window) where context.command(for: event) != nil {
+            if context.performCommand(for: event) { return true }
+        }
+        return false
+    }
+
+    /// Every loaded extension command `window` offers (menu and Command
+    /// Bar rows), in install order.
+    func commands(for window: BrowserWindowController?) -> [(id: String, name: String, command: WKWebExtension.Command)] {
+        loadedContexts(for: window).flatMap { id, context in
+            let name = context.webExtension.displayShortName ?? context.webExtension.displayName ?? id
+            return context.commands.map { (id, name, $0) }
+        }
+    }
+
+    func performCommand(extensionID: String, commandID: String) {
+        guard let context = contexts[extensionID],
+              let command = context.commands.first(where: { $0.id == commandID })
+        else { return }
+        context.performCommand(command)
+    }
+
+    /// The shortcut a command shows, from its activation key and modifiers.
+    static func shortcutText(_ command: WKWebExtension.Command) -> String {
+        guard let key = command.activationKey, !key.isEmpty else { return "" }
+        let flags = command.modifierFlags
+        var text = ""
+        if flags.contains(.control) { text += "⌃" }
+        if flags.contains(.option) { text += "⌥" }
+        if flags.contains(.shift) { text += "⇧" }
+        if flags.contains(.command) { text += "⌘" }
+        return text + key.uppercased()
+    }
+}
+
+extension BrowserExtensions.InstallError: LocalizedError {
+    var errorDescription: String? { description }
+}

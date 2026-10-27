@@ -55,6 +55,7 @@ enum SnapshotCommand {
         /// `--shortcuts-sheet`: capture Settings ▸ Keyboard shortcuts.
         var showsShortcutsSheet = false
         var imports = SnapshotImportOptions()
+        var extensions = SnapshotExtensionOptions()
     }
 
     enum OptionError: Error, CustomStringConvertible {
@@ -96,6 +97,7 @@ enum SnapshotCommand {
     \(SnapshotBlockerOptions.usage)
     \(SnapshotSearchEngineOptions.usage)
     \(SnapshotImportOptions.usage)
+    \(SnapshotExtensionOptions.usage)
     """
 
     nonisolated static func parse(_ arguments: [String]) throws -> Options {
@@ -255,6 +257,7 @@ enum SnapshotCommand {
                     || SnapshotSleepOptions.parse(option, value: { try value(option) }, into: &options.sleep)
                     || SnapshotBlockerOptions.parse(option, value: { try value(option) }, into: &options.blocker)
                     || SnapshotSearchEngineOptions.parse(option, value: { try value(option) }, into: &options.searchEngines)
+                    || SnapshotExtensionOptions.parse(option, value: { try value(option) }, into: &options.extensions)
                 else {
                     throw OptionError.unknownOption(option)
                 }
@@ -365,7 +368,9 @@ enum SnapshotCommand {
             persistsSession: false,
             placement: .offscreen(size: options.size),
             defaults: defaults,
-            filterLists: options.blocker.sources
+            filterLists: options.blocker.sources,
+            extensionStorage: .volatile,
+            checksExtensionUpdates: false
         )
         options.sleep.apply(to: manager)
         // ⇧⌘C and ⌥⇧⌘C copy to a pasteboard of the harness's own, never
@@ -386,6 +391,7 @@ enum SnapshotCommand {
             exit(1)
         }
         window.displayIfNeeded()
+        options.extensions.prepare(manager, wait: wait)
 
         if options.focusAddress {
             // Focused but not edited: the field must follow the navigation.
@@ -556,12 +562,17 @@ enum SnapshotCommand {
             theme: themeManager.currentTheme
         )
         let shortcutsSheet = options.showsShortcutsSheet ? SnapshotCommandBarAction.sheet(for: manager) : nil
+        let extensionsSheet = options.extensions.showsSheet ? manager.makeExtensionsSheet() : nil
+        if let extensionsSheet {
+            extensionsSheet.apply(theme: themeManager.currentTheme)
+            extensionsSheet.dump.forEach { print("extensions-sheet: \($0)") }
+        }
         if let shortcutsSheet {
             shortcutsSheet.apply(theme: themeManager.currentTheme)
             shortcutsSheet.dump.forEach { print("shortcuts: \($0)") }
         }
         if settingsPreview != nil || websitesSheet != nil || searchEnginesSheet != nil
-            || shortcutsSheet != nil
+            || shortcutsSheet != nil || extensionsSheet != nil
         {
             wait(0.3)
         }
@@ -621,6 +632,8 @@ enum SnapshotCommand {
         if options.printTabs {
             printTabs(controller)
         }
+        let extensionPopup = options.extensions.performActions(in: controller, wait: wait)
+        options.extensions.report(manager, controller: controller)
         let bookmarkPopover = makePinPopover(options.pins, controller: controller)
         let pinPreview = makePinPreview(options.pins, controller: controller)
         let spaceSheet = makeSpaceSheet(options.pins, controller: controller)
@@ -654,7 +667,7 @@ enum SnapshotCommand {
             }
             print("sheet: " + texts.joined(separator: " | "))
         }
-        let settingsSheetWindow: NSWindow? = websitesSheet?.window ?? searchEnginesSheet?.window
+        let settingsSheetWindow: NSWindow? = websitesSheet?.window ?? searchEnginesSheet?.window ?? extensionsSheet?.window
         let otherSheetWindow: NSWindow? = shortcutsSheet?.window ?? spaceSheet?.window ?? importOutcome.window
         let captured: NSWindow = settingsSheetWindow ?? otherSheetWindow ?? captureWindow
         guard let captureContent = captured.contentView else {
@@ -675,6 +688,7 @@ enum SnapshotCommand {
         var pageImage: NSImage?
         if privacySheet == nil, !options.showSettings, !options.showHelp, !options.showPrompt,
            websitesSheet == nil, searchEnginesSheet == nil, shortcutsSheet == nil, spaceSheet == nil,
+           extensionsSheet == nil,
            importOutcome.window == nil,
            !options.showFind,
            captureWindow === window,
@@ -733,6 +747,12 @@ enum SnapshotCommand {
             let image = NSImage(size: overlay.bounds.size)
             image.addRepresentation(rep)
             image.draw(in: overlay.convert(overlay.bounds, to: captureContent))
+        }
+        // An extension's popup hangs under its toolbar button.
+        if let popup = extensionPopup, let anchor = controller.toolbar.extensionButton(id: popup.extensionID),
+           anchor.window === captureWindow
+        {
+            drawPopup(popup, under: anchor, in: captureContent)
         }
         if options.showSheet {
             drawAttachedSheet(of: window, in: captureContent)

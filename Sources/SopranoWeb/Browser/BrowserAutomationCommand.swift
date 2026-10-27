@@ -145,6 +145,13 @@ struct BrowserCommandRequest: Codable, Equatable, Sendable {
         if command == "space", arguments.joined(separator: " ").trimmingCharacters(in: .whitespaces).isEmpty {
             throw BrowserAutomationError.invalidArguments(spaceUsage)
         }
+        if command == "extension" {
+            try parseExtension(&arguments, environment: environment)
+            if ["install", "update"].contains(arguments.first) {
+                // A download, its check and WebKit's load of the package.
+                timeout = maxWaitTimeout
+            }
+        }
         var space: String?
         if command == "new-window" {
             space = try extractSpace(from: &arguments)
@@ -177,6 +184,39 @@ struct BrowserCommandRequest: Codable, Equatable, Sendable {
         return value
     }
 
+    /// `extension install <store url|id|folder>` (a relative folder is
+    /// resolved against the shell's directory here),
+    /// `extension enable|disable|remove|errors <id>`, `extension update`.
+    private static func parseExtension(_ arguments: inout [String], environment: [String: String]) throws {
+        guard let action = arguments.first else {
+            throw BrowserAutomationError.invalidArguments(extensionUsage)
+        }
+        switch action {
+        case "install":
+            let input = arguments.dropFirst().joined(separator: " ")
+            let directory = URL(
+                fileURLWithPath: environment["PWD"] ?? FileManager.default.currentDirectoryPath,
+                isDirectory: true
+            )
+            switch BrowserWebStore.source(for: input, workingDirectory: directory) {
+            case let .webStore(id)?:
+                arguments = ["install", id]
+            case let .folder(url)?:
+                arguments = ["install", url.path]
+            case nil:
+                throw BrowserAutomationError.invalidArguments(extensionUsage)
+            }
+        case "enable", "disable", "remove", "errors":
+            guard arguments.count == 2, BrowserExtensionID.isValid(arguments[1]) else {
+                throw BrowserAutomationError.invalidArguments(extensionUsage)
+            }
+        case "update":
+            guard arguments.count == 1 else { throw BrowserAutomationError.invalidArguments(extensionUsage) }
+        default:
+            throw BrowserAutomationError.invalidArguments(extensionUsage)
+        }
+    }
+
     private static func extractTimeout(from arguments: inout [String]) throws -> TimeInterval? {
         guard let index = arguments.firstIndex(of: "--timeout") else { return nil }
         guard index + 1 < arguments.count,
@@ -194,6 +234,11 @@ struct BrowserCommandRequest: Codable, Equatable, Sendable {
     static let moveToWindowUsage = "Usage: soprano-web browser [--window n] [--tab m] move-to-window <k|new>"
     static let newWindowUsage = "Usage: soprano-web browser new-window [url] [--space <n|name>]"
     static let spaceUsage = "Usage: soprano-web browser [--window n] space <n|name>"
+    static let extensionUsage = """
+    Usage: soprano-web browser extension install <chrome web store url|id|folder>
+           soprano-web browser extension enable|disable|remove|errors <id>
+           soprano-web browser extension update
+    """
 }
 
 struct BrowserAutomationResponse: Codable, Equatable, Sendable {
@@ -248,6 +293,10 @@ enum BrowserCommand {
       soprano-web browser [--window n] [--tab m] move-to-window <k|new>
       soprano-web browser [--window n] spaces
       soprano-web browser [--window n] space <n|name>
+      soprano-web browser extensions
+      soprano-web browser extension install <chrome web store url|id|folder>
+      soprano-web browser extension enable|disable|remove|errors <id>
+      soprano-web browser extension update
 
     `windows` lists the open windows (1-based) with their current Space,
     its tab count, the selected tab's title and every Space's tab count;
@@ -261,6 +310,13 @@ enum BrowserCommand {
     window's tab count in it; `*` marks the window's current Space.
     `space` switches the window to Space n or the Space named (any case).
     Every Space keeps its own cookies, History and Archive.
+    `extensions` lists the installed Chrome extensions: id, name, version,
+    state (on, off, not running, installing), private windows, site access,
+    source and how many errors WebKit reported. `extension install` takes a
+    Chrome Web Store link or id (downloaded, its signatures checked as
+    Chrome checks a store install) or an unpacked folder (copied), and
+    waits until it runs; `errors` prints what WebKit reported; `update`
+    checks the Web Store extensions for updates now.
     `new-window` opens on Space n or the Space named by `--space` (any
     case), else on the current Space of the window commands use by
     default (the Default Space when none is open); an unknown Space is an
@@ -415,6 +471,12 @@ enum BrowserAutomationRouter {
         switch request.command {
         case "windows":
             completion(.success(windowList(manager)))
+            return
+        case "extensions":
+            completion(.success(BrowserExtensionCommands.list(manager.extensions)))
+            return
+        case "extension":
+            BrowserExtensionCommands.perform(request.arguments, in: manager.extensions, completion: completion)
             return
         case "new-window":
             let controller: BrowserWindowController

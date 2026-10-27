@@ -93,6 +93,9 @@ final class BrowserWindowManager {
     /// Settings ▸ Links from other apps: rules an import brought in
     /// (`link-routing.json`), applied in `open(_:)`.
     let linkRouting: BrowserLinkRoutingStore
+    /// Chrome extensions: the one `WKWebExtensionController` every tab
+    /// carries, the installed extensions in `<support>/Extensions/`.
+    let extensions: BrowserExtensions
 
     /// Open windows in the order they opened; the CLI numbers them 1…n.
     private(set) var controllers: [BrowserWindowController] = []
@@ -116,6 +119,8 @@ final class BrowserWindowManager {
     var linkRoutingSheet: BrowserLinkRoutingSheet?
     /// File ▸ Import Browser Data…, while shown.
     var importSheet: BrowserImportSheet?
+    /// Settings ▸ Extensions, while shown.
+    var extensionsSheet: BrowserExtensionsSheet?
 
     private var settingsWindowController: SettingsWindowController?
     private var saveTimer: Timer?
@@ -136,7 +141,9 @@ final class BrowserWindowManager {
         persistsSession: Bool = true,
         placement: BrowserWindowPlacement = .screen,
         defaults: UserDefaults = .standard,
-        filterLists: [BrowserFilterListSource] = BrowserFilterListSource.defaults
+        filterLists: [BrowserFilterListSource] = BrowserFilterListSource.defaults,
+        extensionStorage: BrowserExtensions.Storage = .persistent,
+        checksExtensionUpdates: Bool = true
     ) {
         self.themeManager = themeManager
         self.settingsStore = settingsStore
@@ -170,12 +177,18 @@ final class BrowserWindowManager {
             isEnabled: settingsStore.settings.blockAdsAndTrackers
         )
         self.linkRouting = BrowserLinkRoutingStore(url: supportDirectory.appendingPathComponent("link-routing.json"))
+        self.extensions = BrowserExtensions(
+            supportDirectory: supportDirectory,
+            storage: extensionStorage,
+            checksForUpdates: checksExtensionUpdates
+        )
         historyStores[BrowserProfile.defaultID] = defaultHistory
         themeManager.onThemeChanged = { [weak self] theme in
             self?.websitesSheet?.apply(theme: theme)
             self?.websiteDataSheet?.apply(theme: theme)
             self?.linkRoutingSheet?.apply(theme: theme)
             self?.importSheet?.apply(theme: theme)
+            self?.extensionsSheet?.apply(theme: theme)
             self?.themeChanges.notify(theme)
         }
         // Every Space has a profile of its own: Spaces the Space store
@@ -213,6 +226,7 @@ final class BrowserWindowManager {
         startHistoryMaintenance()
         tabSleeper.start(manager: self)
         contentBlocker.start()
+        extensions.start(manager: self)
     }
 
     // MARK: - History retention
@@ -320,8 +334,12 @@ final class BrowserWindowManager {
     }
 
     func windowBecameActive(_ controller: BrowserWindowController) {
+        let changed = activationOrder.last != controller.id
         activationOrder.removeAll { $0 == controller.id }
         activationOrder.append(controller.id)
+        if changed {
+            extensions.windowFocused(controller)
+        }
     }
 
     /// Brings a window forward. In the harness it is only ordered in,
@@ -448,6 +466,7 @@ final class BrowserWindowManager {
             spaceID: space?.id
         )
         controllers.append(controller)
+        extensions.windowOpened(controller)
         if activate {
             windowBecameActive(controller)
         }
@@ -634,6 +653,9 @@ final class BrowserWindowManager {
         configuration.defaultWebpagePreferences.allowsContentJavaScript = true
         configuration.preferences = BrowserWindowController.makePreferences()
         configuration.applicationNameForUserAgent = BrowserUserAgent.applicationName
+        // Every tab, private ones too: WebKit runs an extension in a private
+        // tab only when it has `hasAccessToPrivateData`.
+        configuration.webExtensionController = extensions.controller
         configuration.setURLSchemeHandler(
             makeStartPageSchemeHandler(),
             forURLScheme: BrowserStartPageSchemeHandler.scheme
@@ -691,6 +713,7 @@ final class BrowserWindowManager {
             controller.onShowWebsites = { [weak self] parent in self?.showWebsites(on: parent) }
             controller.onShowWebsiteData = { [weak self] parent in self?.showWebsiteData(on: parent) }
             controller.onShowLinkRouting = { [weak self] parent in self?.showLinkRouting(on: parent) }
+            controller.onShowExtensions = { [weak self] parent in self?.showExtensions(on: parent) }
             settingsWindowController = controller
             return controller
         }()

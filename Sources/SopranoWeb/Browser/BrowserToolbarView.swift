@@ -17,6 +17,10 @@ final class BrowserToolbarView: NSView, NSTextFieldDelegate {
     /// A key command while the address is edited (↑, ↓, Return, Esc, …);
     /// returns true when handled.
     var onAddressCommand: ((Selector) -> Bool)?
+    /// An extension's toolbar button was clicked (its id and the button).
+    var onExtensionButton: ((String, NSView) -> Void)?
+    /// An extension button's right-click menu.
+    var extensionMenuProvider: ((String) -> NSMenu?)?
 
     let addressField = BrowserAddressField()
     let navigationControls: BrowserNavigationControls
@@ -29,6 +33,10 @@ final class BrowserToolbarView: NSView, NSTextFieldDelegate {
     /// Camera/microphone in-use mark between the address field and the
     /// bookmark button; hidden while the selected tab captures nothing.
     let captureIndicator: BrowserCaptureIndicator
+    /// Extensions' action buttons, between the capture mark and the
+    /// bookmark star; empty without extensions.
+    private let extensionStack = NSStackView()
+    private var extensionButtons: [BrowserExtensionActionButton] = []
     private let verticalTabsButton: ChromeIconButton
     private let bookmarkButton: ChromeIconButton
     private let downloadsButton: ChromeIconButton
@@ -55,7 +63,7 @@ final class BrowserToolbarView: NSView, NSTextFieldDelegate {
         constant: 6
     )
     private lazy var captureTrailingToButtons = captureIndicator.trailingAnchor.constraint(
-        equalTo: bookmarkButton.leadingAnchor,
+        equalTo: extensionStack.leadingAnchor,
         constant: -2
     )
     private lazy var captureTrailingToEdge = captureIndicator.trailingAnchor.constraint(
@@ -168,6 +176,12 @@ final class BrowserToolbarView: NSView, NSTextFieldDelegate {
         addSubview(progressBar)
         progressBar.translatesAutoresizingMaskIntoConstraints = false
         addSubview(captureIndicator)
+        extensionStack.orientation = .horizontal
+        extensionStack.spacing = 2
+        extensionStack.translatesAutoresizingMaskIntoConstraints = false
+        extensionStack.setHuggingPriority(.required, for: .horizontal)
+        extensionStack.setContentCompressionResistancePriority(.required, for: .horizontal)
+        addSubview(extensionStack)
         windowMark.isHidden = true
         windowMark.setContentCompressionResistancePriority(.required, for: .horizontal)
         addSubview(windowMark)
@@ -210,6 +224,8 @@ final class BrowserToolbarView: NSView, NSTextFieldDelegate {
 
             captureTrailingToButtons,
             captureIndicator.centerYAnchor.constraint(equalTo: sidebarButton.centerYAnchor),
+            extensionStack.trailingAnchor.constraint(equalTo: bookmarkButton.leadingAnchor, constant: -2),
+            extensionStack.centerYAnchor.constraint(equalTo: sidebarButton.centerYAnchor),
         ])
 
         apply(theme: theme)
@@ -242,6 +258,7 @@ final class BrowserToolbarView: NSView, NSTextFieldDelegate {
         progressBar.color = theme.colors.blue
         windowMark.apply(theme: theme)
         captureIndicator.apply(theme: theme)
+        extensionButtons.forEach { $0.apply(theme: theme) }
         refreshSecurityIcon()
         needsDisplay = true
     }
@@ -272,6 +289,40 @@ final class BrowserToolbarView: NSView, NSTextFieldDelegate {
 
     /// The star, which the bookmark popover hangs from.
     var bookmarkAnchor: NSView { bookmarkButton }
+
+    /// Shows one button per item, in order; buttons of the same extension
+    /// are kept (their hover state and popover anchor stay).
+    func setExtensionButtons(_ items: [BrowserExtensionToolbarItem]) {
+        let existing = Dictionary(extensionButtons.map { ($0.item.id, $0) }, uniquingKeysWith: { first, _ in first })
+        let buttons = items.map { item -> BrowserExtensionActionButton in
+            if let button = existing[item.id] {
+                if button.item != item { button.apply(item) }
+                return button
+            }
+            let button = BrowserExtensionActionButton(item: item, theme: theme)
+            button.target = self
+            button.action = #selector(extensionButtonPressed(_:))
+            button.menuProvider = { [weak self] id in self?.extensionMenuProvider?(id) }
+            return button
+        }
+        guard buttons.map(ObjectIdentifier.init) != extensionButtons.map(ObjectIdentifier.init) else { return }
+        extensionButtons.forEach { $0.removeFromSuperview() }
+        extensionButtons = buttons
+        buttons.forEach { extensionStack.addArrangedSubview($0) }
+    }
+
+    var extensionToolbarItems: [BrowserExtensionToolbarItem] {
+        extensionButtons.map(\.item)
+    }
+
+    /// The button of extension `id`, which its popup hangs from.
+    func extensionButton(id: String) -> NSView? {
+        extensionButtons.first { $0.item.id == id && !$0.isHiddenOrHasHiddenAncestor }
+    }
+
+    @objc private func extensionButtonPressed(_ sender: BrowserExtensionActionButton) {
+        onExtensionButton?(sender.item.id, sender)
+    }
 
     func setProgress(_ progress: Double, isLoading: Bool) {
         progressBar.progress = max(0, min(1, progress))
@@ -355,6 +406,7 @@ final class BrowserToolbarView: NSView, NSTextFieldDelegate {
         for button in [verticalTabsButton, bookmarkButton, downloadsButton, sidebarButton] {
             button.isHidden = compact
         }
+        extensionStack.isHidden = compact
         navigationLeadingToToggle.isActive = !compact
         navigationLeadingToEdge.isActive = compact
         captureTrailingToButtons.isActive = !compact

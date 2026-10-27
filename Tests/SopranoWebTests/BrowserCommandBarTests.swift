@@ -19,7 +19,7 @@ struct BrowserCommandBarTests {
     }
 
     private func action(_ id: BrowserCommandID, _ title: String, _ synonyms: [String] = []) -> BrowserCommandBarInput.Action {
-        .init(id: id, title: title, synonyms: synonyms, shortcut: "", symbol: "")
+        .init(target: .command(id), title: title, synonyms: synonyms, shortcut: "", symbol: "")
     }
 
     // MARK: What Return opens

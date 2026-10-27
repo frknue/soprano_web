@@ -36,6 +36,7 @@ enum BrowserLinkDisposition: Equatable, Sendable {
 enum BrowserWebSchemes {
     static let all: Set<String> = [
         "http", "https", "file", "about", "blob", "data", BrowserStartPageSchemeHandler.scheme,
+        BrowserExtensions.scheme,
     ]
 
     static func isWeb(_ url: URL) -> Bool {

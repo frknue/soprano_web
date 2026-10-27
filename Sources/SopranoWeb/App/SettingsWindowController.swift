@@ -30,6 +30,8 @@ final class SettingsWindowController: NSWindowController, NSTextFieldDelegate {
     var onShowWebsiteData: ((NSWindow) -> Void)?
     /// Presents Settings ▸ Links from other apps as a sheet on the given window.
     var onShowLinkRouting: ((NSWindow) -> Void)?
+    /// Presents Settings ▸ Extensions as a sheet on the given window.
+    var onShowExtensions: ((NSWindow) -> Void)?
     /// Settings ▸ Search engine ▸ Manage…, while shown.
     private var searchEnginesSheet: BrowserSearchEnginesSheet?
     /// Settings ▸ Keyboard shortcuts ▸ Customize…, while shown.
@@ -100,6 +102,13 @@ final class SettingsWindowController: NSWindowController, NSTextFieldDelegate {
         let button = ChromeButton(title: "Manage…", theme: theme, kind: .standard)
         button.target = self
         button.action = #selector(linkRoutingPressed)
+        button.widthAnchor.constraint(equalToConstant: 200).isActive = true
+        return button
+    }()
+    private lazy var extensionsButton: ChromeButton = {
+        let button = ChromeButton(title: "Manage…", theme: theme, kind: .standard)
+        button.target = self
+        button.action = #selector(extensionsPressed)
         button.widthAnchor.constraint(equalToConstant: 200).isActive = true
         return button
     }()
@@ -190,7 +199,7 @@ final class SettingsWindowController: NSWindowController, NSTextFieldDelegate {
         self.websiteDataButton = ChromeButton(title: "Manage…", theme: theme, kind: .standard)
         self.defaultBrowserButton = ChromeButton(title: "Make Default", theme: theme, kind: .standard)
         let window = NSWindow(
-            contentRect: NSRect(x: 0, y: 0, width: 620, height: 846),
+            contentRect: NSRect(x: 0, y: 0, width: 620, height: 882),
             styleMask: [.titled, .closable, .fullSizeContentView],
             backing: .buffered,
             defer: false
@@ -202,7 +211,7 @@ final class SettingsWindowController: NSWindowController, NSTextFieldDelegate {
         window.titlebarAppearsTransparent = true
         window.isReleasedWhenClosed = false
         window.backgroundColor = theme.colors.bgBase
-        window.minSize = NSSize(width: 620, height: 846)
+        window.minSize = NSSize(width: 620, height: 882)
 
         rootView.wantsLayer = true
         window.contentView = rootView
@@ -289,10 +298,11 @@ final class SettingsWindowController: NSWindowController, NSTextFieldDelegate {
             [rowLabel("Website data"), websiteDataButton],
             [rowLabel("Default browser"), defaultBrowserRow()],
             [rowLabel("Links from other apps"), linkRoutingButton],
+            [rowLabel("Extensions"), extensionsButton],
         ]
         let grid = NSGridView(views: rows)
         grid.translatesAutoresizingMaskIntoConstraints = false
-        // 20 rows; the window stays under 900 pt for small displays.
+        // 21 rows; the window stays under 900 pt for small displays.
         grid.rowSpacing = 10
         grid.column(at: 0).xPlacement = .trailing
         grid.column(at: 1).xPlacement = .fill
@@ -434,6 +444,7 @@ final class SettingsWindowController: NSWindowController, NSTextFieldDelegate {
         notificationsLabel.textColor = theme.colors.textPrimary
         websitesButton.apply(theme: theme)
         linkRoutingButton.apply(theme: theme)
+        extensionsButton.apply(theme: theme)
         askDownloadSwitch.apply(theme: theme)
         blockAdsSwitch.apply(theme: theme)
         updateListsButton.apply(theme: theme)
@@ -522,6 +533,7 @@ final class SettingsWindowController: NSWindowController, NSTextFieldDelegate {
         case .shortcuts: shortcutsPressed()
         case .websites: onShowWebsites?(window)
         case .websiteData: onShowWebsiteData?(window)
+        case .extensions: onShowExtensions?(window)
         }
     }
 
@@ -776,6 +788,11 @@ extension SettingsWindowController {
     @objc private func linkRoutingPressed() {
         guard let window else { return }
         onShowLinkRouting?(window)
+    }
+
+    @objc func extensionsPressed() {
+        guard let window else { return }
+        onShowExtensions?(window)
     }
 }
 

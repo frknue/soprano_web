@@ -40,13 +40,14 @@ extension BrowserWindowController {
     }
 
     /// A tab of `context` that belongs to no window yet: its web view (of
-    /// the context's data store, or of `configuration`, a pop-up's), page
-    /// scripts and Vimium layer. `attachTab` binds it to a window. Nothing
-    /// here refers to this window, so the tab can later move into any
-    /// window whose current Space uses `context`.
-    func makeTab(context: BrowserDataContext, configuration: WKWebViewConfiguration? = nil) -> BrowserTab {
+    /// the context's data store, or of `configuration`, a pop-up's, or of
+    /// the extension whose page `url` is), page scripts and Vimium layer.
+    /// `attachTab` binds it to a window. Nothing here refers to this
+    /// window, so the tab can later move into any window whose current
+    /// Space uses `context`.
+    func makeTab(context: BrowserDataContext, configuration: WKWebViewConfiguration? = nil, for url: URL? = nil) -> BrowserTab {
         let tab = BrowserTab(
-            webView: makeWebView(context: context, configuration: configuration),
+            webView: makeWebView(context: context, configuration: configuration, for: url),
             dataContext: context,
             zoom: settingsStore.settings.defaultZoom
         )
@@ -57,11 +58,15 @@ extension BrowserWindowController {
         return tab
     }
 
-    /// An empty web view of `context` (or of `configuration`, a pop-up's)
-    /// with every page script and the content blocker's lists. It starts
-    /// no web content process until it loads.
-    private func makeWebView(context: BrowserDataContext, configuration: WKWebViewConfiguration?) -> BrowserWebView {
-        let configuration = configuration ?? manager.makeTabConfiguration(for: context)
+    /// An empty web view of `context` (or of `configuration`, a pop-up's;
+    /// an extension page `url` gets its extension's configuration) with
+    /// every page script and the content blocker's lists. It starts no web
+    /// content process until it loads.
+    private func makeWebView(context: BrowserDataContext, configuration: WKWebViewConfiguration?, for url: URL?) -> BrowserWebView {
+        let page = configuration == nil ? extensionContext(for: url) : nil
+        let configuration = configuration
+            ?? page?.webViewConfiguration
+            ?? manager.makeTabConfiguration(for: context)
         if configuration.urlSchemeHandler(forURLScheme: BrowserStartPageSchemeHandler.scheme) == nil {
             configuration.setURLSchemeHandler(
                 manager.makeStartPageSchemeHandler(),
@@ -85,6 +90,7 @@ extension BrowserWindowController {
         configuration.userContentController = contentController
 
         let webView = BrowserWebView(frame: .zero, configuration: configuration)
+        webView.extensionID = page.flatMap { extensions.id(of: $0) }
         webView.allowsBackForwardNavigationGestures = true
         webView.allowsMagnification = true
         webView.isInspectable = true
@@ -103,11 +109,12 @@ extension BrowserWindowController {
     }
 
     /// Swaps the tab's web view for a fresh, empty one of the tab's data
-    /// context, so the old one and its web content process go away (a tab
-    /// falling asleep). The tab keeps its place, selection and bindings;
-    /// the caller has saved what the page needs to come back
+    /// context (of the extension whose page `url` is), so the old one and
+    /// its web content process go away (a tab falling asleep, a tab going
+    /// to or from an extension page). The tab keeps its place, selection
+    /// and bindings; the caller has saved what the page needs to come back
     /// (`lifecycle.pendingRestore`).
-    func replaceWebView(of tab: BrowserTab) {
+    func replaceWebView(of tab: BrowserTab, for url: URL? = nil) {
         let attached = tabs.contains { $0 === tab }
         let previousSelection = previousSelectedTabID
         if attached {
@@ -116,7 +123,7 @@ extension BrowserWindowController {
         let old = tab.webView
         old.stopLoading()
         old.removeFromSuperview()
-        tab.replaceWebView(with: makeWebView(context: tab.dataContext, configuration: nil))
+        tab.replaceWebView(with: makeWebView(context: tab.dataContext, configuration: nil, for: url))
         tab.media.frames.removeAll()
         tab.media.audio.reset()
         connectKeyHandler(tab)
@@ -140,7 +147,7 @@ extension BrowserWindowController {
             ? (state.spaceID.flatMap(spaces.space(id:)) ?? currentSpaceID.flatMap(spaces.space(id:)))
             : nil
         let context = space.map { manager.context(for: $0.profileID) } ?? dataContext
-        let tab = makeTab(context: context)
+        let tab = makeTab(context: context, for: state.url.flatMap(URL.init(string:)))
         tab.spaceID = space?.id
         // A link whose pin or favorite is gone, or that already has a live
         // tab here, becomes a Today tab.
@@ -208,6 +215,7 @@ extension BrowserWindowController {
             selectedIndex = visible
         }
         syncContextObservations()
+        extensions.tabAttached(tab, to: self)
         if select {
             selectTab(id: tab.id, focus: true)
         } else if selectedID != nil {
@@ -255,6 +263,7 @@ extension BrowserWindowController {
         if let spaceID = tab.spaceID, spaceSelections[spaceID] == tab.id {
             spaceSelections[spaceID] = nil
         }
+        extensions.tabDetached(tab, from: self, index: index)
         tabs.remove(at: index)
         syncContextObservations()
 
@@ -306,6 +315,9 @@ extension BrowserWindowController {
             selected?.webView.find("", configuration: WKFindConfiguration()) { _ in }
         }
         for tab in present {
+            if let index = tabs.firstIndex(where: { $0 === tab }) {
+                extensions.tabDetached(tab, from: self, index: index)
+            }
             unbindTab(tab)
             removeWakeSnapshot(tab)
             tab.webView.removeFromSuperview()
@@ -384,6 +396,7 @@ extension BrowserWindowController {
     func tearDown() {
         cancelStoreObservations()
         cancelRecentTabs()
+        extensions.windowClosing(self)
         let closing = tabs
         tabs.removeAll()
         selectedIndex = 0
@@ -411,6 +424,7 @@ extension BrowserWindowController {
                         self.lateTitleChanged(tab, title: title)
                     }
                     self.metadataChanged(tab)
+                    self.extensions.tabChanged(tab, .title)
                 }
             },
             webView.observe(\.url, options: [.new]) { [weak self, weak tab] _, _ in
@@ -419,6 +433,7 @@ extension BrowserWindowController {
                     self.tabURLChanged(tab)
                     self.sameDocumentURLChanged(tab)
                     self.metadataChanged(tab)
+                    self.extensions.tabChanged(tab, .URL)
                 }
             },
             webView.observe(\.estimatedProgress, options: [.new]) { [weak self, weak tab] _, _ in
@@ -431,6 +446,7 @@ extension BrowserWindowController {
                 MainActor.assumeIsolated {
                     guard let self, let tab else { return }
                     self.metadataChanged(tab)
+                    self.extensions.tabChanged(tab, .loading)
                 }
             },
             webView.observe(\.canGoBack, options: [.new]) { [weak self, weak tab] _, _ in
@@ -508,6 +524,10 @@ extension BrowserWindowController {
         prepareSelectedTab(tab)
         updateTabStrip()
         updateChrome()
+        if previous !== tab {
+            extensions.tabActivated(tab, previous: previous)
+        }
+        updateExtensionButtons()
         if focus {
             window?.makeFirstResponder(tab.webView)
         }
@@ -677,6 +697,7 @@ extension BrowserWindowController {
         tab.isMuted.toggle()
         applyMute(tab)
         metadataChanged(tab)
+        extensions.tabChanged(tab, .muted)
     }
 
     /// The tab of any Space whose web view is `webView`.

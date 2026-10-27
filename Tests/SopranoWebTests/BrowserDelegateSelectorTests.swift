@@ -71,4 +71,97 @@ struct BrowserDelegateSelectorTests {
             )
         }
     }
+
+    /// The one `WKWebExtensionController`'s delegate is the manager-owned
+    /// `BrowserExtensions`.
+    @Test func extensionsExposeEveryControllerDelegateSelector() {
+        for selector in [
+            "webExtensionController:openWindowsForExtensionContext:",
+            "webExtensionController:focusedWindowForExtensionContext:",
+            "webExtensionController:openNewWindowUsingConfiguration:forExtensionContext:completionHandler:",
+            "webExtensionController:openNewTabUsingConfiguration:forExtensionContext:completionHandler:",
+            "webExtensionController:openOptionsPageForExtensionContext:completionHandler:",
+            "webExtensionController:promptForPermissions:inTab:forExtensionContext:completionHandler:",
+            "webExtensionController:promptForPermissionToAccessURLs:inTab:forExtensionContext:completionHandler:",
+            "webExtensionController:promptForPermissionMatchPatterns:inTab:forExtensionContext:completionHandler:",
+            "webExtensionController:didUpdateAction:forExtensionContext:",
+            "webExtensionController:presentPopupForAction:forExtensionContext:completionHandler:",
+            "webExtensionController:sendMessage:toApplicationWithIdentifier:forExtensionContext:replyHandler:",
+            "webExtensionController:connectUsingMessagePort:forExtensionContext:completionHandler:",
+        ] {
+            #expect(
+                class_getInstanceMethod(BrowserExtensions.self, NSSelectorFromString(selector)) != nil,
+                "Missing WKWebExtensionControllerDelegate selector: \(selector)"
+            )
+        }
+    }
+
+    @Test func extensionTabAdapterExposesItsSelectors() {
+        for selector in [
+            "windowForWebExtensionContext:",
+            "indexInWindowForWebExtensionContext:",
+            "webViewForWebExtensionContext:",
+            "titleForWebExtensionContext:",
+            "isPinnedForWebExtensionContext:",
+            "isPlayingAudioForWebExtensionContext:",
+            "isMutedForWebExtensionContext:",
+            "setMuted:forWebExtensionContext:completionHandler:",
+            "zoomFactorForWebExtensionContext:",
+            "setZoomFactor:forWebExtensionContext:completionHandler:",
+            "urlForWebExtensionContext:",
+            "pendingURLForWebExtensionContext:",
+            "isLoadingCompleteForWebExtensionContext:",
+            "takeSnapshotUsingConfiguration:forWebExtensionContext:completionHandler:",
+            "loadURL:forWebExtensionContext:completionHandler:",
+            "reloadFromOrigin:forWebExtensionContext:completionHandler:",
+            "goBackForWebExtensionContext:completionHandler:",
+            "goForwardForWebExtensionContext:completionHandler:",
+            "activateForWebExtensionContext:completionHandler:",
+            "isSelectedForWebExtensionContext:",
+            "setSelected:forWebExtensionContext:completionHandler:",
+            "duplicateUsingConfiguration:forWebExtensionContext:completionHandler:",
+            "closeForWebExtensionContext:completionHandler:",
+            "shouldGrantPermissionsOnUserGestureForWebExtensionContext:",
+        ] {
+            #expect(
+                class_getInstanceMethod(BrowserExtensionTab.self, NSSelectorFromString(selector)) != nil,
+                "Missing WKWebExtensionTab selector: \(selector)"
+            )
+        }
+    }
+
+    @Test func extensionWindowAdapterExposesItsSelectors() {
+        for selector in [
+            "tabsForWebExtensionContext:",
+            "activeTabForWebExtensionContext:",
+            "windowTypeForWebExtensionContext:",
+            "windowStateForWebExtensionContext:",
+            "setWindowState:forWebExtensionContext:completionHandler:",
+            "isPrivateForWebExtensionContext:",
+            "screenFrameForWebExtensionContext:",
+            "frameForWebExtensionContext:",
+            "setFrame:forWebExtensionContext:completionHandler:",
+            "focusForWebExtensionContext:completionHandler:",
+            "closeForWebExtensionContext:completionHandler:",
+        ] {
+            #expect(
+                class_getInstanceMethod(BrowserExtensionWindow.self, NSSelectorFromString(selector)) != nil,
+                "Missing WKWebExtensionWindow selector: \(selector)"
+            )
+        }
+    }
+
+    @Test func extensionPopupExposesItsDelegateSelectors() {
+        for selector in [
+            "webViewDidClose:",
+            "webView:createWebViewWithConfiguration:forNavigationAction:windowFeatures:",
+            "webView:didFinishNavigation:",
+            "popoverDidClose:",
+        ] {
+            #expect(
+                class_getInstanceMethod(BrowserExtensionPopup.self, NSSelectorFromString(selector)) != nil,
+                "Missing popup delegate selector: \(selector)"
+            )
+        }
+    }
 }
