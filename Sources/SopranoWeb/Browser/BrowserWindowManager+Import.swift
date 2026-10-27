@@ -50,9 +50,12 @@ extension BrowserWindowManager {
         }
     }
 
-    /// Applies `plan`. The import's Today tabs join their Spaces in
-    /// `controller` unloaded, and it switches to the first imported Space.
-    /// History follows in the background; `completion` gets the summary.
+    /// Applies `plan`. The import's Today tabs join their Spaces unloaded in
+    /// `controller` when it shows Spaces, else in the most recent normal
+    /// window (a new one when none is open: an import from a private window,
+    /// or one whose window closed meanwhile), which switches to the first
+    /// imported Space. History follows in the background; `completion`
+    /// gets the summary.
     @discardableResult
     func runImport(
         _ plan: BrowserImportPlan,
@@ -63,17 +66,20 @@ extension BrowserWindowManager {
     ) -> BrowserImporter.Summary {
         let importer = BrowserImporter(stores: importerStores)
         let summary = importer.run(plan, cancellation: cancellation, progress: progress, completion: completion)
-        if let controller, controller.hasSpaces {
-            for (spaceID, links) in summary.todayTabs {
-                for link in links {
-                    controller.addRestoredTab(BrowserTabState(url: link.url, title: link.title, spaceID: spaceID))
-                }
+        guard !summary.todayTabs.isEmpty || summary.firstSpaceID != nil else { return summary }
+        let target = controller?.hasSpaces == true
+            ? controller
+            : (outsideTabbedController.flatMap { $0.hasSpaces ? $0 : nil } ?? newWindow())
+        guard let target, target.hasSpaces else { return summary }
+        for (spaceID, links) in summary.todayTabs {
+            for link in links {
+                target.addRestoredTab(BrowserTabState(url: link.url, title: link.title, spaceID: spaceID))
             }
-            if let first = summary.firstSpaceID {
-                controller.switchToSpace(first, focus: false)
-            }
-            controller.updateTabStrip()
         }
+        if let first = summary.firstSpaceID {
+            target.switchToSpace(first, focus: false)
+        }
+        target.updateTabStrip()
         return summary
     }
 

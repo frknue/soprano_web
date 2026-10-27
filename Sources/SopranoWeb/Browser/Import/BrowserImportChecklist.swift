@@ -81,26 +81,35 @@ enum BrowserImportChecklist {
         }
         for history in plan.history {
             let destination = history.profileKey.map { target($0, in: plan) } ?? "this window's profile"
+            var detail = count(history.visitCount, "visit")
+            if let cutoff = plan.historyCutoff {
+                detail += " since \(cutoff.formatted(date: .abbreviated, time: .omitted))"
+            }
+            detail += " → \(destination)"
+            if history.olderCount > 0 {
+                detail += " · \(history.olderCount.formatted()) older ones left out per Settings ▸ Remove history items"
+            }
             rows.append(Row(
                 item: .history(history.id),
                 section: "History",
                 title: history.profileKey.map { "History of \(sourceName($0, in: plan))" } ?? history.title,
-                detail: "\(count(history.visitCount, "visit")) → \(destination)"
-                    + (history.olderCount > 0 ? " · \(history.olderCount.formatted()) older than History keeps" : ""),
+                detail: detail,
                 isChecked: history.isIncluded,
                 isEnabled: history.visitCount > 0
             ))
         }
         if let routing = plan.routing {
-            var detail = count(routing.importable, "rule")
-            if routing.unsupported > 0 { detail += " · \(routing.unsupported) for Little Arc or a profile not imported" }
+            let importable = plan.importableRuleCount
+            var detail = count(importable, "rule")
+            let notImported = routing.rules.count - importable
+            if notImported > 0 { detail += " · \(notImported) for Little Arc, a profile or an unchecked Space not imported" }
             rows.append(Row(
                 item: .routing,
                 section: "Links from other apps",
                 title: "Air Traffic Control rules",
                 detail: detail,
-                isChecked: routing.isIncluded,
-                isEnabled: routing.importable > 0
+                isChecked: routing.isIncluded && importable > 0,
+                isEnabled: importable > 0
             ))
         }
         return rows
@@ -146,8 +155,8 @@ enum BrowserImportChecklist {
             parts.append(count(archive.newCount, "archived tab"))
         }
         if plan.includedVisitCount > 0 { parts.append(count(plan.includedVisitCount, "visit")) }
-        if let routing = plan.routing, routing.isIncluded, routing.importable > 0 {
-            parts.append(count(routing.importable, "rule"))
+        if let routing = plan.routing, routing.isIncluded, plan.importableRuleCount > 0 {
+            parts.append(count(plan.importableRuleCount, "rule"))
         }
         return parts.isEmpty ? "Nothing to import" : parts.joined(separator: " · ")
     }

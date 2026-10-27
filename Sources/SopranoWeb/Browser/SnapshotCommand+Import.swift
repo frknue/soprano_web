@@ -37,17 +37,19 @@ struct SnapshotImportOptions {
     var exports: [(url: URL, allSpaces: Bool)] = []
     var openLinks: [String] = []
     var showsLinkRoutingSheet = false
+    /// `--import-from-private`: the import runs from a new private window.
+    var fromPrivateWindow = false
 
     static let flags: Set<String> = [
         "--import-arc", "--import-chrome", "--import-safari", "--import-html", "--import-plan", "--import-sheet",
-        "--export-pins", "--export-all-pins", "--open-link", "--link-routing-sheet",
+        "--export-pins", "--export-all-pins", "--open-link", "--link-routing-sheet", "--import-from-private",
     ]
 
     static let usage = """
                                [--import-arc [dir]] [--import-chrome <dir>] [--import-safari <zip>]
                                [--import-html <file>] [--import-plan] [--import-sheet [checklist|progress|result]]
                                [--export-pins <file>] [--export-all-pins <file>] [--open-link <url>]...
-                               [--link-routing-sheet]
+                               [--link-routing-sheet] [--import-from-private]
     """
 
     var isActive: Bool {
@@ -95,6 +97,8 @@ struct SnapshotImportOptions {
             exports.append((file(try value()), true))
         case "--open-link":
             openLinks.append(try value())
+        case "--import-from-private":
+            fromPrivateWindow = true
         case "--link-routing-sheet":
             showsLinkRoutingSheet = true
         default:
@@ -115,8 +119,9 @@ struct SnapshotImportOptions {
     }
 
     @MainActor
-    func run(manager: BrowserWindowManager, controller: BrowserWindowController) -> Outcome {
+    func run(manager: BrowserWindowManager, controller normal: BrowserWindowController) -> Outcome {
         var outcome = Outcome()
+        let controller = fromPrivateWindow ? manager.newPrivateWindow() : normal
         if let stage = sheet {
             outcome.sheet = runSheet(stage, manager: manager, controller: controller, frozen: &outcome.frozen)
         } else {
@@ -185,6 +190,13 @@ struct SnapshotImportOptions {
             return
         }
         print("import-result: \(Self.json(Self.resultObject(finished, seconds: Date().timeIntervalSince(started))))")
+        for (spaceID, links) in finished.todayTabs {
+            let holders = manager.controllers.filter { window in window.tabs.contains { $0.spaceID == spaceID } }
+            let tabs = holders.reduce(0) { total, window in total + window.tabs.filter { $0.spaceID == spaceID }.count }
+            let kinds = holders.map { $0.kind.isPrivate ? "private" : "normal" }.joined(separator: ",")
+            let shown = holders.contains { $0.currentSpaceID == spaceID } ? "shown" : "hidden"
+            print("import-today: \(links.count) imported, \(tabs) tabs of the Space in \(holders.count) window(s) [\(kinds)], Space \(shown)")
+        }
         for history in finished.history {
             print(String(
                 format: "import-history: %@ -> %@ added %d skipped %d in %.2f s%@",

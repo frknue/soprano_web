@@ -128,7 +128,10 @@ final class BrowserHistoryStore {
         }
     }
 
-    /// The import loop on `database` (any thread that owns it).
+    /// The import loop on `database` (any thread that owns it). A read or
+    /// write error stops it like a cancel does: what was added stays,
+    /// frecency is refreshed and the error comes back in `failure` with
+    /// the counts. Only a failure to refresh frecency throws.
     nonisolated static func importBatches(
         into database: BrowserHistoryDatabase,
         read: (_ body: ([BrowserHistoryImport]) throws -> Void) throws -> Void,
@@ -147,6 +150,8 @@ final class BrowserHistoryStore {
             }
         } catch is CancellationError {
             count.cancelled = true
+        } catch {
+            count.failure = "\(error)"
         }
         if count.added > 0 {
             try database.refreshAllFrecency(now: now)
@@ -255,6 +260,8 @@ struct BrowserHistoryImportCount: Sendable, Equatable {
     /// Visits History already held (same address and time).
     var skipped = 0
     var cancelled = false
+    /// The read or write error that stopped it, after `added` visits.
+    var failure: String?
 }
 
 /// Stops a running import between batches; safe to use from any thread.

@@ -35,6 +35,26 @@ struct BrowserHistoryImportTests {
         #expect(repeated.skipped == 2)
     }
 
+    private struct ReadFailure: Error {}
+
+    @Test func aReadErrorKeepsWhatWasAddedWithTheErrorAndRefreshesFrecency() throws {
+        let database = try BrowserHistoryDatabase(path: ":memory:")
+        let all = visits(20)
+        let count = try BrowserHistoryStore.importBatches(
+            into: database,
+            read: { body in
+                try body(Array(all.prefix(10)))
+                throw ReadFailure()
+            },
+            cancellation: BrowserImportCancellation(),
+            now: start.addingTimeInterval(3_600)
+        ) { _ in }
+        #expect(count.added == 10)
+        #expect(count.cancelled == false)
+        #expect(count.failure != nil)
+        #expect(try database.recentPages(limit: 4).allSatisfy { $0.frecency > 0 })
+    }
+
     @Test func batchesStopWhenCancelledAndKeepWhatWasAdded() throws {
         let database = try BrowserHistoryDatabase(path: ":memory:")
         let cancellation = BrowserImportCancellation()

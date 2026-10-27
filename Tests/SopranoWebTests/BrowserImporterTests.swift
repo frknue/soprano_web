@@ -221,9 +221,43 @@ struct BrowserImporterTests {
         // archived tab goes to Default's Archive.
         #expect(summary.profilesCreated.isEmpty)
         #expect(fixture.profiles.profiles.count == 1)
-        #expect(fixture.archive.entries.allSatisfy { $0.profileID == BrowserProfile.defaultID })
+        // Its archived tab waits for the profile; only Little Arc's goes to Default.
+        #expect(fixture.archive.entries.map(\.url) == ["https://little.example/"])
+        #expect(fixture.archive.entries.first?.profileID == BrowserProfile.defaultID)
         #expect(fixture.linkRouting.rules.isEmpty)
         #expect(summary.history.isEmpty)
+    }
+
+    @Test func rulesForUncheckedSpacesAreNotCountedAndReimportsKeepArcsOrder() async throws {
+        let fixture = Fixture()
+        var plan = plan(fixture)
+        BrowserImportChecklist.set(.space(spaceB), included: false, in: &plan)
+        #expect(plan.importableRuleCount == 1)
+        BrowserImportChecklist.set(.history("test"), included: false, in: &plan)
+        _ = await run(plan, fixture)
+        #expect(fixture.linkRouting.rules.map(\.value) == ["meet.example"])
+
+        // Work's Space comes in later; its rule goes where Arc has it.
+        let user = BrowserLinkRoutingRule(match: .contains, value: "mine.example", destination: .mostRecentSpace)
+        fixture.linkRouting.add([user])
+        let summary = await run(self.plan(fixture), fixture)
+        #expect(summary.rulesAdded == 1)
+        #expect(fixture.linkRouting.rules.map(\.value) == ["meet.example", "https://x.example/", "mine.example"])
+    }
+
+    @Test func historyOfAProfileThatVanishedIsSkipped() async throws {
+        let fixture = Fixture()
+        let gone = BrowserProfile(name: "Gone", color: .gray, importedFrom: BrowserImportPlanner.arcProfileSource("Profile 1"))
+        var context = fixture.context
+        context.profiles.append(gone)
+        var plan = BrowserImportPlanner.arc(arc(), historyCounts: [:], context: context)
+        plan.history = [BrowserImportPlan.History(
+            id: "test", title: "History", profileKey: "Profile 1", source: .visits(visits()), visitCount: 5, isIncluded: true
+        )]
+        #expect(plan.profile(key: "Profile 1")?.target == .existing(gone.id))
+        let summary = await run(plan, fixture)
+        #expect(summary.history.isEmpty)
+        #expect(fixture.histories.isEmpty || fixture.histories.values.allSatisfy { $0.visitCount() == 0 })
     }
 
     @Test func bookmarkFoldersGoToTheTargetSpaceOnce() async throws {

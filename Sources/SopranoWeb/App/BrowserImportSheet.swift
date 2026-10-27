@@ -370,7 +370,9 @@ final class BrowserImportSheet: NSWindowController {
         case .importing:
             progressBar.isHidden = false
             progressBar.fraction = progress?.fraction ?? 0
-            if let progress, progress.total > 0 {
+            if cancellation?.isCancelled == true {
+                statusLabel.stringValue = "Cancelling…"
+            } else if let progress, progress.total > 0 {
                 statusLabel.stringValue = "\(progress.item): \(progress.handled.formatted()) of "
                     + "\(progress.total.formatted()) visits"
             } else {

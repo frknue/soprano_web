@@ -296,8 +296,11 @@ app.
   Bookmarks" pinned folder, History), Safari's File ▸ Export Browsing Data
   ZIP (bookmarks, History with one visit per page) and a bookmarks `.html`
   file. Check what to bring in; History imports in the background with
-  progress and Cancel. Importing again skips what was imported before.
-  Arc, Chrome and Safari files are only read.
+  progress and Cancel, and only visits Settings ▸ Remove history items keeps
+  (all of them with Manually; the checklist says since when). Today tabs
+  open in a normal window even when the import started from a private one.
+  Importing again skips what was imported before. Arc, Chrome and Safari
+  files are only read.
 - File ▸ Export Pinned Tabs… saves the current Space's pinned tabs, or every
   Space as a folder each, as a bookmarks `.html` file other browsers import.
 - Settings ▸ Links from other apps ▸ Manage… lists the rules for links other

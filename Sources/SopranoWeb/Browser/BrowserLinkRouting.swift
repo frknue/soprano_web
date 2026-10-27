@@ -200,6 +200,40 @@ final class BrowserLinkRoutingStore {
         commit()
     }
 
+    /// An import's rules (`importedFrom` == `source`) in the source's order:
+    /// rules already there keep their ids, new ones join, and the imported
+    /// block is rebuilt in that order where it stood (rules a former import
+    /// brought that this one doesn't follow it), so first-match order stays
+    /// the source's across re-imports. Returns how many were added.
+    @discardableResult
+    func mergeImported(_ incoming: [BrowserLinkRoutingRule], from source: String) -> Int {
+        let earlier = rules.filter { $0.importedFrom == source }
+        let others = rules.filter { $0.importedFrom != source }
+        var block: [BrowserLinkRoutingRule] = []
+        var added = 0
+        for rule in incoming where !block.contains(where: { $0.isSameRule(as: rule) })
+            && !others.contains(where: { $0.isSameRule(as: rule) })
+        {
+            if let kept = earlier.first(where: { $0.isSameRule(as: rule) }) {
+                block.append(kept)
+            } else {
+                var new = rule
+                new.importedFrom = source
+                block.append(new)
+                added += 1
+            }
+        }
+        block += earlier.filter { rule in !block.contains { $0.id == rule.id } }
+        let position = rules.firstIndex { $0.importedFrom == source }
+            .map { index in rules[..<index].filter { $0.importedFrom != source }.count } ?? others.count
+        var next = others
+        next.insert(contentsOf: block, at: position)
+        guard next != rules else { return 0 }
+        rules = next
+        commit()
+        return added
+    }
+
     private func commit() {
         try? JSONFile.write(BrowserLinkRoutingFile(rules: rules), to: url)
         changes.notify()

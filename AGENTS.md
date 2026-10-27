@@ -218,6 +218,9 @@ no linter or formatter; match surrounding style.
   Settings ▸ Links from other apps. With `--support-dir` an import keeps
   its profiles for the next run (only their WebKit data stores are
   removed), so a second run shows what a re-import skips.
+  `--import-from-private` runs the import from a new private window;
+  `import-today:` lines show where each Space's Today tabs went (a normal
+  window, which shows the first imported Space).
   Command Bar and shortcut flags (actions, in order with the window flags,
   on the active window): `--command-bar [text]` (⌘T, then types `text`;
   the value is any next argument that isn't a flag), `--command-bar-location`

@@ -168,12 +168,15 @@ final class BrowserImporter {
                 var profileID = BrowserProfile.defaultID
                 if let id = spaceID, let space = stores.spaces.space(id: id) {
                     profileID = space.profileID
-                } else if let key = item.spaceSourceID.flatMap({ id in plan.spaces.first { $0.id == id }?.profileKey }),
-                          let mapped = existingProfile(key, in: plan) {
-                    // The Space wasn't imported; its profile's Archive.
+                } else if let key = item.spaceSourceID.flatMap({ id in plan.spaces.first { $0.id == id }?.profileKey }) {
+                    // The Space wasn't imported: its profile's Archive
+                    // when that profile exists, else left out (a later
+                    // import that brings the Space brings these too).
+                    guard let mapped = existingProfile(key, in: plan) else { return nil }
                     profileID = mapped
                     spaceID = nil
                 } else {
+                    // No Space (Little Arc) or one the sidebar doesn't list.
                     spaceID = defaultSpace
                 }
                 return BrowserArchiveEntry(
@@ -207,7 +210,7 @@ final class BrowserImporter {
                 }
                 return BrowserLinkRoutingRule(match: match, value: rule.value, destination: destination, importedFrom: plan.source.rawValue)
             }
-            result.rulesAdded = stores.linkRouting.add(rules)
+            result.rulesAdded = stores.linkRouting.mergeImported(rules, from: plan.source.rawValue)
         }
 
         if !plan.folders.isEmpty {
@@ -303,9 +306,15 @@ final class BrowserImporter {
             ?? BrowserProfile.defaultID
         var jobs: [HistoryRun.Job] = []
         for item in plan.history where item.isIncluded {
-            let profile = item.profileKey.flatMap { resolveProfile($0, in: plan, color: nil, result: &result) }
-                ?? stores.profiles.profile(id: targetProfileID)
-                ?? .defaultProfile
+            let profile: BrowserProfile
+            if let key = item.profileKey {
+                // An Arc profile's History goes to its profile only; one
+                // that is gone (deleted while the sheet was open) is skipped.
+                guard let mapped = resolveProfile(key, in: plan, color: nil, result: &result) else { continue }
+                profile = mapped
+            } else {
+                profile = stores.profiles.profile(id: targetProfileID) ?? .defaultProfile
+            }
             jobs.append(HistoryRun.Job(item: item, profile: profile, store: stores.history(profile)))
         }
         HistoryRun(
@@ -379,7 +388,9 @@ final class BrowserImporter {
             var entry = HistoryResult(id: job.item.id, title: job.item.title, profileName: job.profile.name)
             entry.seconds = seconds
             switch outcome {
-            case let .success(count): entry.count = count
+            case let .success(count):
+                entry.count = count
+                entry.error = count.failure
             case let .failure(error): entry.error = "\(error)"
             }
             result.history.append(entry)

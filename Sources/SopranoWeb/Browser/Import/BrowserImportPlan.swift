@@ -173,6 +173,9 @@ struct BrowserImportPlan: Sendable {
     var targetSpaceID: UUID?
     /// Arc item id → its cached favicon file.
     var favicons: [String: URL] = [:]
+    /// History older than this (Settings ▸ Remove history items) is left
+    /// out; nil imports all of it.
+    var historyCutoff: Date?
 
     func profile(key: String) -> Profile? {
         profiles.first { $0.key == key }
@@ -181,6 +184,16 @@ struct BrowserImportPlan: Sendable {
     /// Visits of the included History items.
     var includedVisitCount: Int {
         history.filter(\.isIncluded).reduce(0) { $0 + $1.visitCount }
+    }
+
+    /// Rules an import of the plan as checked brings in: those for the most
+    /// recent Space, and those whose Space is checked or imported before.
+    var importableRuleCount: Int {
+        (routing?.rules ?? []).filter { rule in
+            guard case let .space(sourceID) = rule.destination else { return false }
+            guard let sourceID else { return true }
+            return spaces.contains { $0.id == sourceID && ($0.isIncluded || $0.isSkipped) }
+        }.count
     }
 }
 
@@ -203,16 +216,14 @@ enum BrowserImportPlanner {
     static func arcProfileSource(_ key: String) -> String { "arc:\(key)" }
 
     static func plan(for data: BrowserImportSourceData, context: Context) -> BrowserImportPlan {
-        switch data {
-        case let .arc(arc, counts):
-            return self.arc(arc, historyCounts: counts, context: context)
-        case let .chrome(profiles):
-            return chrome(profiles, context: context)
-        case let .safari(export, name):
-            return safari(export, name: name, context: context)
-        case let .html(nodes, name):
-            return bookmarksFile(nodes, name: name, context: context)
+        var plan: BrowserImportPlan = switch data {
+        case let .arc(arc, counts): self.arc(arc, historyCounts: counts, context: context)
+        case let .chrome(profiles): chrome(profiles, context: context)
+        case let .safari(export, name): safari(export, name: name, context: context)
+        case let .html(nodes, name): bookmarksFile(nodes, name: name, context: context)
         }
+        plan.historyCutoff = context.historyCutoff
+        return plan
     }
 
     // MARK: Arc
