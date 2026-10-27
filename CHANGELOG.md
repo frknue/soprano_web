@@ -309,6 +309,7 @@ app.
   recent window's Space), with Delete.
 
 ### Changed
+- Soprano Web requires macOS 26 or later.
 - Every Space keeps its own cookies and website data, History, site
   decisions, Archive and Favorites; Spaces never share them. New Space
   makes a Space that starts signed out everywhere, and Delete Space… (right-click

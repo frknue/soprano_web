@@ -336,7 +336,6 @@ extension BrowserWindowController: WKNavigationDelegate {
         guard let tab = tab(for: webView) else { return }
         removeWakeSnapshot(tab)
         let failedURL = (nsError.userInfo[NSURLErrorFailingURLErrorKey] as? URL)?.absoluteString
-            ?? nsError.userInfo[NSURLErrorFailingURLStringErrorKey] as? String
             ?? tab.pendingURL
             ?? tab.failedURL
             ?? ""

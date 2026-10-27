@@ -114,7 +114,7 @@ and bookmarks HTML files, and File ▸ Export Pinned Tabs… as bookmarks HTML.
 - Boosts: per-site CSS and JavaScript in an isolated content world, a Zap element picker.
   An agent can write one through the `browser` CLI.
 - Capture: area and full-page screenshots (`takeSnapshot(with:)`).
-- Web extensions on `WKWebExtension` (macOS 15.4): tab and window protocols, Chrome Web Store
+- Web extensions on `WKWebExtension`: tab and window protocols, Chrome Web Store
   install with CRX3 signature check, per-site access, `hasAccessToPrivateData` for private
   windows, and shims for Chrome APIs WebKit lacks (`notifications`, `storage.managed`,
   `webNavigation` events), which 1Password needs.
@@ -125,14 +125,10 @@ and bookmarks HTML files, and File ▸ Export Pinned Tabs… as bookmarks HTML.
 
 ## Needs a decision
 
-- **1Password route.** Without an Apple Developer team, 1Password's desktop app won't pair
-  with Soprano Web. (a) Universal Autofill only: free, fills by Accessibility, matching per
-  site untested. (b) Run the 1Password extension on `WKWebExtension` with Chrome-API shims,
-  signed in to the account inside the extension: fails today at `chrome.notifications`, can
-  break with each 1Password update, but its in-page passkey hook needs no Apple
-  entitlement. (c) Soprano Web's own Keychain vault with CSV import, local to this Mac.
-- **macOS floor for extensions.** Keep macOS 14 and gate `WKWebExtension` at 15.4, or raise
-  the minimum.
+Decided on 2026-10-27 (see `docs/STAGE-4-PLAN.md`): macOS 26 is the floor, and passwords
+come from the 1Password extension on `WKWebExtension` with native stand-ins for the Chrome
+APIs WebKit lacks (Universal Autofill until it runs; no own vault).
+
 - **Toolchain.** The geolocation delegate, `willSubmitForm` (password capture), Global
   Privacy Control and `getCookies(for:)` exist only in the Xcode 27 SDK; Homebrew Swift on
   the Command Line Tools macOS 26 SDK cannot build them. Before macOS 27 APIs, WebKit

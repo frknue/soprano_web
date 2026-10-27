@@ -1,7 +1,7 @@
 # Soprano Web
 
 A native WebKit browser for macOS in the Soprano family: Swift 6 + programmatic
-AppKit (no storyboards/xibs/SwiftUI), SPM, macOS 14+, `WKWebView`, shipped as a
+AppKit (no storyboards/xibs/SwiftUI), SPM, macOS 26+, `WKWebView`, shipped as a
 hand-packaged `.app` via `scripts/package-app.sh`. Folio chrome is vendored from
 Soprano.
 
@@ -23,8 +23,11 @@ swift test --filter BrowserDelegateSelectorTests
 ./scripts/install.sh                 # release build → /Applications/Soprano Web.app
 ```
 
-The `ld: warning: building for macOS-14.0 …` link warnings are expected. There is
-no linter or formatter; match surrounding style.
+SwiftPM may print one `warning: 'soprano-web': ld: warning: building for
+macOS-13.0 …` line before "Planning build": it links the `Package.swift`
+manifest for macOS 13, and the line is expected. The app and the tests build
+for macOS 26 without link warnings. There is no linter or formatter; match
+surrounding style.
 
 ## Verification
 
@@ -704,7 +707,7 @@ site or a CDP flow that cannot use the CLI).
 
 ## Conventions
 
-- Swift 6, macOS 14+, programmatic AppKit, Folio tokens and components only.
+- Swift 6, macOS 26+, programmatic AppKit, Folio tokens and components only.
   Fonts by role through `ChromeFont`, radii from `Chrome.Radius`, accent only for
   keyboard focus, one hairline between regions.
 - Tests use swift-testing (`import Testing`, `@Test`, `#expect`), one
