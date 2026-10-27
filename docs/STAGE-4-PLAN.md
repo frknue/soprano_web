@@ -59,13 +59,19 @@ roadmap item moved or deleted, `docs/STATUS.md` updated, committed on `feat/stag
   extensions with private access. Installed extensions in `<support>/Extensions/<id>/`
   plus `extensions.json` (id, source, version, enabled, private access, granted
   permissions and match patterns; tolerant decoding).
-- Install: Chrome Web Store URL or id → CRX3 download, signature check (ECDSA/RSA SHA-256
-  over `"CRX3 SignedData\0"` + header + ZIP; reject on mismatch), unzip with traversal
-  checks; also an unpacked folder. Update check daily.
+- Install: Chrome Web Store URL or id → CRX3 download, verification as Chrome does it for
+  store installs: every proof verifies over `"CRX3 SignedData\0"` + 4-byte little-endian
+  length + the signed header data (protobuf field 10000) + the ZIP; a developer proof's
+  key hash gives the extension id; the Web Store publisher's ECDSA proof is required.
+  Unzip with symlink and path-escape checks; also an unpacked folder. Update check daily.
+  Research with exact SDK signatures, anchors and prior art (Search's lessons on
+  user agent, stable `uniqueIdentifier`/`baseURL`, own popover):
+  `docs/research/p1-extensions.md` (line anchors as of P0; re-check before editing).
 - Tabs and windows protocols (`WKWebExtensionTab`, `WKWebExtensionWindow`) over the real
   controllers and tabs; toolbar action buttons with badge and popover popups; permission
   prompts as Folio sheets (remember the answer); per-site access; extension context-menu
-  items in the web-view menu; extension commands in the command registry.
+  items in the web-view menu; extension commands as dynamic rows next to the fixed
+  `BrowserCommandID` registry (menu, Command Bar, key routing).
 - Settings ▸ Extensions (list, enable, private access, site access, remove) and the
   Command Bar's extension rows.
 - Proof: uBlock Origin Lite installs from the store and blocks on a test page; Wappalyzer
@@ -77,20 +83,27 @@ roadmap item moved or deleted, `docs/STATUS.md` updated, committed on `feat/stag
   `storage.managed` (empty), and whatever the next failure names — found by loading it
   and reading the background errors, one at a time. Route: the installed copy's
   background gets a prepended shim script that answers through native messaging
-  (`webExtensionController(_:sendMessage:to:for:replyHandler:)`); the original package's
+  (`webExtensionController(_:sendMessage:toApplicationWithIdentifier:for:replyHandler:)`);
+  the original package's
   signature is checked before the copy is patched.
 - Proof: background starts without errors, the toolbar popup opens, the in-page fill menu
   appears on a sign-in form. Signing in to 1Password is the user's step: stop there and
   hand over with exact instructions.
 
 ### P3 — Little Arc
-- Window kind `.little` (one tab, compact toolbar: Space mark, address, "Open in" menu,
-  ⌘O button), cascaded from the screen's top right, no rail or tab strip.
+- A window role (normal, pop-up, little) replaces `isPopup`; `BrowserWindowKind` stays
+  the data kind (normal or private), so a Little Arc window uses its Space's own context
+  and tabs move to and from it under `BrowserTabMoveRule`. One tab, compact toolbar with
+  an editable address (Space mark, address, "Open in" menu, ⌘O button), cascaded from
+  the screen's top right, no rail or tab strip; it never shows other Spaces.
 - ⌥⌘N opens one with the Command Bar; Settings ▸ Keyboard shortcuts offers a global
   shortcut (Carbon `RegisterEventHotKey`, off by default).
 - Links it opens in new tabs (target=_blank, ⌘-click) go to its Space's window.
-- Archived after 6 h idle (the tab into the Archive, the window closes). Saved and restored
-  in the session (version 4 if the format changes; older versions migrate).
+- Archived after 6 h idle (the tab into the Archive, the window closes): the idle pass
+  must age a Little Arc's lone selected tab and close the window instead of adding a start
+  tab. Saved and restored in the session (version 4 with the role; older versions
+  migrate). Code map for P3–P5: `docs/research/p3-p5.md` (line anchors as of P0;
+  re-check before editing).
 - CLI: `browser windows` lists it with kind `little`; harness `--open-link` shows the routing.
 
 ### P4 — Peek
