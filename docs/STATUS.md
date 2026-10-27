@@ -24,13 +24,14 @@ contract is `docs/STAGE-3-PLAN.md`.
 | Branch | Base | State |
 |---|---|---|
 | `feat/stage-3` | `main` | Squash-merged as #3. 518 tests green in debug and release. |
-| `feat/stage-4` | `main` | In progress: P0 next. |
+| `feat/stage-4` | `main` | In progress: P0 done (528 tests green in debug and release); P1 next. |
 | `feat/stage-3-search`, `feat/stage-3-import` | — | Merged into `feat/stage-3`; no further work there. |
 
 ## Done
 
 | Phase | Commits | What |
 |---|---|---|
+| Stage 4 P0 | `c1e00aa`, `36ba6c3`, `a16a68f` | macOS 26 floor (tools 6.2, `LSMinimumSystemVersion` 26.0); downloads resume and retry in the profile they started in; a title set after the load renames its History row |
 | P1 | `24c13c0` | Spaces model and store, bookmarks → per-Space pins, `bookmarks.json` migration |
 | P2 | `c886ddf`, `98d8d7a` | A window shows one Space; per-tab data context; session v3 |
 | P3 | `2f601a1`, `628c07c` | Rail (Space header, Favorites, pinned outline, Today, switcher), live pinned/favorite tabs, New/Edit Space sheet |
@@ -39,6 +40,10 @@ contract is `docs/STAGE-3-PLAN.md`.
 | P6 | `20a5acc` | Command registry, Settings ▸ Keyboard shortcuts with priorities, Command Bar ⌘T/⌘L, ⌃Tab, ⌥⌘↑/↓, ⇧⌘C, ⌥⇧⌘C, ⇧⌘D |
 | P7 | `3829a74` (merged `93e6817`), `3131716` | Import from Arc/Chrome/Safari/bookmarks HTML, Export Pinned Tabs, links-from-other-apps rules |
 | Reviews | `deb24e5`, `89ba36b`, `3f777ae` | P4/P6 and P7 review fixes; ⇧⌘K on 21 tabs 1.9 s → 0.3 s |
+
+P0 live check in the dev app (2026-10-27, `browser goto` to a local page that sets
+`document.title` 1 s after `load`): its `History.sqlite` row read `127.0.0.1` right after
+the load and `Late Title Smoke` 3 s later, one visit.
 
 Real Arc folder on this Mac (read-only harness import into a temporary support folder):
 4 Spaces, 161 pins in 48 folders, 13 favorites, 147 archived tabs, 1 link rule, 46,873
