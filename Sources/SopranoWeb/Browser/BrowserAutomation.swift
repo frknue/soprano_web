@@ -98,6 +98,23 @@ extension BrowserWindowController {
                 self?.showSidebar(section: .downloads)
             },
             CommandItem(
+                id: "archive",
+                icon: "archivebox",
+                label: "Show Archive",
+                description: "Search and restore archived tabs"
+            ) { [weak self] in
+                self?.showSidebar(section: .archive)
+            },
+            CommandItem(
+                id: "archive-today",
+                icon: "archivebox",
+                label: "Archive Today Tabs",
+                description: "Archive every Today tab of this Space",
+                shortcut: ["⇧⌘K"]
+            ) { [weak self] in
+                self?.archiveTodayTabs()
+            },
+            CommandItem(
                 id: "clear-browsing-data",
                 icon: "trash",
                 label: "Clear Browsing Data…",
@@ -246,7 +263,7 @@ extension BrowserWindowController {
                 completion(.failure(BrowserAutomationError.invalidArguments("No tab \(number).")))
                 return
             }
-            closeTab(id: visibleTabs[number - 1].id)
+            closeTab(id: visibleTabs[number - 1].id, archive: true)
             completion(.success("closed tab \(number)"))
 
         case "vimium":

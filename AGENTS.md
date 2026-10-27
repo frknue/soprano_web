@@ -41,7 +41,7 @@ no linter or formatter; match surrounding style.
 
   ```bash
   taskpolicy -b .build/debug/SopranoWeb snapshot --out /tmp/sw.png --size 1440x900 \
-      --theme folio-paper [--url <url>] [--sidebar history|downloads] \
+      --theme folio-paper [--url <url>] [--sidebar history|archive|downloads] \
       [--find] [--settings] [--vertical-tabs] [--collapsed] [--print-tabs] …
   ```
 
@@ -136,13 +136,27 @@ no linter or formatter; match surrounding style.
   and `--print-rail` (one `rail:` JSON line: header, favorites, pinned rows
   and Today tabs with live, selected and "/" state, the switcher, every tab
   of the Space with its link, and the Recently Closed count). `--close-tab`
-  on a pinned or favorite tab unloads it to its pin. Sleep and zoom flags:
+  (⌘W) on a pinned or favorite tab unloads it to its pin; on a Today tab
+  it also archives it. Archive flags (actions, in order): `--archive-today`
+  (⇧⌘K), `--restore-archived <n|title>` (a click on Archive row n of the
+  active window's profile, or the one titled so; prints the window's Space
+  before and after and the selected tab), `--archive-search <text>` (shows
+  the sidebar's Archive and types into its search; prints each row with
+  its Space), `--archive-after <choice>[:<profile>]` (Settings ▸ Profiles ▸
+  "Archive Today tabs after", the menu item's action; `never`, `days30`,
+  `days7`, `hours24`, `hours12`, `hours6`, `hour1`) and `--print-archive`
+  (one `archive:` JSON line: every entry with Space, profile, reason, time
+  and favicon key, newest first, and `archive.json`'s version and count).
+  `--sidebar archive` seeds sample entries over several days into
+  Default's Spaces when the Archive is empty. Sleep and zoom flags:
   `--sleep-after <seconds>` (a test threshold; the idle pass runs on the
   real timer four times per threshold), `--tab-sleep <setting>`,
   `--default-zoom <percent>`, `--support-dir <dir>` (a support folder kept
   after the run, so a second run sees saved zoom), and the actions
-  `--advance-clock <seconds>` (the injectable sleep clock, then the idle
-  pass), `--sleep-pass`, `--memory-pressure warning|critical` (the pressure
+  `--advance-clock <seconds>` (the injectable idle clock, then the idle
+  pass: `archive:` lists the Today tabs archived with their times, then
+  `sleep:` the tabs falling asleep), `--sleep-pass` (the same pass now),
+  `--memory-pressure warning|critical` (the pressure
   source's path), `--zoom-in` / `--zoom-out` / `--zoom-reset` (⌘+ ⌘- ⌘0) and
   `--keep-awake <n>` (the tab menu item). `--print-windows` then shows per
   tab `asleep`, `awakeBecause` (the exemption or `idle`), `snapshotBytes`,
@@ -204,7 +218,7 @@ no linter or formatter; match surrounding style.
   harness): creates and tracks every `BrowserWindowController` (key and most
   recently active window, ⌘N with cascade in the active window's profile,
   ⇧⌘N private windows over it, close onto the stack), owns the app-wide
-  stores, profiles, `BrowserDownloadManager`, Settings and its Websites,
+  stores (the Archive among them), profiles, `BrowserDownloadManager`, Settings and its Websites,
   Website Data and Profiles sheets, the recently-closed stack (entries reopen
   in their Space, else their profile's first), Vimium's global marks, notification-click
   routing, links from other apps (`outsideTabbedController`: never a private
@@ -299,7 +313,14 @@ no linter or formatter; match surrounding style.
   Space moved to another profile: its tabs reopen there; a tab whose pin
   or favorite is gone becomes a Today tab) and
   `closeTabs(ofProfile:)`. `BrowserSpaceSwitching.swift` is the pure
-  index/wrap and selection math and `BrowserSpaceSwipe`.
+  index/wrap and selection math and `BrowserSpaceSwipe`. `+Archive` —
+  `archiveCandidate` (what `BrowserArchivePolicy` reads, the sleep
+  candidate included), `recordArchive` (⌘W's: `closeTab(id:archive:)`
+  passes `archive: true` from the user's close paths only — ⌘W, close
+  buttons, Close Tab menus, the CLI; a page's `window.close()` and a
+  deleted Space's tabs don't archive), `archiveTab` (into the Archive and
+  out of the window, never closing it), `archiveTodayTabs` (⇧⌘K) and the
+  sidebar's restore and Space mark.
   Its behavior lives in extension files
   by concern: `+Tabs` (`attachTab`/`detachTab`: everything that binds a tab to a
   window), `+TabMove` (Move Tab to New Window, the drop and drag-out handlers
@@ -328,6 +349,26 @@ no linter or formatter; match surrounding style.
   stack of tabs and windows, and window frame clamping/cascading (and where a
   dragged-out tab's window opens). `BrowserTabMove.swift` — the tab-move rule,
   Merge All Windows ordering and pop-up window frames from `WKWindowFeatures`.
+- `Browser/BrowserArchive.swift` — the Archive, pure: `BrowserArchiveEntry`
+  (id, url, title, spaceID, profileID, archivedAt, reason
+  `manual`/`auto`/`imported`, faviconKey; tolerant decoding),
+  `BrowserArchiveFile` (`archive.json`, bad entries skipped, repeated ids
+  dropped), `BrowserArchiveSearch` (every word in the folded title or
+  address, case and diacritics ignored) and `BrowserArchivePolicy` (which
+  Today tabs auto-archive: idle `archiveAfter` from `lastActiveAt`, never
+  in a private or pop-up window, never linked tabs or start pages, the
+  sleep policy's selection, pop-up, audio, capture and prompt exemptions).
+  `BrowserArchiveStore.swift` — the only way in or out of
+  `<support>/archive.json` (synchronous, atomic, `changes`; an unreadable
+  file is kept as `.corrupt`): `archive(url:…)` (one entry per profile and
+  address), `insert(_:reason:)` (the importers' entry point),
+  `search(_:inProfile:)` over an in-memory index, `remove(id:)`,
+  `removeEntries(ofProfile:)` (profile deletion) and
+  `removeEntries(ofProfile:archivedIn:)` (Clear Browsing Data ▸ History).
+  `BrowserWindowManager+Archive.swift` — `archiveIdleTabs(now:)` (the idle
+  pass's archive half) and `restoreArchived(_:preferring:)` (a Today tab in
+  the entry's Space, else the profile's first; the window switches to it;
+  a private window restores into a normal one).
 - `Browser/BrowserSearchEngines.swift` — search engines, pure:
   `BrowserSearchEngine` (id, name, keyword, template with `%s` replaced by
   the percent-encoded query; the built-ins DuckDuckGo, Google and Bing keep
@@ -405,8 +446,9 @@ no linter or formatter; match surrounding style.
   `BrowserMemoryPressure`, `BrowserTabSleepPolicy` (exemptions and idle
   thresholds, pure) and the page-world `sleepGuard` script (`beforeunload`,
   edited fields, screen capture). `BrowserTabSleeper.swift` — the manager's
-  idle timer and memory pressure source (`now` and `thresholdOverride` are
-  the harness's clock and test threshold). `BrowserWindowController+Sleep`
+  idle timer (`idlePass`: archive idle Today tabs, then sleep) and memory
+  pressure source (`now` and `thresholdOverride` are the harness's clock
+  and test sleep threshold). `BrowserWindowController+Sleep`
   — `sleepCandidate`, `sleepTab` (snapshot, then `finishSleeping`: state into
   `lifecycle.pendingRestore`, `replaceWebView(of:)` swaps in an empty web
   view), wake snapshot overlay, `promptBegan(for:)` (dialogs keep a tab
@@ -454,7 +496,7 @@ no linter or formatter; match surrounding style.
   `BrowserSpaceSheet.swift` (New Space / Edit Space), `BrowserTabButton.swift`,
   `BrowserTabDragSession.swift` (a tab's system drag session and drop marker),
   `BrowserTabReorder.swift` (drag and drop index math),
-  `BrowserSidebarView.swift` (History and Downloads), `BrowserFindBar.swift`,
+  `BrowserSidebarView.swift` (History, Archive and Downloads), `BrowserFindBar.swift`,
   `BrowserStartPage.swift`, `BrowserErrorPage.swift` — chrome and local pages.
 - `Browser/BrowserAutomationCommand.swift`, `BrowserAutomationSocket.swift`,
   `BrowserAutomation.swift` — the `browser` CLI over a user-only Unix socket and

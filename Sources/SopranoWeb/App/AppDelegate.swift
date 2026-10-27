@@ -31,6 +31,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                 profiles: profiles.profiles,
                 bookmarksURL: support.appendingPathComponent("bookmarks.json")
             ),
+            archive: BrowserArchiveStore(url: support.appendingPathComponent("archive.json")),
             downloads: BrowserDownloadStore(url: support.appendingPathComponent("downloads.json")),
             faviconStore: BrowserFaviconStore(),
             sessionStore: BrowserSessionStore(url: support.appendingPathComponent("session.json"))

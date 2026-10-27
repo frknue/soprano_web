@@ -143,15 +143,17 @@ enum BrowserArchiveAfter: String, Codable, CaseIterable, Sendable {
         }
     }
 
+    /// The choice as Settings ▸ Profiles shows it after "Archive Today
+    /// tabs after".
     var title: String {
         switch self {
         case .never: "Never"
-        case .days30: "After 30 days"
-        case .days7: "After 7 days"
-        case .hours24: "After 24 hours"
-        case .hours12: "After 12 hours"
-        case .hours6: "After 6 hours"
-        case .hour1: "After 1 hour"
+        case .days30: "30 days"
+        case .days7: "7 days"
+        case .hours24: "24 hours"
+        case .hours12: "12 hours"
+        case .hours6: "6 hours"
+        case .hour1: "1 hour"
         }
     }
 }

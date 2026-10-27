@@ -137,7 +137,9 @@ final class BrowserWindowController: NSWindowController {
         self.sidebar = BrowserSidebarView(
             theme: theme,
             history: dataContext.history,
-            downloads: manager.downloads
+            downloads: manager.downloads,
+            archive: manager.archive,
+            archiveProfileID: dataContext.profileID
         )
         self.hairline = ChromeRuleView(axis: .horizontal, color: theme.colors.borderSubtle)
         self.sidebarDivider = ChromeRuleView(axis: .vertical, color: theme.colors.borderSubtle)
@@ -267,6 +269,7 @@ final class BrowserWindowController: NSWindowController {
         syncContextObservations()
         if contextChanged {
             sidebar.history = context.history
+            sidebar.archiveProfileID = context.profileID
             addressBar.close()
         }
         applyWindowMark()
@@ -456,10 +459,10 @@ final class BrowserWindowController: NSWindowController {
 
     private func wireCallbacks() {
         tabStrip.onSelect = { [weak self] id in self?.selectTab(id: id, focus: true) }
-        tabStrip.onClose = { [weak self] id in self?.closeTab(id: id) }
+        tabStrip.onClose = { [weak self] id in self?.closeTab(id: id, archive: true) }
         tabStrip.onNewTab = { [weak self] in self?.newTab(focusAddress: true) }
         verticalTabsView.onSelect = { [weak self] id in self?.selectTab(id: id, focus: true) }
-        verticalTabsView.onClose = { [weak self] id in self?.closeTab(id: id) }
+        verticalTabsView.onClose = { [weak self] id in self?.closeTab(id: id, archive: true) }
         verticalTabsView.onNewTab = { [weak self] in self?.newTab(focusAddress: true) }
         verticalTabsView.onSwipeSpace = { [weak self] step in self?.switchToNeighborSpace(step: step) }
         toolbar.onToggleVerticalSidebar = { [weak self] in self?.toggleVerticalSidebar() }
@@ -486,6 +489,9 @@ final class BrowserWindowController: NSWindowController {
         sidebar.onOpenFile = { [weak self] path in self?.openFile(path) }
         sidebar.onRevealFile = { [weak self] path in self?.revealFile(path) }
         sidebar.onRemoveHistory = { [weak self] url in self?.dataContext.history.removePage(url: url) }
+        sidebar.onRestoreArchived = { [weak self] id in self?.restoreArchived(id: id) }
+        sidebar.onDeleteArchived = { [weak self] id in self?.manager.archive.remove(id: id) }
+        sidebar.spaceMarkProvider = { [weak self] spaceID in self?.archiveSpaceMark(spaceID) }
         wireRail()
         sidebar.onRemoveDownload = { [weak self] id in self?.downloads.remove(id: id) }
         sidebar.onCancelDownload = { [weak self] id in self?.cancelDownload(id: id) }
@@ -506,6 +512,10 @@ final class BrowserWindowController: NSWindowController {
                 self?.updateChrome()
             },
             downloads.changes.observe { [weak self] in self?.sidebar.refresh() },
+            manager.archive.changes.observe { [weak self] in
+                guard let self, self.isSidebarVisible, self.sidebar.section == .archive else { return }
+                self.sidebar.refresh()
+            },
             manager.profiles.changes.observe { [weak self] in self?.applyWindowMark() },
             manager.themeChanges.observe { [weak self] theme in
                 // A private window keeps Folio Ink.

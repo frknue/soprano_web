@@ -76,16 +76,16 @@ swipe and the rail's switcher with New Space / Edit Space), per-profile Favorite
 pinned trees replacing bookmarks, and live pinned and favorite tabs in the rail (the "/"
 mark, reset on icon click, ⌘-click keeps the page, Replace Pin with Current Page, ⌘W
 unloads to the pin, searchable folder preview on hover); custom search engines with `%s`
-templates and keywords.
+templates and keywords; the Archive (Today tabs archive after idle time per profile:
+never, 30 days, 7 days, 24 h, 12 h by default, 6 h, 1 h; ⌘W and ⇧⌘K archive; a searchable
+Archive section in the right sidebar restores a tab into its original Space).
 
-- Today tabs archive after idle time (per profile: never, 30 days, 7 days, 24 h, 12 h, 6 h,
-  1 h; Arc defaults to 12 h). Archive view: searchable, restores into the original Space.
 - Command Bar on ⌘T (tabs, history, Spaces, actions behind `/`, settings, site search on
   Tab); ⌘L edits the current URL in the same bar. One command registry feeds the menu bar,
   remappable shortcuts (with a site-wins / app-wins / press-twice priority) and the Command
   Bar, as Arc's menu-item metadata does.
 - ⌃Tab switches between recent tabs; ⌥⌘↑/↓ walks the sidebar; ⇧⌘C copies the URL, ⌥⇧⌘C
-  as Markdown; ⇧⌘K clears Today; ⇧⌘D toggles the toolbar.
+  as Markdown; ⇧⌘D toggles the toolbar.
 - Import from Arc: `StorableSidebar.json` (Spaces with their profiles, Favorites per
   profile, pinned trees, Today tabs), `StorableArchiveItems.json`, the favicon caches,
   each profile's Chromium `History`, `StorableLinkRouting.json`. Read Arc's folder in

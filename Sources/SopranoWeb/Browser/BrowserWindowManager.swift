@@ -62,6 +62,8 @@ final class BrowserWindowManager {
     let supportDirectory: URL
     /// Every Space with its pins, and every profile's favorites.
     let spaces: BrowserSpaceStore
+    /// Every profile's archived tabs (`archive.json`).
+    let archive: BrowserArchiveStore
     let downloads: BrowserDownloadStore
     let downloadManager: BrowserDownloadManager
     let faviconStore: BrowserFaviconStore
@@ -116,6 +118,7 @@ final class BrowserWindowManager {
         profiles: BrowserProfileStore,
         supportDirectory: URL,
         spaces: BrowserSpaceStore,
+        archive: BrowserArchiveStore,
         downloads: BrowserDownloadStore,
         faviconStore: BrowserFaviconStore,
         sessionStore: BrowserSessionStore,
@@ -129,6 +132,7 @@ final class BrowserWindowManager {
         self.profiles = profiles
         self.supportDirectory = supportDirectory
         self.spaces = spaces
+        self.archive = archive
         self.downloads = downloads
         self.downloadManager = BrowserDownloadManager(store: downloads, settingsStore: settingsStore)
         self.faviconStore = faviconStore

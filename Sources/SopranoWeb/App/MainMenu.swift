@@ -147,6 +147,7 @@ final class MainMenuController: NSObject, NSMenuItemValidation {
 
         let historyMenu = NSMenu(title: "History")
         historyMenu.addItem(item("Show All History", #selector(showHistory), "y"))
+        historyMenu.addItem(item("Show Archive", #selector(showArchive), ""))
         historyMenu.addItem(item("Show Downloads", #selector(showDownloads), "l", [.command, .option]))
         historyMenu.addItem(.separator())
         let recentlyClosed = NSMenu(title: "Recently Closed")
@@ -166,6 +167,7 @@ final class MainMenuController: NSObject, NSMenuItemValidation {
             commands: [
                 item("Bookmark This Page", #selector(bookmark), "d"),
                 item("Show Pinned Tabs", #selector(showPinnedTabs), "b", [.command, .option]),
+                item("Archive Today Tabs", #selector(archiveTodayTabs), "k", [.command, .shift]),
             ],
             windowManager: windowManager
         )
@@ -262,6 +264,8 @@ final class MainMenuController: NSObject, NSMenuItemValidation {
             return controller.selectedTab?.webView.canGoForward ?? false
         case #selector(closeTab), #selector(moveTabToNewWindow):
             return !controller.tabs.isEmpty
+        case #selector(archiveTodayTabs):
+            return controller.canArchiveTodayTabs
         case #selector(mergeAllWindows):
             return manager.tabbedController.map { !manager.mergeSources(into: $0).isEmpty } ?? false
         case #selector(bookmark):
@@ -399,6 +403,15 @@ final class MainMenuController: NSObject, NSMenuItemValidation {
         controller()?.showRail()
     }
 
+    @objc private func showArchive() {
+        controller()?.showSidebar(section: .archive)
+    }
+
+    /// ⇧⌘K: every Today tab of the active window's current Space.
+    @objc private func archiveTodayTabs() {
+        controller()?.archiveTodayTabs()
+    }
+
     @objc private func showDownloads() {
         controller()?.showSidebar(section: .downloads)
     }
@@ -476,6 +489,7 @@ final class MainMenuController: NSObject, NSMenuItemValidation {
         ⇧⌘P Command palette    ⌘.  Stop loading
         ⇧⌘B Right sidebar      ⌘S  Vertical sidebar
         ⌘1–⌘8 Tab by number    ⌘9  Last tab
+        ⇧⌘K Archive Today tabs
         ⇧⌘⌫ Clear browsing data
         """
         alert.addButton(withTitle: "OK")

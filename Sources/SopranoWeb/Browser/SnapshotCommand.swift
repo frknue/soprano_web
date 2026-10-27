@@ -73,7 +73,7 @@ enum SnapshotCommand {
     static let usage = """
     usage: SopranoWeb snapshot --out <png> [--url <url>] [--size 1500x940]
                                [--theme folio-paper|folio-ink|<id>] [--wait <seconds>]
-                               [--sidebar history|downloads] [--find] [--settings]
+                               [--sidebar history|archive|downloads] [--find] [--settings]
                                [--vertical-tabs] [--collapsed] [--hints] [--help] [--prompt]
                                [--allow-popups <host>] [--tab <url>]... [--sheet] [--print-tabs]
                                [--click [cmd-|shift-cmd-|middle-]X,Y]...
@@ -332,6 +332,7 @@ enum SnapshotCommand {
             profiles: profiles,
             supportDirectory: temp,
             spaces: spaces,
+            archive: BrowserArchiveStore(url: temp.appendingPathComponent("archive.json")),
             downloads: downloads,
             faviconStore: BrowserFaviconStore(directory: temp.appendingPathComponent("Favicons", isDirectory: true)),
             sessionStore: session,
@@ -442,6 +443,9 @@ enum SnapshotCommand {
                     filename: "large-report.pdf"
                 )
                 downloads.updateProgress(id: active.id, fraction: 0.42)
+            }
+            if section == .archive {
+                SnapshotArchiveAction.seed(manager.archive, spaces: manager.spaces, now: Date())
             }
             controller.showSidebar(section: section)
         }

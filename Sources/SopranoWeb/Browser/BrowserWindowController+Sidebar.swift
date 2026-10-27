@@ -136,6 +136,8 @@ extension BrowserWindowController {
         switch section {
         case .history:
             showClearBrowsingData()
+        case .archive:
+            break
         case .downloads:
             downloads.clearFinished()
         }

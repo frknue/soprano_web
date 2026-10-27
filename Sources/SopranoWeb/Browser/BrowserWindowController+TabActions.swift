@@ -109,7 +109,7 @@ extension BrowserWindowController {
     private func closeTabs(_ ids: [UUID], thenSelect selection: UUID) {
         selectTab(id: selection, focus: false)
         for closing in ids.reversed() {
-            closeTab(id: closing)
+            closeTab(id: closing, archive: true)
         }
         selectTab(id: selection, focus: true)
     }
@@ -143,7 +143,7 @@ extension BrowserWindowController {
 
     @objc func closeTabFromMenu(_ sender: NSMenuItem) {
         guard let tab = menuTab(sender) else { return }
-        closeTab(id: tab.id)
+        closeTab(id: tab.id, archive: true)
     }
 
     @objc func closeOtherTabsFromMenu(_ sender: NSMenuItem) {

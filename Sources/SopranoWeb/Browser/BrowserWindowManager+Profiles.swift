@@ -87,10 +87,11 @@ extension BrowserWindowManager {
     /// profile's tabs in every window (a window on one of its Spaces shows
     /// another Space first; `windowsClosing(onDeleteOf:)` close whole) and
     /// its private windows, none onto Recently Closed; drops its Recently
-    /// Closed tabs; deletes its Spaces and favorites; removes it from
-    /// `profiles.json`; then, once its web views are released, removes its
-    /// data store (`WKWebsiteDataStore.remove(forIdentifier:)`) and deletes
-    /// its folder. `completion` gets the data store removal's error, if it
+    /// Closed tabs and its Archive; deletes its Spaces and favorites;
+    /// removes it from `profiles.json`; then, once its web views are
+    /// released, removes its data store
+    /// (`WKWebsiteDataStore.remove(forIdentifier:)`) and deletes its
+    /// folder. `completion` gets the data store removal's error, if it
     /// never succeeded. Default can't be deleted.
     func deleteProfile(_ id: UUID, completion: (@MainActor (Error?) -> Void)? = nil) {
         guard id != BrowserProfile.defaultID, let profile = profiles.profile(id: id) else {
@@ -105,6 +106,7 @@ extension BrowserWindowManager {
             controller.closeTabs(ofProfile: id)
         }
         recentlyClosed.removeEntries(ofProfile: id, spaces: Set(spaces.spaces(ofProfile: id).map(\.id)))
+        archive.removeEntries(ofProfile: id)
         spaces.deleteSpaces(ofProfile: id)
         // Everything still holding the profile's stores (Settings sheets,
         // chrome) lets go when the list changes.

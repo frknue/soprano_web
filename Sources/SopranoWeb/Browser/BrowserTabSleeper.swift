@@ -1,16 +1,18 @@
 import AppKit
 
-/// Puts idle tabs of every window to sleep: a pass each minute against
-/// Settings ▸ "Put inactive tabs to sleep", and one on every memory
-/// pressure warning (tabs idle 30 minutes) or critical event (5 minutes).
-/// Owned by `BrowserWindowManager`; the harness injects a clock and a short
+/// The idle pass over every window, each minute: idle Today tabs archive
+/// themselves (`BrowserWindowManager.archiveIdleTabs`, each profile's
+/// `archiveAfter`), then idle tabs go to sleep (Settings ▸ "Put inactive
+/// tabs to sleep"); every memory pressure warning (tabs idle 30 minutes)
+/// or critical event (5 minutes) puts tabs to sleep too. Owned by
+/// `BrowserWindowManager`; the harness injects a clock and a short sleep
 /// threshold and calls the pressure path directly.
 @MainActor
 final class BrowserTabSleeper {
     /// How often the idle pass runs in the app.
     static let checkInterval: TimeInterval = 60
 
-    /// The clock idle time is measured with.
+    /// The clock idle time (sleep and archive) is measured with.
     var now: () -> Date = { Date() }
     /// Used instead of the setting (the harness's short threshold); the pass
     /// then runs four times per threshold.
@@ -49,6 +51,14 @@ final class BrowserTabSleeper {
         sleepIdleTabs(pressure: level)
     }
 
+    /// What the timer runs: archives every idle Today tab, then starts
+    /// every idle tab falling asleep. Returns both.
+    @discardableResult
+    func idlePass() -> (archived: [BrowserArchiveEntry], falling: [BrowserTab]) {
+        let archived = manager?.archiveIdleTabs(now: now()) ?? []
+        return (archived, sleepIdleTabs())
+    }
+
     /// Starts every eligible tab of every window falling asleep (each takes
     /// a snapshot first) and returns them.
     @discardableResult
@@ -82,7 +92,7 @@ final class BrowserTabSleeper {
         timer?.invalidate()
         let interval = thresholdOverride.map { max(0.25, $0 / 4) } ?? Self.checkInterval
         let timer = Timer(timeInterval: interval, repeats: true) { [weak self] _ in
-            MainActor.assumeIsolated { _ = self?.sleepIdleTabs() }
+            MainActor.assumeIsolated { _ = self?.idlePass() }
         }
         timer.tolerance = interval / 4
         RunLoop.main.add(timer, forMode: .common)

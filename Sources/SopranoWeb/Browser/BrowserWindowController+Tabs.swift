@@ -475,19 +475,24 @@ extension BrowserWindowController {
     // MARK: - Closing and reopening
 
     /// Closes a tab onto the recently-closed stack (a private window's own)
-    /// with its Space and its index there. A pinned or favorite tab
-    /// unloads back to its pin instead (`unloadLinkedTab`). The window's
-    /// last tab closes the window instead, which goes onto the stack as
-    /// one window entry (a private window goes nowhere). A Space's only
-    /// tab, when it is the start page, stays: closing it would only open
-    /// another.
-    func closeTab(id: UUID) {
+    /// with its Space and its index there; with `archive` (the user closed
+    /// it: ⌘W, its close button or menu, the CLI) a Today tab also goes
+    /// into the Archive (reason manual; `recordArchive` skips start pages
+    /// and private windows). A pinned or favorite tab unloads back to its
+    /// pin instead (`unloadLinkedTab`). The window's last tab closes the
+    /// window instead, which goes onto the stack as one window entry (a
+    /// private window goes nowhere). A Space's only tab, when it is the
+    /// start page, stays: closing it would only open another.
+    func closeTab(id: UUID, archive: Bool = false) {
         guard let tab = tabs.first(where: { $0.id == id }) else { return }
         if hasSpaces, tab.origin != .today {
             unloadLinkedTab(tab)
             return
         }
         guard tabs.count > 1 else {
+            if archive {
+                recordArchive(tab, reason: .manual)
+            }
             manager.closeWindow(self)
             return
         }
@@ -504,13 +509,17 @@ extension BrowserWindowController {
         } else {
             closedTabs.push(entry)
         }
+        if archive {
+            recordArchive(tab, reason: .manual)
+        }
         detachTab(tab)
         discardTab(tab)
     }
 
+    /// ⌘W: closes (and archives, for a Today tab) the selected tab.
     func closeSelectedTab() {
         guard let tab = selectedTab else { return }
-        closeTab(id: tab.id)
+        closeTab(id: tab.id, archive: true)
     }
 
     /// ⇧⌘T: the most recently closed tab or window, wherever it belongs; in

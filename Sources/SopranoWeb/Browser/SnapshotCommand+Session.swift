@@ -109,6 +109,8 @@ struct SnapshotSessionOptions {
         case blocker(SnapshotBlockerAction)
         /// Rail flags (`SnapshotRailAction`).
         case rail(SnapshotRailAction)
+        /// Archive flags (`SnapshotArchiveAction`).
+        case archive(SnapshotArchiveAction)
     }
 
     static let flags: Set<String> = Set([
@@ -122,6 +124,7 @@ struct SnapshotSessionOptions {
         "--add-profile", "--profile", "--delete-profile", "--profiles-sheet",
         "--create-space", "--space", "--swipe-rail", "--print-spaces",
     ]).union(SnapshotSleepAction.flags).union(SnapshotBlockerAction.flags).union(SnapshotRailAction.flags)
+        .union(SnapshotArchiveAction.flags)
     static let usage = """
                                [--session <file>] [--visit <url>] [--select <n>] [--close-tab]
                                [--reopen-closed] [--duplicate] [--go-back] [--reload]
@@ -138,6 +141,7 @@ struct SnapshotSessionOptions {
                                [--profiles-sheet] [--create-space <name>[:<profile>]]...
                                [--space <n|name>] [--swipe-rail next|previous] [--print-spaces]
     \(SnapshotRailAction.usage)
+    \(SnapshotArchiveAction.usage)
     """
 
     var restoreFrom: URL?
@@ -249,6 +253,10 @@ struct SnapshotSessionOptions {
                 actions.append(.rail(action))
                 return
             }
+            if let action = try SnapshotArchiveAction.parse(option, value: value) {
+                actions.append(.archive(action))
+                return
+            }
             if let action = try SnapshotBlockerAction.parse(option, value: value) {
                 actions.append(.blocker(action))
                 return
@@ -302,6 +310,9 @@ struct SnapshotSessionOptions {
             action.perform(in: manager)
             return
         case .rail(let action):
+            action.perform(in: manager)
+            return
+        case .archive(let action):
             action.perform(in: manager)
             return
         case .blocker(let action):
@@ -467,7 +478,8 @@ struct SnapshotSessionOptions {
         case .swipeRail(let next):
             Self.swipeRail(next: next, in: controller, manager: manager)
         case .newWindow, .newPrivateWindow, .deleteProfile, .activateWindow, .moveTab, .dropTab, .dropOutside,
-             .mergeWindows, .cli, .waitDownloads, .printWindows, .printSpaces, .reopenClosed, .sleep, .blocker, .rail:
+             .mergeWindows, .cli, .waitDownloads, .printWindows, .printSpaces, .reopenClosed, .sleep, .blocker, .rail,
+             .archive:
             break
         }
     }

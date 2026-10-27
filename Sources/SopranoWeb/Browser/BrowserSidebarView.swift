@@ -2,11 +2,13 @@ import AppKit
 
 enum BrowserSidebarSection: String, CaseIterable, Sendable {
     case history
+    case archive
     case downloads
 
     var title: String {
         switch self {
         case .history: "History"
+        case .archive: "Archive"
         case .downloads: "Downloads"
         }
     }
@@ -14,6 +16,7 @@ enum BrowserSidebarSection: String, CaseIterable, Sendable {
     var symbol: String {
         switch self {
         case .history: "clock"
+        case .archive: "archivebox"
         case .downloads: "arrow.down.circle"
         }
     }
@@ -21,21 +24,24 @@ enum BrowserSidebarSection: String, CaseIterable, Sendable {
     var emptyText: String {
         switch self {
         case .history: "No history yet"
+        case .archive: "No archived tabs"
         case .downloads: "No downloads yet"
         }
     }
 }
 
 enum BrowserSidebarRow {
-    /// A day header in History ("Today", "Yesterday", …).
+    /// A day header in History and Archive ("Today", "Yesterday", …).
     case day(String)
     case history(BrowserHistoryVisit)
+    case archived(BrowserArchiveEntry)
     case download(BrowserDownloadRecord)
 
     var url: String? {
         switch self {
         case .day: nil
         case let .history(visit): visit.url
+        case let .archived(entry): entry.url
         case let .download(download): download.url
         }
     }
@@ -46,10 +52,19 @@ enum BrowserSidebarRow {
     }
 }
 
-/// The right sidebar: history and downloads share one searchable list. It
-/// is deliberately one surface, not two panels. History is grouped by day
-/// and loads `historyPageSize` visits at a time as the list scrolls. Pins
-/// live in the rail (`BrowserVerticalTabsView`).
+/// The Space an Archive row came from, as its row shows it: the Space's
+/// emoji and name, and its color mark.
+struct BrowserSidebarSpaceMark {
+    var text: String
+    var color: NSColor
+}
+
+/// The right sidebar: History, Archive and Downloads share one searchable
+/// list. It is deliberately one surface, not three panels. History is
+/// grouped by day and loads `historyPageSize` visits at a time as the list
+/// scrolls; Archive lists the profile's archived tabs, newest first,
+/// grouped by day, and a click or Return restores one. Pins live in the
+/// rail (`BrowserVerticalTabsView`).
 @MainActor
 final class BrowserSidebarView: NSView, NSTableViewDataSource, NSTableViewDelegate,
     NSTextFieldDelegate, NSMenuDelegate
@@ -65,8 +80,13 @@ final class BrowserSidebarView: NSView, NSTableViewDataSource, NSTableViewDelega
     var onRetryDownload: ((UUID) -> Void)?
     var onClear: ((BrowserSidebarSection) -> Void)?
     var onClose: (() -> Void)?
-    /// The cached favicon for a history address.
+    /// Restores an archived tab (click, Return, Restore).
+    var onRestoreArchived: ((UUID) -> Void)?
+    var onDeleteArchived: ((UUID) -> Void)?
+    /// The cached favicon for a history or archive address.
     var faviconProvider: ((String) -> NSImage?)?
+    /// The Space mark an Archive row shows; nil when the Space is gone.
+    var spaceMarkProvider: ((UUID?) -> BrowserSidebarSpaceMark?)?
 
     private(set) var section: BrowserSidebarSection = .history
     private var theme: AppTheme
@@ -78,7 +98,7 @@ final class BrowserSidebarView: NSView, NSTableViewDataSource, NSTableViewDelega
     private let searchField = NSTextField()
     private let countLabel = NSTextField(labelWithString: "")
     private let scrollView = NSScrollView()
-    private let tableView = NSTableView()
+    private let tableView = BrowserSidebarTableView()
     private let emptyLabel = NSTextField(labelWithString: "")
     private let footerButton: ChromeButton
     private var footerTrailing: NSTextField?
@@ -102,6 +122,10 @@ final class BrowserSidebarView: NSView, NSTableViewDataSource, NSTableViewDelega
         }
     }
     let downloads: BrowserDownloadStore
+    let archive: BrowserArchiveStore
+    /// The profile whose Archive is listed: the current Space's (a private
+    /// window's: the one it was opened over).
+    var archiveProfileID: UUID
     /// A private window's data context: its own download rows are listed
     /// along with the saved ones.
     var privateDownloadContextID: UUID?
@@ -109,11 +133,15 @@ final class BrowserSidebarView: NSView, NSTableViewDataSource, NSTableViewDelega
     init(
         theme: AppTheme,
         history: BrowserHistoryStore,
-        downloads: BrowserDownloadStore
+        downloads: BrowserDownloadStore,
+        archive: BrowserArchiveStore,
+        archiveProfileID: UUID
     ) {
         self.theme = theme
         self.history = history
         self.downloads = downloads
+        self.archive = archive
+        self.archiveProfileID = archiveProfileID
         self.searchFrame = ChromeFieldView(theme: theme)
         self.closeButton = ChromeIconButton(
             symbolName: "xmark",
@@ -189,7 +217,9 @@ final class BrowserSidebarView: NSView, NSTableViewDataSource, NSTableViewDelega
         tableView.columnAutoresizingStyle = .uniformColumnAutoresizingStyle
         tableView.autoresizingMask = [.width]
         tableView.target = self
+        tableView.action = #selector(clickedRow)
         tableView.doubleAction = #selector(openClickedRow)
+        tableView.onReturn = { [weak self] in self?.openSelectedRow() }
         let column = NSTableColumn(identifier: NSUserInterfaceItemIdentifier("row"))
         column.resizingMask = .autoresizingMask
         tableView.addTableColumn(column)
@@ -320,6 +350,8 @@ final class BrowserSidebarView: NSView, NSTableViewDataSource, NSTableViewDelega
         switch section {
         case .history:
             reloadHistory(query: query)
+        case .archive:
+            rows = Self.archiveRows(archive.search(query, inProfile: archiveProfileID), now: Date())
         case .downloads:
             rows = downloads.matching(query, privateContextID: privateDownloadContextID).map(BrowserSidebarRow.download)
         }
@@ -343,6 +375,10 @@ final class BrowserSidebarView: NSView, NSTableViewDataSource, NSTableViewDelega
             footerButton.title = "Clear History…"
             footerButton.isEnabled = true
             footerButton.isHidden = false
+        case .archive:
+            let count = rows.count { !$0.isDay }
+            countLabel.stringValue = "\(count.formatted()) archived \(count == 1 ? "tab" : "tabs")"
+            footerButton.isHidden = true
         case .downloads:
             countLabel.stringValue = "\(rows.count) \(rows.count == 1 ? "download" : "downloads")"
             footerButton.title = "Clear Finished"
@@ -383,6 +419,38 @@ final class BrowserSidebarView: NSView, NSTableViewDataSource, NSTableViewDelega
         rows = historyRows()
     }
 
+    /// The Archive's entries (newest first) with a header before each new
+    /// day, as History's.
+    static func archiveRows(
+        _ entries: [BrowserArchiveEntry],
+        now: Date,
+        calendar: Calendar = .current
+    ) -> [BrowserSidebarRow] {
+        var rows: [BrowserSidebarRow] = []
+        var currentDay: Date?
+        for entry in entries {
+            let day = calendar.startOfDay(for: entry.archivedAt)
+            if day != currentDay {
+                currentDay = day
+                rows.append(.day(BrowserHistoryDays.title(for: entry.archivedAt, now: now, calendar: calendar)))
+            }
+            rows.append(.archived(entry))
+        }
+        return rows
+    }
+
+    /// The Archive entries listed, in row order (the harness).
+    var listedArchiveEntries: [BrowserArchiveEntry] {
+        rows.compactMap { if case let .archived(entry) = $0 { entry } else { nil } }
+    }
+
+    /// What a click on the Archive row of `entry` runs (the harness).
+    func clickArchiveRow(_ id: UUID) {
+        guard let row = rows.firstIndex(where: { if case let .archived(entry) = $0 { entry.id == id } else { false } })
+        else { return }
+        open(rows[row])
+    }
+
     private func historyRows() -> [BrowserSidebarRow] {
         BrowserHistoryDays.rows(for: historyVisits, now: Date()).map { row in
             switch row {
@@ -420,6 +488,7 @@ final class BrowserSidebarView: NSView, NSTableViewDataSource, NSTableViewDelega
     private var placeholder: String {
         switch section {
         case .history: "Search history"
+        case .archive: "Search archive"
         case .downloads: "Search downloads"
         }
     }
@@ -444,7 +513,17 @@ final class BrowserSidebarView: NSView, NSTableViewDataSource, NSTableViewDelega
         let cell = tableView.makeView(withIdentifier: identifier, owner: self) as? BrowserSidebarCellView
             ?? BrowserSidebarCellView(theme: theme)
         cell.identifier = identifier
-        cell.configure(row: rows[row], theme: theme, favicon: rows[row].url.flatMap { faviconProvider?($0) })
+        let spaceMark: BrowserSidebarSpaceMark? = if case let .archived(entry) = rows[row] {
+            spaceMarkProvider?(entry.spaceID)
+        } else {
+            nil
+        }
+        cell.configure(
+            row: rows[row],
+            theme: theme,
+            favicon: rows[row].url.flatMap { faviconProvider?($0) },
+            spaceMark: spaceMark
+        )
         cell.onAction = { [weak self] in
             guard let self, row < self.rows.count else { return }
             self.open(self.rows[row])
@@ -463,9 +542,24 @@ final class BrowserSidebarView: NSView, NSTableViewDataSource, NSTableViewDelega
         }
     }
 
+    /// A single click restores an Archive row; History and Downloads open
+    /// on a double click.
+    @objc private func clickedRow() {
+        let row = tableView.clickedRow
+        guard section == .archive, row >= 0, row < rows.count else { return }
+        open(rows[row])
+    }
+
     @objc private func openClickedRow() {
         let row = tableView.clickedRow
-        guard row >= 0, row < rows.count else { return }
+        guard section != .archive, row >= 0, row < rows.count else { return }
+        open(rows[row])
+    }
+
+    /// Return on the selected row (the first one when none is selected).
+    private func openSelectedRow() {
+        let row = tableView.selectedRow >= 0 ? tableView.selectedRow : rows.firstIndex { !$0.isDay }
+        guard let row, row < rows.count else { return }
         open(rows[row])
     }
 
@@ -475,6 +569,8 @@ final class BrowserSidebarView: NSView, NSTableViewDataSource, NSTableViewDelega
             break
         case let .history(visit):
             onOpenURL?(visit.url)
+        case let .archived(entry):
+            onRestoreArchived?(entry.id)
         case let .download(download):
             if download.state == .completed, let path = download.path {
                 onOpenFile?(path)
@@ -499,9 +595,21 @@ final class BrowserSidebarView: NSView, NSTableViewDataSource, NSTableViewDelega
         switch section {
         case .history:
             onClear?(.history)
+        case .archive:
+            break
         case .downloads:
             onClear?(.downloads)
         }
+    }
+
+    /// Return in the Archive's search field restores the first match.
+    func control(_ control: NSControl, textView: NSTextView, doCommandBy commandSelector: Selector) -> Bool {
+        guard control === searchField, section == .archive,
+              commandSelector == #selector(NSResponder.insertNewline(_:)),
+              let first = rows.first(where: { !$0.isDay })
+        else { return false }
+        open(first)
+        return true
     }
 
     // MARK: - Context menu
@@ -520,6 +628,11 @@ final class BrowserSidebarView: NSView, NSTableViewDataSource, NSTableViewDelega
             menu.addItem(item("Copy Link", #selector(menuCopyLink)))
             menu.addItem(.separator())
             menu.addItem(item("Remove from History", #selector(menuRemove)))
+        case .archived:
+            menu.addItem(item("Restore", #selector(menuOpen)))
+            menu.addItem(item("Copy Link", #selector(menuCopyLink)))
+            menu.addItem(.separator())
+            menu.addItem(item("Delete", #selector(menuRemove)))
         case let .download(download):
             if download.state == .completed, download.path != nil {
                 menu.addItem(item("Open", #selector(menuOpen)))
@@ -588,9 +701,26 @@ final class BrowserSidebarView: NSView, NSTableViewDataSource, NSTableViewDelega
             break
         case let .history(visit):
             onRemoveHistory?(visit.url)
+        case let .archived(entry):
+            onDeleteArchived?(entry.id)
         case let .download(download):
             onRemoveDownload?(download.id)
         }
+    }
+}
+
+/// The sidebar's list: Return restores (Archive) or opens the selected row.
+@MainActor
+private final class BrowserSidebarTableView: NSTableView {
+    var onReturn: (() -> Void)?
+
+    override func keyDown(with event: NSEvent) {
+        // Return and the keypad's Enter.
+        if event.keyCode == 36 || event.keyCode == 76 {
+            onReturn?()
+            return
+        }
+        super.keyDown(with: event)
     }
 }
 
@@ -611,6 +741,10 @@ private final class BrowserSidebarCellView: NSTableCellView {
         action: nil
     )
     private var actionConstraints: [NSLayoutConstraint] = []
+    /// An Archive row's Space: its color dot before the Space's name (in
+    /// `dateLabel`).
+    private let spaceDot = ChromeStatusMark(shape: .dot)
+    private var spaceMarkConstraints: [NSLayoutConstraint] = []
     var onAction: (() -> Void)?
     private var theme: AppTheme?
     private var isHovered = false
@@ -653,6 +787,9 @@ private final class BrowserSidebarCellView: NSTableCellView {
         actionButton.action = #selector(actionPressed)
         addSubview(actionButton)
 
+        spaceDot.isHidden = true
+        addSubview(spaceDot)
+
         NSLayoutConstraint.activate([
             iconView.leadingAnchor.constraint(equalTo: leadingAnchor, constant: 16),
             iconView.centerYAnchor.constraint(equalTo: centerYAnchor),
@@ -678,10 +815,16 @@ private final class BrowserSidebarCellView: NSTableCellView {
 
             actionButton.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -10),
             actionButton.centerYAnchor.constraint(equalTo: centerYAnchor),
+
+            spaceDot.trailingAnchor.constraint(equalTo: dateLabel.leadingAnchor, constant: -5),
+            spaceDot.centerYAnchor.constraint(equalTo: dateLabel.centerYAnchor),
         ])
         actionConstraints = [
             titleLabel.trailingAnchor.constraint(lessThanOrEqualTo: actionButton.leadingAnchor, constant: -8),
             subtitleLabel.trailingAnchor.constraint(lessThanOrEqualTo: actionButton.leadingAnchor, constant: -8),
+        ]
+        spaceMarkConstraints = [
+            titleLabel.trailingAnchor.constraint(lessThanOrEqualTo: spaceDot.leadingAnchor, constant: -8),
         ]
 
         apply(theme: theme)
@@ -692,9 +835,15 @@ private final class BrowserSidebarCellView: NSTableCellView {
         fatalError("init(coder:) is not supported")
     }
 
-    func configure(row: BrowserSidebarRow, theme: AppTheme, favicon: NSImage? = nil) {
+    func configure(
+        row: BrowserSidebarRow,
+        theme: AppTheme,
+        favicon: NSImage? = nil,
+        spaceMark: BrowserSidebarSpaceMark? = nil
+    ) {
         apply(theme: theme)
         setAction(nil)
+        setSpaceMark(nil)
         toolTip = nil
         switch row {
         case .day:
@@ -705,6 +854,15 @@ private final class BrowserSidebarCellView: NSTableCellView {
             subtitleLabel.stringValue = visit.url
             // The day header says which day; the row says when.
             dateLabel.stringValue = visit.visitedAt.formatted(date: .omitted, time: .shortened)
+        case let .archived(entry):
+            iconView.image = favicon ?? symbol("globe")
+            titleLabel.stringValue = entry.displayTitle
+            // The day header says which day; the row says when.
+            let time = entry.archivedAt.formatted(date: .omitted, time: .shortened)
+            subtitleLabel.stringValue = entry.host.isEmpty ? time : "\(entry.host) · \(time)"
+            toolTip = entry.url
+            dateLabel.stringValue = ""
+            setSpaceMark(spaceMark)
         case let .download(download):
             iconView.image = symbol(download.state == .completed ? "doc" : "arrow.down.circle")
             titleLabel.stringValue = download.filename
@@ -740,6 +898,21 @@ private final class BrowserSidebarCellView: NSTableCellView {
             NSLayoutConstraint.deactivate(actionConstraints)
         } else {
             NSLayoutConstraint.activate(actionConstraints)
+        }
+    }
+
+    /// An Archive row's Space mark on the right (dot and name); nil hides
+    /// it and gives the date its place back.
+    private func setSpaceMark(_ mark: BrowserSidebarSpaceMark?) {
+        spaceDot.isHidden = mark == nil
+        if let mark {
+            spaceDot.color = mark.color
+            dateLabel.stringValue = mark.text
+            dateLabel.lineBreakMode = .byTruncatingTail
+            NSLayoutConstraint.activate(spaceMarkConstraints)
+        } else {
+            dateLabel.lineBreakMode = .byClipping
+            NSLayoutConstraint.deactivate(spaceMarkConstraints)
         }
     }
 

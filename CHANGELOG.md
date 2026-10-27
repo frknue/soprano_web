@@ -229,10 +229,25 @@ app.
   Drag pins and folders in the rail to reorder them or move them into folders.
 - With horizontal tabs, the Space's favorite and pinned tabs come first in
   the strip, as icons.
+- Archive: Today tabs you haven't used for a while archive themselves.
+  Settings ▸ Profiles ▸ "Archive Today tabs after" sets the time per profile:
+  Never, 30 days, 7 days, 24 hours, 12 hours (the default), 6 hours or 1 hour.
+  Pinned and favorite tabs, the selected tab, a tab playing audio or waiting
+  on a dialog, and private windows never archive.
+- Closing a Today tab (`⌘W`, its close button, Close Tab, Close Other Tabs)
+  archives it, and it's still on Recently Closed. Spaces ▸ Archive Today Tabs
+  (`⇧⌘K`) archives every Today tab of the current Space.
+- The right sidebar has History · Archive · Downloads. Archive lists the
+  profile's archived tabs by day with their Space, and its search ignores
+  case and accents. Click a tab (or press Return) to bring it back in its
+  Space; right-click for Restore, Copy Link and Delete. History ▸ Show
+  Archive opens it. Clear Browsing Data ▸ History also clears the profile's
+  Archive for the chosen time range, and deleting a profile deletes its
+  Archive.
 
 ### Changed
 - Bookmarks are the current Space's pinned tabs in the rail now; the right
-  sidebar keeps History and Downloads. Spaces ▸ Show Pinned Tabs (`⌥⌘B`)
+  sidebar keeps History, Archive and Downloads. Spaces ▸ Show Pinned Tabs (`⌥⌘B`)
   shows the rail. Close Other Tabs and Close Tabs Below / to the Right leave
   pinned and favorite tabs open.
 - History lives in a SQLite database (`History.sqlite`) instead of

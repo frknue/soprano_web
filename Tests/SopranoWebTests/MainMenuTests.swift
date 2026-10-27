@@ -90,7 +90,9 @@ struct MainMenuTests {
         #expect(main.item(withTitle: "Bookmarks") == nil)
         let spaces = main.item(withTitle: "Spaces")?.submenu
         let commands = spaces?.items.filter { !$0.isSeparatorItem } ?? []
-        #expect(commands.map(\.title) == ["Next Space", "Previous Space", "Bookmark This Page", "Show Pinned Tabs"])
+        #expect(commands.map(\.title) == [
+            "Next Space", "Previous Space", "Bookmark This Page", "Show Pinned Tabs", "Archive Today Tabs",
+        ])
         let right = String(Character(UnicodeScalar(UInt16(NSRightArrowFunctionKey))!))
         let left = String(Character(UnicodeScalar(UInt16(NSLeftArrowFunctionKey))!))
         #expect(commands[0].keyEquivalent == right)
@@ -116,5 +118,17 @@ struct MainMenuTests {
             $0.keyEquivalentModifierMask == [.control] && Int($0.keyEquivalent) != nil
         }
         #expect(controlDigits.isEmpty)
+    }
+
+    @Test func shiftCommandKArchivesTodayTabsFromTheSpacesMenu() {
+        _ = NSApplication.shared
+        let menu = MainMenuController { nil }
+        let main = menu.buildMenu()
+        let items = main.items.compactMap(\.submenu).flatMap(\.items)
+        let matches = items.filter { $0.keyEquivalent == "k" && $0.keyEquivalentModifierMask == [.command, .shift] }
+        #expect(matches.map(\.title) == ["Archive Today Tabs"])
+        let spaces = main.item(withTitle: "Spaces")?.submenu
+        #expect(spaces?.item(withTitle: "Archive Today Tabs") != nil)
+        #expect(main.item(withTitle: "History")?.submenu?.item(withTitle: "Show Archive") != nil)
     }
 }

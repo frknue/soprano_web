@@ -1,9 +1,10 @@
 import AppKit
 
 /// Settings ▸ Profiles: every profile with its color and name, Add, Rename,
-/// color and Delete (Default can't be deleted). Presented as a sheet on the
-/// Settings window; names are asked for and deletion confirmed in alert
-/// sheets on it.
+/// color, "Archive Today tabs after" (`BrowserProfile.archiveAfter`) and
+/// Delete (Default can't be deleted). Presented as a sheet on the Settings
+/// window; names are asked for and deletion confirmed in alert sheets on
+/// it.
 @MainActor
 final class BrowserProfilesSheet: NSWindowController {
     /// How many tabs of a profile are open, in any window or Space (for
@@ -37,7 +38,7 @@ final class BrowserProfilesSheet: NSWindowController {
         self.addButton = ChromeButton(title: "Add Profile…", theme: theme, kind: .standard)
         self.doneButton = ChromeButton(title: "Done", theme: theme, kind: .ink, keycap: "esc")
         let window = NSPanel(
-            contentRect: NSRect(x: 0, y: 0, width: 560, height: 420),
+            contentRect: NSRect(x: 0, y: 0, width: 560, height: 480),
             styleMask: [.titled],
             backing: .buffered,
             defer: false
@@ -121,6 +122,7 @@ final class BrowserProfilesSheet: NSWindowController {
             let view = RowView(profile: profile, theme: theme)
             view.onRename = { [weak self] id in self?.rename(id) }
             view.onColor = { [weak self] id, button in self?.chooseColor(id, from: button) }
+            view.onArchiveAfter = { [weak self] id, button in self?.chooseArchiveAfter(id, from: button) }
             view.onDelete = { [weak self] id in self?.confirmDelete(id) }
             return view
         }
@@ -178,6 +180,29 @@ final class BrowserProfilesSheet: NSWindowController {
     @objc private func colorChosen(_ sender: NSMenuItem) {
         guard let choice = sender.representedObject as? ColorChoice else { return }
         profiles.setColor(id: choice.id, choice.color)
+    }
+
+    /// "Archive Today tabs after": every choice, the profile's checked.
+    func archiveAfterMenu(for id: UUID) -> NSMenu? {
+        guard let profile = profiles.profile(id: id) else { return nil }
+        let menu = NSMenu()
+        for choice in BrowserArchiveAfter.allCases {
+            let item = NSMenuItem(title: choice.title, action: #selector(archiveAfterChosen(_:)), keyEquivalent: "")
+            item.target = self
+            item.representedObject = ArchiveChoice(id: id, archiveAfter: choice)
+            item.state = choice == profile.archiveAfter ? .on : .off
+            menu.addItem(item)
+        }
+        return menu
+    }
+
+    private func chooseArchiveAfter(_ id: UUID, from button: NSView) {
+        archiveAfterMenu(for: id)?.popUp(positioning: nil, at: NSPoint(x: 0, y: button.bounds.height + 4), in: button)
+    }
+
+    @objc func archiveAfterChosen(_ sender: NSMenuItem) {
+        guard let choice = sender.representedObject as? ArchiveChoice else { return }
+        profiles.setArchiveAfter(id: choice.id, choice.archiveAfter)
     }
 
     private func confirmDelete(_ id: UUID) {
@@ -251,11 +276,22 @@ final class BrowserProfilesSheet: NSWindowController {
         }
     }
 
-    /// One profile: color dot, name, and its Color, Rename and Delete
-    /// buttons.
+    private final class ArchiveChoice: NSObject {
+        let id: UUID
+        let archiveAfter: BrowserArchiveAfter
+
+        init(id: UUID, archiveAfter: BrowserArchiveAfter) {
+            self.id = id
+            self.archiveAfter = archiveAfter
+        }
+    }
+
+    /// One profile: color dot, name, its Color, Rename and Delete buttons,
+    /// and below them "Archive Today tabs after" with the profile's choice.
     private final class RowView: NSView {
         var onRename: ((UUID) -> Void)?
         var onColor: ((UUID, NSView) -> Void)?
+        var onArchiveAfter: ((UUID, NSView) -> Void)?
         var onDelete: ((UUID) -> Void)?
 
         private let profile: BrowserProfile
@@ -265,6 +301,8 @@ final class BrowserProfilesSheet: NSWindowController {
         private let colorButton: ChromeButton
         private let renameButton: ChromeButton
         private let deleteButton: ChromeButton
+        private let archiveLabel = NSTextField(labelWithString: "Archive Today tabs after")
+        private let archiveButton: ChromeButton
         private let rule: ChromeRuleView
 
         init(profile: BrowserProfile, theme: AppTheme) {
@@ -274,6 +312,7 @@ final class BrowserProfilesSheet: NSWindowController {
             colorButton = ChromeButton(title: profile.color.name, theme: theme, kind: .standard)
             renameButton = ChromeButton(title: "Rename…", theme: theme, kind: .standard)
             deleteButton = ChromeButton(title: "Delete…", theme: theme, kind: .standard)
+            archiveButton = ChromeButton(title: profile.archiveAfter.title, theme: theme, kind: .standard)
             rule = ChromeRuleView(axis: .horizontal, color: theme.colors.borderSubtle)
             super.init(frame: .zero)
             translatesAutoresizingMaskIntoConstraints = false
@@ -293,29 +332,41 @@ final class BrowserProfilesSheet: NSWindowController {
             deleteButton.setAccessibilityLabel("Delete \(profile.name)")
             // Default can't be deleted.
             deleteButton.isEnabled = !profile.isDefault
+            archiveLabel.font = ChromeFont.meta
+            archiveButton.target = self
+            archiveButton.action = #selector(archiveAfterPressed)
+            archiveButton.setAccessibilityLabel("Archive \(profile.name)'s Today tabs after")
 
-            for view in [dot, nameLabel, detailLabel, colorButton, renameButton, deleteButton, rule] as [NSView] {
+            let views: [NSView] = [
+                dot, nameLabel, detailLabel, colorButton, renameButton, deleteButton, archiveLabel, archiveButton, rule,
+            ]
+            for view in views {
                 view.translatesAutoresizingMaskIntoConstraints = false
                 addSubview(view)
             }
             NSLayoutConstraint.activate([
-                heightAnchor.constraint(equalToConstant: 48),
+                heightAnchor.constraint(equalToConstant: 80),
                 dot.leadingAnchor.constraint(equalTo: leadingAnchor, constant: 24),
-                dot.centerYAnchor.constraint(equalTo: centerYAnchor),
+                dot.centerYAnchor.constraint(equalTo: nameLabel.centerYAnchor),
                 nameLabel.leadingAnchor.constraint(equalTo: dot.trailingAnchor, constant: 10),
-                nameLabel.centerYAnchor.constraint(equalTo: centerYAnchor),
+                nameLabel.centerYAnchor.constraint(equalTo: topAnchor, constant: 26),
                 detailLabel.leadingAnchor.constraint(equalTo: nameLabel.trailingAnchor, constant: 8),
                 detailLabel.firstBaselineAnchor.constraint(equalTo: nameLabel.firstBaselineAnchor),
                 detailLabel.trailingAnchor.constraint(lessThanOrEqualTo: colorButton.leadingAnchor, constant: -12),
                 deleteButton.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -24),
-                deleteButton.centerYAnchor.constraint(equalTo: centerYAnchor),
+                deleteButton.centerYAnchor.constraint(equalTo: nameLabel.centerYAnchor),
                 deleteButton.widthAnchor.constraint(greaterThanOrEqualToConstant: 76),
                 renameButton.trailingAnchor.constraint(equalTo: deleteButton.leadingAnchor, constant: -8),
-                renameButton.centerYAnchor.constraint(equalTo: centerYAnchor),
+                renameButton.centerYAnchor.constraint(equalTo: nameLabel.centerYAnchor),
                 renameButton.widthAnchor.constraint(greaterThanOrEqualToConstant: 76),
                 colorButton.trailingAnchor.constraint(equalTo: renameButton.leadingAnchor, constant: -8),
-                colorButton.centerYAnchor.constraint(equalTo: centerYAnchor),
+                colorButton.centerYAnchor.constraint(equalTo: nameLabel.centerYAnchor),
                 colorButton.widthAnchor.constraint(greaterThanOrEqualToConstant: 72),
+                archiveLabel.leadingAnchor.constraint(equalTo: nameLabel.leadingAnchor),
+                archiveLabel.centerYAnchor.constraint(equalTo: archiveButton.centerYAnchor),
+                archiveButton.leadingAnchor.constraint(equalTo: archiveLabel.trailingAnchor, constant: 10),
+                archiveButton.topAnchor.constraint(equalTo: deleteButton.bottomAnchor, constant: 8),
+                archiveButton.widthAnchor.constraint(greaterThanOrEqualToConstant: 88),
                 rule.leadingAnchor.constraint(equalTo: leadingAnchor, constant: 24),
                 rule.trailingAnchor.constraint(equalTo: trailingAnchor),
                 rule.bottomAnchor.constraint(equalTo: bottomAnchor),
@@ -332,14 +383,19 @@ final class BrowserProfilesSheet: NSWindowController {
             dot.color = profile.color.color(in: theme.colors)
             nameLabel.textColor = theme.colors.textPrimary
             detailLabel.textColor = theme.colors.textMuted
+            archiveLabel.textColor = theme.colors.textMuted
             rule.color = theme.colors.borderSubtle
-            for button in [colorButton, renameButton, deleteButton] {
+            for button in [colorButton, renameButton, deleteButton, archiveButton] {
                 button.apply(theme: theme)
             }
         }
 
         @objc private func colorPressed() {
             onColor?(profile.id, colorButton)
+        }
+
+        @objc private func archiveAfterPressed() {
+            onArchiveAfter?(profile.id, archiveButton)
         }
 
         @objc private func renamePressed() {

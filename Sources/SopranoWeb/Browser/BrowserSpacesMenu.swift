@@ -2,8 +2,9 @@ import AppKit
 
 /// The Spaces menu (stage 2's Bookmarks menu): every Space in display
 /// order, the first nine on ⌃1…⌃9, the active window's current Space
-/// checked; Next and Previous Space (⌥⌘→ / ⌥⌘←); the menu's own pin
-/// commands (Bookmark This Page, Show Bookmarks); then every pin of the
+/// checked; Next and Previous Space (⌥⌘→ / ⌥⌘←); the menu's own
+/// commands (Bookmark This Page, Show Pinned Tabs, Archive Today Tabs
+/// ⇧⌘K); then every pin of the
 /// active window's Space (Default's first Space without a window) as an
 /// item that opens it in the active window, every folder as a submenu
 /// ending in Open All in Tabs. Rebuilt whenever the Spaces change and each
