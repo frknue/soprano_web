@@ -171,6 +171,24 @@ extension BrowserWindowController {
         }
     }
 
+    /// The page set its title (`document.title`) after its load finished,
+    /// when its visit was already recorded under the old one: that row
+    /// takes the new title in the tab's own History. A private window's
+    /// Command Bar pages take it in memory; nothing is written.
+    func lateTitleChanged(_ tab: BrowserTab, title: String) {
+        guard let url = tab.webView.url?.absoluteString else { return }
+        guard tab.dataContext.kind.recordsHistory else {
+            tab.dataContext.sessionVisits.updateTitle(url: url, title: title)
+            return
+        }
+        // During a load the visit isn't recorded yet (it takes the title
+        // then); error pages and the start page are never rows.
+        guard !tab.webView.isLoading, !tab.isStartPage, !tab.isShowingErrorPage,
+              tab.certificateInterstitial == nil
+        else { return }
+        tab.dataContext.history.updateTitle(url: url, title: title)
+    }
+
     func markStartPagesStale() {
         for tab in tabs where tab.isStartPage {
             staleStartTabs.insert(tab.id)

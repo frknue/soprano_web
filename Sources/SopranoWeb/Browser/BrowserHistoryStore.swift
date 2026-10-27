@@ -81,6 +81,16 @@ final class BrowserHistoryStore {
         changes.notify()
     }
 
+    /// The page set its title after its visit was recorded: the row of
+    /// `address` takes it while that visit is recent (see
+    /// `BrowserHistoryDatabase.updateTitle`).
+    func updateTitle(url address: String, title: String, at date: Date = Date()) {
+        guard !title.isEmpty,
+              perform({ try database.updateTitle(url: address, title: title, at: date) }) == true
+        else { return }
+        changes.notify()
+    }
+
     /// Adds visits in bulk without merging (migration, imports).
     func importVisits(_ visits: [BrowserHistoryImport], now: Date = Date()) {
         guard !visits.isEmpty else { return }

@@ -403,6 +403,8 @@ app.
 ### Fixed
 - Resuming or retrying a download uses the cookies and website data of the
   Space it started in, not the Space the window shows now.
+- A page that sets its title after it finished loading shows that title in
+  History (private windows still write nothing).
 - Reopening a closed tab (`⇧⌘T`) takes it out of the Archive again.
 - A private window's sidebar no longer shows the profile's Archive, and
   Clear Browsing Data ▸ History there also clears its Command Bar pages.

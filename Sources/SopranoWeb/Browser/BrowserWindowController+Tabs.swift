@@ -408,9 +408,7 @@ extension BrowserWindowController {
                        !title.isEmpty
                     {
                         tab.title = title
-                        if !tab.dataContext.kind.recordsHistory, let url = tab.webView.url?.absoluteString {
-                            tab.dataContext.sessionVisits.updateTitle(url: url, title: title)
-                        }
+                        self.lateTitleChanged(tab, title: title)
                     }
                     self.metadataChanged(tab)
                 }
