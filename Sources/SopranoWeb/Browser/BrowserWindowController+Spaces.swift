@@ -66,6 +66,31 @@ extension BrowserWindowController {
         switchToSpace(id)
     }
 
+    /// Shows Space `id` for a tab about to come in (a Little Arc's): a
+    /// Space with tabs here switches as usual; an empty one is shown
+    /// without the start tab `switchToSpace` would add. Returns true when
+    /// the caller must select the tab it adds.
+    @discardableResult
+    func showSpaceForIncomingTab(_ id: UUID) -> Bool {
+        guard hasSpaces, let space = spaces.space(id: id) else { return false }
+        if id == currentSpaceID {
+            return visibleTabs.isEmpty
+        }
+        if tabs.contains(where: { $0.spaceID == id }) {
+            switchToSpace(id, focus: false)
+            return false
+        }
+        let leaving = selectedTab
+        setCurrentSpace(space)
+        if let leaving {
+            previousSelectedTabID = leaving.id
+            leaving.lifecycle.lastActiveAt = manager.tabSleeper.now()
+            leaving.webView.isHidden = true
+            removeWakeSnapshot(leaving)
+        }
+        return true
+    }
+
     // MARK: - Spaces changing under the window
 
     /// The Spaces changed (created, renamed, reordered, deleted, pins or

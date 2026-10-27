@@ -117,6 +117,22 @@ final class BrowserExtensions: NSObject {
 
         var isEmpty: Bool { permissions.isEmpty && matchPatterns.isEmpty }
 
+        /// The items of `self` that `other` lists too, in `self`'s order.
+        func intersection(_ other: Additions) -> Additions {
+            Additions(
+                permissions: permissions.filter(other.permissions.contains),
+                matchPatterns: matchPatterns.filter(other.matchPatterns.contains)
+            )
+        }
+
+        /// The items of `self` that `other` doesn't list.
+        func subtracting(_ other: Additions) -> Additions {
+            Additions(
+                permissions: permissions.filter { !other.permissions.contains($0) },
+                matchPatterns: matchPatterns.filter { !other.matchPatterns.contains($0) }
+            )
+        }
+
         /// The permission sheet's lines.
         @MainActor var lines: [String] {
             BrowserExtensionPermissionPrompt.describe(
@@ -417,7 +433,9 @@ final class BrowserExtensions: NSObject {
     /// Shows the permission sheet (on the active window) for what an
     /// update newly asked for, once per launch: allowed, it is granted;
     /// refused, it is denied for good, as a refused request is. Without a
-    /// window it waits for the next launch.
+    /// window it waits for the next launch. The answer covers what the
+    /// sheet listed only: an update landing while it is open adds items for
+    /// the next sheet.
     private func askForAdditions(_ id: String) {
         guard let additions = pendingAdditions[id], !askedAdditions.contains(id),
               let context = contexts[id], manager?.activeController?.window != nil
@@ -425,13 +443,19 @@ final class BrowserExtensions: NSObject {
         askedAdditions.insert(id)
         let name = context.webExtension.displayName ?? id
         prompt(context, tab: nil, lines: additions.lines, header: "“\(name)” was updated and now also wants to:") { [weak self] allowed in
-            self?.decideAdditions(id, allowed: allowed)
+            self?.decideAdditions(id, allowed: allowed, shown: additions)
         }
     }
 
-    /// The user's answer about `pendingAdditions[id]`.
-    func decideAdditions(_ id: String, allowed: Bool) {
-        guard let additions = pendingAdditions.removeValue(forKey: id) else { return }
+    /// The user's answer about the additions a sheet showed (`shown`; nil:
+    /// everything pending): those still pending are granted or denied and
+    /// leave `pendingAdditions[id]`; the rest stay for the next sheet.
+    func decideAdditions(_ id: String, allowed: Bool, shown: Additions? = nil) {
+        guard let pending = pendingAdditions[id] else { return }
+        let additions = shown.map(pending.intersection) ?? pending
+        guard !additions.isEmpty else { return }
+        let rest = pending.subtracting(additions)
+        pendingAdditions[id] = rest.isEmpty ? nil : rest
         let status: WKWebExtensionContext.PermissionStatus = allowed ? .grantedExplicitly : .deniedExplicitly
         if let context = contexts[id] {
             for permission in additions.permissions {
@@ -689,13 +713,28 @@ final class BrowserExtensions: NSObject {
             try? FileManager.default.removeItem(at: staged)
             throw InstallError.sourceChanged(id: id, installed: replaced, new: source)
         }
+        var confirmed: Additions?
         if let confirm, review.kind != .update || !additions.isEmpty {
             guard await confirm(review) else {
                 try? FileManager.default.removeItem(at: staged)
                 throw InstallError.cancelled
             }
-            if review.kind == .update {
-                Self.grant(additions, to: &record)
+            confirmed = additions
+        }
+        // While the sheet was open the record may have changed (removed,
+        // disabled, site access edited, installed from elsewhere): an
+        // update starts from the record as it is now; a record that is gone
+        // or now from another source cancels.
+        let current = store.record(id: id)
+        guard current?.source == existing?.source else {
+            try? FileManager.default.removeItem(at: staged)
+            throw InstallError.cancelled
+        }
+        if let current, replaced == nil {
+            record = current
+            let fresh = Self.applyUpdate(to: &record, requestedPermissions: permissions, requestedPatterns: patterns, standIns: standIns)
+            if let confirmed {
+                Self.grant(fresh.intersection(confirmed), to: &record)
             }
         }
         let wasLoaded = contexts[id] != nil
@@ -703,6 +742,11 @@ final class BrowserExtensions: NSObject {
         if replaced != nil {
             nativeHost.forget(id)
             await removeStoredData(of: id)
+            // Removed while its data went: nothing to install over.
+            guard store.record(id: id) != nil else {
+                try? FileManager.default.removeItem(at: staged)
+                throw InstallError.cancelled
+            }
         }
         do {
             try store.installPackage(staged, id: id)

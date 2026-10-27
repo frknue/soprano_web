@@ -388,6 +388,25 @@ struct BrowserExtensionSocketPolicy {
         return sources.contains { matches(url, source: $0) }
     }
 
+    /// Whether a source list could let a socket connect to some `ws:` or
+    /// `wss:` address (what the WebSocket stand-in is for): no list, `*`,
+    /// a scheme source `http:`, `https:`, `ws:` or `wss:` (each covers a
+    /// socket scheme, `schemeMatches`), or a host source with one of those
+    /// schemes or none. Keywords and other schemes never do.
+    static func mayConnectToSockets(sources: [String]?) -> Bool {
+        guard let sources else { return true }
+        let socketSchemes: Set<String> = ["http", "https", "ws", "wss"]
+        return sources.contains { source in
+            if source == "*" { return true }
+            if source.hasPrefix("'") { return false }
+            if let scheme = schemeSource(source) { return socketSchemes.contains(scheme) }
+            if let separator = source.range(of: "://") {
+                return socketSchemes.contains(source[..<separator.lowerBound].lowercased())
+            }
+            return true
+        }
+    }
+
     /// CSP source-expression matching for a `ws:`/`wss:` URL:
     /// - `*` matches it;
     /// - keywords (`'self'`, the extension's own non-socket origin; `'none'`;

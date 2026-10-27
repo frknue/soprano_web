@@ -21,6 +21,10 @@ final class BrowserToolbarView: NSView, NSTextFieldDelegate {
     var onExtensionButton: ((String, NSView) -> Void)?
     /// An extension button's right-click menu.
     var extensionMenuProvider: ((String) -> NSMenu?)?
+    /// A Little Arc's "Open in" button was clicked (the menu hangs from it).
+    var onOpenIn: ((NSView) -> Void)?
+    /// A Little Arc's ⌘O button: its tab into its Space's window.
+    var onMoveToSpaceWindow: (() -> Void)?
 
     let addressField = BrowserAddressField()
     let navigationControls: BrowserNavigationControls
@@ -41,6 +45,11 @@ final class BrowserToolbarView: NSView, NSTextFieldDelegate {
     private let bookmarkButton: ChromeIconButton
     private let downloadsButton: ChromeIconButton
     private let sidebarButton: ChromeIconButton
+    /// A Little Arc's "Open in" (another Space) and ⌘O buttons, at the
+    /// trailing edge.
+    private let littleStack = NSStackView()
+    private let openInButton: ChromeIconButton
+    private let spaceWindowButton: ChromeIconButton
     /// The window's mark ("Private", its profile, or both) before the
     /// address field of a window without a tab rail.
     let windowMark: BrowserWindowMarkView
@@ -52,8 +61,10 @@ final class BrowserToolbarView: NSView, NSTextFieldDelegate {
     private(set) var pageAddress = ""
     /// The user changed the text since the field was last focused.
     private(set) var isAddressEdited = false
-    /// A pop-up window's toolbar: navigation and a read-only address only.
+    /// A compact window's toolbar: navigation and the address only (read
+    /// only in a pop-up, editable in a Little Arc).
     private(set) var isCompact = false
+    private(set) var isLittleArc = false
     private lazy var navigationLeadingToToggle = navigationControls.leadingAnchor.constraint(
         equalTo: verticalTabsButton.trailingAnchor,
         constant: 4
@@ -69,6 +80,10 @@ final class BrowserToolbarView: NSView, NSTextFieldDelegate {
     private lazy var captureTrailingToEdge = captureIndicator.trailingAnchor.constraint(
         equalTo: trailingAnchor,
         constant: -10
+    )
+    private lazy var captureTrailingToLittle = captureIndicator.trailingAnchor.constraint(
+        equalTo: littleStack.leadingAnchor,
+        constant: -2
     )
     private lazy var addressLeadingToNavigation = addressFrame.leadingAnchor.constraint(
         equalTo: navigationControls.trailingAnchor,
@@ -114,6 +129,20 @@ final class BrowserToolbarView: NSView, NSTextFieldDelegate {
             target: nil,
             action: nil
         )
+        self.openInButton = ChromeIconButton(
+            symbolName: "square.on.square",
+            accessibilityLabel: "Open in Space",
+            pointSize: 12,
+            target: nil,
+            action: nil
+        )
+        self.spaceWindowButton = ChromeIconButton(
+            symbolName: "arrow.up.left.and.arrow.down.right",
+            accessibilityLabel: "Open in Space Window",
+            pointSize: 12,
+            target: nil,
+            action: nil
+        )
         self.captureIndicator = BrowserCaptureIndicator(theme: theme)
         super.init(frame: .zero)
         translatesAutoresizingMaskIntoConstraints = false
@@ -132,6 +161,21 @@ final class BrowserToolbarView: NSView, NSTextFieldDelegate {
         bookmarkButton.toolTip = "Bookmark this page (⌘D)"
         downloadsButton.toolTip = "Downloads (⌥⌘L)"
         sidebarButton.toolTip = "Sidebar (⇧⌘B)"
+        openInButton.target = self
+        openInButton.action = #selector(openInPressed)
+        openInButton.toolTip = "Open in another Space"
+        spaceWindowButton.target = self
+        spaceWindowButton.action = #selector(spaceWindowPressed)
+        spaceWindowButton.toolTip = "Open in the Space's window (⌘O)"
+        littleStack.orientation = .horizontal
+        littleStack.spacing = 2
+        littleStack.translatesAutoresizingMaskIntoConstraints = false
+        littleStack.setHuggingPriority(.required, for: .horizontal)
+        littleStack.setContentCompressionResistancePriority(.required, for: .horizontal)
+        littleStack.addArrangedSubview(openInButton)
+        littleStack.addArrangedSubview(spaceWindowButton)
+        littleStack.isHidden = true
+        addSubview(littleStack)
 
         addSubview(navigationControls)
         addSubview(addressFrame)
@@ -226,6 +270,8 @@ final class BrowserToolbarView: NSView, NSTextFieldDelegate {
             captureIndicator.centerYAnchor.constraint(equalTo: sidebarButton.centerYAnchor),
             extensionStack.trailingAnchor.constraint(equalTo: bookmarkButton.leadingAnchor, constant: -2),
             extensionStack.centerYAnchor.constraint(equalTo: sidebarButton.centerYAnchor),
+            littleStack.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -10),
+            littleStack.centerYAnchor.constraint(equalTo: sidebarButton.centerYAnchor),
         ])
 
         apply(theme: theme)
@@ -242,7 +288,7 @@ final class BrowserToolbarView: NSView, NSTextFieldDelegate {
 
     func apply(theme: AppTheme) {
         self.theme = theme
-        for button in [verticalTabsButton, bookmarkButton, downloadsButton, sidebarButton] {
+        for button in [verticalTabsButton, bookmarkButton, downloadsButton, sidebarButton, openInButton, spaceWindowButton] {
             button.apply(theme: theme)
         }
         navigationControls.apply(theme: theme)
@@ -398,22 +444,31 @@ final class BrowserToolbarView: NSView, NSTextFieldDelegate {
         }
     }
 
-    /// Pop-up windows: back/forward/reload and the address, which can be
-    /// read and copied but not edited; no tab, bookmark or sidebar buttons.
-    func setCompact(_ compact: Bool) {
-        guard compact != isCompact else { return }
+    /// Compact windows: back/forward/reload and the address; no tab,
+    /// bookmark or sidebar buttons. A pop-up's address can be read and
+    /// copied but not edited; a Little Arc's (`editable`) is a full
+    /// address field with its "Open in" and ⌘O buttons.
+    func setCompact(_ compact: Bool, editable: Bool = false) {
+        let little = compact && editable
+        guard compact != isCompact || little != isLittleArc else { return }
         isCompact = compact
+        isLittleArc = little
         for button in [verticalTabsButton, bookmarkButton, downloadsButton, sidebarButton] {
             button.isHidden = compact
         }
         extensionStack.isHidden = compact
+        littleStack.isHidden = !little
         navigationLeadingToToggle.isActive = !compact
         navigationLeadingToEdge.isActive = compact
         captureTrailingToButtons.isActive = !compact
-        captureTrailingToEdge.isActive = compact
-        addressField.isEditable = !compact
+        captureTrailingToEdge.isActive = compact && !little
+        captureTrailingToLittle.isActive = little
+        addressField.isEditable = !compact || little
         addressField.isSelectable = true
     }
+
+    /// The "Open in" button, which the Spaces menu hangs from.
+    var openInAnchor: NSView { openInButton }
 
     func controlTextDidBeginEditing(_ notification: Notification) {
         addressFrame.isFocused = true
@@ -443,6 +498,14 @@ final class BrowserToolbarView: NSView, NSTextFieldDelegate {
 
     @objc private func verticalTabsPressed() {
         onToggleVerticalSidebar?()
+    }
+
+    @objc private func openInPressed() {
+        onOpenIn?(openInButton)
+    }
+
+    @objc private func spaceWindowPressed() {
+        onMoveToSpaceWindow?()
     }
 
     @objc private func bookmarkPressed() {

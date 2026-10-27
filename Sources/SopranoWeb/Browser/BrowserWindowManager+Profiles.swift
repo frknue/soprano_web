@@ -67,17 +67,20 @@ extension BrowserWindowManager {
         profiles.profile(id: controller.profileID) ?? .defaultProfile
     }
 
-    /// The Space a window's data belongs to: its current Space, a private
-    /// or pop-up window's the one it was opened over.
+    /// The Space a window's data belongs to: its current Space, a Little
+    /// Arc's own, a private or pop-up window's the one it was opened over.
     func space(of controller: BrowserWindowController) -> BrowserSpace? {
-        controller.currentSpaceID.flatMap(spaces.space(id:)) ?? spaces.space(ofProfile: controller.profileID)
+        (controller.currentSpaceID ?? controller.littleSpaceID).flatMap(spaces.space(id:))
+            ?? spaces.space(ofProfile: controller.profileID)
     }
 
     /// What a window shows next to its tabs: its Space (icon, name and
-    /// color) when more than one Space exists, "Private" (with that Space
-    /// when there are several) in a private window.
+    /// color) when more than one Space exists (a Little Arc's always),
+    /// "Private" (with that Space when there are several) in a private
+    /// window.
     func windowMark(for controller: BrowserWindowController) -> BrowserWindowMark {
-        BrowserWindowMark(kind: controller.kind, space: spaces.spaces.count > 1 ? space(of: controller) : nil)
+        let showsSpace = spaces.spaces.count > 1 || controller.role == .little
+        return BrowserWindowMark(kind: controller.kind, space: showsSpace ? space(of: controller) : nil)
     }
 
     /// The switcher's "+": a Space with a profile of its own (no cookies,

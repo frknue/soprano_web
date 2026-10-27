@@ -1,9 +1,10 @@
 import AppKit
 
-/// Settings ▸ Links from other apps ▸ Manage…: the rules an import brought
-/// in (Arc's Air Traffic Control), each "address contains … → Space" with
-/// Delete. Rules are read-only otherwise. Presented as a sheet on the
-/// Settings window.
+/// Settings ▸ Links from other apps ▸ Manage…: "Open links from other apps
+/// in" (Little Arc or the most recent window) and the rules an import
+/// brought in (Arc's Air Traffic Control), each "address contains … →
+/// Space" with Delete. Rules are read-only otherwise. Presented as a sheet
+/// on the Settings window.
 @MainActor
 final class BrowserLinkRoutingSheet: NSWindowController {
     private let store: BrowserLinkRoutingStore
@@ -15,8 +16,10 @@ final class BrowserLinkRoutingSheet: NSWindowController {
     private let header = NSTextField(labelWithString: "Links from Other Apps")
     private let subtitle = NSTextField(
         wrappingLabelWithString: "A link another app opens goes to the Space of the first rule its address matches; "
-            + "other links open in the most recent window. Import rules from Arc with File ▸ Import Browser Data…."
+            + "other links open where the choice below says. Import rules from Arc with File ▸ Import Browser Data…."
     )
+    private let destinationLabel = NSTextField(labelWithString: "Open links from other apps in")
+    private let destinationButton: ChromeButton
     private let emptyLabel = NSTextField(labelWithString: "No rules")
     private let topRule: ChromeRuleView
     private let bottomRule: ChromeRuleView
@@ -33,6 +36,7 @@ final class BrowserLinkRoutingSheet: NSWindowController {
         topRule = ChromeRuleView(axis: .horizontal, color: theme.colors.borderSubtle)
         bottomRule = ChromeRuleView(axis: .horizontal, color: theme.colors.borderSubtle)
         doneButton = ChromeButton(title: "Done", theme: theme, kind: .ink, keycap: "esc")
+        destinationButton = ChromeButton(title: store.otherLinks.title, theme: theme, kind: .standard)
         let window = NSPanel(
             contentRect: NSRect(x: 0, y: 0, width: 560, height: 380),
             styleMask: [.titled],
@@ -60,13 +64,16 @@ final class BrowserLinkRoutingSheet: NSWindowController {
         scrollView.hasVerticalScroller = true
         scrollView.autohidesScrollers = true
         scrollView.borderType = .noBorder
-        for view in [header, subtitle, topRule, scrollView, emptyLabel, bottomRule, doneButton] as [NSView] {
+        for view in [header, subtitle, destinationLabel, destinationButton, topRule, scrollView, emptyLabel, bottomRule, doneButton] as [NSView] {
             view.translatesAutoresizingMaskIntoConstraints = false
             rootView.addSubview(view)
         }
         doneButton.target = self
         doneButton.action = #selector(donePressed)
         doneButton.keyEquivalent = "\u{1b}"
+        destinationLabel.font = ChromeFont.label
+        destinationButton.target = self
+        destinationButton.action = #selector(destinationPressed)
 
         NSLayoutConstraint.activate([
             header.topAnchor.constraint(equalTo: rootView.topAnchor, constant: 22),
@@ -75,7 +82,13 @@ final class BrowserLinkRoutingSheet: NSWindowController {
             subtitle.leadingAnchor.constraint(equalTo: header.leadingAnchor),
             subtitle.trailingAnchor.constraint(lessThanOrEqualTo: rootView.trailingAnchor, constant: -24),
 
-            topRule.topAnchor.constraint(equalTo: subtitle.bottomAnchor, constant: 16),
+            destinationLabel.leadingAnchor.constraint(equalTo: header.leadingAnchor),
+            destinationLabel.centerYAnchor.constraint(equalTo: destinationButton.centerYAnchor),
+            destinationButton.topAnchor.constraint(equalTo: subtitle.bottomAnchor, constant: 14),
+            destinationButton.leadingAnchor.constraint(equalTo: destinationLabel.trailingAnchor, constant: 12),
+            destinationButton.widthAnchor.constraint(equalToConstant: 220),
+
+            topRule.topAnchor.constraint(equalTo: destinationButton.bottomAnchor, constant: 14),
             topRule.leadingAnchor.constraint(equalTo: rootView.leadingAnchor),
             topRule.trailingAnchor.constraint(equalTo: rootView.trailingAnchor),
 
@@ -124,18 +137,23 @@ final class BrowserLinkRoutingSheet: NSWindowController {
         header.textColor = theme.colors.textPrimary
         subtitle.textColor = theme.colors.textMuted
         emptyLabel.textColor = theme.colors.textMuted
+        destinationLabel.textColor = theme.colors.textMuted
+        destinationButton.apply(theme: theme)
         topRule.color = theme.colors.borderSubtle
         bottomRule.color = theme.colors.borderSubtle
         doneButton.apply(theme: theme)
         rowViews.forEach { $0.apply(theme: theme) }
     }
 
-    /// Every rule as the sheet lists it: "contains meet.google.com → Most recent Space".
+    /// "Open links from other apps in: Little Arc", then every rule as the
+    /// sheet lists it: "contains meet.google.com → Most recent Space".
     var dump: [String] {
-        store.rules.map { "\(Self.matchText($0)) → \(destinationText($0))" }
+        ["Open links from other apps in: \(store.otherLinks.title)"]
+            + store.rules.map { "\(Self.matchText($0)) → \(destinationText($0))" }
     }
 
     func reload() {
+        destinationButton.title = store.otherLinks.title
         rowViews.forEach { $0.removeFromSuperview() }
         rowViews = store.rules.map { rule in
             let view = RowView(
@@ -166,6 +184,19 @@ final class BrowserLinkRoutingSheet: NSWindowController {
         case let .space(id):
             return spaces.space(id: id).map { "Space “\($0.displayName)”" } ?? "Most recent Space (its Space is gone)"
         }
+    }
+
+    @objc private func destinationPressed() {
+        let menu = NSMenu()
+        for destination in BrowserOutsideLinkDestination.allCases {
+            let item = BrowserClosureMenuItem(title: destination.title) { [weak self] in
+                self?.store.setOtherLinks(destination)
+            }
+            item.state = destination == store.otherLinks ? .on : .off
+            menu.addItem(item)
+        }
+        let below = destinationButton.isFlipped ? destinationButton.bounds.height + 4 : -4
+        menu.popUp(positioning: nil, at: NSPoint(x: 0, y: below), in: destinationButton)
     }
 
     @objc private func donePressed() {

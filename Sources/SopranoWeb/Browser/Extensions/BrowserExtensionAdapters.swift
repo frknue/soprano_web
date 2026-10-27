@@ -221,7 +221,7 @@ final class BrowserExtensionWindow: NSObject, WKWebExtensionWindow {
     }
 
     func windowType(for context: WKWebExtensionContext) -> WKWebExtension.WindowType {
-        controller?.isPopup == true ? .popup : .normal
+        controller?.role.isCompact == true ? .popup : .normal
     }
 
     func windowState(for context: WKWebExtensionContext) -> WKWebExtension.WindowState {

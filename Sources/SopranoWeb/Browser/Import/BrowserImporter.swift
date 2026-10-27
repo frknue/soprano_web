@@ -45,6 +45,9 @@ final class BrowserImporter {
         var archiveAdded = 0
         var faviconsAdded = 0
         var rulesAdded = 0
+        /// "Open links from other apps in" as the import set it (Arc's
+        /// `defaultDestination`); nil when it didn't.
+        var otherLinks: BrowserOutsideLinkDestination?
         /// The Today tabs to open, by the Space they belong to.
         var todayTabs: [(spaceID: UUID, links: [BrowserImportedLink])] = []
         /// The first Space this import made (the window switches to it).
@@ -212,6 +215,10 @@ final class BrowserImporter {
                 return BrowserLinkRoutingRule(match: match, value: rule.value, destination: destination, importedFrom: plan.source.rawValue)
             }
             result.rulesAdded = stores.linkRouting.mergeImported(rules, from: plan.source.rawValue)
+            if let otherLinks = routing.otherLinks {
+                stores.linkRouting.setOtherLinks(otherLinks)
+                result.otherLinks = otherLinks
+            }
         }
 
         if !plan.folders.isEmpty {

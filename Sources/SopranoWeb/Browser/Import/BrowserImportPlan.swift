@@ -126,6 +126,9 @@ struct BrowserImportPlan: Sendable {
         /// Rules for Little Arc or a profile: not imported.
         var unsupported: Int
         var isIncluded: Bool
+        /// Arc's `defaultDestination` as "Open links from other apps in":
+        /// Little Arc, or (a Space) the most recent window; nil without one.
+        var otherLinks: BrowserOutsideLinkDestination? = nil
     }
 
     /// Bookmarks (Chrome, Safari, a bookmarks file) as one pinned folder.
@@ -374,7 +377,11 @@ enum BrowserImportPlanner {
             )
         }
 
-        if !data.routingRules.isEmpty {
+        let otherLinks = data.defaultLinkDestination.map { destination -> BrowserOutsideLinkDestination in
+            if case .littleArc = destination { return .littleArc }
+            return .mostRecentWindow
+        }
+        if !data.routingRules.isEmpty || otherLinks != nil {
             let importable = data.routingRules.filter {
                 if case .space = $0.destination { return true }
                 return false
@@ -383,7 +390,8 @@ enum BrowserImportPlanner {
                 rules: data.routingRules,
                 importable: importable.count,
                 unsupported: data.routingRules.count - importable.count,
-                isIncluded: !importable.isEmpty
+                isIncluded: !importable.isEmpty || otherLinks != nil,
+                otherLinks: otherLinks
             )
         }
 

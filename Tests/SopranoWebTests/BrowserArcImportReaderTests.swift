@@ -352,6 +352,8 @@ struct BrowserArcImportReaderTests {
             BrowserImportedRoutingRule(match: .contains, value: "zoom.us", destination: .littleArc),
             BrowserImportedRoutingRule(match: .contains, value: "work.example", destination: .profile(key: "Profile 1")),
         ])
+        // `defaultDestination`: links no rule matches go to Little Arc.
+        #expect(result.defaultLinkDestination == .littleArc)
 
         #expect(Set(result.favicons.keys) == [docs, archived])
         #expect(result.favicons[docs]?.lastPathComponent == "7bcbb8d99ea0447dffc694e307a9a3ff")
@@ -393,6 +395,7 @@ struct BrowserArcImportReaderTests {
         #expect(result.spaces.count == 3)
         #expect(result.archive.isEmpty)
         #expect(result.routingRules.isEmpty)
+        #expect(result.defaultLinkDestination == nil)
         #expect(result.favicons.isEmpty)
     }
 

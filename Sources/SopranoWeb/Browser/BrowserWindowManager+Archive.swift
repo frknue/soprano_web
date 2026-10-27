@@ -9,10 +9,24 @@ extension BrowserWindowManager {
     /// `lifecycle.lastActiveAt` on the sleeper's clock, goes into the
     /// Archive (reason auto), every window's in one Archive write. A
     /// window's selected tab is in use, so its idle time starts over first.
-    /// Returns the new entries.
+    /// A Little Arc left alone for 6 hours (`BrowserLittleArcIdle`; its
+    /// lone tab ages while the window is not key) closes, its tab into the
+    /// Archive when it holds a page. Returns the new entries.
     @discardableResult
     func archiveIdleTabs(now: Date) -> [BrowserArchiveEntry] {
         var due: [(controller: BrowserWindowController, tab: BrowserTab, entry: BrowserArchiveEntry)] = []
+        var closing: [BrowserWindowController] = []
+        for controller in controllers where controller.role == .little {
+            guard let tab = controller.selectedTab else { continue }
+            if controller.window?.isKeyWindow == true {
+                tab.lifecycle.lastActiveAt = now
+            }
+            guard BrowserLittleArcIdle.closes(controller.archiveCandidate(tab), now: now) else { continue }
+            closing.append(controller)
+            if let entry = controller.archiveEntry(for: tab, reason: .auto, at: now) {
+                due.append((controller, tab, entry))
+            }
+        }
         for controller in controllers where controller.hasSpaces {
             controller.selectedTab?.lifecycle.lastActiveAt = now
             for tab in controller.tabs {
@@ -27,8 +41,10 @@ extension BrowserWindowManager {
                 due.append((controller, tab, entry))
             }
         }
-        guard !due.isEmpty else { return [] }
-        let archived = archive.archive(due.map(\.entry))
+        let archived = due.isEmpty ? [] : archive.archive(due.map(\.entry))
+        for controller in closing {
+            closeWindow(controller, remember: false)
+        }
         for controller in controllers {
             let tabs = due.filter { $0.controller === controller }.map(\.tab)
             guard !tabs.isEmpty else { continue }

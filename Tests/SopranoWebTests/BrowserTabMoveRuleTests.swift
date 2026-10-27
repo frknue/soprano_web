@@ -9,8 +9,8 @@ struct BrowserTabMoveRuleTests {
     private let defaultContext = UUID()
     private let workContext = UUID()
 
-    private func window(context: UUID, popup: Bool = false, spaces: Bool = true) -> BrowserTabMoveRule.Window {
-        BrowserTabMoveRule.Window(id: UUID(), context: context, isPopup: popup, hasSpaces: spaces && !popup)
+    private func window(context: UUID, role: BrowserWindowRole = .normal, spaces: Bool = true) -> BrowserTabMoveRule.Window {
+        BrowserTabMoveRule.Window(id: UUID(), context: context, role: role, hasSpaces: spaces && role == .normal)
     }
 
     @Test func aTabMovesIntoAWindowWhoseCurrentSpaceUsesItsContext() {
@@ -20,7 +20,7 @@ struct BrowserTabMoveRuleTests {
         #expect(!BrowserTabMoveRule.allows(tabContext: defaultContext, from: a.id, to: a))
         // Window b shows a Work Space now: a Default tab can't land there,
         // a Work tab (from any window, of any current Space) can.
-        let bOnWork = BrowserTabMoveRule.Window(id: b.id, context: workContext, isPopup: false, hasSpaces: true)
+        let bOnWork = BrowserTabMoveRule.Window(id: b.id, context: workContext, role: .normal, hasSpaces: true)
         #expect(!BrowserTabMoveRule.allows(tabContext: defaultContext, from: a.id, to: bOnWork))
         #expect(BrowserTabMoveRule.allows(tabContext: workContext, from: a.id, to: bOnWork))
     }
@@ -46,11 +46,24 @@ struct BrowserTabMoveRuleTests {
 
     @Test func popUpWindowsTakeNoTabsButGiveThem() {
         let normal = window(context: workContext)
-        let popup = window(context: workContext, popup: true)
+        let popup = window(context: workContext, role: .popup)
         #expect(!BrowserTabMoveRule.allows(tabContext: workContext, from: normal.id, to: popup))
         // A Work pop-up's tab goes to a window showing a Work Space only.
         #expect(BrowserTabMoveRule.allows(tabContext: workContext, from: popup.id, to: normal))
         #expect(!BrowserTabMoveRule.allows(tabContext: workContext, from: popup.id, to: window(context: defaultContext)))
+    }
+
+    @Test func littleArcsTakeNoTabsButGiveThemToTheirSpacesWindows() {
+        // A Little Arc of the Work Space uses the Work context.
+        let little = window(context: workContext, role: .little)
+        let onWork = window(context: workContext)
+        let onDefault = window(context: defaultContext)
+        // ⌘O, a drop or `move-to-window`: into a window showing Work only.
+        #expect(BrowserTabMoveRule.allows(tabContext: workContext, from: little.id, to: onWork))
+        #expect(!BrowserTabMoveRule.allows(tabContext: workContext, from: little.id, to: onDefault))
+        // Nothing moves into a Little Arc, whatever its context.
+        #expect(!BrowserTabMoveRule.allows(tabContext: workContext, from: onWork.id, to: little))
+        #expect(!BrowserTabMoveRule.allows(tabContext: workContext, from: UUID(), to: window(context: workContext, role: .little)))
     }
 
     @Test func mergeTakesEveryNormalWindowWhateverItsCurrentSpace() {
@@ -58,10 +71,12 @@ struct BrowserTabMoveRuleTests {
         let onDefault = window(context: defaultContext)
         let onWork = window(context: workContext)
         let privateWindow = window(context: UUID(), spaces: false)
-        let popup = window(context: workContext, popup: true)
-        let merged = [onDefault, onWork, privateWindow, popup].filter { BrowserTabMoveRule.merges($0, into: target) }
+        let popup = window(context: workContext, role: .popup)
+        let little = window(context: workContext, role: .little)
+        let merged = [onDefault, onWork, privateWindow, popup, little].filter { BrowserTabMoveRule.merges($0, into: target) }
         #expect(merged == [onDefault, onWork])
         #expect(!BrowserTabMoveRule.merges(target, into: target))
+        #expect(!BrowserTabMoveRule.merges(onWork, into: little))
     }
 
     @Test func privateWindowsMergeOnlyWithinTheirContext() {

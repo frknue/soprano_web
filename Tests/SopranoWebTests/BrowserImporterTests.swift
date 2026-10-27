@@ -115,6 +115,7 @@ struct BrowserImporterTests {
                 BrowserImportedRoutingRule(match: .prefix, value: "https://x.example/", destination: .space(sourceID: spaceB)),
                 BrowserImportedRoutingRule(match: .contains, value: "zoom.example", destination: .littleArc),
             ],
+            defaultLinkDestination: .space(sourceID: nil),
             favicons: [:],
             historyFiles: [:]
         )
@@ -188,6 +189,10 @@ struct BrowserImporterTests {
         // Rules: the most recent Space and Work; Little Arc's is dropped.
         #expect(summary.rulesAdded == 2)
         #expect(fixture.linkRouting.rules.map(\.destination) == [.mostRecentSpace, .space(workSpace.id)])
+        // Arc's default destination (a Space) sets "Open links from other
+        // apps in" to the most recent window.
+        #expect(fixture.linkRouting.otherLinks == .mostRecentWindow)
+        #expect(summary.otherLinks == .mostRecentWindow)
 
         #expect(summary.history.map(\.count) == [BrowserHistoryImportCount(added: 5, skipped: 0)])
         #expect(summary.history.map(\.spaceName) == ["Work"])
@@ -270,6 +275,8 @@ struct BrowserImporterTests {
         #expect(fixture.archive.entries.map(\.url) == ["https://little.example/"])
         #expect(fixture.archive.entries.first?.profileID == BrowserProfile.defaultID)
         #expect(fixture.linkRouting.rules.isEmpty)
+        // Unchecked: the choice stays the default, Little Arc.
+        #expect(fixture.linkRouting.otherLinks == .littleArc)
         #expect(summary.history.isEmpty)
     }
 

@@ -5,6 +5,7 @@ import AppKit
 enum BrowserCommandID: String, CaseIterable, Sendable {
     case about, settings, hide, hideOthers = "hide-others", showAll = "show-all", quit
     case newTab = "new-tab", newWindow = "new-window", newPrivateWindow = "new-private-window"
+    case newLittleArc = "new-little-arc", openInSpaceWindow = "open-in-space-window"
     case reopenClosed = "reopen-closed", openLocation = "open-location"
     case closeTab = "close-tab", closeWindow = "close-window"
     case saveAs = "save-as", exportPDF = "export-pdf", print
@@ -237,6 +238,11 @@ struct BrowserAppCommand: Sendable {
         make(.newWindow, "New Window", .file, 0, "cmd+n", symbol: "macwindow") { $0.manager?.newWindow() },
         make(.newPrivateWindow, "New Private Window", .file, 0, "shift+cmd+n", synonyms: ["incognito"],
              symbol: "eyeglasses") { $0.manager?.newPrivateWindow() },
+        make(.newLittleArc, "New Little Arc", .file, 0, "opt+cmd+n", synonyms: ["little arc", "quick window"],
+             symbol: "macwindow.badge.plus") { $0.manager?.newLittleArc(commandBar: true) },
+        make(.openInSpaceWindow, "Open in Space Window", .file, 0, "cmd+o",
+             synonyms: ["little arc", "move to window"], symbol: "arrow.up.left.and.arrow.down.right",
+             state: { .when($0.controller?.role == .little) }) { $0.controller?.moveLittleArcToSpaceWindow() },
         make(
             .reopenClosed, "Reopen Closed Tab", .file, 1, "shift+cmd+t",
             synonyms: ["undo close", "restore tab"], symbol: "arrow.uturn.backward",
@@ -357,7 +363,7 @@ struct BrowserAppCommand: Sendable {
             state: { context in
                 guard let controller = context.controller else { return .disabled }
                 return BrowserCommandState(
-                    isEnabled: !controller.isPopup,
+                    isEnabled: !controller.role.isCompact,
                     title: controller.isToolbarHidden ? "Show Toolbar" : "Hide Toolbar"
                 )
             },

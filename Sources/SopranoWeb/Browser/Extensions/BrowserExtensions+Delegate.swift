@@ -48,8 +48,8 @@ extension BrowserExtensions: WKWebExtensionControllerDelegate {
             return
         }
         let requested = (configuration.window as? BrowserExtensionWindow)?.controller
-        let target = requested.flatMap { $0.isPopup ? nil : $0 }
-            ?? manager.mostRecentlyActive { !$0.isPopup && (extensionContext.hasAccessToPrivateData || !$0.kind.isPrivate) }
+        let target = requested.flatMap { $0.role == .normal ? $0 : nil }
+            ?? manager.mostRecentlyActive { $0.role == .normal && (extensionContext.hasAccessToPrivateData || !$0.kind.isPrivate) }
         guard let target else {
             let window = manager.newWindow(url: configuration.url?.absoluteString)
             completionHandler(window.selectedTab.map { tabAdapter(for: $0) }, nil)
@@ -139,7 +139,7 @@ extension BrowserExtensions: WKWebExtensionControllerDelegate {
         let decision = Self.pageLoad(url, extensionID: id(of: context))
         guard decision != .refuse else { return }
         let target = manager.mostRecentlyActive(where: {
-            !$0.isPopup && (context.hasAccessToPrivateData || !$0.kind.isPrivate)
+            $0.role == .normal && (context.hasAccessToPrivateData || !$0.kind.isPrivate)
         })
         if decision == .external {
             guard let target, let tab = target.selectedTab else { return }

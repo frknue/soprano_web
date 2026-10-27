@@ -153,10 +153,10 @@ struct BrowserCommandRequest: Codable, Equatable, Sendable {
             }
         }
         var space: String?
-        if command == "new-window" {
+        if command == "new-window" || command == "little" {
             space = try extractSpace(from: &arguments)
             guard arguments.count <= 1 else {
-                throw BrowserAutomationError.invalidArguments(newWindowUsage)
+                throw BrowserAutomationError.invalidArguments(command == "little" ? littleUsage : newWindowUsage)
             }
         }
 
@@ -242,6 +242,7 @@ struct BrowserCommandRequest: Codable, Equatable, Sendable {
 
     static let moveToWindowUsage = "Usage: soprano-web browser [--window n] [--tab m] move-to-window <k|new>"
     static let newWindowUsage = "Usage: soprano-web browser new-window [url] [--space <n|name>]"
+    static let littleUsage = "Usage: soprano-web browser little [url] [--space <n|name>] | [--window n] little to-window"
     static let spaceUsage = "Usage: soprano-web browser [--window n] space <n|name>"
     static let extensionUsage = """
     Usage: soprano-web browser extension install <chrome web store url|id|folder>
@@ -299,6 +300,8 @@ enum BrowserCommand {
       soprano-web browser [--window n] [--tab n] close-tab [n]
       soprano-web browser windows
       soprano-web browser new-window [url] [--space <n|name>]
+      soprano-web browser little [url] [--space <n|name>]
+      soprano-web browser [--window n] little to-window
       soprano-web browser [--window n] close-window [n]
       soprano-web browser [--window n] [--tab m] move-to-window <k|new>
       soprano-web browser [--window n] spaces
@@ -309,7 +312,8 @@ enum BrowserCommand {
       soprano-web browser extension action <id> [<popup.png>]
       soprano-web browser extension update
 
-    `windows` lists the open windows (1-based) with their current Space,
+    `windows` lists the open windows (1-based) with their kind (`normal`
+    or `little` for a Little Arc), current Space (a Little Arc's own),
     its tab count, the selected tab's title and every Space's tab count;
     `*` marks the window commands use by default: the key
     window, else the most recently active one. `--window n` targets window n
@@ -336,6 +340,11 @@ enum BrowserCommand {
     case), else on the current Space of the window commands use by
     default (the Default Space when none is open); an unknown Space is an
     error.
+    `little` opens a Little Arc (one tab, compact toolbar) with `url` or the
+    start page, on the Space named by `--space`, else the Space of the
+    window commands use by default; `little to-window` moves a Little
+    Arc's tab into its Space's window (⌘O: a window showing the Space,
+    else the most recent normal window switched to it) and closes it.
     `close-window` puts the window on History ▸ Recently Closed, like ⇧⌘W.
     `move-to-window` moves the selected tab (or tab m) of the window into
     window k, after the tabs of its current Space, when that is the tab's
@@ -493,6 +502,9 @@ enum BrowserAutomationRouter {
         case "extension":
             BrowserExtensionCommands.perform(request.arguments, in: manager.extensions, completion: completion)
             return
+        case "little":
+            completion(littleArc(request, in: manager))
+            return
         case "new-window":
             let controller: BrowserWindowController
             if let value = request.space {
@@ -619,22 +631,60 @@ enum BrowserAutomationRouter {
         return .success("window \(window) tab \(index)")
     }
 
-    /// `* 1\tWork\t2 tabs\tExample Domain\tDefault 3, Work 2`, one line per
-    /// normal window: its current Space (`-` for a pop-up), that Space's
-    /// tab count, the selected tab's title and every Space's tab count in
-    /// the window.
+    /// `little [url] [--space]` opens a Little Arc; `little to-window` (on
+    /// `--window n`, else the most recent Little Arc) is ⌘O.
+    static func littleArc(_ request: BrowserCommandRequest, in manager: BrowserWindowManager) -> Result<String, Error> {
+        if request.arguments == ["to-window"] {
+            let little: BrowserWindowController?
+            if let number = request.windowIndex {
+                let windows = manager.automationControllers
+                little = windows.indices.contains(number - 1) ? windows[number - 1] : nil
+            } else {
+                little = manager.mostRecentlyActive { $0.role == .little }
+            }
+            guard let little, little.role == .little else {
+                return .failure(BrowserAutomationError.invalidArguments("No Little Arc. Use `windows` to list them."))
+            }
+            guard let target = manager.moveLittleArcToSpaceWindow(little) else {
+                return .failure(BrowserAutomationError.unavailable("The Little Arc has no tab to move."))
+            }
+            let space = manager.space(of: target)?.displayName ?? "-"
+            let index = (target.visibleTabs.firstIndex { $0.id == target.selectedTab?.id } ?? 0) + 1
+            return .success("window \(manager.number(of: target) ?? 0) tab \(index) (\(space))")
+        }
+        var spaceID: UUID?
+        if let value = request.space {
+            switch resolveSpace(value, in: manager) {
+            case .success(let index): spaceID = manager.spaces.spaces[index].id
+            case .failure(let error): return .failure(error)
+            }
+        } else {
+            spaceID = manager.automationActiveController.flatMap(manager.space(of:))?.id
+        }
+        let little = manager.newLittleArc(url: request.arguments.first, spaceID: spaceID)
+        let space = manager.space(of: little)?.displayName ?? "-"
+        return .success("window \(manager.number(of: little) ?? 0) little (\(space))")
+    }
+
+    /// `* 1\tnormal\tWork\t2 tabs\tExample Domain\tDefault 3, Work 2`, one
+    /// line per window the CLI sees: its kind (`normal`, `little`, `popup`),
+    /// its current Space (a Little Arc's own; `-` for a pop-up), that
+    /// Space's tab count, the selected tab's title and every Space's tab
+    /// count in the window.
     static func windowList(_ manager: BrowserWindowManager) -> String {
         let active = manager.automationActiveController
         return manager.automationControllers.enumerated().map { index, controller in
             let mark = controller === active ? "*" : " "
             let count = controller.visibleTabs.count
             let title = controller.selectedTab?.displayTitle ?? "New Tab"
-            let space = controller.currentSpaceID.flatMap(manager.spaces.space(id:))?.displayName ?? "-"
+            let space = (controller.currentSpaceID ?? controller.littleSpaceID)
+                .flatMap(manager.spaces.space(id:))?.displayName ?? "-"
             let perSpace = manager.spaces.spaces.compactMap { space -> String? in
                 let inSpace = controller.tabs.filter { $0.spaceID == space.id }.count
                 return inSpace == 0 ? nil : "\(space.displayName) \(inSpace)"
             }.joined(separator: ", ")
-            return "\(mark) \(index + 1)\t\(space)\t\(count) \(count == 1 ? "tab" : "tabs")\t\(title)\t\(perSpace)"
+            let kind = controller.role.rawValue
+            return "\(mark) \(index + 1)\t\(kind)\t\(space)\t\(count) \(count == 1 ? "tab" : "tabs")\t\(title)\t\(perSpace)"
         }.joined(separator: "\n")
     }
 

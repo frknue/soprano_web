@@ -61,7 +61,7 @@ extension BrowserWindowManager {
         let controller = makeWindow(
             frame: frame ?? frameForNewWindow(cascadingFrom: source),
             context: tab.dataContext,
-            spaceID: tab.spaceID,
+            spaceID: tab.spaceID ?? source.littleSpaceID,
             activate: raise
         )
         let find = source.findQuery(carriedBy: tab)
@@ -90,7 +90,7 @@ extension BrowserWindowManager {
         droppedAt screenPoint: NSPoint
     ) -> BrowserWindowController? {
         let point = NSPoint(x: screenPoint.x - placement.offset.x, y: screenPoint.y - placement.offset.y)
-        let size = source.isPopup
+        let size = source.role.isCompact
             ? (tabbedController.flatMap(sessionFrame(of:))?.size ?? placement.defaultFrame().size)
             : (sessionFrame(of: source)?.size ?? placement.defaultFrame().size)
         let frame = BrowserWindowFrames.dropped(
@@ -158,7 +158,7 @@ extension BrowserWindowManager {
             opener: sessionFrame(of: opener),
             screens: placement.screens()
         )
-        let controller = makeWindow(frame: frame, isPopup: true, context: tab.dataContext)
+        let controller = makeWindow(frame: frame, role: .popup, context: tab.dataContext)
         controller.attachTab(tab, select: true)
         present(controller)
         return controller
@@ -167,7 +167,7 @@ extension BrowserWindowManager {
     /// Whether a pop-up window `tab` opened is still open (its `opener`
     /// would break if the tab slept).
     func hasPopupWindow(openedBy tab: BrowserTab) -> Bool {
-        controllers.contains { $0.isPopup && $0.tabs.contains { $0.links.openerID == tab.id } }
+        controllers.contains { $0.role == .popup && $0.tabs.contains { $0.links.openerID == tab.id } }
     }
 
     private func closeIfEmptied(_ controller: BrowserWindowController) {

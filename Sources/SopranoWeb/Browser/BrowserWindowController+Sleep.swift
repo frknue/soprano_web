@@ -17,7 +17,7 @@ extension BrowserWindowController {
             isLoading: webView.isLoading,
             hasOpenPrompt: hasOpenPrompt(tab),
             hasUnsavedInput: !tab.lifecycle.unsavedFrames.isEmpty,
-            isPopup: isPopup || manager.hasPopupWindow(openedBy: tab),
+            isPopup: role == .popup || manager.hasPopupWindow(openedBy: tab),
             isKeptAwake: keepAwakeKey(for: tab).map(tab.dataContext.sitePermissions.keepsAwake(host:)) ?? false,
             lastActive: tab.lifecycle.lastActiveAt
         )

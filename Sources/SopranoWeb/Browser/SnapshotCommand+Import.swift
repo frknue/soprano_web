@@ -25,8 +25,12 @@ import AppKit
 /// - `--export-pins <file>` / `--export-all-pins <file>`: File ▸ Export
 ///   Pinned Tabs… for the window's Space / every Space; prints the counts
 ///   the file reads back as.
-/// - `--open-link <url>` (repeatable): a link from another app (the
-///   routing rules apply); prints the window and Space it opened in.
+/// - `--open-link <url>` (repeatable): a link from another app (a matching
+///   rule, else Settings ▸ Links from other apps ▸ "Open links from other
+///   apps in"); prints the window, its role (`normal`/`little`) and Space,
+///   and the route taken.
+/// - `--outside-links little|recent`: sets "Open links from other apps
+///   in" (Little Arc / the most recent window) before the links open.
 /// - `--link-routing-sheet`: captures Settings ▸ Links from other apps.
 struct SnapshotImportOptions {
     enum SheetStage: String {
@@ -40,6 +44,7 @@ struct SnapshotImportOptions {
     var sheet: SheetStage?
     var exports: [(url: URL, allSpaces: Bool)] = []
     var openLinks: [String] = []
+    var outsideLinks: BrowserOutsideLinkDestination?
     var showsLinkRoutingSheet = false
     /// `--import-from-private`: the import runs from a new private window.
     var fromPrivateWindow = false
@@ -49,7 +54,7 @@ struct SnapshotImportOptions {
     static let flags: Set<String> = [
         "--import-arc", "--import-chrome", "--import-safari", "--import-html", "--import-plan", "--import-sheet",
         "--export-pins", "--export-all-pins", "--open-link", "--link-routing-sheet", "--import-from-private",
-        "--import-space",
+        "--import-space", "--outside-links",
     ]
 
     static let usage = """
@@ -57,10 +62,12 @@ struct SnapshotImportOptions {
                                [--import-html <file>] [--import-plan] [--import-sheet [checklist|progress|result]]
                                [--export-pins <file>] [--export-all-pins <file>] [--open-link <url>]...
                                [--link-routing-sheet] [--import-from-private] [--import-space <name>]
+                               [--outside-links little|recent]
     """
 
     var isActive: Bool {
         !requests.isEmpty || sheet != nil || !exports.isEmpty || !openLinks.isEmpty || showsLinkRoutingSheet
+            || outsideLinks != nil
     }
 
     /// `peek` is the next argument (for optional values), `skip` consumes it.
@@ -105,6 +112,13 @@ struct SnapshotImportOptions {
             fromPrivateWindow = true
         case "--import-space":
             targetSpace = try value()
+        case "--outside-links":
+            let raw = try value()
+            switch raw {
+            case "little": outsideLinks = .littleArc
+            case "recent": outsideLinks = .mostRecentWindow
+            default: throw SnapshotCommand.OptionError.unknownOption("--outside-links \(raw)")
+            }
         case "--link-routing-sheet":
             showsLinkRoutingSheet = true
         default:
@@ -138,13 +152,17 @@ struct SnapshotImportOptions {
         for export in exports {
             exportPins(export.url, allSpaces: export.allSpaces, controller: controller)
         }
+        if let outsideLinks {
+            manager.linkRouting.setOtherLinks(outsideLinks)
+            print("outside-links: \(outsideLinks.title)")
+        }
         for link in openLinks {
             openLink(link, manager: manager)
         }
         if showsLinkRoutingSheet {
             let routingSheet = manager.makeLinkRoutingSheet()
             routingSheet.dump.forEach { print("link-routing: \($0)") }
-            if routingSheet.dump.isEmpty { print("link-routing: none") }
+            if manager.linkRouting.rules.isEmpty { print("link-routing: no rules") }
             outcome.linkRoutingSheet = routingSheet
         }
         return outcome
@@ -289,13 +307,18 @@ struct SnapshotImportOptions {
             print("open-link: bad URL \(link)")
             return
         }
-        let rule = manager.linkRouting.rule(for: link)
+        let route = manager.outsideLinkRoute(for: url)
         manager.open([url])
         let window = manager.activeController
         let number = window.flatMap { manager.controllers.firstIndex(of: $0) }.map { $0 + 1 } ?? 0
-        let space = window?.currentSpaceID.flatMap(manager.spaces.space(id:))?.displayName ?? "-"
-        let ruleText = rule.map { "rule \($0.match.rawValue) \($0.value)" } ?? "no rule"
-        print("open-link: \(link) -> window \(number), Space \(space) (\(ruleText)), \(window?.visibleTabs.count ?? 0) tabs")
+        let space = window.flatMap(manager.space(of:))?.displayName ?? "-"
+        let routeText = switch route {
+        case let .rule(rule): "rule \(rule.match.rawValue) \(rule.value)"
+        case .littleArc: "no rule: Little Arc"
+        case .mostRecentWindow: "no rule: most recent window"
+        }
+        let role = window?.role.rawValue ?? "-"
+        print("open-link: \(link) -> window \(number) (\(role)), Space \(space) (\(routeText)), \(window?.visibleTabs.count ?? 0) tabs")
     }
 
     // MARK: Output

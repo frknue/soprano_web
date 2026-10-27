@@ -272,7 +272,7 @@ struct BrowserShortcut: Hashable, Sendable {
         self.init(key, modifiers)
     }
 
-    private static func namedKey(keyCode: UInt16) -> String? {
+    static func namedKey(keyCode: UInt16) -> String? {
         switch keyCode {
         case 48: "tab"
         case 36, 76: "return"

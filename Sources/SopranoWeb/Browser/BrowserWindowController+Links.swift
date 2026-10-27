@@ -76,11 +76,12 @@ extension BrowserWindowController {
     /// Attaches a freshly made tab (of the opener's data context) after its
     /// opener in the opener's Space and records the opener. From a pop-up
     /// window the tab opens at the end of the current Space of a window
-    /// whose current Space uses the pop-up's data context instead. A tab
-    /// opened from a hidden Space never takes the selection.
+    /// whose current Space uses the pop-up's data context instead; from a
+    /// Little Arc, in a window showing its Space (`windowForNewTabs`). A
+    /// tab opened from a hidden Space never takes the selection.
     @discardableResult
     func insertLinkTab(_ tab: BrowserTab, opener: BrowserTab, select: Bool) -> BrowserTab {
-        if isPopup {
+        if role.isCompact {
             let (target, isNewWindow) = manager.windowForNewTabs(from: self)
             tab.spaceID = target.currentSpaceID
             target.insertLinkTab(tab, opener: opener, select: select || isNewWindow)

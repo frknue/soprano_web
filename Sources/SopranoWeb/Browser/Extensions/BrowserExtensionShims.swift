@@ -47,11 +47,11 @@ enum BrowserExtensionShims {
         /// A string at this key path (or in the object there) containing
         /// the text.
         case text([String], String)
-        /// The extension pages' content security policy lets them connect
-        /// to one of these schemes: a scheme source (`wss:`) or a host
-        /// source (`wss://host`) in its `connect-src`, or in its
-        /// `default-src` without one (`BrowserExtensionSocketPolicy`).
-        case connectScheme([String])
+        /// The extension pages' content security policy could let them
+        /// open a socket: its `connect-src` (or `default-src` without one)
+        /// is missing or permits some `ws:`/`wss:` address
+        /// (`BrowserExtensionSocketPolicy.mayConnectToSockets`).
+        case socketsPermitted
         /// All of these.
         case all([Trigger])
     }
@@ -89,10 +89,11 @@ enum BrowserExtensionShims {
         // worker (1Password's popup would stay on "connecting").
         StandIn(name: "clients", triggers: [.key(["background", "service_worker"])]),
         // A worker's `new WebSocket` never returns in WebKit and freezes the
-        // extension (1Password opens one when sign-in succeeds); a worker
-        // whose pages' policy names no socket address gets no app socket.
+        // extension (1Password opens one when sign-in succeeds): every
+        // worker whose pages' policy could permit a socket gets the app's
+        // (the policy, host access and handshake checks bound it there).
         StandIn(name: "webSocket", triggers: [
-            .all([.key(["background", "service_worker"]), .connectScheme(["ws", "wss"])]),
+            .all([.key(["background", "service_worker"]), .socketsPermitted]),
         ]),
     ]
 
@@ -112,11 +113,8 @@ enum BrowserExtensionShims {
             value(at: path, in: manifest) != nil
         case let .text(path, text):
             strings(in: value(at: path, in: manifest)).contains { $0.contains(text) }
-        case let .connectScheme(schemes):
-            (BrowserExtensionSocketPolicy.connectSources(in: manifest) ?? []).contains { source in
-                let source = source.lowercased()
-                return schemes.contains { source == "\($0):" || source.hasPrefix("\($0)://") }
-            }
+        case .socketsPermitted:
+            BrowserExtensionSocketPolicy.mayConnectToSockets(sources: BrowserExtensionSocketPolicy.connectSources(in: manifest))
         case let .all(triggers):
             triggers.allSatisfy { applies($0, to: manifest, permissions: permissions) }
         }

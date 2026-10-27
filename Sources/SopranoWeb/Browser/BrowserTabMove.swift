@@ -6,30 +6,31 @@ import WebKit
 /// uses the tab's data context — every Space has its own, so that is the
 /// tab's own Space (a private window's own context is shared only with
 /// the windows its tabs moved into) — and it lands there in that Space. A
-/// pop-up window holds only the tab its page opened.
+/// pop-up window holds only the tab its page opened and a Little Arc only
+/// its one tab; both give theirs away.
 enum BrowserTabMoveRule {
     struct Window: Equatable, Sendable {
         var id: UUID
         /// The window's current `BrowserDataContext.id` (its current
-        /// Space's; a private or pop-up window's fixed one).
+        /// Space's; a private, pop-up or Little Arc window's fixed one).
         var context: UUID
-        var isPopup: Bool
+        var role: BrowserWindowRole
         /// A normal window, which holds every Space.
         var hasSpaces: Bool
     }
 
     /// Whether a tab of data context `tabContext` may move from window
-    /// `source` into `target` (drops, `move-to-window`, the menu).
+    /// `source` into `target` (drops, `move-to-window`, the menu, ⌘O).
     static func allows(tabContext: UUID, from source: UUID, to target: Window) -> Bool {
-        source != target.id && !target.isPopup && tabContext == target.context
+        source != target.id && target.role == .normal && tabContext == target.context
     }
 
     /// Merge All Windows: whether every tab of `source` joins `target`,
     /// each keeping its Space. Normal windows all merge (each has every
     /// Space); a private window merges only with windows of its context;
-    /// pop-up windows never take part.
+    /// pop-up windows and Little Arcs never take part.
     static func merges(_ source: Window, into target: Window) -> Bool {
-        guard source.id != target.id, !source.isPopup, !target.isPopup else { return false }
+        guard source.id != target.id, source.role == .normal, target.role == .normal else { return false }
         if source.hasSpaces || target.hasSpaces {
             return source.hasSpaces && target.hasSpaces
         }

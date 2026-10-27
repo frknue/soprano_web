@@ -8,10 +8,11 @@ import AppKit
 extension BrowserWindowController {
     // MARK: - Archiving
 
-    /// What `BrowserArchivePolicy` reads from `tab` in this window.
+    /// What `BrowserArchivePolicy` reads from `tab` in this window. A Little
+    /// Arc's tab is in its window's Space.
     func archiveCandidate(_ tab: BrowserTab) -> BrowserArchiveCandidate {
         BrowserArchiveCandidate(
-            inSpace: hasSpaces && !kind.isPrivate && tab.spaceID != nil,
+            inSpace: !kind.isPrivate && (hasSpaces ? tab.spaceID != nil : littleSpaceID != nil),
             isToday: tab.origin == .today,
             isStartPage: tab.isStartPage || !BrowserArchiveEntry.isArchivable(tab.item.url),
             activity: sleepCandidate(tab)
@@ -32,7 +33,7 @@ extension BrowserWindowController {
         return BrowserArchiveEntry(
             url: url.absoluteString,
             title: tab.title.trimmingCharacters(in: .whitespacesAndNewlines),
-            spaceID: tab.spaceID,
+            spaceID: tab.spaceID ?? littleSpaceID,
             profileID: tab.dataContext.profileID,
             archivedAt: date ?? manager.tabSleeper.now(),
             reason: reason,

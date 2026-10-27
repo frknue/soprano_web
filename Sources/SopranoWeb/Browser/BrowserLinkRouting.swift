@@ -127,21 +127,25 @@ enum BrowserLinkRouting {
     }
 }
 
-/// `link-routing.json`: `{ "version": 1, "rules": [{ "id", "match":
-/// "contains" | "equals" | "prefix", "value", "space"?, "importedFrom"? }] }`.
-/// Decoding is tolerant: a rule that does not decode is skipped and a
-/// repeated id keeps its first rule.
+/// `link-routing.json`: `{ "version": 1, "otherLinks": "littleArc" |
+/// "mostRecentWindow", "rules": [{ "id", "match": "contains" | "equals" |
+/// "prefix", "value", "space"?, "importedFrom"? }] }`. Decoding is
+/// tolerant: a rule that does not decode is skipped, a repeated id keeps
+/// its first rule, and a missing or unknown `otherLinks` is Little Arc.
 struct BrowserLinkRoutingFile: Codable, Equatable, Sendable {
     static let currentVersion = 1
 
     var rules: [BrowserLinkRoutingRule]
+    /// Where links no rule matches go.
+    var otherLinks: BrowserOutsideLinkDestination
 
-    init(rules: [BrowserLinkRoutingRule]) {
+    init(rules: [BrowserLinkRoutingRule], otherLinks: BrowserOutsideLinkDestination = .littleArc) {
         self.rules = rules
+        self.otherLinks = otherLinks
     }
 
     private enum CodingKeys: String, CodingKey {
-        case version, rules
+        case version, rules, otherLinks
     }
 
     init(from decoder: Decoder) throws {
@@ -149,34 +153,46 @@ struct BrowserLinkRoutingFile: Codable, Equatable, Sendable {
         let decoded = (try? c.decodeIfPresent(LossyArray<BrowserLinkRoutingRule>.self, forKey: .rules))?.elements ?? []
         var seen: Set<UUID> = []
         rules = decoded.filter { seen.insert($0.id).inserted }
+        otherLinks = ((try? c.decodeIfPresent(BrowserOutsideLinkDestination.self, forKey: .otherLinks)) ?? nil) ?? .littleArc
     }
 
     func encode(to encoder: Encoder) throws {
         var c = encoder.container(keyedBy: CodingKeys.self)
         try c.encode(Self.currentVersion, forKey: .version)
+        try c.encode(otherLinks, forKey: .otherLinks)
         try c.encode(rules, forKey: .rules)
     }
 }
 
 // MARK: - Store
 
-/// The rules for links from other apps, saved to `link-routing.json`
-/// (support folder) after each change and announced on `changes`. Rules
-/// come from an import; Settings ▸ Links from other apps lists and deletes
-/// them.
+/// The rules for links from other apps and where the other links go,
+/// saved to `link-routing.json` (support folder) after each change and
+/// announced on `changes`. Rules come from an import; Settings ▸ Links
+/// from other apps lists and deletes them and picks "Open links from other
+/// apps in" (an Arc import sets it from Arc's `defaultDestination`).
 @MainActor
 final class BrowserLinkRoutingStore {
     let url: URL
     let changes = BrowserObservers<Void>()
     private(set) var rules: [BrowserLinkRoutingRule]
+    private(set) var otherLinks: BrowserOutsideLinkDestination
 
     init(url: URL = BrowserFiles.supportDirectory().appendingPathComponent("link-routing.json")) {
         self.url = url
-        rules = JSONFile.read(BrowserLinkRoutingFile.self, at: url)?.rules ?? []
+        let file = JSONFile.read(BrowserLinkRoutingFile.self, at: url)
+        rules = file?.rules ?? []
+        otherLinks = file?.otherLinks ?? .littleArc
     }
 
     func rule(for address: String) -> BrowserLinkRoutingRule? {
         BrowserLinkRouting.rule(for: address, in: rules)
+    }
+
+    func setOtherLinks(_ destination: BrowserOutsideLinkDestination) {
+        guard destination != otherLinks else { return }
+        otherLinks = destination
+        commit()
     }
 
     /// Appends the rules that are not already there (`isSameRule`);
@@ -235,7 +251,7 @@ final class BrowserLinkRoutingStore {
     }
 
     private func commit() {
-        try? JSONFile.write(BrowserLinkRoutingFile(rules: rules), to: url)
+        try? JSONFile.write(BrowserLinkRoutingFile(rules: rules, otherLinks: otherLinks), to: url)
         changes.notify()
     }
 }

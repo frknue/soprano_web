@@ -5,18 +5,19 @@ extension BrowserWindowController {
     // MARK: - Tabs
 
     /// A new Today tab at the end of the current Space, the start page or
-    /// `url`, of the current Space's profile. A pop-up window has no tab
-    /// list: its new tabs open in a window whose current Space uses its
-    /// data context.
+    /// `url`, of the current Space's profile. A pop-up or Little Arc window
+    /// has no tab list: its new tabs open in a window whose current Space
+    /// uses its data context (a Little Arc's: its Space). An empty Little
+    /// Arc (just made) gets its one tab here.
     @discardableResult
     func newTab(
         url: String? = nil,
         focusAddress: Bool = false,
         select: Bool = true
     ) -> BrowserTab {
-        if isPopup {
-            let target = manager.windowForNewTabs(from: self).window
-            let tab = target.newTab(url: url, focusAddress: focusAddress, select: select)
+        if role.isCompact, role == .popup || !tabs.isEmpty {
+            let (target, isNew) = manager.windowForNewTabs(from: self)
+            let tab = target.newTab(url: url, focusAddress: focusAddress, select: select || isNew)
             manager.present(target)
             return tab
         }

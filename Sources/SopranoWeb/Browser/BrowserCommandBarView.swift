@@ -267,7 +267,9 @@ final class BrowserCommandBarView: NSView, NSTextFieldDelegate {
 
         listHeight = scrollView.heightAnchor.constraint(equalToConstant: 0)
         widthConstraint = surface.widthAnchor.constraint(equalToConstant: Self.width)
-        widthConstraint.priority = .defaultHigh
+        // Below `windowSizeStayPut`: a narrow window (a Little Arc, a
+        // pop-up) narrows the bar instead of growing to fit it.
+        widthConstraint.priority = NSLayoutConstraint.Priority(rawValue: NSLayoutConstraint.Priority.windowSizeStayPut.rawValue - 10)
         fieldLeadingToIcon = field.leadingAnchor.constraint(equalTo: searchIcon.trailingAnchor, constant: 10)
         fieldLeadingToChip = field.leadingAnchor.constraint(equalTo: chip.trailingAnchor, constant: 8)
         NSLayoutConstraint.activate([

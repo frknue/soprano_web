@@ -6,6 +6,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private var menuController: MainMenuController?
     private var automationController: BrowserAutomationController?
     private var pendingURLs: [URL] = []
+    /// Settings ▸ Keyboard shortcuts ▸ "New Little Arc from any app".
+    private let globalHotKey = BrowserGlobalHotKey()
+    private var appliedGlobalHotKey: BrowserShortcut?
+    private var settingsObservation: BrowserObservation?
 
     func applicationWillFinishLaunching(_ notification: Notification) {
         Self.installApplicationIcon()
@@ -46,6 +50,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             self?.windowManager
         }
 
+        applyGlobalHotKey(settingsStore.settings)
+        settingsObservation = settingsStore.changes.observe { [weak self] settings in
+            self?.applyGlobalHotKey(settings)
+        }
         manager.restoreSession()
         NSApp.activate(ignoringOtherApps: true)
         if let controller = manager.activeController, controller.selectedTab?.isStartPage == true {
@@ -58,8 +66,20 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         }
     }
 
-    /// Links from other apps open in the most recently active normal window
-    /// (never a private one), or a new window when none is open.
+    /// Registers the global New Little Arc shortcut while the setting is on.
+    private func applyGlobalHotKey(_ settings: BrowserSettings) {
+        let wanted = settings.globalLittleArcEnabled ? BrowserShortcut(settings.globalLittleArcShortcut) : nil
+        guard wanted != appliedGlobalHotKey else { return }
+        appliedGlobalHotKey = wanted
+        globalHotKey.register(wanted) { [weak self] in
+            guard let manager = self?.windowManager else { return }
+            NSApp.activate()
+            manager.newLittleArc(commandBar: true)
+        }
+    }
+
+    /// Links from other apps: a matching link rule's Space, else a Little
+    /// Arc or the most recent window (Settings ▸ Links from other apps).
     func application(_ application: NSApplication, open urls: [URL]) {
         guard let windowManager else {
             pendingURLs.append(contentsOf: urls)

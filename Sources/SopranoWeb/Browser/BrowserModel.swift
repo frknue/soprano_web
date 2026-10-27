@@ -158,6 +158,12 @@ struct BrowserSettings: Codable, Equatable, Sendable {
     /// Settings ▸ Keyboard shortcuts: remapped shortcuts and their
     /// priority, by command id.
     var shortcuts = BrowserShortcutSettings()
+    /// Settings ▸ Keyboard shortcuts ▸ "New Little Arc from any app": off
+    /// by default; while on, `globalLittleArcShortcut` opens a Little Arc
+    /// with the Command Bar whichever app is in front.
+    var globalLittleArcEnabled: Bool = false
+    /// That shortcut, as `"opt+cmd+n"`.
+    var globalLittleArcShortcut: String = "opt+cmd+n"
 
     static let `default` = BrowserSettings()
 
@@ -241,6 +247,10 @@ extension BrowserSettings {
             .map(BrowserZoom.nearestStep) ?? defaultZoom
         blockAdsAndTrackers = (try? c.decodeIfPresent(Bool.self, forKey: .blockAdsAndTrackers)) ?? blockAdsAndTrackers
         shortcuts = (try? c.decodeIfPresent(BrowserShortcutSettings.self, forKey: .shortcuts)) ?? shortcuts
+        globalLittleArcEnabled = (try? c.decodeIfPresent(Bool.self, forKey: .globalLittleArcEnabled))
+            ?? globalLittleArcEnabled
+        globalLittleArcShortcut = (try? c.decodeIfPresent(String.self, forKey: .globalLittleArcShortcut))
+            .flatMap { BrowserShortcut($0)?.storageText } ?? globalLittleArcShortcut
     }
 }
 
@@ -482,11 +492,15 @@ struct BrowserWindowState: Codable, Equatable, Sendable {
     /// Missing in files written before profiles: Default. A profile that no
     /// longer exists opens in Default too.
     var profileID = BrowserProfile.defaultID
-    /// The Space the window shows; nil in a private window and in version 2
-    /// files (`placedInSpaces` picks the profile's first Space).
+    /// The Space the window shows (a Little Arc's: its Space); nil in a
+    /// private window and in version 2 files (`placedInSpaces` picks the
+    /// profile's first Space).
     var currentSpaceID: UUID?
     /// The tab each Space selects when the window switches to it.
     var spaceSelections: [BrowserSpaceSelection] = []
+    /// Normal or Little Arc (pop-ups are never saved); missing before
+    /// version 4: normal.
+    var role: BrowserWindowRole = .normal
 }
 
 /// A Space's remembered tab in a saved window: its index in the window's
@@ -507,6 +521,7 @@ extension BrowserWindowState {
         currentSpaceID = (try? c.decodeIfPresent(UUID.self, forKey: .currentSpaceID)) ?? nil
         spaceSelections = (try? c.decodeIfPresent(LossyArray<BrowserSpaceSelection>.self, forKey: .spaceSelections))?
             .elements ?? []
+        role = (try? c.decodeIfPresent(BrowserWindowRole.self, forKey: .role)) ?? .normal
     }
 
     /// The selected tab's title, as the Window menu showed it.
@@ -533,9 +548,10 @@ extension BrowserTabState {
 /// Version 2 windows have no Spaces; their tabs open in the first Space of
 /// the window's profile (`BrowserWindowState.placedInSpaces`). Version 3
 /// adds each window's `currentSpaceID` and `spaceSelections` and each
-/// tab's `spaceID` and pin or favorite link.
+/// tab's `spaceID` and pin or favorite link. Version 4 adds each window's
+/// `role` (`normal` or `little`); older windows are normal.
 struct BrowserSession: Codable, Equatable, Sendable {
-    static let currentVersion = 3
+    static let currentVersion = 4
 
     /// The version of the file this was read from; new sessions are current.
     var version = Self.currentVersion

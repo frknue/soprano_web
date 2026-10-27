@@ -111,6 +111,8 @@ struct SnapshotSessionOptions {
         case archive(SnapshotArchiveAction)
         /// Command Bar and shortcut flags (`SnapshotCommandBarAction`).
         case commandBar(SnapshotCommandBarAction)
+        /// Little Arc flags (`SnapshotLittleArcAction`).
+        case littleArc(SnapshotLittleArcAction)
     }
 
     static let flags: Set<String> = Set([
@@ -123,7 +125,7 @@ struct SnapshotSessionOptions {
         "--dump-tabs", "--save-session", "--capture-window",
         "--create-space", "--space", "--swipe-rail", "--print-spaces", "--delete-space",
     ]).union(SnapshotSleepAction.flags).union(SnapshotBlockerAction.flags).union(SnapshotRailAction.flags)
-        .union(SnapshotArchiveAction.flags)
+        .union(SnapshotArchiveAction.flags).union(SnapshotLittleArcAction.flags)
     static let usage = """
                                [--session <file>] [--visit <url>] [--select <n>] [--close-tab]
                                [--reopen-closed] [--duplicate] [--go-back] [--reload]
@@ -140,6 +142,7 @@ struct SnapshotSessionOptions {
                                [--space <n|name>] [--swipe-rail next|previous] [--print-spaces]
     \(SnapshotRailAction.usage)
     \(SnapshotArchiveAction.usage)
+    \(SnapshotLittleArcAction.usage)
     \(SnapshotCommandBarAction.usage)
     """
 
@@ -245,6 +248,10 @@ struct SnapshotSessionOptions {
                 actions.append(.archive(action))
                 return
             }
+            if let action = try SnapshotLittleArcAction.parse(option, value: value) {
+                actions.append(.littleArc(action))
+                return
+            }
             if let action = try SnapshotBlockerAction.parse(option, value: value) {
                 actions.append(.blocker(action))
                 return
@@ -307,6 +314,9 @@ struct SnapshotSessionOptions {
             action.perform(in: manager)
             return
         case .commandBar(let action):
+            action.perform(in: manager)
+            return
+        case .littleArc(let action):
             action.perform(in: manager)
             return
         case let .newWindow(value):
@@ -462,7 +472,7 @@ struct SnapshotSessionOptions {
             Self.swipeRail(next: next, in: controller, manager: manager)
         case .newWindow, .newPrivateWindow, .deleteSpace, .activateWindow, .moveTab, .dropTab, .dropOutside,
              .mergeWindows, .cli, .waitDownloads, .printWindows, .printSpaces, .reopenClosed, .sleep, .blocker, .rail,
-             .archive, .commandBar:
+             .archive, .commandBar, .littleArc:
             break
         }
     }
@@ -729,7 +739,9 @@ struct SnapshotSessionOptions {
                 "cliNumber": manager.number(of: controller) ?? NSNull(),
                 "kind": controller.kind.rawValue,
                 "active": controller === active,
-                "popup": controller.isPopup,
+                "popup": controller.role == .popup,
+                "role": controller.role.rawValue,
+                "littleSpace": controller.littleSpaceID.flatMap(manager.spaces.space(id:))?.displayName ?? NSNull(),
                 "title": controller.window?.title ?? "",
                 // The Space whose data the window uses (a private window's:
                 // the one it was opened over) and that data's profile id.

@@ -108,13 +108,17 @@ enum BrowserImportChecklist {
             var detail = count(importable, "rule")
             let notImported = routing.rules.count - importable
             if notImported > 0 { detail += " · \(notImported) for Little Arc, an Arc profile or an unchecked Space not imported" }
+            if let otherLinks = routing.otherLinks {
+                detail += " · other links open in \(otherLinks == .littleArc ? "Little Arc" : "the most recent window")"
+            }
+            let enabled = importable > 0 || routing.otherLinks != nil
             rows.append(Row(
                 item: .routing,
                 section: "Links from other apps",
                 title: "Air Traffic Control rules",
                 detail: detail,
-                isChecked: routing.isIncluded && importable > 0,
-                isEnabled: importable > 0
+                isChecked: routing.isIncluded && enabled,
+                isEnabled: enabled
             ))
         }
         return rows
@@ -163,6 +167,9 @@ enum BrowserImportChecklist {
         if let routing = plan.routing, routing.isIncluded, plan.importableRuleCount > 0 {
             parts.append(count(plan.importableRuleCount, "rule"))
         }
+        if let routing = plan.routing, routing.isIncluded, let otherLinks = routing.otherLinks {
+            parts.append("links to \(otherLinks == .littleArc ? "Little Arc" : "the most recent window")")
+        }
         return parts.isEmpty ? "Nothing to import" : parts.joined(separator: " · ")
     }
 
@@ -176,6 +183,9 @@ enum BrowserImportChecklist {
             + (summary.favoritesPinned > 0 ? ", \(summary.favoritesPinned) more pinned" : ""))
         lines.append("\(count(summary.archiveAdded, "archived tab"))")
         lines.append("\(count(summary.rulesAdded, "link rule"))")
+        if let otherLinks = summary.otherLinks {
+            lines.append("Links from other apps open in \(otherLinks == .littleArc ? "Little Arc" : "the most recent window")")
+        }
         for history in summary.history {
             var line = "\(history.title): \(count(history.count.added, "visit")) added"
             if history.count.skipped > 0 { line += ", \(history.count.skipped.formatted()) there already" }

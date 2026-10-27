@@ -15,6 +15,9 @@ struct BrowserArcImport: Sendable, Equatable {
     /// Archived tabs with a URL, oldest first, as Arc stores them.
     var archive: [BrowserImportedArchiveItem]
     var routingRules: [BrowserImportedRoutingRule]
+    /// `StorableLinkRouting.json`'s `defaultDestination`: where Arc sends
+    /// links no rule matches (Little Arc, or a Space); nil when absent.
+    var defaultLinkDestination: BrowserImportedRoutingRule.Destination? = nil
     /// Item `sourceID` (pins, Today tabs, favorites, archive) → its cached
     /// favicon, a PNG file in Arc's support folder.
     var favicons: [String: URL]
@@ -117,6 +120,7 @@ struct BrowserArcImportReader: Sendable {
         }
 
         let archive = readArchive()
+        let routing = readRoutingRules()
         var itemIDs = spaces.flatMap { space in
             space.pinned.flatMap(\.links).map(\.sourceID) + space.today.map(\.sourceID)
         }
@@ -128,7 +132,8 @@ struct BrowserArcImportReader: Sendable {
             spaces: spaces,
             favorites: favorites,
             archive: archive,
-            routingRules: readRoutingRules(),
+            routingRules: routing.rules,
+            defaultLinkDestination: routing.defaultDestination,
             favicons: favicons(for: itemIDs.compactMap { $0 }),
             historyFiles: historyFiles
         )
@@ -247,10 +252,10 @@ struct BrowserArcImportReader: Sendable {
         }
     }
 
-    private func readRoutingRules() -> [BrowserImportedRoutingRule] {
+    private func readRoutingRules() -> (rules: [BrowserImportedRoutingRule], defaultDestination: BrowserImportedRoutingRule.Destination?) {
         let url = supportDirectory.appendingPathComponent("StorableLinkRouting.json")
         guard FileManager.default.fileExists(atPath: url.path), let root = try? Self.jsonObject(at: url) else {
-            return []
+            return ([], nil)
         }
         var rules: [BrowserImportedRoutingRule] = []
         for case let rule as [String: Any] in root["rules"] as? [Any] ?? [] {
@@ -271,7 +276,7 @@ struct BrowserArcImportReader: Sendable {
                 rules.append(BrowserImportedRoutingRule(match: match, value: value, destination: destination))
             }
         }
-        return rules
+        return (rules, Self.destination(root["defaultDestination"]))
     }
 
     /// `{"space": {"_0": {"mostRecent": {}}}}`, a Space id inside the

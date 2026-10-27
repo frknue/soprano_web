@@ -5,7 +5,8 @@ extension BrowserWindowController {
     // MARK: - Session
 
     /// What the session saves for this window: every tab of every Space,
-    /// the current Space and each Space's selection.
+    /// the current Space (a Little Arc's own Space) and each Space's
+    /// selection.
     var windowState: BrowserWindowState {
         let ids = tabs.map(\.id)
         return BrowserWindowState(
@@ -14,10 +15,11 @@ extension BrowserWindowController {
             tabs: tabs.map(\.state),
             selectedIndex: selectedTab.flatMap { selected in ids.firstIndex(of: selected.id) } ?? 0,
             profileID: profileID,
-            currentSpaceID: currentSpaceID,
+            currentSpaceID: currentSpaceID ?? littleSpaceID,
             spaceSelections: spaceSelections.compactMap { spaceID, tabID in
                 ids.firstIndex(of: tabID).map { BrowserSpaceSelection(spaceID: spaceID, index: $0) }
-            }.sorted { $0.index < $1.index }
+            }.sorted { $0.index < $1.index },
+            role: role == .little ? .little : .normal
         )
     }
 
@@ -233,10 +235,19 @@ extension BrowserWindowController: NSWindowDelegate {
     /// another app): a ⌃ released elsewhere must not pick a tab later.
     func windowDidResignKey(_ notification: Notification) {
         cancelRecentTabs()
+        markLittleArcUsed()
     }
 
     func windowDidBecomeKey(_ notification: Notification) {
         manager.windowBecameActive(self)
+        markLittleArcUsed()
+    }
+
+    /// A Little Arc's idle time (6 hours closes it) starts when it was last
+    /// key.
+    private func markLittleArcUsed() {
+        guard role == .little else { return }
+        selectedTab?.lifecycle.lastActiveAt = manager.tabSleeper.now()
     }
 
     func windowDidMove(_ notification: Notification) {

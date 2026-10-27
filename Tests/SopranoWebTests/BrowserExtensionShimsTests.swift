@@ -51,26 +51,35 @@ struct BrowserExtensionShimsTests {
         #expect(BrowserExtensionShims.standIns(for: ["permissions": ["tabs"]]).isEmpty)
     }
 
-    @Test func onlyAWorkerWhosePolicyNamesASocketGetsTheWebSocket() {
+    @Test func everyWorkerWhosePolicyCouldPermitASocketGetsTheWebSocket() {
         let worker: [String: Any] = ["background": ["service_worker": "w.js"]]
         func standIns(_ policy: Any?) -> [String] {
             var manifest = worker
             manifest["content_security_policy"] = policy
             return BrowserExtensionShims.standIns(for: manifest)
         }
-        // No policy, or one that bounds no connection: every address is
-        // open, but nothing says the worker needs a socket.
-        #expect(standIns(nil) == ["clients"])
-        #expect(standIns(["extension_pages": "script-src 'self'"]) == ["clients"])
-        #expect(standIns(["extension_pages": "connect-src https://api.example.com"]) == ["clients"])
-        #expect(standIns(["extension_pages": "connect-src *"]) == ["clients"])
+        // No policy, one that bounds no connection, `*`, http(s) (they
+        // cover ws/wss) or a scheme-less host: the policy permits a socket,
+        // so the worker gets the app's (WebKit's own would freeze it).
+        #expect(standIns(nil) == ["clients", "webSocket"])
+        #expect(standIns(["extension_pages": "script-src 'self'"]) == ["clients", "webSocket"])
+        #expect(standIns(["extension_pages": "connect-src https://api.example.com"]) == ["clients", "webSocket"])
+        #expect(standIns(["extension_pages": "connect-src *"]) == ["clients", "webSocket"])
+        #expect(standIns(["extension_pages": "connect-src http:"]) == ["clients", "webSocket"])
+        #expect(standIns(["extension_pages": "connect-src api.example.com"]) == ["clients", "webSocket"])
         // A scheme source or a host source with a socket scheme, in
         // `connect-src` or in `default-src` without one; MV2's string too.
         #expect(standIns(["extension_pages": "connect-src 'self' wss:"]) == ["clients", "webSocket"])
         #expect(standIns(["extension_pages": "default-src 'self' WS://localhost:8080"]) == ["clients", "webSocket"])
         #expect(standIns("script-src 'self'; connect-src wss://push.example.com/") == ["clients", "webSocket"])
+        #expect(standIns(["extension_pages": "default-src wss:; connect-src https:"]) == ["clients", "webSocket"])
+        // Only keywords or other schemes: no socket can open.
+        #expect(standIns(["extension_pages": "connect-src 'self'"]) == ["clients"])
+        #expect(standIns(["extension_pages": "connect-src 'none'"]) == ["clients"])
+        #expect(standIns(["extension_pages": "default-src 'self' data: blob:; script-src 'self'"]) == ["clients"])
+        #expect(standIns(["extension_pages": "connect-src ftp://files.example.com"]) == ["clients"])
         // `connect-src` wins over `default-src`.
-        #expect(standIns(["extension_pages": "default-src wss:; connect-src https:"]) == ["clients"])
+        #expect(standIns(["extension_pages": "default-src wss:; connect-src 'self'"]) == ["clients"])
         // Background pages are no worker.
         #expect(BrowserExtensionShims.standIns(for: [
             "background": ["scripts": ["a.js"]],
@@ -95,7 +104,7 @@ struct BrowserExtensionShimsTests {
         #expect(try read(folder, "popup.html").contains("<head><script src=\"/soprano-shim.js\"></script><meta"))
         #expect(try read(folder, "page.htm") == "<script src=\"/soprano-shim.js\"></script><p>no head</p>")
         let shim = try read(folder, "soprano-shim.js")
-        #expect(shim.contains(#"new Set(["notifications","clients"])"#))
+        #expect(shim.contains(#"new Set(["notifications","clients","webSocket"])"#))
         #expect(!shim.contains("__SOPRANO_"))
         // nativeMessaging was already asked for: the manifest is untouched.
         #expect(try read(folder, "manifest.json") == manifestBefore)

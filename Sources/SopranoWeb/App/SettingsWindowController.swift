@@ -40,9 +40,31 @@ final class SettingsWindowController: NSWindowController, NSTextFieldDelegate {
         let button = ChromeButton(title: "Customize…", theme: theme, kind: .standard)
         button.target = self
         button.action = #selector(shortcutsPressed)
-        button.widthAnchor.constraint(equalToConstant: 200).isActive = true
+        button.widthAnchor.constraint(equalToConstant: 112).isActive = true
         return button
     }()
+    /// Keyboard shortcuts ▸ "New Little Arc from any app" (off by default)
+    /// and its shortcut; a click on the shortcut records a new one.
+    private lazy var globalLittleArcSwitch: ChromeSwitch = {
+        let control = ChromeSwitch(
+            isOn: settingsStore.settings.globalLittleArcEnabled,
+            theme: theme,
+            target: self,
+            action: #selector(globalLittleArcChanged)
+        )
+        control.toolTip = "New Little Arc from any app"
+        return control
+    }()
+    private lazy var globalLittleArcButton: ChromeButton = {
+        let button = ChromeButton(title: globalLittleArcTitle, theme: theme, kind: .standard)
+        button.target = self
+        button.action = #selector(recordGlobalLittleArc)
+        button.toolTip = "New Little Arc from any app: click, then type the shortcut (Esc cancels)"
+        button.widthAnchor.constraint(equalToConstant: 168).isActive = true
+        return button
+    }()
+    /// The key monitor while the global shortcut is being recorded.
+    private var globalShortcutMonitor: Any?
     private lazy var searchEnginesButton: ChromeButton = {
         let button = ChromeButton(title: "Manage…", theme: theme, kind: .standard)
         button.target = self
@@ -293,7 +315,7 @@ final class SettingsWindowController: NSWindowController, NSTextFieldDelegate {
             [rowLabel("Autoplay"), autoplayButton],
             [rowLabel("Notifications"), notificationsRow()],
             [rowLabel("Block ads and trackers"), contentBlockingRow()],
-            [rowLabel("Keyboard shortcuts"), shortcutsButton],
+            [rowLabel("Keyboard shortcuts"), shortcutsRow()],
             [rowLabel("Websites"), websitesButton],
             [rowLabel("Website data"), websiteDataButton],
             [rowLabel("Default browser"), defaultBrowserRow()],
@@ -426,6 +448,8 @@ final class SettingsWindowController: NSWindowController, NSTextFieldDelegate {
         searchEnginesButton.apply(theme: theme)
         searchEnginesSheet?.apply(theme: theme)
         shortcutsButton.apply(theme: theme)
+        globalLittleArcSwitch.apply(theme: theme)
+        globalLittleArcButton.apply(theme: theme)
         shortcutsSheet?.apply(theme: theme)
         themeButton.apply(theme: theme)
         appearanceButton.apply(theme: theme)
@@ -480,6 +504,8 @@ final class SettingsWindowController: NSWindowController, NSTextFieldDelegate {
         notificationsSwitch.isOn = settingsStore.settings.allowsNotificationRequests
         askDownloadSwitch.isOn = settingsStore.settings.askDownloadLocation
         blockAdsSwitch.isOn = settingsStore.settings.blockAdsAndTrackers
+        globalLittleArcSwitch.isOn = settingsStore.settings.globalLittleArcEnabled
+        globalLittleArcButton.title = globalLittleArcTitle
         refreshContentBlocking()
         refreshDefaultBrowser()
         refreshDownloadLabel()
@@ -522,6 +548,57 @@ final class SettingsWindowController: NSWindowController, NSTextFieldDelegate {
         window.beginSheet(sheetWindow) { [weak self] _ in
             self?.shortcutsSheet = nil
         }
+    }
+
+    /// Customize…, then "New Little Arc from any app": its switch and
+    /// shortcut.
+    private func shortcutsRow() -> NSView {
+        let stack = NSStackView(views: [shortcutsButton, globalLittleArcSwitch, globalLittleArcButton])
+        stack.orientation = .horizontal
+        stack.spacing = 10
+        stack.alignment = .centerY
+        return stack
+    }
+
+    private var globalLittleArcTitle: String {
+        let shortcut = BrowserShortcut(settingsStore.settings.globalLittleArcShortcut)?.display ?? "⌥⌘N"
+        return "Little Arc anywhere: \(shortcut)"
+    }
+
+    @objc private func globalLittleArcChanged() {
+        let value = globalLittleArcSwitch.isOn
+        settingsStore.update { $0.globalLittleArcEnabled = value }
+    }
+
+    /// The next shortcut typed (with ⌘ or ⌃, or ⌥ on a named key) becomes the
+    /// global one and turns it on; Esc cancels.
+    @objc private func recordGlobalLittleArc() {
+        guard globalShortcutMonitor == nil else { return }
+        globalLittleArcButton.title = "Type a shortcut…"
+        globalShortcutMonitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { [weak self] event in
+            guard let self else { return event }
+            if event.keyCode == 53 {
+                self.finishRecordingGlobalShortcut(nil)
+                return nil
+            }
+            guard let shortcut = BrowserShortcut(event: event), shortcut.isAssignable else { return nil }
+            self.finishRecordingGlobalShortcut(shortcut)
+            return nil
+        }
+    }
+
+    private func finishRecordingGlobalShortcut(_ shortcut: BrowserShortcut?) {
+        if let monitor = globalShortcutMonitor {
+            NSEvent.removeMonitor(monitor)
+            globalShortcutMonitor = nil
+        }
+        if let shortcut {
+            settingsStore.update {
+                $0.globalLittleArcShortcut = shortcut.storageText
+                $0.globalLittleArcEnabled = true
+            }
+        }
+        refresh()
     }
 
     /// Shows `page`: the sheet it names on Settings (none for General).

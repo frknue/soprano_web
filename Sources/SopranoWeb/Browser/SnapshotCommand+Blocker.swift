@@ -164,7 +164,8 @@ enum SnapshotBlockerAction {
                 tabs.append([
                     "window": windowIndex + 1,
                     "kind": controller.kind.isPrivate ? "private" : "normal",
-                    "popup": controller.isPopup,
+                    "popup": controller.role == .popup,
+                    "role": controller.role.rawValue,
                     "url": tab.webView.url?.absoluteString ?? NSNull(),
                     "lists": tab.webView.contentRuleListIDs.count,
                 ])

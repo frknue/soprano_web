@@ -115,7 +115,7 @@ extension BrowserWindowController {
     /// CLI): the toolbar's field, or with the toolbar hidden (⇧⌘D) the
     /// Command Bar on the selected tab's address.
     func focusAddressBar() {
-        if isToolbarHidden, !isPopup {
+        if isToolbarHidden, !role.isCompact {
             showCommandBar(.editCurrent, toggles: false)
             return
         }

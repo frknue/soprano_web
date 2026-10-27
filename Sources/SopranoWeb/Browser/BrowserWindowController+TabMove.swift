@@ -21,7 +21,7 @@ extension BrowserWindowController {
     /// from (`BrowserTabMoveRule`: the tab's context is the current
     /// Space's).
     func canAcceptDroppedTab(id: UUID) -> Bool {
-        if visibleTabs.contains(where: { $0.id == id }) { return !isPopup }
+        if visibleTabs.contains(where: { $0.id == id }) { return role == .normal }
         guard let (source, tab) = manager.tab(id: id), source !== self else { return false }
         return manager.canMoveTab(tab, from: source, to: self)
     }
