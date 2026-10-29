@@ -336,6 +336,9 @@ final class BrowserToolbarView: NSView, NSTextFieldDelegate {
     /// The star, which the bookmark popover hangs from.
     var bookmarkAnchor: NSView { bookmarkButton }
 
+    /// The lock / site chip: the Site Control Center's anchor.
+    var securityAnchor: NSView { securityIcon }
+
     /// Shows one button per item, in order; buttons of the same extension
     /// are kept (their hover state and popover anchor stay).
     func setExtensionButtons(_ items: [BrowserExtensionToolbarItem]) {

@@ -469,6 +469,12 @@ final class VimiumController: NSObject {
     /// `<<` / `>>`: moves the tab within its Space's tab list.
     private func moveTab(by offset: Int) {
         guard let tab, let windowController else { return }
+        if let moved = windowController.moveSplitRow(containing: tab.id, by: offset) {
+            if !moved {
+                toast(offset < 0 ? "Already the first tab." : "Already the last tab.")
+            }
+            return
+        }
         let tabs = windowController.visibleTabs
         guard tabs.count > 1 else {
             toast("Only one tab is open.")

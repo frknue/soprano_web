@@ -31,6 +31,7 @@ enum SnapshotCommand {
         var sheetButton: String?
         var elementClicks: [String] = []
         var showSecurityInfo = false
+        var showSiteControl = false
         var session = SnapshotSessionOptions()
         var tabAudio = false
         var hoverSelector: String?
@@ -82,7 +83,7 @@ enum SnapshotCommand {
                                [--allow-popups <host>] [--tab <url>]... [--sheet] [--print-tabs]
                                [--click [cmd-|shift-cmd-|shift-|opt-|middle-]X,Y]...
                                [--sign-in <user:password>] [--sheet-button <title>]
-                               [--click-element <css selector>]... [--security-info]
+                               [--click-element <css selector>]... [--security-info] [--site-control]
     \(SnapshotSessionOptions.usage)
                                [--tabs <url>,<url>…] [--tab-audio] [--hover <css selector>]
                                [--back-url <url>]
@@ -177,6 +178,8 @@ enum SnapshotCommand {
                 options.elementClicks.append(try value(option))
             case "--security-info":
                 options.showSecurityInfo = true
+            case "--site-control":
+                options.showSiteControl = true
             case let flag where SnapshotSessionOptions.flags.contains(flag):
                 try options.session.parse(flag) { try value(flag) }
             case let flag where SnapshotCommandBarAction.flags.contains(flag):
@@ -517,7 +520,7 @@ enum SnapshotCommand {
             wait(options.wait)
         }
         if options.showSecurityInfo {
-            controller.showConnectionInfo()
+            openConnectionDetails(controller: controller)
             wait(0.35)
         }
         if let title = options.sheetButton {
@@ -635,6 +638,7 @@ enum SnapshotCommand {
         let extensionPopup = options.extensions.performActions(in: controller, wait: wait)
         options.extensions.report(manager, controller: controller)
         let bookmarkPopover = makePinPopover(options.pins, controller: controller)
+        let siteControl = options.showSiteControl ? makeSiteControlPopover(controller: controller) : nil
         let pinPreview = makePinPreview(options.pins, controller: controller)
         let spaceSheet = makeSpaceSheet(options.pins, controller: controller)
 
@@ -785,7 +789,7 @@ enum SnapshotCommand {
         // The Command Bar and ⌃Tab's switcher float over the page too.
         let commandBarSurface = controller.commandBar.isOpen ? controller.commandBar.view.surface : nil
         let recentTabs = controller.recentTabsOverlay?.superview == nil ? nil : controller.recentTabsOverlay
-        for overlay in [bookmarkPopover, pinPreview, commandBarSurface, recentTabs].compactMap({ $0 })
+        for overlay in [bookmarkPopover, siteControl, pinPreview, commandBarSurface, recentTabs].compactMap({ $0 })
             where overlay.window === captureWindow && spaceSheet == nil && shortcutsSheet == nil
         {
             // Popovers hang over the page, which is drawn after the chrome.

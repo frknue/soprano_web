@@ -91,30 +91,9 @@ extension BrowserWindowController {
             webView.reload()
         }
     }
-
-    /// The connection popover's "Block ads on this site" switch for the
-    /// tab's page; nil when blocking is off or the page has no web site.
-    func siteBlockingAccessory(for tab: BrowserTab) -> BrowserSiteBlockingAccessory? {
-        let url = tab.webView.url
-        guard manager.contentBlocker.isEnabled,
-              tab.certificateInterstitial == nil,
-              ["http", "https"].contains(url?.scheme?.lowercased() ?? ""),
-              let host = BrowserSitePermissionStore.siteKey(for: url)
-        else { return nil }
-        let sitePermissions = tab.dataContext.sitePermissions
-        return BrowserSiteBlockingAccessory(
-            host: host,
-            isOn: sitePermissions.blocksContent(host: host),
-            theme: theme
-        ) { blocks in
-            // Every window with tabs of the profile reloads its tabs of the
-            // site.
-            sitePermissions.setBlocksContent(blocks, host: host)
-        }
-    }
 }
 
-/// The switch under the connection details: "Block ads on this site".
+/// The Site Control Center's "Block ads on this site" row.
 @MainActor
 final class BrowserSiteBlockingAccessory: NSView {
     let host: String

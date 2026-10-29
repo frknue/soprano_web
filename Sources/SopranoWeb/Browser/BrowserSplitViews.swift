@@ -205,6 +205,9 @@ final class BrowserSplitPage {
     /// The web views laid out as panes, left to right.
     var paneViews: [NSView] = []
     var constraints: [NSLayoutConstraint] = []
+    /// The non-last panes' widths (part of `constraints`), swapped while a
+    /// divider is dragged.
+    var widthConstraints: [NSLayoutConstraint] = []
     var dividers: [BrowserSplitDivider] = []
     let focusRing: BrowserPaneFocusRing
     let dropMarker: BrowserSplitDropMarker

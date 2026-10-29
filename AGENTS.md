@@ -187,8 +187,8 @@ surrounding style.
   it the harness has no lists and never reaches the network), and the
   actions `--blocker-update` (Update Now, waiting for the download and
   compile; launch already starts one for lists never downloaded),
-  `--blocking on|off` (the Settings switch), `--site-blocking on|off` (opens
-  the lock's connection sheet on the selected tab and presses its "Block
+  `--blocking on|off` (the Settings switch), `--site-blocking on|off` (builds
+  the Site Control Center for the selected page and presses its "Block
   ads on this site" switch) and `--print-blocker` (one JSON line: setting,
   status, each list's validators, check/update times, filter and rule
   counts, skipped filters by reason, compile seconds and list names, the
@@ -716,9 +716,30 @@ surrounding style.
   — `applyContentBlocking(to:pageURL:)` (every new web view, then each
   main-frame navigation, redirect and commit), `applyContentBlockingToTabs`
   (setting and list changes: no reload; the site switch: reloads the
-  site's tabs) and the lock sheet's "Block ads on this site" accessory.
+  site's tabs) and the Site Control Center's "Block ads on this site" row
+  (`BrowserSiteBlockingAccessory`).
   `BrowserContentBlockingPolicy` documents why a switched-off site loses
   the lists per tab instead of getting a compiled exceptions list.
+- Site Control Center (stage 4 P6): `BrowserSiteControl.swift` (pure:
+  `BrowserSiteDataTarget` — "Clear site data" removes WebKit's records whose
+  name is the host or a domain above it, minus cookies, plus the cookies of
+  exactly that host; IPs and `localhost` match only themselves —,
+  `BrowserSiteChoice` Ask/Allow/Block, `BrowserSiteControlState` and its
+  `lines`), `BrowserSiteControlView.swift` (the Folio popover body and its
+  borderless child panel), `BrowserWindowController+SiteControl.swift`
+  (`siteControlTab` = `pageTab`: the Peek's, else the focused pane;
+  `siteControlState(for:)`, the lock's `toggleSiteControl`,
+  `setSitePermission` into the tab profile's `sitePermissions` — a private
+  window's overlay —, zoom through `zoomIn/zoomOut/resetZoom`, extension
+  site access through `BrowserExtensions.setSiteAccess/setSite`,
+  `clearSiteData(of:)`, and `browser site`). The Connection row opens
+  `showConnectionDetails(for:)` (`+SignIn`: the old lock sheet). No per-site
+  autoplay: WebKit fixes it per web view. Harness: `--site-control` puts the
+  popover under the lock offscreen, captures it and prints `site-control:`
+  lines; `--security-info` presses its Connection row (`--sheet` prints
+  the sheet). CLI: `browser [--tab n] site [info|clear|permission
+  <camera|microphone|notifications|popups> allow|deny|ask]` (`clear` asks
+  nothing).
 - `Browser/Extensions/` — Chrome extensions on `WKWebExtension`.
   `BrowserExtensions.swift` (manager-owned, `manager.extensions`): the one
   app-wide `WKWebExtensionController` (fixed storage identifier; the

@@ -123,6 +123,8 @@ extension BrowserWindowManager {
         let selected = target.selectedTab?.id
         for source in sources {
             let tabs = source.tabs
+            // Detaching ends the source's splits; the target gets them back.
+            let carried = target.allowsSplits ? source.splits : []
             let leaving = BrowserWindowMerge.detachOrder(tabs: tabs.map(\.id), selected: source.selectedTab?.id)
             for id in leaving {
                 if let tab = tabs.first(where: { $0.id == id }) {
@@ -133,6 +135,7 @@ extension BrowserWindowManager {
                 tab.origin = linkAfterMove(tab, into: target)
                 target.attachTab(tab, select: false)
             }
+            target.adoptSplits(carried)
             closeIfEmptied(source)
         }
         if let selected {

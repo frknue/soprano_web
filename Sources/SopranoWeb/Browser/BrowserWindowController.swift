@@ -115,6 +115,8 @@ final class BrowserWindowController: NSWindowController {
     lazy var vimiumTextPanel = VimiumTextPanel(theme: theme)
     /// ⌘D's popover and the rail's pin editor.
     lazy var bookmarkEditorPanel = BrowserPinEditorPanel()
+    /// The lock's Site Control Center.
+    lazy var siteControlPanel = BrowserSiteControlPanel()
     /// The open folder preview beside the rail, and its pending close.
     var folderPreview: BrowserPinFolderPreview?
     var folderPreviewHideTimer: Timer?
@@ -520,7 +522,7 @@ final class BrowserWindowController: NSWindowController {
         toolbar.onSubmit = { [weak self] value in self?.submitAddress(value) }
         toolbar.onBookmark = { [weak self] in self?.starPressed() }
         toolbar.onDownloads = { [weak self] in self?.toggleSidebar(section: .downloads) }
-        toolbar.onSecurityInfo = { [weak self] in self?.showConnectionInfo() }
+        toolbar.onSecurityInfo = { [weak self] in self?.toggleSiteControl() }
         toolbar.onSidebar = { [weak self] in
             guard let self else { return }
             self.toggleSidebar(section: self.sidebarSection)

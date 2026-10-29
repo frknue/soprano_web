@@ -10,6 +10,17 @@ app.
 ## [Unreleased]
 
 ### Added
+- Site Control Center: the lock / site chip opens a Folio popover for the page you look at
+  (a Peek's, the focused pane's) in its Space's profile: the connection (the details
+  sheet with Show Certificate behind its row), camera, microphone, notifications and
+  pop-ups as Ask / Allow / Block (a private window keeps its answers in its own layer;
+  notifications stay blocked there), zoom −/+/Reset, "Block ads on this site", each
+  extension's site access (its mode and "Allow on <host>") and "Clear site data…", which
+  asks, removes the website data WebKit keeps for the site's domain and the cookies of
+  that exact host, then reloads. Replaces the lock's sheet. Autoplay stays a global
+  setting (WebKit fixes it per web view). CLI `browser site [info|clear|permission <name>
+  allow|deny|ask]`; harness `--site-control` captures the popover, `--security-info` and
+  `--site-blocking` go through it.
 - Split View: 2–4 tabs of one Space side by side with resizable dividers (ratios saved),
   one rail row (every pane's favicon) and one strip item. ⌃⇧= adds a pane (a new tab with
   the Command Bar), ⌃⇧- closes the focused pane, ⌃⇧1…4 focus a pane, ⌥-click on a web link
@@ -476,6 +487,12 @@ app.
   `bookmarks.json.migrated`.
 
 ### Fixed
+- Split View (P5 review): dragging a divider resized only by the first step (the layout
+  rebuilt the dividers mid-drag; now only the widths change); a favorite's live tab
+  brought into the current Space leaves its split; Recently Closed windows keep their
+  splits aligned when tabs of a deleted Space are dropped; ⌥⌘↓/↑ moves on from a split
+  whose focused pane is pinned or a favorite; Vimium `<<`/`>>` on a pane moves the
+  split's row; Merge All Windows and a Space's profile change keep splits.
 - Resuming or retrying a download uses the cookies and website data of the
   Space it started in, not the Space the window shows now.
 - A page that sets its title after it finished loading shows that title in

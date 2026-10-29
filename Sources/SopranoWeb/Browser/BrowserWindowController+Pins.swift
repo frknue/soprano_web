@@ -89,6 +89,8 @@ extension BrowserWindowController {
                 if spaceSelections[previous] == tab.id {
                     spaceSelections[previous] = nil
                 }
+                // A split stays in one Space: the pane leaves it.
+                _ = removeFromSplits([tab.id])
                 tab.spaceID = currentSpaceID
                 refreshVisibleTabs()
             }

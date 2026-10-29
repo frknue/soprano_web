@@ -40,6 +40,13 @@ extension BrowserWindowController {
         let noTab = BrowserAutomationError.unavailable("No tab is open.")
 
         switch command {
+        case "site":
+            // Without `--tab`, the page the user looks at (a Peek's).
+            guard let tab = request.tabIndex == nil ? pageTab : target else {
+                completion(.failure(noTab))
+                return
+            }
+            performSiteCommand(arguments, tab: tab, completion: completion)
         case "goto", "navigate":
             guard let input = arguments.first else {
                 completion(.failure(BrowserAutomationError.invalidArguments(

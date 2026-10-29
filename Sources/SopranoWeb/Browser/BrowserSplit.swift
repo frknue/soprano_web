@@ -180,6 +180,26 @@ struct BrowserSplitState: Codable, Equatable, Sendable {
         ratios = (try? c.decodeIfPresent([Double].self, forKey: .ratios)) ?? []
         focused = (try? c.decodeIfPresent(Int.self, forKey: .focused)) ?? 0
     }
+
+    /// The split after the window's tabs were filtered: `newIndex` maps an
+    /// old tab index to its new one (absent: dropped). The surviving panes
+    /// keep their order and share the width by their old ratios; the focus
+    /// stays on its pane, else the first. Nil with fewer than two panes.
+    func keeping(_ newIndex: [Int: Int]) -> BrowserSplitState? {
+        let kept = tabs.indices.filter { newIndex[tabs[$0]] != nil }
+        guard kept.count >= 2 else { return nil }
+        var keptRatios: [Double] = []
+        if ratios.count == tabs.count {
+            let shares = kept.map { ratios[$0] }
+            let total = shares.reduce(0, +)
+            keptRatios = total > 0 ? shares.map { $0 / total } : []
+        }
+        return BrowserSplitState(
+            tabs: kept.compactMap { newIndex[tabs[$0]] },
+            ratios: keptRatios,
+            focused: kept.firstIndex(of: focused) ?? 0
+        )
+    }
 }
 
 // MARK: - Page layout

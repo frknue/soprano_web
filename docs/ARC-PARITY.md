@@ -115,12 +115,12 @@ Status of Soprano Web: **done**, **partial**, **missing**, **broken**. `BWC` =
 |---|---|---|---|---|
 | HTTP auth, client certificates | Chromium | missing: no `didReceive challenge` | `webView(_:didReceive:completionHandler:)`, `SFChooseIdentityPanel` | 1 |
 | TLS errors | interstitial | partial: dead-end error page (`BWC:1311-1345`) | `serverTrust`, `SFCertificateTrustPanel`, own interstitial with per-host exception | 1 |
-| Security indicator | Site Control Center | partial: lock = `https` scheme (`BWC:745`) | `hasOnlySecureContent`, `serverTrust` | 1 |
-| Camera, mic | per site | partial: alert on every request, no memory or indicator (`BWC:1476-1497`) | `requestMediaCapturePermissionFor` (12.0), `cameraCaptureState`/`microphoneCaptureState` KVO and setters | 1 |
+| Security indicator | Site Control Center | built (stage 4 P6): the lock opens a popover for the page's site in its profile: connection (details sheet, Show Certificate), camera/microphone/notifications/pop-ups Ask/Allow/Block, zoom, "Block ads on this site", extensions' site access, "Clear site data" (the domain's WebKit data + the host's cookies); CLI `browser site` | `hasOnlySecureContent`, `serverTrust`, `WKWebsiteDataStore.removeData(ofTypes:for:)`, `WKHTTPCookieStore` | 1 |
+| Camera, mic | per site | done: remembered per site in the tab's profile (a private window's own layer), set from the prompt, Settings ▸ Websites or the Site Control Center (stage 4 P6) | `requestMediaCapturePermissionFor` (12.0), `cameraCaptureState`/`microphoneCaptureState` KVO and setters | 1 |
 | Screen sharing | Chromium | works without app code | WebKit shows the ScreenCaptureKit picker | — |
 | Geolocation | CoreLocation | missing: WebKit denies without a delegate | `webView(_:requestGeolocationPermissionFor:initiatedBy:)` is **macOS 27 SDK only** | decision |
 | Notifications | Chromium alerts helper | missing: requests auto-deny | private; JS `Notification` shim → `UNUserNotificationCenter` while the tab is open | 1 |
-| Autoplay | Chromium | missing | `mediaTypesRequiringUserActionForPlayback` (10.12); per-site policy is private | 1 |
+| Autoplay | Chromium | global setting only (Settings ▸ Autoplay); no per-site value: WebKit fixes it per web view at creation, so the Site Control Center has no autoplay row | `mediaTypesRequiringUserActionForPlayback` (10.12); per-site policy is private | 1 |
 | External app links | prompt | risky: opened without asking (`BWC:1356-1364`) | `NSWorkspace.open` behind a prompt | 1 |
 | Content blocking | uBlock Origin extension [A4]; 1.169 also bundles EasyList/EasyPrivacy in a native blocker module | missing | uBO Lite via `WKWebExtension`, or `WKContentRuleList` (≤150,000 rules per list) | 2 |
 | Clear browsing data | Chromium; "Clear Cookies and Refresh" | broken: "Clear History" empties `history.json` only (`BWC:904-926`) | `WKWebsiteDataStore.removeData(ofTypes:modifiedSince:)`, `fetchDataRecords` | 1 |

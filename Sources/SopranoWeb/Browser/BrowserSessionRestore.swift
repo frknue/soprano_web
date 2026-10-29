@@ -179,9 +179,10 @@ struct BrowserRecentlyClosedStack: Equatable, Sendable {
 }
 
 extension BrowserWindowState {
-    /// The window with only the tabs `keep` accepts; the selection and each
-    /// Space's selection follow their tabs (a removed one is dropped, the
-    /// window's falls back to the first tab).
+    /// The window with only the tabs `keep` accepts; the selection, each
+    /// Space's selection and the splits follow their tabs (a removed one is
+    /// dropped, the window's falls back to the first tab; a split left
+    /// with fewer than two panes ends, the others share its width).
     func keepingTabs(where keep: (BrowserTabState) -> Bool) -> BrowserWindowState {
         var state = self
         var newIndex: [Int: Int] = [:]
@@ -194,6 +195,7 @@ extension BrowserWindowState {
         state.spaceSelections = spaceSelections.compactMap { selection in
             newIndex[selection.index].map { BrowserSpaceSelection(spaceID: selection.spaceID, index: $0) }
         }
+        state.splits = splits.compactMap { $0.keeping(newIndex) }
         return state
     }
 

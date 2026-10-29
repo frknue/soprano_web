@@ -260,6 +260,41 @@ struct BrowserArcImportReaderTests {
 
     // MARK: Tests
 
+    /// P5: a split view in a Space's Today container becomes a split of its
+    /// tabs (indices into `today`, after any tabs before it; at most
+    /// `BrowserSplit.maximumPanes`); one with a single tab stays a tab.
+    @Test func aTodaySplitViewBecomesASplit() throws {
+        let support = temporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: support) }
+        let ids = (0..<10).map { String(format: "2E000000-0000-4000-8000-%012d", $0) }
+        let (todayContainer, first, splitView, single, lone) = (ids[0], ids[1], ids[2], ids[3], ids[4])
+        let panes = Array(ids[5...9])
+        var items: [[String: Any]] = [
+            item(todayContainer, data: container(["spaceItems": ["_0": spaceA]]), children: [first, splitView, single]),
+            item(first, parent: todayContainer, data: tab("https://first.example/")),
+            item(splitView, parent: todayContainer, data: ["splitView": ["layoutOrientation": "horizontal"]], children: panes),
+            item(single, parent: todayContainer, data: ["splitView": ["layoutOrientation": "horizontal"]], children: [lone]),
+            item(lone, parent: single, data: tab("https://lone.example/")),
+        ]
+        items += panes.enumerated().map { index, id in
+            item(id, parent: splitView, data: tab("https://pane\(index).example/"))
+        }
+        let space: [String: Any] = ["id": spaceA, "title": "Split", "containerIDs": ["unpinned", todayContainer]]
+        try writeJSON([
+            "version": 1,
+            "sidebar": ["containers": [["global": empty], [
+                "items": alternating(items),
+                "spaces": [spaceA, space],
+                "topAppsContainerIDs": [Any](),
+            ]]],
+        ], to: support.appendingPathComponent("StorableSidebar.json"))
+        let result = try BrowserArcImportReader(supportDirectory: support).read()
+        let imported = try #require(result.spaces.first)
+        #expect(imported.today.map(\.url) == ["https://first.example/"]
+            + (0..<5).map { "https://pane\($0).example/" } + ["https://lone.example/"])
+        #expect(imported.todaySplits == [[1, 2, 3, 4]])
+    }
+
     @Test func spacesKeepPinnedTreesTodayTabsIconsColorsAndProfiles() throws {
         let support = try makeSupportFolder()
         defer { try? FileManager.default.removeItem(at: support) }

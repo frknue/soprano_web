@@ -365,11 +365,11 @@ extension BrowserWindowController {
         )
     }
 
-    /// The security indicator's click: the connection state in a sheet, with
-    /// Show Certificate when the page has a server trust and the "Block ads
-    /// on this site" switch while ad blocking is on.
-    func showConnectionInfo() {
-        guard let tab = selectedTab, let window else { return }
+    /// The Site Control Center's Connection row: the connection state of
+    /// `tab`'s page in a sheet, with Show Certificate when the page has a
+    /// server trust.
+    func showConnectionDetails(for tab: BrowserTab) {
+        guard let window, window.attachedSheet == nil else { return }
         let state = securityState(for: tab)
         let interstitial = tab.certificateInterstitial
         let host = interstitial?.host ?? tab.webView.url?.host ?? ""
@@ -378,7 +378,6 @@ extension BrowserWindowController {
         alert.messageText = state.title(host: host)
         alert.informativeText = interstitial?.problem.explanation(host: host) ?? state.detail
         alert.addButton(withTitle: "Done")
-        alert.accessoryView = siteBlockingAccessory(for: tab)
         if trust != nil {
             alert.addButton(withTitle: "Show Certificate")
         }

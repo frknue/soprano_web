@@ -66,6 +66,25 @@ extension BrowserWindowController {
         splits[index] = split
     }
 
+    /// Splits brought in (a merged window's, a Space's reopened panes):
+    /// each whose panes are all tabs of this window in one Space replaces
+    /// any split sharing its id or a pane.
+    func adoptSplits(_ incoming: [BrowserSplit]) {
+        guard allowsSplits, !incoming.isEmpty else { return }
+        var changed = false
+        for split in incoming {
+            let panes = split.tabIDs.compactMap { id in tabs.first { $0.id == id } }
+            guard panes.count == split.tabIDs.count, Set(panes.map(\.spaceID)).count == 1 else { continue }
+            splits.removeAll { $0.id == split.id || $0.tabIDs.contains(where: split.tabIDs.contains) }
+            splits.append(split)
+            changed = true
+        }
+        guard changed else { return }
+        updateTabStrip()
+        applyPaneLayout()
+        saveSession()
+    }
+
     // MARK: - Adding panes
 
     /// ⌃⇧= and the CLI's `split [url]`: a new Today tab (`url`, else the
@@ -293,6 +312,7 @@ extension BrowserWindowController {
         let page = splitPage
         NSLayoutConstraint.deactivate(page.constraints + page.focusRingConstraints)
         page.constraints = []
+        page.widthConstraints = []
         page.focusRingConstraints = []
         page.dividers.forEach { $0.removeFromSuperview() }
         page.dividers = []
@@ -332,12 +352,9 @@ extension BrowserWindowController {
             if index == views.count - 1 {
                 constraints.append(view.trailingAnchor.constraint(equalTo: webArea.trailingAnchor))
             } else {
-                let ratio = CGFloat(split.ratios[index])
-                constraints.append(view.widthAnchor.constraint(
-                    equalTo: webArea.widthAnchor,
-                    multiplier: ratio,
-                    constant: -gaps * ratio
-                ))
+                let width = paneWidthConstraint(view, ratio: split.ratios[index], gaps: gaps)
+                constraints.append(width)
+                page.widthConstraints.append(width)
                 let divider = BrowserSplitDivider(index: index, theme: theme)
                 divider.onDrag = { [weak self] index, x in self?.resizeSplit(divider: index, centerX: x) }
                 divider.onDragEnded = { [weak self] in self?.saveSession() }
@@ -382,7 +399,36 @@ extension BrowserWindowController {
         let resized = split.resizing(divider: divider, to: position, minimum: split.minimumShare(width: width))
         guard resized != split else { return }
         replaceSplit(resized)
-        applyPaneLayout()
+        // Only the widths change: the dragged divider stays in the view
+        // tree, so it keeps getting the drag's events.
+        updatePaneWidths(resized)
+    }
+
+    private func paneWidthConstraint(_ view: NSView, ratio: Double, gaps: CGFloat) -> NSLayoutConstraint {
+        let ratio = CGFloat(ratio)
+        return view.widthAnchor.constraint(equalTo: webArea.widthAnchor, multiplier: ratio, constant: -gaps * ratio)
+    }
+
+    /// Swaps the non-last panes' width constraints for `split`'s ratios;
+    /// a full layout when the page doesn't show that split.
+    private func updatePaneWidths(_ split: BrowserSplit) {
+        let page = splitPage
+        guard page.shownSplitID == split.id,
+              page.paneViews.count == split.ratios.count,
+              page.widthConstraints.count == split.ratios.count - 1
+        else {
+            applyPaneLayout()
+            return
+        }
+        let gaps = CGFloat(BrowserSplitLayout.gap) * CGFloat(page.paneViews.count - 1)
+        let old = page.widthConstraints
+        NSLayoutConstraint.deactivate(old)
+        page.constraints.removeAll { constraint in old.contains { $0 === constraint } }
+        page.widthConstraints = page.paneViews.dropLast().enumerated().map { index, view in
+            paneWidthConstraint(view, ratio: split.ratios[index], gaps: gaps)
+        }
+        page.constraints += page.widthConstraints
+        NSLayoutConstraint.activate(page.widthConstraints)
     }
 
     /// Sets the shown split's ratios outright (the harness); false without
@@ -541,6 +587,19 @@ extension BrowserWindowController {
             splits: splits
         ) else { return }
         applyTodayOrder(order)
+    }
+
+    /// Vimium `<<` / `>>` on a pane: its split's row moves `offset` Today
+    /// rows, the panes together. Nil when the tab is no pane; false at an
+    /// end.
+    func moveSplitRow(containing tabID: UUID, by offset: Int) -> Bool? {
+        guard let split = split(containing: tabID) else { return nil }
+        let rows = todayRows
+        guard let index = rows.firstIndex(where: { $0.id == split.id }), rows.indices.contains(index + offset) else {
+            return false
+        }
+        moveRow(id: split.id, toIndex: index + offset, in: rows)
+        return true
     }
 
     /// The current Space's Today tabs (every tab in a window without

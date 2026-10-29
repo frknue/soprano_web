@@ -172,6 +172,18 @@ struct BrowserCommandRequest: Codable, Equatable, Sendable {
             }
             guard valid else { throw BrowserAutomationError.invalidArguments(splitUsage) }
         }
+        if command == "site" {
+            let valid: Bool
+            switch arguments.first {
+            case nil, "info", "clear": valid = arguments.count <= 1
+            case "permission":
+                valid = arguments.count == 3
+                    && BrowserSiteControlState.permissionRows.contains { $0.0.rawValue == arguments[1] }
+                    && BrowserSiteChoice(rawValue: arguments[2]) != nil
+            default: valid = false
+            }
+            guard valid else { throw BrowserAutomationError.invalidArguments(siteUsage) }
+        }
 
         return BrowserCommandRequest(
             command: command,
@@ -259,6 +271,9 @@ struct BrowserCommandRequest: Codable, Equatable, Sendable {
     static let spaceUsage = "Usage: soprano-web browser [--window n] space <n|name>"
     static let peekUsage = "Usage: soprano-web browser [--window n] peek [<url>|close|open-as-tab]"
     static let splitUsage = "Usage: soprano-web browser [--window n] split [<url>|close|focus <n>]"
+    static let siteUsage = """
+    Usage: soprano-web browser [--window n] [--tab n] site [info|clear|permission <camera|microphone|notifications|popups> allow|deny|ask]
+    """
     static let extensionUsage = """
     Usage: soprano-web browser extension install <chrome web store url|id|folder>
            soprano-web browser extension enable|disable|remove|errors <id>
@@ -321,6 +336,7 @@ enum BrowserCommand {
       soprano-web browser [--window n] [--tab m] move-to-window <k|new>
       soprano-web browser [--window n] peek [<url>|close|open-as-tab]
       soprano-web browser [--window n] split [<url>|close|focus <n>]
+      soprano-web browser [--window n] [--tab n] site [info|clear|permission <name> allow|deny|ask]
       soprano-web browser [--window n] spaces
       soprano-web browser [--window n] space <n|name>
       soprano-web browser extensions
@@ -380,6 +396,14 @@ enum BrowserCommand {
     tab as ⌘W closes it); `split focus n` focuses pane n, left to right
     (⌃⇧1…4). The focused pane is the selected tab every tab command uses;
     `tabs` marks each pane with `split s, pane p of k`.
+    `site` acts on the page the user looks at (the Peek's, the focused
+    pane's; `--tab n` another) like the lock's Site Control Center: `site`
+    or `site info` prints its site, connection, permissions, zoom, ad
+    blocking and extensions' access; `site permission <camera|microphone|
+    notifications|popups> allow|deny|ask` sets a decision in the tab's
+    profile (a private window's own layer); `site clear` removes the
+    site's website data (its registrable domain's: WebKit keeps no finer
+    grain) and the host's cookies without asking, then reloads the page.
     `snapshot` assigns ephemeral refs such as `e1`; pass them back as `@e1`.
     `eval` runs an expression, or an async function body that uses `return`;
     Promises are awaited and the result prints as JSON. A thrown error or a
