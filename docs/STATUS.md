@@ -24,7 +24,7 @@ contract is `docs/STAGE-3-PLAN.md`.
 | Branch | Base | State |
 |---|---|---|
 | `feat/stage-3` | `main` | Squash-merged as #3. 518 tests green in debug and release. |
-| `feat/stage-4` | `main` | In progress, pushed (no PR): P0–P11 and the review fixes done (792 tests green in debug and release); 1Password sign-in (Furkan) and P12 (AppleScript and Dock menu) next. |
+| `feat/stage-4` | `main` | In progress; pushed up to `ca6f5f1` (no PR), P11 commits local: P0–P11 and the review fixes done (795 tests green in debug and release); 1Password sign-in (Furkan) and P12 (AppleScript and Dock menu) next. |
 | `feat/stage-3-search`, `feat/stage-3-import` | — | Merged into `feat/stage-3`; no further work there. |
 
 ## Done
