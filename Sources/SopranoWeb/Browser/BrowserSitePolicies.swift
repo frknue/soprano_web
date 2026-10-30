@@ -167,6 +167,8 @@ final class BrowserTabMedia {
     /// The main document the Mini Player's fill style was applied to (a
     /// new document in the panel gets it again).
     var filledFrame: String?
+    /// Artwork addresses that failed to load (not fetched again).
+    var failedArtwork: Set<URL> = []
 }
 
 // MARK: - Settings ▸ Websites

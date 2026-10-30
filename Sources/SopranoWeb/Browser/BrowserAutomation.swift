@@ -47,6 +47,17 @@ extension BrowserWindowController {
                 return
             }
             performSiteCommand(arguments, tab: tab, completion: completion)
+        case "reader", "translate":
+            // Without `--tab`, the page the user looks at (a Peek's).
+            guard let tab = request.tabIndex == nil ? pageTab : target else {
+                completion(.failure(noTab))
+                return
+            }
+            if command == "reader" {
+                performReaderCommand(arguments, tab: tab, completion: completion)
+            } else {
+                performTranslateCommand(arguments, tab: tab, completion: completion)
+            }
         case "media":
             // Without `--tab`, the tab the media controls show.
             performMediaCommand(arguments, tab: request.tabIndex == nil ? nil : target, completion: completion)

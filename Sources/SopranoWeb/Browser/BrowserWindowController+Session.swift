@@ -146,6 +146,14 @@ extension BrowserWindowController {
             tab.failedURL = tab.failedURL ?? tab.webView.url?.absoluteString ?? tab.pendingURL
             tab.lifecycle.crashedURL = tab.failedURL
         }
+        // The Mini Player's page is gone: back into the window (hidden,
+        // a background tab), its media state cleared.
+        if manager.miniPlayer.hosts(tab) {
+            returnMiniPlayer()
+        }
+        tab.media.frames.removeAll()
+        tab.media.audio.reset()
+        resetMediaInfo(tab)
         switch action {
         case .reload:
             reloadAfterCrash(tab)

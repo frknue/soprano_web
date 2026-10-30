@@ -153,12 +153,14 @@ enum BrowserCaptureFile {
         in directory: URL,
         date: Date,
         timeZone: TimeZone = .current,
-        exists: (URL) -> Bool = { FileManager.default.fileExists(atPath: $0.path) }
+        exists: (URL) -> Bool = { FileManager.default.fileExists(atPath: $0.path) },
+        write: (Data, URL) throws -> Void = { try $0.write(to: $1) }
     ) throws -> URL {
         try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
         let temporary = directory.appendingPathComponent(".soprano-capture-\(UUID().uuidString).png")
-        try data.write(to: temporary)
+        // Before the write: a write that fails part way leaves nothing.
         defer { try? FileManager.default.removeItem(at: temporary) }
+        try write(data, temporary)
         var taken: Set<String> = []
         for _ in 0..<1000 {
             let candidate = url(in: directory, date: date, timeZone: timeZone) { url in

@@ -36,7 +36,7 @@ struct SnapshotMediaOptions {
         let next = peek().flatMap { $0.hasPrefix("--") ? nil : $0 }
         switch flag {
         case "--media-seed":
-            if let next { skip() }
+            if next != nil { skip() }
             seed = .some(next)
         case "--mini-player":
             if let next, let action = PanelAction(rawValue: next), action != .report {

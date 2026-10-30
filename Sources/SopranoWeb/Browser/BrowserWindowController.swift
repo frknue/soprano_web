@@ -133,6 +133,15 @@ final class BrowserWindowController: NSWindowController {
     var popupBlockedControl: ChromeButton?
     /// The address field's zoom percentage (`updateZoomChip`).
     var zoomChip: ChromeButton?
+    /// The address field's Reader and Translate chips (`updateReaderChip`,
+    /// `updateTranslateChip`).
+    var readerChip: ChromeButton?
+    var translateChip: ChromeButton?
+    /// A private window's "Never Offer" languages, never saved.
+    var sessionNeverTranslate: Set<String> = []
+    /// Language availability and the translator (`BrowserTranslation`);
+    /// tests put a stand-in here.
+    var translationService: any BrowserTranslationService = BrowserSystemTranslationService()
     /// The Peek over the page, at most one per window (`openPeek`).
     var peek: BrowserPeek?
     /// The window's split views (`BrowserSplit`); a tab is in at most one.
@@ -704,6 +713,7 @@ final class BrowserWindowController: NSWindowController {
         for tab in tabs where tab.isStartPage && !tab.isRestorePending {
             loadStartPage(tab)
         }
+        applyReaderTheme()
         updateChrome()
     }
 }

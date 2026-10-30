@@ -866,6 +866,51 @@ surrounding style.
   `media:` JSON line (each tab's state, exemptions, back list, fill size,
   page counters, rail/toolbar items, the panel's delegates); the capture
   draws an open panel with its controls where it sits over the window.
+- Reader and Translate (stage 4 P10): `Resources/Readability/` vendors
+  Readability.js and Readability-readerable.js 0.6.0 unmodified with their
+  Apache-2.0 `LICENSE`, `NOTICE` (from upstream main; added after 0.6.0),
+  `LICENSE-2.0.txt` and `VERSION`; `Package.swift` copies the folder into
+  the resource bundle (`AppResources.bundle`, subdirectory `Readability`)
+  and `scripts/package-app.sh` refuses a bundle without the two scripts,
+  `LICENSE` and `NOTICE`. `BrowserReader.swift`: `BrowserTabReader`
+  (`isReaderable`, the shown article), `BrowserReaderScripts.pageInfo`
+  (isolated world, main frame, document end + `load`: posts `pageInfo
+  {readerable, lang, sample}` with `isProbablyReaderable` and 3,000
+  characters of text), `enterSource` (Readability on
+  `document.cloneNode(true)` with an element serializer; the article,
+  cleaned of scripts, `on*` attributes and `javascript:` links, goes into
+  a new `<html class="soprano-reader">` swapped in for the page's root,
+  styled by a constructed sheet in Folio tokens — `css(theme:)` — that
+  replaces `adoptedStyleSheets`), `leaveSource` (puts the page's own
+  root, sheets and scroll back: no reload, no history entry),
+  `themeSource`, `commitSource` (every main-frame commit: a page from the
+  back-forward cache comes back as itself and reports again).
+  `BrowserTranslation.swift`: `BrowserTabTranslation` (language, phase,
+  generation), `BrowserLanguageDetector` (`NLLanguageRecognizer`,
+  confidence ≥ 0.5 and ≥ 40 letters, else `<html lang>`),
+  `BrowserTranslationOffer` (offered when the language code isn't one of
+  `Locale.preferredLanguages` nor on Never Offer; target = the first
+  preferred language), `BrowserTranslationBatches` (≤ 40 strings, ≤ 4,000
+  characters), `BrowserTranslationService` (`BrowserSystemTranslationService`:
+  `LanguageAvailability` and `TranslationSession(installedSource:target:)`
+  only — a pair not downloaded opens System Settings ▸ General ▸ Language &
+  Region, whose Translation Languages… downloads it; tests set
+  `controller.translationService`). `BrowserTranslationScripts`: collect
+  rendered text nodes (no code, form fields, editable, `translate="no"`,
+  `.notranslate`, hidden), apply (keeps edge white space, skips nodes the
+  page changed), restore. `+Reader` / `+Translate`: commands `reader`
+  (⇧⌘R, View, "Show/Hide Reader", enabled only with an article) and
+  `translate-page` ("Translate Page"/"Show Original"), the address field's
+  Reader and Translate chips (Translate's menu: Translate to …, Show
+  Original, Never Offer for …), `neverTranslateLanguages` in Settings
+  ("Never offer to translate"; a private window keeps its own in memory,
+  `savesTranslationChoices`). A translated page shown in Reader is
+  translated again there. CLI `browser [--tab n] reader [on|off]` and
+  `translate [to <lang>|off]` (the page tab, a Peek's too; `to` may take
+  120 s). Harness (`SnapshotCommand+Reader.swift`, after the wait):
+  `--reader` shows Reader before the capture and prints `reader:` lines
+  and its DOM; `--translate <lang>` prints `translate: before/after` text
+  and the result (a missing pair names System Settings).
 - `Browser/Extensions/` — Chrome extensions on `WKWebExtension`.
   `BrowserExtensions.swift` (manager-owned, `manager.extensions`): the one
   app-wide `WKWebExtensionController` (fixed storage identifier; the

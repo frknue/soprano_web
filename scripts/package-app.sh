@@ -47,6 +47,15 @@ for required_path in "$binary_path" "$resource_bundle" "$info_plist" "$app_icon"
     fi
 done
 
+# Reader's Readability.js ships with its Apache-2.0 LICENSE and NOTICE in the
+# resource bundle (copied whole below); refuse a bundle without them.
+for readability_file in Readability.js Readability-readerable.js LICENSE NOTICE; do
+    if [[ -z "$(find "$resource_bundle" -path "*/Readability/$readability_file" -print -quit)" ]]; then
+        echo "Missing Readability/$readability_file in $resource_bundle" >&2
+        exit 1
+    fi
+done
+
 mkdir -p "$output_parent"
 stage_dir="$(mktemp -d "$output_parent/.soprano-web-package.XXXXXX")"
 staged_app="$stage_dir/$(basename "$output_app")"

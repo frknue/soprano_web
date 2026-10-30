@@ -194,6 +194,20 @@ struct BrowserCommandRequest: Codable, Equatable, Sendable {
                 throw BrowserAutomationError.invalidArguments(mediaUsage)
             }
         }
+        if command == "reader" {
+            guard arguments.count <= 1, arguments.first.map(["on", "off"].contains) ?? true else {
+                throw BrowserAutomationError.invalidArguments(readerUsage)
+            }
+        }
+        if command == "translate" {
+            let valid = arguments.isEmpty || arguments == ["off"]
+                || (arguments.count == 2 && arguments[0] == "to" && !arguments[1].isEmpty)
+            guard valid else { throw BrowserAutomationError.invalidArguments(translateUsage) }
+            if arguments.first == "to" {
+                // A long page is translated in many batches.
+                timeout = maxWaitTimeout
+            }
+        }
 
         return BrowserCommandRequest(
             command: command,
@@ -393,6 +407,8 @@ struct BrowserCommandRequest: Codable, Equatable, Sendable {
     static let mediaUsage = """
     Usage: soprano-web browser [--window n] [--tab n] media [info|play|pause|next|previous|mute]
     """
+    static let readerUsage = "Usage: soprano-web browser [--window n] [--tab n] reader [on|off]"
+    static let translateUsage = "Usage: soprano-web browser [--window n] [--tab n] translate [to <language>|off]"
     static let boostUsage = """
     Usage: soprano-web browser boost [list]
            soprano-web browser boost show|enable|disable|remove <host>
@@ -463,6 +479,8 @@ enum BrowserCommand {
       soprano-web browser [--window n] split [<url>|close|focus <n>]
       soprano-web browser [--window n] [--tab n] site [info|clear|permission <name> allow|deny|ask]
       soprano-web browser [--window n] [--tab n] media [info|play|pause|next|previous|mute]
+      soprano-web browser [--window n] [--tab n] reader [on|off]
+      soprano-web browser [--window n] [--tab n] translate [to <language>|off]
       soprano-web browser boost [list]
       soprano-web browser boost show|enable|disable|remove <host>
       soprano-web browser boost css|js <host> <file|->
@@ -493,6 +511,16 @@ enum BrowserCommand {
     state, Media Session, artwork and the Mini Player; `play`, `pause`,
     `next`, `previous` act like the controls and print `info` after;
     `mute` toggles the tab's mute.
+    `reader` prints whether the page has an article and whether Reader
+    shows it (with its title, byline, site and length); `on` shows the
+    article in Reader in the same tab, `off` puts the page back as it
+    was, without a reload.
+    `translate` prints the page's language, the translation the address
+    field offers, the current translation and the Never Offer languages;
+    `to <language>` (a BCP 47 code: en, de, fr…) translates the page's
+    text into it when both languages are downloaded on this Mac (else it
+    names System Settings' Translation Languages), `off` shows the
+    original.
     `extensions` lists the installed Chrome extensions: id, name, version,
     state (on, off, not running, installing), private windows, site access,
     source and how many errors WebKit reported. `extension install` takes a

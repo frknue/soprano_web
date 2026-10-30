@@ -64,6 +64,11 @@ final class BrowserCaptureOverlay: NSView {
             cancelButton.centerYAnchor.constraint(equalTo: hint.centerYAnchor),
             cancelButton.trailingAnchor.constraint(equalTo: hint.trailingAnchor, constant: -8),
         ])
+        // The overlay keeps the keyboard (Esc) even with Full Keyboard
+        // Access, whose clicks would otherwise focus a button and cancel
+        // the overlay before the button acts.
+        fullPageButton.refusesFirstResponder = true
+        cancelButton.refusesFirstResponder = true
         apply(theme: theme)
     }
 
@@ -83,6 +88,13 @@ final class BrowserCaptureOverlay: NSView {
         if resigned {
             Task { @MainActor [weak self] in
                 guard let self, self.superview != nil, self.window?.firstResponder !== self else { return }
+                // Its own buttons (Full Keyboard Access) keep it open and
+                // give the keyboard back, so Esc and a later focus change
+                // still reach it.
+                if let responder = self.window?.firstResponder as? NSView, responder.isDescendant(of: self) {
+                    self.window?.makeFirstResponder(self)
+                    return
+                }
                 self.onChoice?(.cancel)
             }
         }

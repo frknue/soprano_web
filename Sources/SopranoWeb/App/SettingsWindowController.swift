@@ -152,6 +152,14 @@ final class SettingsWindowController: NSWindowController, NSTextFieldDelegate {
         target: self,
         action: #selector(miniPlayerChanged)
     )
+    /// Translate's "Never Offer" languages; its menu offers one again.
+    private lazy var neverTranslateButton: ChromeButton = {
+        let button = ChromeButton(title: neverTranslateTitle, theme: theme, kind: .standard)
+        button.target = self
+        button.action = #selector(neverTranslatePressed)
+        button.widthAnchor.constraint(equalToConstant: 200).isActive = true
+        return button
+    }()
     private lazy var updateListsButton: ChromeButton = {
         let button = ChromeButton(title: "Update Now", theme: theme, kind: .standard)
         button.target = self
@@ -326,6 +334,7 @@ final class SettingsWindowController: NSWindowController, NSTextFieldDelegate {
             [rowLabel("Ask where to save"), askDownloadSwitch],
             [rowLabel("Autoplay"), autoplayButton],
             [rowLabel("Mini Player for videos"), miniPlayerSwitch],
+            [rowLabel("Never offer to translate"), neverTranslateButton],
             [rowLabel("Notifications"), notificationsRow()],
             [rowLabel("Block ads and trackers"), contentBlockingRow()],
             [rowLabel("Keyboard shortcuts"), shortcutsRow()],
@@ -337,7 +346,7 @@ final class SettingsWindowController: NSWindowController, NSTextFieldDelegate {
         ]
         let grid = NSGridView(views: rows)
         grid.translatesAutoresizingMaskIntoConstraints = false
-        // 22 rows; the window stays under 900 pt for small displays.
+        // 23 rows; the window stays under 900 pt for small displays.
         grid.rowSpacing = 10
         grid.column(at: 0).xPlacement = .trailing
         grid.column(at: 1).xPlacement = .fill
@@ -485,6 +494,7 @@ final class SettingsWindowController: NSWindowController, NSTextFieldDelegate {
         askDownloadSwitch.apply(theme: theme)
         blockAdsSwitch.apply(theme: theme)
         miniPlayerSwitch.apply(theme: theme)
+        neverTranslateButton.apply(theme: theme)
         updateListsButton.apply(theme: theme)
         blockerStatusLabel.textColor = theme.colors.textMuted
         websiteDataButton.apply(theme: theme)
@@ -519,6 +529,7 @@ final class SettingsWindowController: NSWindowController, NSTextFieldDelegate {
         askDownloadSwitch.isOn = settingsStore.settings.askDownloadLocation
         blockAdsSwitch.isOn = settingsStore.settings.blockAdsAndTrackers
         miniPlayerSwitch.isOn = settingsStore.settings.miniPlayer
+        neverTranslateButton.title = neverTranslateTitle
         globalLittleArcSwitch.isOn = settingsStore.settings.globalLittleArcEnabled
         globalLittleArcButton.title = globalLittleArcTitle
         refreshContentBlocking()
@@ -857,6 +868,32 @@ extension SettingsWindowController {
             items: AutoplayPolicy.allCases.map { policy in
                 (policy.name, policy == current, { [weak self] in
                     self?.settingsStore.update { $0.autoplay = policy }
+                    self?.refresh()
+                })
+            }
+        )
+    }
+
+    /// "None", or the languages: "German, French".
+    private var neverTranslateTitle: String {
+        let names = settingsStore.settings.neverTranslateLanguages.map(BrowserTranslationOffer.displayName)
+        return names.isEmpty ? "None" : names.joined(separator: ", ")
+    }
+
+    /// Each Never Offer language, checked; choosing one offers it again.
+    @objc private func neverTranslatePressed() {
+        let codes = settingsStore.settings.neverTranslateLanguages
+        guard !codes.isEmpty else {
+            showMenu(from: neverTranslateButton, items: [
+                ("Add languages with the Translate chip's “Never Offer”", false, {}),
+            ])
+            return
+        }
+        showMenu(
+            from: neverTranslateButton,
+            items: codes.map { code in
+                (BrowserTranslationOffer.displayName(code), true, { [weak self] in
+                    self?.settingsStore.update { $0.neverTranslateLanguages.removeAll { $0 == code } }
                     self?.refresh()
                 })
             }

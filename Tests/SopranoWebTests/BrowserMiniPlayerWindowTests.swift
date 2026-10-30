@@ -355,4 +355,131 @@ struct BrowserMiniPlayerWindowTests {
         #expect(try outcome?.get() == "muted")
         #expect(video.isMuted)
     }
+
+    // MARK: - P9 review
+
+    /// P9 review P2-1: the hidden toolbar chip takes no width without
+    /// fighting its content, and the address field ends beside it.
+    @Test func theHiddenToolbarChipTakesNoWidth() throws {
+        let fixture = makeFixture()
+        defer { fixture.tearDown() }
+        let window = fixture.manager.newWindow(url: "https://a.example/")
+        window.toggleVerticalSidebar()
+        #expect(window.verticalTabsView.isHidden)
+        let toolbar = window.toolbar
+        toolbar.layoutSubtreeIfNeeded()
+        let chip = toolbar.mediaControls
+        #expect(chip.isHidden)
+        #expect(chip.frame.width == 0)
+        #expect(chip.frame.maxX == toolbar.captureIndicator.frame.minX)
+        let addressFrame = try #require(toolbar.addressField.superview)
+        #expect(addressFrame.frame.maxX == chip.frame.minX - 6)
+        #expect(!chip.hasAmbiguousLayout)
+        #expect(!chip.subviews.contains { $0.hasAmbiguousLayout })
+        #expect(!addressFrame.hasAmbiguousLayout)
+    }
+
+    /// P9 review P2-2: the Mini Player's page crashing puts the web view
+    /// back (hidden) and clears its media state.
+    @Test func aCrashInTheMiniPlayerReturnsItsTab() throws {
+        let fixture = makeFixture()
+        defer { fixture.tearDown() }
+        let player = fixture.manager.miniPlayer
+        let window = fixture.manager.newWindow(url: "https://a.example/")
+        let video = try #require(window.selectedTab)
+        let other = window.newTab(url: "https://b.example/")
+        window.selectTab(id: video.id, focus: false)
+        play(video, in: window)
+        window.selectTab(id: other.id, focus: false)
+        #expect(player.hosts(video))
+
+        window.handleWebContentCrash(video)
+        #expect(!player.isOpen)
+        #expect(video.webView.superview === window.webArea)
+        #expect(video.webView.isHidden)
+        #expect(video.media.info == BrowserTabMediaInfo())
+        #expect(video.media.frames.isEmpty)
+        #expect(window.mediaControlTab == nil)
+        #expect(window.sleepExemption(video) != .miniPlayer)
+    }
+
+    /// P9 review P2-3: the artwork stream's cap.
+    @Test func theArtworkCapRejectsLargeResponses() {
+        let max = BrowserMediaArtwork.maxBytes
+        #expect(BrowserMediaArtwork.accepts(expectedLength: -1, received: 0))
+        #expect(BrowserMediaArtwork.accepts(expectedLength: Int64(max), received: max))
+        #expect(!BrowserMediaArtwork.accepts(expectedLength: Int64(max) + 1, received: 0))
+        #expect(!BrowserMediaArtwork.accepts(expectedLength: -1, received: max + 1))
+    }
+
+    /// P9 review P2-3: an artwork address that failed is not fetched again
+    /// on the next report.
+    @Test func aFailedArtworkIsFetchedOnce() throws {
+        let fixture = makeFixture()
+        defer { fixture.tearDown() }
+        let original = BrowserMediaArtwork.fetcher
+        defer { BrowserMediaArtwork.fetcher = original }
+        var fetched: [URL] = []
+        BrowserMediaArtwork.fetcher = { url, completion in
+            fetched.append(url)
+            completion(nil)
+        }
+        let window = fixture.manager.newWindow(url: "https://a.example/")
+        let tab = try #require(window.selectedTab)
+        var report = BrowserMediaReport(frame: "main-art")
+        report.isPlaying = true
+        report.hasMedia = true
+        report.title = "Song"
+        report.artwork = "https://art.example/cover.png"
+        tab.media.info.update(report, isMainFrame: true)
+        window.mediaChanged(tab)
+        window.mediaChanged(tab)
+        let address = try #require(URL(string: "https://art.example/cover.png"))
+        #expect(fetched == [address])
+        #expect(tab.media.failedArtwork.contains(address))
+        #expect(tab.media.artwork == nil)
+    }
+
+    /// P9 review P3-1: closing the last tab hands a stale previous tab
+    /// (never on screen) to the rule: it stays out of the Mini Player.
+    @Test func aTabNeverOnScreenDoesNotJumpIntoTheMiniPlayer() throws {
+        let fixture = makeFixture()
+        defer { fixture.tearDown() }
+        let player = fixture.manager.miniPlayer
+        let window = fixture.manager.newWindow(url: "https://a.example/")
+        let hidden = try #require(window.selectedTab)
+        let last = window.newTab(url: "https://b.example/")
+        let closing = window.newTab(url: "https://c.example/")
+        try #require(window.visibleTabs.map(\.id) == [hidden.id, last.id, closing.id])
+        #expect(window.selectedTab === closing)
+        play(hidden, in: window)
+        #expect(hidden.webView.isHidden)
+        window.previousSelectedTabID = hidden.id
+
+        window.closeTab(id: closing.id)
+        #expect(!player.isOpen)
+        #expect(!player.hosts(hidden))
+        #expect(hidden.webView.superview === window.webArea)
+    }
+
+    /// P9 review P3-2: a Peek link on the Mini Player's page opens a
+    /// foreground tab, not a Peek over another page.
+    @Test func aPeekFromTheMiniPlayerOpensATab() throws {
+        let fixture = makeFixture()
+        defer { fixture.tearDown() }
+        let player = fixture.manager.miniPlayer
+        let window = fixture.manager.newWindow(url: "https://a.example/")
+        let video = try #require(window.selectedTab)
+        let other = window.newTab(url: "https://b.example/")
+        window.selectTab(id: video.id, focus: false)
+        play(video, in: window)
+        window.selectTab(id: other.id, focus: false)
+        #expect(player.hosts(video))
+
+        let link = try #require(URL(string: "https://peek.example/"))
+        let opened = window.openPeek(link, from: video)
+        #expect(window.peek == nil)
+        #expect(window.selectedTab === opened)
+        #expect(window.tabs.contains { $0 === opened })
+    }
 }

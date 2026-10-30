@@ -56,6 +56,8 @@ extension BrowserWindowController {
             receiveZapPick(body, tab: tab, frame: frame)
         case ("zapEnd", .isolated):
             receiveZapEnd(tab: tab)
+        case ("pageInfo", .isolated):
+            receivePageInfo(body, tab: tab, frame: frame)
         default:
             return
         }

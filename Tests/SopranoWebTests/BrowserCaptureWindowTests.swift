@@ -190,4 +190,32 @@ struct BrowserCaptureWindowTests {
         #expect(overlay.superview == nil)
         #expect(fixture.pasteboard.data(forType: .png) == nil)
     }
+
+    /// P9 review P2-4: the overlay's own buttons never take the keyboard
+    /// (a Full Keyboard Access click would otherwise cancel the overlay
+    /// before the button acts); another view taking it still cancels it.
+    @Test func itsOwnButtonTakingFocusKeepsTheOverlay() async throws {
+        let fixture = makeFixture()
+        defer { fixture.tearDown() }
+        let window = fixture.manager.newWindow(url: "https://a.example/")
+        window.toggleCaptureOverlay()
+        let overlay = try #require(window.captureOverlay)
+        let nsWindow = try #require(window.window)
+        #expect(!overlay.fullPageButton.acceptsFirstResponder)
+        #expect(!overlay.cancelButton.acceptsFirstResponder)
+        nsWindow.makeFirstResponder(overlay.fullPageButton)
+        nsWindow.makeFirstResponder(overlay.cancelButton)
+        for _ in 0..<5 {
+            try await Task.sleep(for: .milliseconds(10))
+        }
+        #expect(nsWindow.firstResponder === overlay)
+        #expect(window.captureOverlay != nil)
+        #expect(overlay.superview != nil)
+
+        nsWindow.makeFirstResponder(window.toolbar.addressField)
+        for _ in 0..<50 where window.captureOverlay != nil {
+            try await Task.sleep(for: .milliseconds(10))
+        }
+        #expect(window.captureOverlay == nil)
+    }
 }

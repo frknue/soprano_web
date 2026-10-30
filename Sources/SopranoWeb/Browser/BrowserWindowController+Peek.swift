@@ -43,9 +43,13 @@ extension BrowserWindowController {
     // MARK: - Opening and closing
 
     /// Opens `url` in a Peek over `opener`'s page (a Peek's links: over the
-    /// page under it), replacing an open Peek.
+    /// page under it), replacing an open Peek. From the Mini Player's page
+    /// (not the one under a Peek) it opens as a foreground tab instead.
     @discardableResult
     func openPeek(_ url: URL, from opener: BrowserTab) -> BrowserTab {
+        if manager.miniPlayer.hosts(opener) {
+            return openLinkTab(url, opener: opener, select: true)
+        }
         let tab = makeTab(context: opener.dataContext)
         showPeek(tab, from: opener)
         navigate(tab, to: url)
@@ -119,10 +123,13 @@ extension BrowserWindowController {
     }
 
     /// What follows the page shown (the Peek's or the selected tab's): the
-    /// zoom chip, the capture indicator, the extensions' toolbar buttons,
-    /// and Capture's overlay and Zap mode, which end with their page.
+    /// zoom, Reader and Translate chips, the capture indicator, the
+    /// extensions' toolbar buttons, and Capture's overlay and Zap mode,
+    /// which end with their page.
     private func refreshChromeForPageTab() {
         updateZoomChip()
+        updateReaderChip()
+        updateTranslateChip()
         updateCaptureIndicator()
         updateExtensionButtons()
         updateCaptureOverlay()

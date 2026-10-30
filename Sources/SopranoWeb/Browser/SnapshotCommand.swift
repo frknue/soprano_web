@@ -35,6 +35,7 @@ enum SnapshotCommand {
         var boosts = SnapshotBoostOptions()
         var capture = SnapshotCaptureOptions()
         var media = SnapshotMediaOptions()
+        var reader = SnapshotReaderOptions()
         var session = SnapshotSessionOptions()
         var tabAudio = false
         var hoverSelector: String?
@@ -91,6 +92,7 @@ enum SnapshotCommand {
     \(SnapshotBoostOptions.usage)
     \(SnapshotCaptureOptions.usage)
     \(SnapshotMediaOptions.usage)
+    \(SnapshotReaderOptions.usage)
                                [--tabs <url>,<url>…] [--tab-audio] [--hover <css selector>]
                                [--back-url <url>]
                                [--address <text>] [--focus-address]
@@ -201,6 +203,8 @@ enum SnapshotCommand {
                 )
             case let flag where SnapshotBoostOptions.flags.contains(flag):
                 try options.boosts.parse(flag) { try value(flag) }
+            case let flag where SnapshotReaderOptions.flags.contains(flag):
+                try options.reader.parse(flag) { try value(flag) }
             case let flag where SnapshotSessionOptions.flags.contains(flag):
                 try options.session.parse(flag) { try value(flag) }
             case let flag where SnapshotCommandBarAction.flags.contains(flag):
@@ -618,6 +622,7 @@ enum SnapshotCommand {
             wait(0.3)
         }
         SnapshotPageTools.run(options.pageTools, controller: controller)
+        options.reader.run(controller: controller) { wait($0) }
         options.capture.run(controller: controller) { wait($0) }
         options.media.run(controller: controller) { wait($0) }
 

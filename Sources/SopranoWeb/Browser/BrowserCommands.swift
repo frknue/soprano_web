@@ -36,6 +36,7 @@ enum BrowserCommandID: String, CaseIterable, Sendable {
     case bringAllToFront = "bring-all-to-front"
     case keyboardShortcuts = "keyboard-shortcuts"
     case editBoost = "edit-boost", zapElements = "zap-elements"
+    case reader, translatePage = "translate-page"
 
     var command: BrowserAppCommand { BrowserAppCommand.byID[self]! }
     var defaultShortcut: BrowserShortcut? { command.shortcut }
@@ -440,6 +441,30 @@ struct BrowserAppCommand: Sendable {
              symbol: "eye.slash", state: { .when($0.controller?.boostHost != nil) }) {
             $0.controller?.startZap()
         },
+        make(
+            .reader, "Show Reader", .view, 8, "shift+cmd+r", synonyms: ["reader", "reader mode", "article", "read"],
+            symbol: "doc.plaintext",
+            state: { context in
+                guard let controller = context.controller, controller.canToggleReader else { return .disabled }
+                return BrowserCommandState(
+                    isEnabled: true,
+                    title: controller.pageTab?.reader.isActive == true ? "Hide Reader" : "Show Reader"
+                )
+            },
+            run: { $0.controller?.toggleReader() }
+        ),
+        make(
+            .translatePage, "Translate Page", .view, 8, synonyms: ["translate", "translation", "language"],
+            symbol: "translate",
+            state: { context in
+                guard let controller = context.controller, let tab = controller.pageTab else { return .disabled }
+                if tab.translation.isTranslated {
+                    return BrowserCommandState(isEnabled: controller.canUsePageTools, title: "Show Original")
+                }
+                return .when(controller.canTranslatePage)
+            },
+            run: { $0.controller?.toggleTranslation() }
+        ),
 
         // History
         make(.showHistory, "Show All History", .history, 0, "cmd+y", symbol: "clock", state: hasWindow) {

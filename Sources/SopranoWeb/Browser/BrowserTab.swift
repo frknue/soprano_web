@@ -115,6 +115,10 @@ final class BrowserTab {
     var lifecycle = BrowserTabLifecycle()
     var observations: [NSKeyValueObservation] = []
     var links = BrowserTabLinks()
+    /// Whether the page has an article and the Reader shows it.
+    var reader = BrowserTabReader()
+    /// The page's language and its translation.
+    var translation = BrowserTabTranslation()
     /// The next load to finish started from the address bar (a typed visit).
     var typedNavigationPending = false
     /// How the main-frame load in flight was started (its policy decision).

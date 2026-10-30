@@ -51,13 +51,22 @@ extension BrowserWindowController {
             tab.media.artwork = nil
             return
         }
-        guard tab.media.artwork?.url != address, let url = URL(string: address) else { return }
+        guard tab.media.artwork?.url != address, let url = URL(string: address),
+              !tab.media.failedArtwork.contains(url)
+        else { return }
         if url.scheme?.lowercased() == "data" {
             tab.media.artwork = (try? Data(contentsOf: url)).flatMap(NSImage.init(data:)).map { (address, $0) }
             return
         }
-        BrowserMediaArtwork.fetch(url) { [weak self, weak tab] image in
-            guard let self, let tab, let image, tab.media.info.current?.artwork == address else { return }
+        BrowserMediaArtwork.fetcher(url) { [weak self, weak tab] image in
+            guard let tab else { return }
+            // A failed address is not fetched again on every report.
+            guard let image else {
+                if tab.media.failedArtwork.count > 32 { tab.media.failedArtwork.removeAll() }
+                tab.media.failedArtwork.insert(url)
+                return
+            }
+            guard let self, tab.media.info.current?.artwork == address else { return }
             tab.media.artwork = (address, image)
             self.mediaChanged(tab)
         }
@@ -164,7 +173,10 @@ extension BrowserWindowController {
     /// the rule moves goes into the Mini Player.
     func miniPlayerLeaving(_ leaving: [BrowserTab], previous: BrowserTab, shown: [BrowserTab]) {
         let ordered = [previous] + leaving.filter { $0 !== previous }
-        for tab in ordered where tabs.contains(where: { $0 === tab }) && !manager.miniPlayer.hosts(tab) {
+        // Only pages really on screen now: a stale `previous` (the last tab
+        // of a Space closed, a detach) may be a tab never shown.
+        let onScreen = ordered.filter { $0.webView.superview === webArea && !$0.webView.isHidden }
+        for tab in onScreen where tabs.contains(where: { $0 === tab }) && !manager.miniPlayer.hosts(tab) {
             if miniPlayerDecision(tab, shown: shown) == .open {
                 openMiniPlayer(for: tab)
                 return
@@ -320,12 +332,23 @@ extension BrowserWindowController {
 }
 
 /// Fetches Media Session artwork for the controls: an ephemeral session
-/// (no cookies or cache on disk), images up to 2 MB, a small memory cache.
+/// (no cookies or cache on disk), images up to 2 MB streamed with the cap
+/// (the address is the page's), a small memory cache.
 @MainActor
 enum BrowserMediaArtwork {
     nonisolated static let maxBytes = 2 * 1024 * 1024
-    private static let session = URLSession(configuration: .ephemeral)
+    nonisolated private static let session = URLSession(configuration: .ephemeral)
     private static var cache: [URL: NSImage] = [:]
+    /// The fetch the controls use (tests replace it).
+    static var fetcher: @MainActor (URL, @escaping @MainActor (NSImage?) -> Void) -> Void = { url, completion in
+        BrowserMediaArtwork.fetch(url, completion: completion)
+    }
+
+    /// Whether a response announcing `expectedLength` bytes (-1 unknown)
+    /// with `received` bytes so far stays within `maxBytes`.
+    nonisolated static func accepts(expectedLength: Int64, received: Int) -> Bool {
+        expectedLength <= Int64(maxBytes) && received <= maxBytes
+    }
 
     static func fetch(_ url: URL, completion: @escaping @MainActor (NSImage?) -> Void) {
         if let image = cache[url] {
@@ -338,19 +361,37 @@ enum BrowserMediaArtwork {
         }
         var request = URLRequest(url: url, timeoutInterval: 15)
         request.httpShouldHandleCookies = false
-        session.dataTask(with: request) { data, response, _ in
-            let ok = (response as? HTTPURLResponse).map { (200..<300).contains($0.statusCode) } ?? false
-            let bytes = ok && (data?.count ?? 0) <= maxBytes ? data : nil
-            DispatchQueue.main.async {
-                MainActor.assumeIsolated {
-                    let image = bytes.flatMap(NSImage.init(data:))
-                    if let image {
-                        if cache.count > 32 { cache.removeAll() }
-                        cache[url] = image
-                    }
-                    completion(image)
+        Task { @MainActor in
+            let image = await download(request).flatMap(NSImage.init(data:))
+            if let image {
+                if cache.count > 32 { cache.removeAll() }
+                cache[url] = image
+            }
+            completion(image)
+        }
+    }
+
+    /// The body of a 2xx response, nil past `maxBytes` (stops reading).
+    nonisolated private static func download(_ request: URLRequest) async -> Data? {
+        guard let result = try? await session.bytes(for: request) else { return nil }
+        let (bytes, response) = result
+        let ok = (response as? HTTPURLResponse).map { (200..<300).contains($0.statusCode) } ?? false
+        guard ok, accepts(expectedLength: response.expectedContentLength, received: 0) else {
+            bytes.task.cancel()
+            return nil
+        }
+        var data = Data()
+        do {
+            for try await byte in bytes {
+                data.append(byte)
+                if !accepts(expectedLength: -1, received: data.count) {
+                    bytes.task.cancel()
+                    return nil
                 }
             }
-        }.resume()
+        } catch {
+            return nil
+        }
+        return data
     }
 }

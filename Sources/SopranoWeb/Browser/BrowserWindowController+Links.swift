@@ -147,7 +147,8 @@ extension BrowserWindowController {
                 opener.links.recentlyOpened = opener.links.recentlyOpened
                     .filter { now.timeIntervalSince($0.date) < 5 } + [(url, now)]
             }
-            if disposition == .peek {
+            // A Peek would show over the window's page, not the Mini Player's.
+            if disposition == .peek, !manager.miniPlayer.hosts(opener) {
                 showPeek(tab, from: opener)
             } else if disposition == .splitPane {
                 insertLinkPane(tab, opener: linkOpener(opener))

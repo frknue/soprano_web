@@ -167,6 +167,9 @@ struct BrowserSettings: Codable, Equatable, Sendable {
     /// Settings ▸ "Mini Player": leaving a tab with a playing, visible
     /// video moves it into a floating panel.
     var miniPlayer: Bool = true
+    /// Translate's "Never Offer for <language>": language codes ("de")
+    /// the address field doesn't offer to translate.
+    var neverTranslateLanguages: [String] = []
 
     static let `default` = BrowserSettings()
 
@@ -253,6 +256,9 @@ extension BrowserSettings {
         globalLittleArcEnabled = (try? c.decodeIfPresent(Bool.self, forKey: .globalLittleArcEnabled))
             ?? globalLittleArcEnabled
         miniPlayer = (try? c.decodeIfPresent(Bool.self, forKey: .miniPlayer)) ?? miniPlayer
+        neverTranslateLanguages = ((try? c.decodeIfPresent([String].self, forKey: .neverTranslateLanguages)) ?? nil)
+            .map { codes in codes.map(BrowserTranslationOffer.languageCode).reduce(into: [String]()) { if !$0.contains($1) { $0.append($1) } } }
+            ?? neverTranslateLanguages
         // A chord the system, text editing or another command uses never
         // becomes a global hotkey (a hand-edited file included): a taken
         // chord falls back to the default, and when that one is taken too

@@ -175,7 +175,7 @@ extension BrowserWindowController {
         switch action {
         case let .access(access):
             try? extensions.setSiteAccess(id, access)
-        case let .allowHere(true):
+        case .allowHere(true):
             try? extensions.setSite(id, host: host, allowed: true)
         case .allowHere(false):
             // The host and every parent site that covers it.

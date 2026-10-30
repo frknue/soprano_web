@@ -11,6 +11,8 @@ let package = Package(
             exclude: ["Vendored/SOPRANO_COMMIT"],
             resources: [
                 .copy("Resources/AppIcon.icns"),
+                // Readability.js 0.6.0 with its LICENSE and NOTICE (Reader).
+                .copy("Resources/Readability"),
             ],
             linkerSettings: [
                 .linkedFramework("WebKit"),

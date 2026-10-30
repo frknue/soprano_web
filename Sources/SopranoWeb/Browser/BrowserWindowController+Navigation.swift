@@ -231,6 +231,8 @@ extension BrowserWindowController {
         window?.representedURL = tab.isStartPage ? nil : url
         updatePopupBlockedControl()
         updateZoomChip()
+        updateReaderChip()
+        updateTranslateChip()
     }
 }
 
@@ -279,6 +281,7 @@ extension BrowserWindowController: WKNavigationDelegate {
         wakeSnapshotPageCommitted(tab)
         linksDidCommit(tab)
         zapPageCommitted(tab)
+        readerPageCommitted(tab)
         tab.isStartPage = webView.url?.scheme?.lowercased() == BrowserStartPageSchemeHandler.scheme
         if !tab.isStartPage, tab.errorMessage == nil, tab.certificateInterstitial == nil {
             // A committed page doesn't inherit the previous title ("New Tab"

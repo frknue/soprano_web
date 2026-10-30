@@ -104,6 +104,11 @@ final class BrowserMediaControlsView: NSView {
         case .toolbar:
             layer?.cornerRadius = Chrome.Radius.control
             layer?.borderWidth = Chrome.hairline
+            // Breakable: while hidden the chip is pinned to no width, and
+            // the content (artwork, title, 22 pt buttons) overflows instead
+            // of fighting that constraint.
+            let buttonsTrailing = buttons.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -2)
+            buttonsTrailing.priority = NSLayoutConstraint.Priority(999)
             NSLayoutConstraint.activate([
                 heightAnchor.constraint(equalToConstant: Chrome.fieldHeight),
                 artworkView.leadingAnchor.constraint(equalTo: leadingAnchor, constant: Chrome.Space.s4),
@@ -114,7 +119,7 @@ final class BrowserMediaControlsView: NSView {
                 titleLabel.centerYAnchor.constraint(equalTo: centerYAnchor),
                 titleLabel.widthAnchor.constraint(lessThanOrEqualToConstant: Self.toolbarTitleWidth),
                 buttons.leadingAnchor.constraint(equalTo: titleLabel.trailingAnchor, constant: Chrome.Space.s4),
-                buttons.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -2),
+                buttonsTrailing,
                 buttons.centerYAnchor.constraint(equalTo: centerYAnchor),
             ])
             let zero = widthAnchor.constraint(equalToConstant: 0)

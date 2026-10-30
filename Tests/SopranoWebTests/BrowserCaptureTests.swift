@@ -204,4 +204,27 @@ struct BrowserCaptureTests {
             #expect(throws: BrowserAutomationError.self) { try parse(bad) }
         }
     }
+
+    /// P9 review P3-3: a write that fails part way leaves no hidden
+    /// temporary file behind.
+    @Test func aFailedSaveLeavesNoTemporaryFile() throws {
+        let directory = FileManager.default.temporaryDirectory
+            .appendingPathComponent("SopranoWebCaptureSave-\(UUID().uuidString)", isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        struct Failure: Error {}
+        #expect(throws: Failure.self) {
+            try BrowserCaptureFile.save(
+                Data("one".utf8),
+                in: directory,
+                date: Date(timeIntervalSince1970: 1_793_000_000),
+                write: { data, url in
+                    try data.prefix(1).write(to: url)
+                    throw Failure()
+                }
+            )
+        }
+        let left = try FileManager.default.contentsOfDirectory(atPath: directory.path)
+        #expect(!left.contains { $0.hasPrefix(".soprano-capture-") })
+        #expect(left.isEmpty)
+    }
 }
