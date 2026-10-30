@@ -24,7 +24,7 @@ contract is `docs/STAGE-3-PLAN.md`.
 | Branch | Base | State |
 |---|---|---|
 | `feat/stage-3` | `main` | Squash-merged as #3. 518 tests green in debug and release. |
-| `feat/stage-4` | `main` | Stage 4 built (P0–P12) and pushed, no PR yet; 799 tests green in debug and release. Open: 1Password sign-in and the by-hand checks below (Furkan), then a PR to `main`. |
+| `feat/stage-4` | `main` | Stage 4 built (P0–P12) and pushed, no PR yet; 800 tests green in debug and release; the real EasyList's element hiding proven (`1f3cc7f`). Open: 1Password sign-in and the by-hand checks below (Furkan), then a PR to `main`. |
 | `feat/stage-3-search`, `feat/stage-3-import` | — | Merged into `feat/stage-3`; no further work there. |
 
 ## Done
