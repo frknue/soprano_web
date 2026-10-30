@@ -145,7 +145,7 @@ Known, not planned: each tab change rebuilds every rail row (~40 ms with 20+ tab
 closes do it once.
 
 Not built from ROADMAP §3: Arc's `Arc Data Export.md` lossy fallback (the real files
-read fine), Arc's `defaultDestination` link rule (Little Arc is §4).
+read fine). Arc's `defaultDestination` imports since stage 4 P3.
 
 ## Open questions
 
