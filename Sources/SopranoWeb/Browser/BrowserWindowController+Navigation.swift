@@ -252,6 +252,9 @@ extension BrowserWindowController: WKNavigationDelegate {
         }
         if tab.id == selectedTab?.id {
             updateChrome()
+        } else if tab === peek?.tab {
+            // A Peek's navigation: the open Site Control Center follows it.
+            updateSiteControlPanel()
         }
     }
 
