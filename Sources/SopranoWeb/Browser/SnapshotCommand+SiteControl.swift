@@ -31,13 +31,16 @@ extension SnapshotCommand {
 
     /// Presses the Connection row of a popover built for the page.
     static func openConnectionDetails(controller: BrowserWindowController) {
+        // The view holds the button's target and closures: keep it alive
+        // across the press.
         guard let tab = controller.siteControlTab,
-              let button = controller.makeSiteControlView(for: tab)?.connectionButton
+              let view = controller.makeSiteControlView(for: tab),
+              let button = view.connectionButton
         else {
             print("security-info: the page has no site")
             return
         }
-        _ = button.accessibilityPerformPress()
+        withExtendedLifetime(view) { _ = button.accessibilityPerformPress() }
     }
 }
 
@@ -57,9 +60,11 @@ extension SnapshotBlockerAction {
             print("site-blocking: the popover has no switch")
             return
         }
-        if accessory.toggle.isOn != on {
-            _ = accessory.toggle.accessibilityPerformPress()
+        withExtendedLifetime(view) {
+            if accessory.toggle.isOn != on {
+                _ = accessory.toggle.accessibilityPerformPress()
+            }
+            print("site-blocking: \(accessory.host) switch \(accessory.toggle.isOn ? "on" : "off")")
         }
-        print("site-blocking: \(accessory.host) switch \(accessory.toggle.isOn ? "on" : "off")")
     }
 }

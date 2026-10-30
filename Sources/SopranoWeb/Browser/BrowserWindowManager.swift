@@ -93,6 +93,8 @@ final class BrowserWindowManager {
     /// Settings ▸ Links from other apps: rules an import brought in
     /// (`link-routing.json`), applied in `open(_:)`.
     let linkRouting: BrowserLinkRoutingStore
+    /// Boosts (`boosts.json`): every tab of every window runs them.
+    let boosts: BrowserBoostStore
     /// Chrome extensions: the one `WKWebExtensionController` every tab
     /// carries, the installed extensions in `<support>/Extensions/`.
     let extensions: BrowserExtensions
@@ -181,6 +183,7 @@ final class BrowserWindowManager {
             isEnabled: settingsStore.settings.blockAdsAndTrackers
         )
         self.linkRouting = BrowserLinkRoutingStore(url: supportDirectory.appendingPathComponent("link-routing.json"))
+        self.boosts = BrowserBoostStore(url: supportDirectory.appendingPathComponent("boosts.json"))
         self.extensions = BrowserExtensions(
             supportDirectory: supportDirectory,
             storage: extensionStorage,
@@ -222,6 +225,9 @@ final class BrowserWindowManager {
             spaces.changes.observe { [weak self] in
                 guard let self else { return }
                 self.profiles.follow(self.spaces.spaces)
+            },
+            boosts.changes.observe { [weak self] in
+                self?.controllers.forEach { $0.boostsChanged() }
             },
         ]
         downloadManager.fallbackWindow = { [weak self] in self?.activeController?.window }

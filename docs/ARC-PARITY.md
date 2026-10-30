@@ -106,7 +106,7 @@ Status of Soprano Web: **done**, **partial**, **missing**, **broken**. `BWC` =
 | Reader | none | missing | Readability.js (Apache-2.0) in a `WKContentWorld` | 4 |
 | Picture in Picture | automatic when leaving a video tab | missing (WebKit's macOS default is off) | private (`_allowsPictureInPictureMediaPlayback`); floating panel hosting the web view | 4 |
 | Capture | ⇧⌘2 area, full page, portrait | missing (CLI viewport screenshot only) | `takeSnapshot(with:)` (10.13) | 4 |
-| Boosts | per-site CSS/JS, fonts, Zap | missing | `WKUserScript` + `WKContentWorld` (11.0); user style sheets are private, inject `<style>` | 4 |
+| Boosts | per-site CSS/JS, fonts, Zap | built (stage 4 P7): per host (+ `www.`), app-wide `boosts.json`; CSS as a `<style>` at document start (live), JS in its own content world (next load), Zap picker with stable selectors (live); editor sheet from the Site Control Center and `/boost`; CLI `browser boost`; no font picker (write it as CSS) | `WKUserScript` + `WKContentWorld` (11.0); user style sheets are private, inject `<style>` | 4 |
 | Developer tools | ⌥⌘I, ⌥⌘U, Developer Mode on localhost | partial: `isInspectable` (Safari ▸ Develop), Vimium `gs` | in-app inspector is private | — |
 
 ### Security, privacy and permissions

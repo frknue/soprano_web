@@ -117,6 +117,10 @@ final class BrowserWindowController: NSWindowController {
     lazy var bookmarkEditorPanel = BrowserPinEditorPanel()
     /// The lock's Site Control Center.
     lazy var siteControlPanel = BrowserSiteControlPanel()
+    /// The Boost editor sheet, while shown.
+    var boostEditor: BrowserBoostEditor?
+    /// The tab in Zap mode and its Boost's host.
+    var zapSession: (tabID: UUID, host: String)?
     /// The open folder preview beside the rail, and its pending close.
     var folderPreview: BrowserPinFolderPreview?
     var folderPreviewHideTimer: Timer?

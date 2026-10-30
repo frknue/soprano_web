@@ -10,6 +10,18 @@ app.
 ## [Unreleased]
 
 ### Added
+- Boosts: your own CSS, JavaScript and hidden elements per site (the host and its
+  `www.` form; other subdomains have their own), app-wide in `boosts.json`, running in
+  every tab — normal, private, Peek, split panes, Little Arc. CSS goes into the page as a
+  `<style>` at document start and JavaScript runs in a content world of its own (no
+  Soprano Web message handler). CSS and hidden elements change open pages at once;
+  JavaScript runs from the next load. The editor sheet (monospace CSS / JavaScript /
+  zapped selectors, enabled switch, name) opens from the Site Control Center's new Boost
+  row and the Command Bar (`/boost`, "Boost This Site…"); "Zap Elements" outlines what
+  the pointer is over, a click hides it and records a stable selector, Esc ends. CLI
+  `browser boost list|show|css|js|zap|enable|disable|remove` (`css`/`js` read a file or
+  `-` for stdin in the CLI); harness `--boost-css`, `--boost-js`, `--boost-zap`,
+  `--boost-editor`.
 - Site Control Center: the lock / site chip opens a Folio popover for the page you look at
   (a Peek's, the focused pane's) in its Space's profile: the connection (the details
   sheet with Show Certificate behind its row), camera, microphone, notifications and
@@ -487,6 +499,13 @@ app.
   `bookmarks.json.migrated`.
 
 ### Fixed
+- Site Control Center (P6 review): the open popover closes when its tab stops being the
+  page you look at and follows the tab's navigations; its zoom acts on its own tab, and
+  "Block ads on this site" and extension access write the tab's current site, not the
+  one it opened for; on a certificate interstitial a permission choice is stored for the
+  interstitial's host instead of being dropped; unchecking "Allow on <host>" also removes
+  a parent site that granted it; the harness's `--security-info` and `--site-blocking`
+  keep the popover alive while pressing its controls.
 - Split View (P5 review): dragging a divider resized only by the first step (the layout
   rebuilt the dividers mid-drag; now only the widths change); a favorite's live tab
   brought into the current Space leaves its split; Recently Closed windows keep their

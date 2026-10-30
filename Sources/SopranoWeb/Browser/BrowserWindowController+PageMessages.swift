@@ -50,6 +50,10 @@ extension BrowserWindowController {
             receiveSleepGuard(body, tab: tab)
         case ("keyReport", .isolated):
             receiveKeyReport(body, tab: tab)
+        case ("zapPick", .isolated):
+            receiveZapPick(body, tab: tab, frame: frame)
+        case ("zapEnd", .isolated):
+            receiveZapEnd(tab: tab)
         default:
             return
         }

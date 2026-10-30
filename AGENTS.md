@@ -739,7 +739,44 @@ surrounding style.
   lines; `--security-info` presses its Connection row (`--sheet` prints
   the sheet). CLI: `browser [--tab n] site [info|clear|permission
   <camera|microphone|notifications|popups> allow|deny|ask]` (`clear` asks
-  nothing).
+  nothing). Actions resolve the host at action time
+  (`siteControlHost(of:)`, which also covers a certificate interstitial),
+  zoom acts on the popover's own tab, and `updateChrome` closes the popover
+  when its tab stops being `pageTab` (`updateSiteControlPanel`). Harness
+  helpers that press a popover control keep the view alive
+  (`withExtendedLifetime`): the controls' targets are weak.
+- Boosts (stage 4 P7): `BrowserBoosts.swift` (`BrowserBoost`: host, name,
+  enabled, css, js, zaps; `key(_:)` lowercases, drops trailing dots and one
+  leading `www.` — a host matches itself and its `www.` form, never other
+  subdomains; `BrowserBoostStore`, manager-owned `manager.boosts`,
+  app-wide `<support>/boosts.json` as a `JSONList`, a bad entry skipped,
+  an unreadable file kept as `.corrupt`, `changes` →
+  `BrowserWindowController.boostsChanged()` in every window).
+  `BrowserBoostScripts.swift`: user scripts marked `/* soprano-web:boost */`
+  in the `SopranoWebBoost` content world — deliberately not a
+  `BrowserPageScript.World`, so it has no `sopranoWeb` handler and user
+  code can't post as ours. Every script starts with `hostGuard` (user
+  scripts can't be host-scoped). CSS + zaps (`stylesheet`) go into one
+  `style[data-soprano-web-boost]` at document start (a `MutationObserver`
+  waits for a root); JS runs at document end, main frame only.
+  `refreshStateScripts` swaps state and Boost scripts together (both
+  `removeAllUserScripts`), so every tab — private, Peek, panes, Little Arc —
+  gets them; `applyBoostStyle(to:)` re-runs the style script on open pages
+  (CSS/zaps live; JS waits for the next load, the editor says so). Zap mode
+  (`startZap`, `zapStart` in the trusted isolated world) posts `zapPick`
+  with the element's ancestor path and `zapEnd` on Esc;
+  `BrowserZapSelector` builds the selector (nearest stable id, else
+  `body >`; tag, up to two stable classes, `:nth-of-type` when needed).
+  `BrowserBoostEditor.swift`: the sheet (`showBoostEditor`, from the Site
+  Control Center's Boost row and `/boost` = `edit-boost`; `zap-elements`
+  too). CLI `browser boost list|show <host>|css <host> <file|->|js <host>
+  <file|->|zap <host> <selector>|enable|disable|remove <host>`, routed at
+  manager level (`BrowserBoostCommands`); `parseBoost` reads the file
+  (relative to `PWD`) or the CLI's own stdin for `-` and sends the text.
+  Harness: `--boost-css`, `--boost-js`, `--boost-zap` (repeatable) seed a
+  Boost for the `--url` host before it loads and print `boost:` lines
+  (style bytes, title, body background); `--boost-editor` opens the editor
+  (`--sheet` draws it).
 - `Browser/Extensions/` — Chrome extensions on `WKWebExtension`.
   `BrowserExtensions.swift` (manager-owned, `manager.extensions`): the one
   app-wide `WKWebExtensionController` (fixed storage identifier; the

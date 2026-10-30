@@ -35,6 +35,7 @@ enum BrowserCommandID: String, CaseIterable, Sendable {
     case tab7 = "tab-7", tab8 = "tab-8", lastTab = "last-tab"
     case bringAllToFront = "bring-all-to-front"
     case keyboardShortcuts = "keyboard-shortcuts"
+    case editBoost = "edit-boost", zapElements = "zap-elements"
 
     var command: BrowserAppCommand { BrowserAppCommand.byID[self]! }
     var defaultShortcut: BrowserShortcut? { command.shortcut }
@@ -427,6 +428,14 @@ struct BrowserAppCommand: Sendable {
         splitPaneCommand(.splitPane2, number: 2),
         splitPaneCommand(.splitPane3, number: 3),
         splitPaneCommand(.splitPane4, number: 4),
+        make(.editBoost, "Boost This Site…", .view, 7, synonyms: ["boost", "custom css", "user script"],
+             symbol: "paintbrush", state: { .when($0.controller?.boostHost != nil) }) {
+            $0.controller?.showBoostEditor()
+        },
+        make(.zapElements, "Zap Elements", .view, 7, synonyms: ["boost", "zap", "hide element"],
+             symbol: "eye.slash", state: { .when($0.controller?.boostHost != nil) }) {
+            $0.controller?.startZap()
+        },
 
         // History
         make(.showHistory, "Show All History", .history, 0, "cmd+y", symbol: "clock", state: hasWindow) {

@@ -26,6 +26,7 @@ final class BrowserSiteControlView: NSView {
     var onBlocksAds: ((Bool) -> Void)?
     var onExtension: ((String, ExtensionAction) -> Void)?
     var onClearData: (() -> Void)?
+    var onBoost: (() -> Void)?
 
     private var theme: AppTheme
     private(set) var state: BrowserSiteControlState
@@ -36,6 +37,7 @@ final class BrowserSiteControlView: NSView {
     private(set) var zoomLabel: NSTextField?
     private(set) var blockingAccessory: BrowserSiteBlockingAccessory?
     private(set) var clearButton: ChromeButton?
+    private(set) var boostButton: ChromeButton?
 
     init(theme: AppTheme, state: BrowserSiteControlState) {
         self.theme = theme
@@ -130,6 +132,17 @@ final class BrowserSiteControlView: NSView {
                 name.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
                 add(line(name, [button]), fullWidth: true)
             }
+        }
+
+        boostButton = nil
+        if let boost = state.boost {
+            add(rule())
+            let button = ChromeButton(title: boost.buttonTitle, theme: theme, kind: .standard)
+            button.target = self
+            button.action = #selector(boostPressed)
+            button.setAccessibilityLabel("Boost \(boost.title)")
+            boostButton = button
+            add(line(label("Boost: \(boost.title)"), [button]), fullWidth: true)
         }
 
         clearButton = nil
@@ -264,6 +277,10 @@ final class BrowserSiteControlView: NSView {
     @objc private func zoomOutPressed() { onZoom?(.zoomOut) }
     @objc private func zoomInPressed() { onZoom?(.zoomIn) }
     @objc private func zoomResetPressed() { onZoom?(.reset) }
+
+    @objc private func boostPressed() {
+        onBoost?()
+    }
 
     @objc private func clearPressed() {
         onClearData?()

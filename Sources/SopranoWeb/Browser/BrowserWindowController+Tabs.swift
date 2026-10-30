@@ -109,7 +109,9 @@ extension BrowserWindowController {
     private func connectKeyHandler(_ tab: BrowserTab) {
         tab.webView.keyHandler = { [weak tab] event in
             guard let tab else { return false }
-            if let controller = tab.vimium?.windowController, controller.closesPeek(on: event, in: tab) {
+            if let controller = tab.vimium?.windowController,
+               controller.endsZap(on: event, in: tab) || controller.closesPeek(on: event, in: tab)
+            {
                 return true
             }
             return tab.vimium?.handle(event) ?? false

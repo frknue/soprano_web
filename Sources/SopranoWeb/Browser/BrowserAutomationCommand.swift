@@ -74,7 +74,8 @@ struct BrowserCommandRequest: Codable, Equatable, Sendable {
 
     static func parse(
         _ commandLine: [String],
-        environment: [String: String] = ProcessInfo.processInfo.environment
+        environment: [String: String] = ProcessInfo.processInfo.environment,
+        standardInput: () -> Data = { FileHandle.standardInput.readDataToEndOfFile() }
     ) throws -> BrowserCommandRequest? {
         guard commandLine.count >= 2, commandLine[1] == "browser" else { return nil }
 
@@ -172,6 +173,9 @@ struct BrowserCommandRequest: Codable, Equatable, Sendable {
             }
             guard valid else { throw BrowserAutomationError.invalidArguments(splitUsage) }
         }
+        if command == "boost" {
+            try parseBoost(&arguments, environment: environment, standardInput: standardInput)
+        }
         if command == "site" {
             let valid: Bool
             switch arguments.first {
@@ -251,6 +255,63 @@ struct BrowserCommandRequest: Codable, Equatable, Sendable {
         }
     }
 
+    /// `boost list|show <host>|css <host> <file|->|js <host> <file|->|zap
+    /// <host> <selector>|enable|disable|remove <host>`. The CLI reads the
+    /// file (relative to `PWD`) or its own stdin for `-` and sends the
+    /// text, since the app can't read either.
+    static func parseBoost(
+        _ arguments: inout [String],
+        environment: [String: String],
+        standardInput: () -> Data
+    ) throws {
+        let usage = BrowserAutomationError.invalidArguments(boostUsage)
+        if arguments.isEmpty {
+            arguments = ["list"]
+        }
+        let action = arguments[0]
+        if action == "list" {
+            guard arguments.count == 1 else { throw usage }
+            return
+        }
+        guard arguments.count >= 2, isBoostHost(arguments[1]) else { throw usage }
+        switch action {
+        case "show", "enable", "disable", "remove":
+            guard arguments.count == 2 else { throw usage }
+        case "css", "js":
+            guard arguments.count == 3 else { throw usage }
+            let source = arguments[2]
+            let data: Data
+            if source == "-" {
+                data = standardInput()
+            } else {
+                let directory = environment["PWD"] ?? FileManager.default.currentDirectoryPath
+                let url = source.hasPrefix("/")
+                    ? URL(fileURLWithPath: source)
+                    : URL(fileURLWithPath: directory, isDirectory: true).appendingPathComponent(source)
+                guard let contents = try? Data(contentsOf: url.standardizedFileURL) else {
+                    throw BrowserAutomationError.invalidArguments("Can't read \(url.standardizedFileURL.path)")
+                }
+                data = contents
+            }
+            guard let text = String(data: data, encoding: .utf8) else {
+                throw BrowserAutomationError.invalidArguments("The \(action.uppercased()) is not UTF-8 text")
+            }
+            arguments[2] = text
+        case "zap":
+            let selector = arguments.dropFirst(2).joined(separator: " ").trimmingCharacters(in: .whitespacesAndNewlines)
+            guard !selector.isEmpty else { throw usage }
+            arguments = ["zap", arguments[1], selector]
+        default:
+            throw usage
+        }
+    }
+
+    /// A host name, not an address: no scheme, path, port or spaces.
+    static func isBoostHost(_ value: String) -> Bool {
+        BrowserBoost.key(value) != nil
+            && value.allSatisfy { $0.isLetter || $0.isNumber || $0 == "." || $0 == "-" || $0 == "_" }
+    }
+
     private static func extractTimeout(from arguments: inout [String]) throws -> TimeInterval? {
         guard let index = arguments.firstIndex(of: "--timeout") else { return nil }
         guard index + 1 < arguments.count,
@@ -273,6 +334,12 @@ struct BrowserCommandRequest: Codable, Equatable, Sendable {
     static let splitUsage = "Usage: soprano-web browser [--window n] split [<url>|close|focus <n>]"
     static let siteUsage = """
     Usage: soprano-web browser [--window n] [--tab n] site [info|clear|permission <camera|microphone|notifications|popups> allow|deny|ask]
+    """
+    static let boostUsage = """
+    Usage: soprano-web browser boost [list]
+           soprano-web browser boost show|enable|disable|remove <host>
+           soprano-web browser boost css|js <host> <file|->
+           soprano-web browser boost zap <host> <selector>
     """
     static let extensionUsage = """
     Usage: soprano-web browser extension install <chrome web store url|id|folder>
@@ -337,6 +404,10 @@ enum BrowserCommand {
       soprano-web browser [--window n] peek [<url>|close|open-as-tab]
       soprano-web browser [--window n] split [<url>|close|focus <n>]
       soprano-web browser [--window n] [--tab n] site [info|clear|permission <name> allow|deny|ask]
+      soprano-web browser boost [list]
+      soprano-web browser boost show|enable|disable|remove <host>
+      soprano-web browser boost css|js <host> <file|->
+      soprano-web browser boost zap <host> <selector>
       soprano-web browser [--window n] spaces
       soprano-web browser [--window n] space <n|name>
       soprano-web browser extensions
@@ -404,6 +475,12 @@ enum BrowserCommand {
     profile (a private window's own layer); `site clear` removes the
     site's website data (its registrable domain's: WebKit keeps no finer
     grain) and the host's cookies without asking, then reloads the page.
+    `boost` edits Boosts, the user's per-site CSS, JavaScript and hidden
+    elements (app-wide, every Space). A host matches itself and its `www.`
+    form, not other subdomains. `css`/`js` replace the Boost's code with a
+    file or `-` (stdin), making the Boost when there is none; `zap` adds a
+    selector to hide. CSS and zaps apply to open pages at once, JavaScript
+    from the next load.
     `snapshot` assigns ephemeral refs such as `e1`; pass them back as `@e1`.
     `eval` runs an expression, or an async function body that uses `return`;
     Promises are awaited and the result prints as JSON. A thrown error or a
@@ -554,6 +631,9 @@ enum BrowserAutomationRouter {
             return
         case "extension":
             BrowserExtensionCommands.perform(request.arguments, in: manager.extensions, completion: completion)
+            return
+        case "boost":
+            completion(BrowserBoostCommands.perform(request.arguments, in: manager.boosts))
             return
         case "little":
             completion(littleArc(request, in: manager))

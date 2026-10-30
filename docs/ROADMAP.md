@@ -115,8 +115,9 @@ and bookmarks HTML files, and File ▸ Export Pinned Tabs… as bookmarks HTML.
   sidebar from Media Session metadata.
 - Site Control Center: per-site popover for permissions, zoom, content blocking,
   extensions, Boosts and clearing site data.
-- Boosts: per-site CSS and JavaScript in an isolated content world, a Zap element picker.
-  An agent can write one through the `browser` CLI.
+- Boosts: built in Stage 4 P7 (per host and its `www.` form, app-wide; CSS and Zap
+  live, JavaScript in its own content world from the next load; editor sheet from the
+  Site Control Center and `/boost`; CLI `browser boost`).
 - Capture: area and full-page screenshots (`takeSnapshot(with:)`).
 - Web extensions, what is left: 1Password signed in (stage 4 P2 runs it up to its sign-in
   page; the signed-in popup, inline menu and notifier socket await the user's sign-in,

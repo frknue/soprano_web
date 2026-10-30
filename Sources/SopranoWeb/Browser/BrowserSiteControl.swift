@@ -126,6 +126,12 @@ struct BrowserSiteControlState: Equatable {
             }
         }
 
+        /// The entries of `allowedSites` that cover `host` (it or a parent
+        /// site): unchecking "Allow on <host>" removes them all.
+        static func coveringSites(host: String, allowedSites: [String]) -> [String] {
+            allowedSites.filter { isAllowed(host: host, access: .specificSites, allowedSites: [$0]) }
+        }
+
         /// "On specific sites" covers a host and its subdomains.
         static func isAllowed(
             host: String,
@@ -161,6 +167,24 @@ struct BrowserSiteControlState: Equatable {
     let extensions: [ExtensionAccess]
     /// Nil hides "Clear site data" (not an http(s) page).
     let dataTarget: BrowserSiteDataTarget?
+    /// Nil hides the Boost row (not an http(s) page).
+    let boost: BoostSummary?
+
+    /// The Boost row: the site's Boost key and what it has.
+    struct BoostSummary: Equatable {
+        let host: String
+        let exists: Bool
+        let isEnabled: Bool
+
+        init(host: String, boost: BrowserBoost?) {
+            self.host = host
+            exists = boost != nil
+            isEnabled = boost?.isEnabled ?? false
+        }
+
+        var title: String { !exists ? "None" : isEnabled ? "On" : "Off" }
+        var buttonTitle: String { exists ? "Edit…" : "Add…" }
+    }
 
     static let permissionRows: [(SitePermission, String)] = [
         (.camera, "Camera"),
@@ -198,6 +222,7 @@ struct BrowserSiteControlState: Equatable {
         lines.append("zoom: \(zoomPercent)")
         lines.append("block-ads: \(blocksAds.map { $0 ? "on" : "off" } ?? "n/a")")
         lines += extensions.map { "extension: \($0.name) | \($0.summary)" }
+        lines.append("boost: \(boost.map { "\($0.host) \($0.title.lowercased())" } ?? "n/a")")
         lines.append("clear-data: \(dataTarget?.host ?? "n/a")")
         return lines
     }

@@ -47,13 +47,14 @@ extension BrowserWindowController {
     }
 
     /// Replaces the tab's state scripts (mute flag, its profile's
-    /// remembered notification decisions) so the next document starts with
-    /// the current state. Every other user script stays, in order, in its
-    /// own world.
+    /// remembered notification decisions) and Boost scripts so the next
+    /// document starts with the current state. Every other user script
+    /// stays, in order, in its own world.
     func refreshStateScripts(_ tab: BrowserTab) {
         let contentController = tab.webView.configuration.userContentController
         let kept = contentController.userScripts.filter {
             !$0.source.hasPrefix(BrowserPermissionScripts.stateMarker)
+                && !$0.source.hasPrefix(BrowserBoostScripts.marker)
         }
         contentController.removeAllUserScripts()
         kept.forEach(contentController.addUserScript)
@@ -64,6 +65,7 @@ extension BrowserWindowController {
             notificationStates: notifications ? NotificationPermissionState.states(in: context.sitePermissions) : [:],
             askingAllowed: notifications && settingsStore.settings.allowsNotificationRequests
         ).forEach(contentController.addUserScript)
+        BrowserBoostScripts.userScripts(manager.boosts.boosts).forEach(contentController.addUserScript)
     }
 
     /// The shim's `Notification.permission` for `host` in data context

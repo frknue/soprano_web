@@ -74,7 +74,7 @@ final class MainMenuController: NSObject, NSMenuItemValidation {
         add(editMenu, to: main)
 
         let viewMenu = NSMenu(title: BrowserAppCommand.Menu.view.rawValue)
-        addSections([0, 1, 2, 3, 4, 5, 6], of: .view, to: viewMenu, keymap: keymap)
+        addSections([0, 1, 2, 3, 4, 5, 6, 7], of: .view, to: viewMenu, keymap: keymap)
         add(viewMenu, to: main)
 
         let historyMenu = NSMenu(title: BrowserAppCommand.Menu.history.rawValue)

@@ -32,6 +32,7 @@ enum SnapshotCommand {
         var elementClicks: [String] = []
         var showSecurityInfo = false
         var showSiteControl = false
+        var boosts = SnapshotBoostOptions()
         var session = SnapshotSessionOptions()
         var tabAudio = false
         var hoverSelector: String?
@@ -85,6 +86,7 @@ enum SnapshotCommand {
                                [--sign-in <user:password>] [--sheet-button <title>]
                                [--click-element <css selector>]... [--security-info] [--site-control]
     \(SnapshotSessionOptions.usage)
+    \(SnapshotBoostOptions.usage)
                                [--tabs <url>,<url>…] [--tab-audio] [--hover <css selector>]
                                [--back-url <url>]
                                [--address <text>] [--focus-address]
@@ -180,6 +182,8 @@ enum SnapshotCommand {
                 options.showSecurityInfo = true
             case "--site-control":
                 options.showSiteControl = true
+            case let flag where SnapshotBoostOptions.flags.contains(flag):
+                try options.boosts.parse(flag) { try value(flag) }
             case let flag where SnapshotSessionOptions.flags.contains(flag):
                 try options.session.parse(flag) { try value(flag) }
             case let flag where SnapshotCommandBarAction.flags.contains(flag):
@@ -388,6 +392,7 @@ enum SnapshotCommand {
         for seed in options.sitePermissions {
             sitePermissions.set(seed.permission, seed.decision, host: seed.host)
         }
+        options.boosts.seed(manager.boosts, url: options.url)
         manager.restoreSession()
         guard var controller = manager.controllers.first, var window = controller.window else {
             FileHandle.standardError.write(Data("Snapshot could not create the window.\n".utf8))
@@ -523,6 +528,7 @@ enum SnapshotCommand {
             openConnectionDetails(controller: controller)
             wait(0.35)
         }
+        options.boosts.run(controller: controller) { wait($0) }
         if let title = options.sheetButton {
             pressSheetButton(title, window: window)
             wait(options.wait)

@@ -14,14 +14,19 @@ extension BrowserWindowController {
         tab.webView.url ?? tab.state.url.flatMap(URL.init(string:))
     }
 
+    /// The site key the popover reads and writes for `tab`: its page's,
+    /// or a certificate interstitial's host (the page is `about:blank`).
+    func siteControlHost(of tab: BrowserTab) -> String? {
+        BrowserSitePermissionStore.siteKey(for: siteControlURL(of: tab))
+            ?? tab.certificateInterstitial?.host.lowercased()
+    }
+
     /// What the popover shows for `tab`; nil when its page has no site
     /// (the start page, `about:blank`, an extension page).
     func siteControlState(for tab: BrowserTab) -> BrowserSiteControlState? {
         let url = siteControlURL(of: tab)
         let interstitial = tab.certificateInterstitial
-        guard let host = BrowserSitePermissionStore.siteKey(for: url) ?? interstitial?.host.lowercased() else {
-            return nil
-        }
+        guard let host = siteControlHost(of: tab) else { return nil }
         let context = tab.dataContext
         let isPrivate = context.kind.isPrivate
         let security = securityState(for: tab)
@@ -59,7 +64,10 @@ extension BrowserWindowController {
             zoomPercent: BrowserZoom.percent(tab.zoom),
             blocksAds: blocksAds,
             extensions: extensionRows,
-            dataTarget: interstitial == nil ? BrowserSiteDataTarget(url: url) : nil
+            dataTarget: interstitial == nil ? BrowserSiteDataTarget(url: url) : nil,
+            boost: interstitial == nil ? BrowserBoost.key(for: url).map { host in
+                BrowserSiteControlState.BoostSummary(host: host, boost: manager.boosts.boost(host: host))
+            } : nil
         )
     }
 
@@ -112,13 +120,18 @@ extension BrowserWindowController {
             guard let self, let tab else { return }
             // Every window with tabs of the profile reloads its tabs of the
             // site.
-            tab.dataContext.sitePermissions.setBlocksContent(blocks, host: state.host)
+            guard let host = siteControlHost(of: tab) else { return }
+            tab.dataContext.sitePermissions.setBlocksContent(blocks, host: host)
             refreshSiteControl(view, for: tab)
         }
         view.onExtension = { [weak self, weak tab, weak view] id, action in
             guard let self, let tab else { return }
-            setExtensionAccess(id, action, host: state.host)
+            guard let host = siteControlHost(of: tab) else { return }
+            setExtensionAccess(id, action, host: host)
             refreshSiteControl(view, for: tab)
+        }
+        view.onBoost = { [weak self] in
+            self?.showBoostEditor()
         }
         view.onClearData = { [weak self, weak tab] in
             guard let self, let tab else { return }
@@ -141,7 +154,7 @@ extension BrowserWindowController {
     /// Records `choice` for the tab's site in its profile (Ask forgets it;
     /// a private window's overlay then stops reading the saved one).
     func setSitePermission(_ permission: SitePermission, _ choice: BrowserSiteChoice, for tab: BrowserTab) {
-        guard let host = BrowserSitePermissionStore.siteKey(for: siteControlURL(of: tab)) else { return }
+        guard let host = siteControlHost(of: tab) else { return }
         let store = tab.dataContext.sitePermissions
         if let decision = choice.decision {
             store.set(permission, decision, host: host)
@@ -151,11 +164,10 @@ extension BrowserWindowController {
     }
 
     private func zoom(_ action: BrowserSiteControlView.ZoomAction, tab: BrowserTab) {
-        guard tab === pageTab else { return }
         switch action {
-        case .zoomOut: zoomOut()
-        case .zoomIn: zoomIn()
-        case .reset: resetZoom()
+        case .zoomOut: zoomOut(tab)
+        case .zoomIn: zoomIn(tab)
+        case .reset: resetZoom(tab)
         }
     }
 
@@ -163,8 +175,33 @@ extension BrowserWindowController {
         switch action {
         case let .access(access):
             try? extensions.setSiteAccess(id, access)
-        case let .allowHere(allowed):
-            try? extensions.setSite(id, host: host, allowed: allowed)
+        case let .allowHere(true):
+            try? extensions.setSite(id, host: host, allowed: true)
+        case .allowHere(false):
+            // The host and every parent site that covers it.
+            let site = BrowserExtensions.siteHost(host)
+            let covering = BrowserSiteControlState.ExtensionAccess.coveringSites(
+                host: site,
+                allowedSites: extensions.records.first { $0.id == id }?.allowedSites ?? []
+            )
+            for allowed in Set(covering + [site]) {
+                try? extensions.setSite(id, host: allowed, allowed: false)
+            }
+        }
+    }
+
+    /// Keeps the open popover on the page the user looks at: closes it
+    /// when that is another tab or has no site, else shows the tab's
+    /// current state (a navigation, a CLI change).
+    func updateSiteControlPanel() {
+        guard siteControlPanel.isShown, let view = siteControlPanel.content else { return }
+        guard let tab = pageTab, tab.id == view.state.tabID, let state = siteControlState(for: tab) else {
+            siteControlPanel.close()
+            return
+        }
+        if state != view.state {
+            view.configure(state)
+            siteControlPanel.refit()
         }
     }
 }

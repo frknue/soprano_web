@@ -125,4 +125,160 @@ struct BrowserSiteControlWindowTests {
         #expect(throws: BrowserAutomationError.self) { try parse(["site", "permission", "camera", "maybe"]) }
         #expect(throws: BrowserAutomationError.self) { try parse(["site", "wipe"]) }
     }
+
+    // MARK: P6 review regressions
+
+    /// P2-1: the harness's Connection press keeps the popover view (the
+    /// button's target) alive, so the details sheet opens.
+    @Test func theHarnessConnectionPressOpensTheSheet() throws {
+        let fixture = makeFixture()
+        defer { fixture.tearDown() }
+        let window = fixture.manager.newWindow(url: "https://a.example/")
+        let hostWindow = try #require(window.window)
+        SnapshotCommand.openConnectionDetails(controller: window)
+        let sheet = try #require(hostWindow.attachedSheet)
+        hostWindow.endSheet(sheet)
+    }
+
+    /// P3-1: the open popover closes when its tab stops being the page,
+    /// and its actions act on its own tab's current site.
+    @Test func thePopoverFollowsItsTab() throws {
+        let fixture = makeFixture()
+        defer { fixture.tearDown() }
+        let window = fixture.manager.newWindow(url: "https://a.example/")
+        let first = try #require(window.selectedTab)
+        let hostWindow = try #require(window.window)
+        let view = try #require(window.makeSiteControlView(for: first))
+        window.siteControlPanel.show(view, below: window.toolbar.securityAnchor, in: hostWindow)
+        #expect(window.siteControlPanel.isShown)
+        window.updateSiteControlPanel()
+        #expect(window.siteControlPanel.isShown)
+
+        window.newTab(url: "https://b.example/", select: true)
+        window.updateChrome()
+        #expect(!window.siteControlPanel.isShown)
+
+        // Zoom acts on the popover's tab though it is no longer the page.
+        let before = first.zoom
+        view.onZoom?(.zoomIn)
+        #expect(first.zoom > before)
+
+        // The tab went to another site: the switch writes that site.
+        window.navigate(first, to: URL(string: "https://c.example/")!)
+        #expect(window.siteControlHost(of: first) == "c.example")
+        view.onBlocksAds?(false)
+        #expect(first.dataContext.sitePermissions.blocksContent(host: "c.example") == false)
+        #expect(first.dataContext.sitePermissions.blocksContent(host: "a.example") == true)
+    }
+
+    /// P3-2: on a certificate interstitial (an `about:blank` page) a
+    /// permission choice is stored under the interstitial's host.
+    @Test func anInterstitialStoresPermissionsForItsHost() throws {
+        let fixture = makeFixture()
+        defer { fixture.tearDown() }
+        let window = fixture.manager.newWindow()
+        let tab = try #require(window.selectedTab)
+        tab.certificateInterstitial = BrowserCertificateInterstitial(
+            token: "t",
+            host: "Bad.example",
+            failedURL: URL(string: "https://bad.example/")!,
+            problem: .selfSigned,
+            trust: nil
+        )
+        #expect(window.siteControlState(for: tab)?.host == "bad.example")
+        window.setSitePermission(.camera, .allow, for: tab)
+        #expect(tab.dataContext.sitePermissions.decision(.camera, host: "bad.example") == .allow)
+    }
+
+    /// P3-3: unchecking "Allow on <host>" removes a parent site that
+    /// grants it, not only an exact entry.
+    @Test func uncheckingAllowHereRemovesCoveringParentSites() {
+        let covering = BrowserSiteControlState.ExtensionAccess.coveringSites(
+            host: "sub.example.com",
+            allowedSites: ["example.com", "sub.example.com", "other.com", "deep.sub.example.com"]
+        )
+        #expect(covering == ["example.com", "sub.example.com"])
+        let remaining = ["example.com", "other.com"].filter { !covering.contains($0) }
+        #expect(!BrowserSiteControlState.ExtensionAccess.isAllowed(
+            host: "sub.example.com",
+            access: .specificSites,
+            allowedSites: remaining
+        ))
+    }
+
+    // MARK: Boosts
+
+    /// Every tab (the Peek's and private windows' too) gets the enabled
+    /// Boosts' scripts in the Boost world, swapped on every change.
+    @Test func boostScriptsFollowTheStore() throws {
+        let fixture = makeFixture()
+        defer { fixture.tearDown() }
+        let window = fixture.manager.newWindow(url: "https://www.a.example/")
+        let tab = try #require(window.selectedTab)
+        let privateTab = try #require(fixture.manager.newPrivateWindow(url: "https://a.example/").selectedTab)
+        func boostScripts(_ tab: BrowserTab) -> [String] {
+            tab.webView.configuration.userContentController.userScripts
+                .map(\.source)
+                .filter { $0.hasPrefix(BrowserBoostScripts.marker) }
+        }
+        let others = tab.webView.configuration.userContentController.userScripts.count
+        #expect(boostScripts(tab).isEmpty)
+        #expect(window.siteControlState(for: tab)?.boost == .init(host: "a.example", boost: nil))
+
+        fixture.manager.boosts.update(host: "a.example") {
+            $0.css = "body { color: red }"
+            $0.js = "document.title = 'boosted'"
+        }
+        #expect(boostScripts(tab).count == 2)
+        #expect(boostScripts(privateTab).count == 2)
+        #expect(boostScripts(tab).contains { $0.contains("document.title = 'boosted'") })
+        #expect(tab.webView.configuration.userContentController.userScripts.count == others + 2)
+        #expect(window.siteControlState(for: tab)?.boost?.title == "On")
+
+        fixture.manager.boosts.update(host: "a.example") { $0.isEnabled = false }
+        #expect(boostScripts(tab).isEmpty)
+        #expect(window.siteControlState(for: tab)?.boost?.title == "Off")
+        #expect(tab.webView.configuration.userContentController.userScripts.count == others)
+    }
+
+    /// `/boost` and the Site Control Center's row open the editor for the
+    /// page's site; Save writes the store.
+    @Test func theBoostEditorSavesTheSitesBoost() throws {
+        let fixture = makeFixture()
+        defer { fixture.tearDown() }
+        let window = fixture.manager.newWindow(url: "https://www.a.example/page")
+        let hostWindow = try #require(window.window)
+        #expect(BrowserCommandID.editBoost.command.state(BrowserCommandContext(manager: fixture.manager, controller: window)).isEnabled)
+        BrowserCommandID.editBoost.command.perform(in: BrowserCommandContext(manager: fixture.manager, controller: window))
+        let editor = try #require(window.boostEditor)
+        #expect(editor.host == "a.example")
+        #expect(hostWindow.attachedSheet === editor.window)
+        editor.cssView.string = "p { margin: 0 }"
+        editor.zapView.string = "#ad\n\n .banner \n"
+        editor.save()
+        let boost = try #require(fixture.manager.boosts.boost(host: "www.a.example"))
+        #expect(boost.css == "p { margin: 0 }")
+        #expect(boost.zaps == ["#ad", ".banner"])
+        #expect(boost.isEnabled)
+    }
+
+    /// A zap pick from the isolated world adds the built selector.
+    @Test func aZapPickAddsItsSelector() throws {
+        let fixture = makeFixture()
+        defer { fixture.tearDown() }
+        let window = fixture.manager.newWindow(url: "https://a.example/")
+        let tab = try #require(window.selectedTab)
+        window.navigate(tab, to: URL(string: "https://a.example/")!)
+        window.zapSession = (tab.id, "a.example")
+        let body: [String: Any] = ["path": [
+            ["tag": "div", "id": "", "classes": ["promo"], "index": 2, "count": 3],
+            ["tag": "main", "id": "content", "classes": [], "index": 1, "count": 1],
+        ]]
+        window.recordZap(body, tab: tab)
+        #expect(fixture.manager.boosts.boost(host: "a.example")?.zaps == ["#content > div.promo:nth-of-type(2)"])
+        // Not in Zap mode: ignored.
+        window.zapSession = nil
+        window.recordZap(["path": [["tag": "p", "index": 1, "count": 1]]], tab: tab)
+        #expect(fixture.manager.boosts.boost(host: "a.example")?.zaps.count == 1)
+    }
 }
