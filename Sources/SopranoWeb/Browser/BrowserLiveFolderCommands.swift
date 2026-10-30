@@ -57,18 +57,17 @@ enum BrowserLiveFolderCommands {
                 await manager.liveFolders.waitForFetches()
                 completion(.success("\(folder.displayName)\t\(stateText(manager.liveFolders.state(of: folder.id)))"))
             }
-        case "refresh":
-            guard arguments.count == 1 else {
-                completion(.failure(usage))
-                return
-            }
-            manager.liveFolders.refreshAll()
-            Task { @MainActor in
-                await manager.liveFolders.waitForFetches()
-                completion(.success(list(manager)))
-            }
         default:
             completion(.failure(usage))
+        }
+    }
+
+    /// `refresh`: every live folder fetched, waited for, then listed.
+    static func refresh(_ manager: BrowserWindowManager, completion: @escaping (Result<String, Error>) -> Void) {
+        manager.liveFolders.refreshAll()
+        Task { @MainActor in
+            await manager.liveFolders.waitForFetches()
+            completion(.success(list(manager)))
         }
     }
 }

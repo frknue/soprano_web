@@ -417,7 +417,8 @@ extension BrowserWindowController {
 
     /// Closes the preview when what it shows is gone: the rail is hidden,
     /// the window shows another Space, or the folder or its pins changed.
-    /// A live folder's new pull requests show in a fresh preview at its row.
+    /// A live folder's new pull requests show in a fresh preview at its row
+    /// while the pointer is still there (no hide pending).
     func syncFolderPreview() {
         guard let folderPreview else { return }
         let id = folderPreview.folderID
@@ -426,9 +427,10 @@ extension BrowserWindowController {
             return
         }
         guard Self.entries(in: folder) != folderPreview.entries else { return }
+        let pointerLeft = folderPreviewHideTimer != nil
         closeFolderPreview()
         let pinsView = verticalTabsView.pinsView
-        if folder.isLive, let row = pinsView.rowView(for: id) {
+        if folder.isLive, !pointerLeft, let row = pinsView.rowView(for: id) {
             showFolderPreview(id, rowFrame: row.convert(row.bounds, to: pinsView))
         }
     }

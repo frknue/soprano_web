@@ -18,13 +18,14 @@ extension BrowserWindowController {
     }
 
     /// A pull request: the current Space's Today tab already on it, else a
-    /// new Today tab, selected.
-    func openLiveItem(_ item: BrowserPullRequest) {
+    /// new Today tab at the end; selected unless `select` is false.
+    @discardableResult
+    func openLiveItem(_ item: BrowserPullRequest, select: Bool = true) -> BrowserTab {
         if let tab = todayTabs.first(where: { $0.item.url?.absoluteString == item.url || $0.state.url == item.url }) {
-            selectTab(id: tab.id, focus: true)
-        } else {
-            newTab(url: item.url)
+            if select { selectTab(id: tab.id, focus: true) }
+            return tab
         }
+        return newTab(url: item.url, select: select)
     }
 
     // MARK: - Editor

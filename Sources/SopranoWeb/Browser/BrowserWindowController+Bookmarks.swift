@@ -137,6 +137,17 @@ extension BrowserWindowController {
             }
             return
         }
+        // New tabs of a live folder go to the end of Today: in its order,
+        // the first one selected.
+        if folder.isLive {
+            let opened = folder.allPins.compactMap { pin in
+                manager.liveFolders.item(id: pin.id).map { openLiveItem($0.item, select: false) }
+            }
+            if let first = opened.first {
+                selectTab(id: first.id, focus: true)
+            }
+            return
+        }
         for pin in folder.allPins.reversed() {
             openPin(pin.id)
         }

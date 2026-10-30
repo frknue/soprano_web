@@ -935,7 +935,9 @@ surrounding style.
   `openLiveItem` (a Today tab, the one already on it if any, via
   `openPin`), New / Edit Live Folder… in the pin editor. The Spaces menu
   and the start page show `display(_:)` too. The harness and tests never
-  run `gh` (the manager starts the timer only on screen). CLI `browser
+  run `gh` unless asked: the harness puts its own fetch in (`--live-fetch
+  gh` uses the real one), the tests inject one, and only an on-screen
+  manager starts the 5-minute timer. CLI `browser
   live-folders` (every Space's live folders with state and pull
   requests), `browser [--window n] live-folder add <owner/repo|link|query>`
   (in the window's Space, answers after the fetch) and `live-folder

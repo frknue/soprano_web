@@ -95,6 +95,55 @@ struct BrowserLiveFolderWindowTests {
         #expect(window.currentPinTree.folder(id: folder.id)?.children.isEmpty == true)
     }
 
+    @Test func openAllInTabsKeepsTheFoldersOrderAndSelectsTheFirst() async throws {
+        let fixture = makeFixture()
+        defer { fixture.tearDown() }
+        let (window, folder) = try await liveWindow(fixture)
+        let before = window.todayTabs.count
+
+        window.openBookmarkFolderInTabs(folder.id)
+        let opened = window.todayTabs.dropFirst(before).map { $0.state.url ?? $0.item.url?.absoluteString ?? "" }
+        #expect(opened == ["https://github.com/o/r/pull/1", "https://github.com/o/r/pull/2"])
+        #expect(window.selectedTab === window.todayTabs[before])
+    }
+
+    @Test func aFetchAfterThePointerLeftDoesntBringThePreviewBack() async throws {
+        let fixture = makeFixture()
+        defer { fixture.tearDown() }
+        let (window, folder) = try await liveWindow(fixture)
+        window.setPinFolderExpanded(folder.id, false)
+        let row = try #require(window.verticalTabsView.pinsView.rowView(for: folder.id))
+        let frame = row.convert(row.bounds, to: window.verticalTabsView.pinsView)
+        #expect(window.showFolderPreview(folder.id, rowFrame: frame) != nil)
+
+        // The pointer leaves the row for the page; a fetch lands before the
+        // preview's hide delay ends.
+        window.folderHovered(nil, rowFrame: .zero)
+        var state = try #require(fixture.manager.liveFolders.state(of: folder.id))
+        state.items.removeLast()
+        fixture.manager.liveFolders.setState(state, for: folder.id)
+        #expect(window.folderPreview == nil)
+
+        // While the pointer stays on the row, the preview shows the new list.
+        #expect(window.showFolderPreview(folder.id, rowFrame: frame) != nil)
+        state.items = []
+        fixture.manager.liveFolders.setState(state, for: folder.id)
+        #expect(window.folderPreview?.entries.isEmpty == true)
+    }
+
+    @Test func theCLIRefreshesWithNoWindowOpen() async throws {
+        let fixture = makeFixture()
+        defer { fixture.tearDown() }
+        let spaceID = try #require(fixture.manager.spaces.spaces.first?.id)
+        fixture.manager.spaces.addLiveFolder(name: "PRs", source: .githubPullRequests(repo: "o/r"), inSpace: spaceID)
+        #expect(fixture.manager.automationControllers.isEmpty)
+        let request = try #require(try BrowserCommandRequest.parse(["soprano-web", "browser", "live-folder", "refresh"]))
+        let output: String = try await withCheckedThrowingContinuation { continuation in
+            BrowserAutomationRouter.perform(request, in: fixture.manager) { continuation.resume(with: $0) }
+        }
+        #expect(output.contains("PRs\tOpen pull requests in o/r\t2 pull requests"))
+    }
+
     @Test func dropsIntoALiveFolderAreRefused() async throws {
         let fixture = makeFixture()
         defer { fixture.tearDown() }

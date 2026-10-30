@@ -210,14 +210,6 @@ struct BrowserPullRequest: Equatable, Sendable {
             )
         }
     }
-
-    /// The tooltip line under the title: "owner/repo #12 · author · Draft".
-    var detail: String {
-        var parts = ["\(repository) #\(number)"]
-        if !author.isEmpty { parts.append(author) }
-        if isDraft { parts.append("Draft") }
-        return parts.joined(separator: " · ")
-    }
 }
 
 /// An array element that decodes or is skipped.

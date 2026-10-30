@@ -60,7 +60,7 @@ struct BrowserLiveFoldersTests {
         #expect(items[0].author == "eric")
         #expect(items[0].updatedAt == ISO8601DateFormatter().date(from: "2026-10-05T16:38:17Z"))
         #expect(items[1].repository == "x/y")
-        #expect(items[1].detail == "x/y #3 · Draft")
+        #expect(items[1].isDraft)
         #expect(throws: (any Error).self) {
             try BrowserPullRequest.decode(Data("To get started with GitHub CLI".utf8), source: .githubSearch(query: "q"))
         }

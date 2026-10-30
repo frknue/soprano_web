@@ -748,6 +748,10 @@ enum BrowserAutomationRouter {
         case "live-folders":
             completion(.success(BrowserLiveFolderCommands.list(manager)))
             return
+        case "live-folder" where request.arguments == ["refresh"]:
+            // App-wide: needs no window.
+            BrowserLiveFolderCommands.refresh(manager, completion: completion)
+            return
         case "little":
             completion(littleArc(request, in: manager))
             return
