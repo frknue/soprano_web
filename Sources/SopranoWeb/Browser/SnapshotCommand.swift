@@ -33,6 +33,7 @@ enum SnapshotCommand {
         var showSecurityInfo = false
         var showSiteControl = false
         var boosts = SnapshotBoostOptions()
+        var capture = SnapshotCaptureOptions()
         var session = SnapshotSessionOptions()
         var tabAudio = false
         var hoverSelector: String?
@@ -87,6 +88,7 @@ enum SnapshotCommand {
                                [--click-element <css selector>]... [--security-info] [--site-control]
     \(SnapshotSessionOptions.usage)
     \(SnapshotBoostOptions.usage)
+    \(SnapshotCaptureOptions.usage)
                                [--tabs <url>,<url>…] [--tab-audio] [--hover <css selector>]
                                [--back-url <url>]
                                [--address <text>] [--focus-address]
@@ -182,6 +184,13 @@ enum SnapshotCommand {
                 options.showSecurityInfo = true
             case "--site-control":
                 options.showSiteControl = true
+            case let flag where SnapshotCaptureOptions.flags.contains(flag):
+                try options.capture.parse(
+                    flag,
+                    value: { try value(flag) },
+                    peek: { index + 1 < arguments.count ? arguments[index + 1] : nil },
+                    skip: { index += 1 }
+                )
             case let flag where SnapshotBoostOptions.flags.contains(flag):
                 try options.boosts.parse(flag) { try value(flag) }
             case let flag where SnapshotSessionOptions.flags.contains(flag):
@@ -599,6 +608,7 @@ enum SnapshotCommand {
             wait(0.3)
         }
         SnapshotPageTools.run(options.pageTools, controller: controller)
+        options.capture.run(controller: controller) { wait($0) }
 
         if options.showHints {
             controller.selectedTab?.vimium?.startHintsForSnapshot()
@@ -792,10 +802,15 @@ enum SnapshotCommand {
             image.addRepresentation(rep)
             image.draw(in: dropdown.convert(dropdown.bounds, to: captureContent))
         }
-        // The Command Bar and ⌃Tab's switcher float over the page too.
+        // The Command Bar and ⌃Tab's switcher float over the page too, as
+        // do Capture's overlay and toast.
         let commandBarSurface = controller.commandBar.isOpen ? controller.commandBar.view.surface : nil
         let recentTabs = controller.recentTabsOverlay?.superview == nil ? nil : controller.recentTabsOverlay
-        for overlay in [bookmarkPopover, siteControl, pinPreview, commandBarSurface, recentTabs].compactMap({ $0 })
+        let captureToast = controller.captureToast?.superview == nil ? nil : controller.captureToast
+        let floating: [NSView?] = [
+            bookmarkPopover, siteControl, pinPreview, commandBarSurface, recentTabs, controller.captureOverlay, captureToast,
+        ]
+        for overlay in floating.compactMap({ $0 })
             where overlay.window === captureWindow && spaceSheet == nil && shortcutsSheet == nil
         {
             // Popovers hang over the page, which is drawn after the chrome.

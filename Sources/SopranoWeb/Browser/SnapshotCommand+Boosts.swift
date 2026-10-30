@@ -50,14 +50,21 @@ struct SnapshotBoostOptions {
     func run(controller: BrowserWindowController, wait: (TimeInterval) -> Void) {
         guard seeds || showsEditor, let tab = controller.pageTab else { return }
         var done = false
+        // The sheet's rules from the Boost world (the page can't see it),
+        // whether the document adopted it, and what the page shows.
         tab.webView.evaluateJavaScript(
-            "(function () { var s = document.querySelector('style[\(BrowserBoostScripts.styleAttribute)]');"
-                + " return [s ? s.textContent : '', document.title, getComputedStyle(document.body).backgroundColor]; })()"
-        ) { result, _ in
-            let values = result as? [String] ?? []
-            print("boost: style \(values.first.map { $0.isEmpty ? "none" : "\($0.utf8.count) bytes" } ?? "?")")
-            print("boost: title \(values.count > 1 ? values[1] : "?")")
-            print("boost: body background \(values.count > 2 ? values[2] : "?")")
+            "var s = window.\(BrowserBoostScripts.sheetGlobal);"
+                + " [s ? Array.from(s.cssRules).map(function (r) { return r.cssText; }).join(' ') : '',"
+                + " s ? String(document.adoptedStyleSheets.indexOf(s) >= 0) : 'false',"
+                + " document.title, getComputedStyle(document.body).backgroundColor]",
+            in: nil,
+            in: BrowserBoostScripts.world
+        ) { result in
+            let values = (try? result.get()) as? [String] ?? []
+            let rules = values.first ?? ""
+            print("boost: style \(rules.isEmpty ? "none" : "\(rules.utf8.count) bytes, adopted \(values.count > 1 ? values[1] : "?")")")
+            print("boost: title \(values.count > 2 ? values[2] : "?")")
+            print("boost: body background \(values.count > 3 ? values[3] : "?")")
             done = true
         }
         let deadline = Date().addingTimeInterval(3)

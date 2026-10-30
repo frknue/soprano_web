@@ -756,27 +756,72 @@ surrounding style.
   in the `SopranoWebBoost` content world — deliberately not a
   `BrowserPageScript.World`, so it has no `sopranoWeb` handler and user
   code can't post as ours. Every script starts with `hostGuard` (user
-  scripts can't be host-scoped). CSS + zaps (`stylesheet`) go into one
-  `style[data-soprano-web-boost]` at document start (a `MutationObserver`
-  waits for a root); JS runs at document end, main frame only.
+  scripts can't be host-scoped; it declares no name, so Boost code may use
+  any). CSS and zaps go into one constructed `CSSStyleSheet` (the Boost
+  world's `window.__sopranoWebBoostSheet`) in `document.adoptedStyleSheets`
+  at document start: a page's CSP `style-src` blocks an added `<style>`
+  even from an isolated world, not a constructed sheet; adopted sheets
+  cascade after the page's own; `replaceSync` drops `@import`; each zap is
+  its own `insertRule` (`hidingRule`), so a bad selector drops only
+  itself; a page that assigns `document.adoptedStyleSheets` without
+  keeping the old ones drops the Boost sheet until the next load or edit.
+  JS runs at document end, main frame only.
   `refreshStateScripts` swaps state and Boost scripts together (both
   `removeAllUserScripts`), so every tab — private, Peek, panes, Little Arc —
   gets them; `applyBoostStyle(to:)` re-runs the style script on open pages
   (CSS/zaps live; JS waits for the next load, the editor says so). Zap mode
-  (`startZap`, `zapStart` in the trusted isolated world) posts `zapPick`
-  with the element's ancestor path and `zapEnd` on Esc;
+  (`startZap`, `zapStart` in the trusted isolated world, listeners on
+  `window` in the capture phase) posts `zapPick` with the element's
+  ancestor path and `zapEnd` on Esc; a commit in its tab
+  (`zapPageCommitted`) or another page tab (`updateZapSession`) ends the
+  session, and `recordZap` only records for the session's host.
   `BrowserZapSelector` builds the selector (nearest stable id, else
-  `body >`; tag, up to two stable classes, `:nth-of-type` when needed).
+  `body >`; tag, up to two stable classes, `:nth-of-type` when needed;
+  `escape` follows `CSS.escape`).
   `BrowserBoostEditor.swift`: the sheet (`showBoostEditor`, from the Site
   Control Center's Boost row and `/boost` = `edit-boost`; `zap-elements`
-  too). CLI `browser boost list|show <host>|css <host> <file|->|js <host>
-  <file|->|zap <host> <selector>|enable|disable|remove <host>`, routed at
-  manager level (`BrowserBoostCommands`); `parseBoost` reads the file
-  (relative to `PWD`) or the CLI's own stdin for `-` and sends the text.
+  too; Save is ⌘↩ so ↩ stays a newline). CLI `browser boost list|show
+  <host>|css <host> <file|->|js <host> <file|->|zap <host>
+  <selector>|enable|disable|remove <host>`, routed at manager level
+  (`BrowserBoostCommands`); `parseBoost` reads the file (relative to `PWD`)
+  or the CLI's own stdin for `-` and sends the text (refused client-side
+  above the socket's 16 MB; hosts ASCII/punycode only).
   Harness: `--boost-css`, `--boost-js`, `--boost-zap` (repeatable) seed a
   Boost for the `--url` host before it loads and print `boost:` lines
-  (style bytes, title, body background); `--boost-editor` opens the editor
-  (`--sheet` draws it).
+  (the sheet's rule bytes and whether the document adopted it, title, body
+  background); `--boost-editor` opens the editor (`--sheet` draws it).
+- Capture (stage 4 P8): `BrowserCapture.swift` (pure:
+  `BrowserCaptureGeometry.areaRect` — the drag in the web view's own
+  points, normalized, clipped, snapped outward, nil for a click; `fullPage`
+  — the PDF rect is the document from its top in CSS px × `pageZoom`, the
+  scroll offset plays no part, a page over `maxPixelLength` (16,384 px)
+  drops toward 1× and is then cut; `BrowserCaptureFile` — `Soprano Capture
+  <yyyy-MM-dd> at <HH.mm.ss>.png`, ` (2)`… when taken).
+  `BrowserCaptureRenderer`: an area or the viewport through `takeSnapshot`
+  (its rect must stay inside the view) drawn into a bitmap at the window's
+  backing scale; the full page through `createPDF` with the rect set to the
+  document size (read in `.defaultClient`), rasterized off the main actor
+  (`rasterize`, pages stacked) and encoded with ImageIO.
+  `BrowserCaptureOverlay` (flipped, pinned to `pageTab`'s web view, so its
+  points are the web view's): scrim, the drag undimmed with a size badge,
+  a Folio hint bar with Full Page and Cancel; Esc / right click cancel.
+  `BrowserWindowController+Capture.swift`: `toggleCaptureOverlay` (⇧⌘2 =
+  `capture`, File ▸ Capture…, `/capture`), `updateCaptureOverlay` from
+  `updateChrome` and the Peek's page-tab refresh (another tab, pane, Space
+  or Peek closes it), `capture(_:of:)` → `deliverCapture` (the manager's
+  pasteboard as PNG, then a unique file in `downloadDirectoryURL`) →
+  `BrowserCaptureToast` (ImageIO thumbnail; click → Finder). Private
+  windows capture too. CLI `browser screenshot [--full] [--] <path>`
+  (`parseScreenshot` pulls options out before resolving the path; `--full`
+  gets a 60 s timeout). Harness (`SnapshotCommand+Capture.swift`, after the
+  other flags, on the captured window's page tab): `--capture-area
+  x,y,w,h`, `--capture-visible`, `--capture-full` capture as the overlay
+  would and print one `capture:` JSON line (file and its pixel size read
+  back, pasteboard PNG bytes, toast text, scale); `--capture-drag x,y,w,h`
+  drags into the overlay with mouse events; `--capture-overlay [x,y,w,h]`
+  leaves the overlay open (that selection drawn) for the PNG. Files land in
+  the harness's download folder (its temporary support folder; use
+  `--support-dir` to keep them).
 - `Browser/Extensions/` — Chrome extensions on `WKWebExtension`.
   `BrowserExtensions.swift` (manager-owned, `manager.extensions`): the one
   app-wide `WKWebExtensionController` (fixed storage identifier; the

@@ -127,6 +127,9 @@ final class BrowserWindowController: NSWindowController {
     /// The New Space / Edit Space sheet while it is open.
     var spaceSheet: BrowserSpaceSheet?
     var vimiumToastView: NSView?
+    /// ⇧⌘2's overlay while it is open, and the last capture's toast.
+    var captureOverlay: BrowserCaptureOverlay?
+    var captureToast: BrowserCaptureToast?
     var popupBlockedControl: ChromeButton?
     /// The address field's zoom percentage (`updateZoomChip`).
     var zoomChip: ChromeButton?

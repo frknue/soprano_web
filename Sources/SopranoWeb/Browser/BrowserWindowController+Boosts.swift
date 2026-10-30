@@ -12,19 +12,21 @@ extension BrowserWindowController {
             refreshStateScripts(tab)
             applyBoostStyle(to: tab)
         }
-        if let editor = boostEditor, let boost = manager.boosts.boost(host: editor.host), boost.zaps != editor.edited.zaps {
+        // Only a change to the zaps the editor loaded replaces its list,
+        // so unsaved zap edits survive another Boost's change.
+        if let editor = boostEditor, let boost = manager.boosts.boost(host: editor.host), boost.zaps != editor.loadedZaps {
             editor.refreshZaps(boost.zaps)
         }
+        updateSiteControlPanel()
     }
 
-    /// Sets the open page's Boost `<style>` to its enabled Boost's
-    /// stylesheet, or removes it.
+    /// Sets the open page's Boost sheet to its enabled Boost's CSS and
+    /// zaps, or takes it out.
     func applyBoostStyle(to tab: BrowserTab) {
         guard let host = BrowserBoost.key(for: tab.webView.url) else { return }
-        let boost = manager.boosts.boost(host: host)
-        let css = boost?.isEnabled == true ? boost?.stylesheet ?? "" : ""
+        let boost = manager.boosts.boost(host: host).flatMap { $0.isEnabled ? $0 : nil }
         tab.webView.evaluateJavaScript(
-            BrowserBoostScripts.styleSource(host: host, css: css),
+            BrowserBoostScripts.styleSource(host: host, css: boost?.css ?? "", zaps: boost?.zaps ?? []),
             in: nil,
             in: BrowserBoostScripts.world
         )
@@ -96,6 +98,22 @@ extension BrowserWindowController {
         return true
     }
 
+    /// A new document in the Zap tab: its page script is gone, so is the
+    /// session (Esc goes back to Vimium, the Peek and the page).
+    func zapPageCommitted(_ tab: BrowserTab) {
+        if zapSession?.tabID == tab.id {
+            zapSession = nil
+        }
+    }
+
+    /// Zap mode belongs to the page the user looks at: another tab, pane,
+    /// Space or a Peek ends it.
+    func updateZapSession() {
+        if let session = zapSession, session.tabID != pageTab?.id {
+            stopZap()
+        }
+    }
+
     /// `zapPick` from the isolated world: the clicked element's path.
     func receiveZapPick(_ body: [String: Any], tab: BrowserTab, frame: WKFrameInfo) {
         guard frame.isMainFrame else { return }
@@ -105,8 +123,8 @@ extension BrowserWindowController {
     /// Adds the selector of a `zapPick` path to the tab's site's Boost
     /// while the tab is in Zap mode.
     func recordZap(_ body: [String: Any], tab: BrowserTab) {
-        guard zapSession?.tabID == tab.id,
-              let host = BrowserBoost.key(for: tab.webView.url),
+        guard let session = zapSession, session.tabID == tab.id,
+              let host = BrowserBoost.key(for: tab.webView.url), host == session.host,
               let raw = body["path"] as? [[String: Any]]
         else { return }
         let path = raw.compactMap(BrowserZapSelector.Node.init)

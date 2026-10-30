@@ -10,18 +10,30 @@ app.
 ## [Unreleased]
 
 ### Added
+- Capture (⇧⌘2, remappable; File ▸ Capture…, `/capture`): an overlay over the page you
+  look at (a Peek's, the focused pane's) — drag an area, click for the visible page, or
+  "Full Page" for the whole document (taller than 16,384 px it renders at a lower scale,
+  then is cut there); Esc cancels. The PNG goes on the clipboard and into the download
+  folder as `Soprano Capture <date> at <time>.png` (never overwriting), and a toast with
+  its thumbnail shows it; click the toast to reveal the file in Finder. Private windows
+  capture the same way. CLI `browser screenshot --full <path>`; harness
+  `--capture-area x,y,w,h`, `--capture-visible`, `--capture-full`, `--capture-drag`,
+  `--capture-overlay`.
 - Boosts: your own CSS, JavaScript and hidden elements per site (the host and its
   `www.` form; other subdomains have their own), app-wide in `boosts.json`, running in
   every tab — normal, private, Peek, split panes, Little Arc. CSS goes into the page as a
-  `<style>` at document start and JavaScript runs in a content world of its own (no
-  Soprano Web message handler). CSS and hidden elements change open pages at once;
-  JavaScript runs from the next load. The editor sheet (monospace CSS / JavaScript /
-  zapped selectors, enabled switch, name) opens from the Site Control Center's new Boost
-  row and the Command Bar (`/boost`, "Boost This Site…"); "Zap Elements" outlines what
-  the pointer is over, a click hides it and records a stable selector, Esc ends. CLI
-  `browser boost list|show|css|js|zap|enable|disable|remove` (`css`/`js` read a file or
-  `-` for stdin in the CLI); harness `--boost-css`, `--boost-js`, `--boost-zap`,
-  `--boost-editor`.
+  constructed stylesheet at document start (it wins ties with the page's own CSS and
+  works under a strict `style-src` Content Security Policy; `@import` isn't supported)
+  and JavaScript runs in a content world of its own (no Soprano Web message handler).
+  CSS and hidden elements change open pages at once; a selector that isn't valid hides
+  nothing and leaves the others working; JavaScript runs from the next load. The editor
+  sheet (monospace CSS / JavaScript / zapped selectors, enabled switch, name; ⌘↩ saves,
+  ↩ is a new line) opens from the Site Control Center's new Boost row and the Command Bar
+  (`/boost`, "Boost This Site…"); "Zap Elements" outlines what the pointer is over, a
+  click hides it and records a stable selector, Esc, a new page or another tab ends it.
+  CLI `browser boost list|show|css|js|zap|enable|disable|remove` (`css`/`js` read a file
+  or `-` for stdin in the CLI, up to 16 MB; hosts in punycode); harness `--boost-css`,
+  `--boost-js`, `--boost-zap`, `--boost-editor`.
 - Site Control Center: the lock / site chip opens a Folio popover for the page you look at
   (a Peek's, the focused pane's) in its Space's profile: the connection (the details
   sheet with Show Certificate behind its row), camera, microphone, notifications and

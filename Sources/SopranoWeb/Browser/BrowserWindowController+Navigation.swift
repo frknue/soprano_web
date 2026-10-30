@@ -212,6 +212,8 @@ extension BrowserWindowController {
 
     func updateChrome() {
         updateCaptureIndicator()
+        updateCaptureOverlay()
+        updateZapSession()
         updateSiteControlPanel()
         guard let tab = selectedTab else { return }
         updateTabChrome(for: tab)
@@ -275,6 +277,7 @@ extension BrowserWindowController: WKNavigationDelegate {
         tab.lifecycle.capturingFrames.removeAll()
         wakeSnapshotPageCommitted(tab)
         linksDidCommit(tab)
+        zapPageCommitted(tab)
         tab.isStartPage = webView.url?.scheme?.lowercased() == BrowserStartPageSchemeHandler.scheme
         if !tab.isStartPage, tab.errorMessage == nil, tab.certificateInterstitial == nil {
             // A committed page doesn't inherit the previous title ("New Tab"

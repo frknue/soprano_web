@@ -281,4 +281,92 @@ struct BrowserSiteControlWindowTests {
         window.recordZap(["path": [["tag": "p", "index": 1, "count": 1]]], tab: tab)
         #expect(fixture.manager.boosts.boost(host: "a.example")?.zaps.count == 1)
     }
+
+    private func escape(in window: NSWindow?) -> NSEvent {
+        NSEvent.keyEvent(
+            with: .keyDown, location: .zero, modifierFlags: [], timestamp: 0,
+            windowNumber: window?.windowNumber ?? 0, context: nil,
+            characters: "\u{1b}", charactersIgnoringModifiers: "\u{1b}", isARepeat: false, keyCode: 53
+        )!
+    }
+
+    /// P7 review P3-1: Zap mode ends with its document and its page; a
+    /// pick from another site than the session's records nothing.
+    @Test func zapModeEndsWithItsPage() throws {
+        let fixture = makeFixture()
+        defer { fixture.tearDown() }
+        let window = fixture.manager.newWindow(url: "https://a.example/")
+        let tab = try #require(window.selectedTab)
+        window.navigate(tab, to: URL(string: "https://a.example/")!)
+        let pick: [String: Any] = ["path": [["tag": "p", "id": "ad", "classes": [], "index": 1, "count": 1]]]
+
+        // A new document in the tab: Esc is the page's again.
+        window.zapSession = (tab.id, "a.example")
+        window.webView(tab.webView, didCommit: nil)
+        #expect(window.zapSession == nil)
+        #expect(!window.endsZap(on: escape(in: window.window), in: tab))
+
+        // The session's host decides, not the tab's current page.
+        window.zapSession = (tab.id, "b.example")
+        window.recordZap(pick, tab: tab)
+        #expect(fixture.manager.boosts.boost(host: "a.example") == nil)
+        #expect(fixture.manager.boosts.boost(host: "b.example") == nil)
+
+        // Another tab selected: Zap mode stops.
+        window.zapSession = (tab.id, "a.example")
+        window.newTab(url: "https://c.example/", select: true)
+        window.updateChrome()
+        #expect(window.zapSession == nil)
+    }
+
+    /// P7 review P3-5: a store change that leaves the editor's zaps alone
+    /// keeps the user's unsaved zap list; a change to them replaces it.
+    /// P3-6: the open popover's Boost row follows the store.
+    @Test func boostChangesKeepUnsavedEditsAndRefreshThePopover() throws {
+        let fixture = makeFixture()
+        defer { fixture.tearDown() }
+        let window = fixture.manager.newWindow(url: "https://a.example/")
+        let tab = try #require(window.selectedTab)
+        let hostWindow = try #require(window.window)
+        let view = try #require(window.makeSiteControlView(for: tab))
+        window.siteControlPanel.show(view, below: window.toolbar.securityAnchor, in: hostWindow)
+        #expect(window.siteControlPanel.content?.state.boost?.exists == false)
+        fixture.manager.boosts.update(host: "a.example") { $0.css = "p {}" }
+        #expect(window.siteControlPanel.content?.state.boost?.title == "On")
+        window.siteControlPanel.close()
+
+        window.showBoostEditor()
+        let editor = try #require(window.boostEditor)
+        editor.zapView.string = "#mine"
+        fixture.manager.boosts.update(host: "other.example") { $0.css = "b {}" }
+        fixture.manager.boosts.update(host: "a.example") { $0.css = "p { margin: 0 }" }
+        #expect(editor.zapView.string == "#mine")
+        fixture.manager.boosts.zap("#ad", host: "a.example")
+        #expect(editor.zapView.string == "#ad")
+        hostWindow.endSheet(editor.window)
+    }
+
+    /// P7 review P2-3: Return in the editor's code views is a newline;
+    /// Save is ⌘↩.
+    @Test func returnInTheBoostEditorIsANewline() throws {
+        var saved = false
+        let editor = BrowserBoostEditor(boost: BrowserBoost(host: "a.example"), theme: .folioPaper)
+        editor.onSave = { _ in saved = true }
+        editor.window.makeFirstResponder(editor.cssView)
+        let event = try #require(NSEvent.keyEvent(
+            with: .keyDown, location: .zero, modifierFlags: [], timestamp: 0,
+            windowNumber: editor.window.windowNumber, context: nil,
+            characters: "\r", charactersIgnoringModifiers: "\r", isARepeat: false, keyCode: 36
+        ))
+        #expect(!editor.window.performKeyEquivalent(with: event))
+        #expect(!saved)
+        var queue = editor.window.contentView.map { [$0] } ?? []
+        var saveButton: NSButton?
+        while let view = queue.popLast() {
+            if let button = view as? NSButton, button.title == "Save" { saveButton = button }
+            queue += view.subviews
+        }
+        #expect(saveButton?.keyEquivalent == "\r")
+        #expect(saveButton?.keyEquivalentModifierMask == .command)
+    }
 }

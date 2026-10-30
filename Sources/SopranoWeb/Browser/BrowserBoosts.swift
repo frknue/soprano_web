@@ -42,13 +42,9 @@ struct BrowserBoost: Codable, Equatable, Sendable {
         zaps = ((try? c.decodeIfPresent([String].self, forKey: .zaps)) ?? []).filter { !$0.isEmpty }
     }
 
-    /// The stylesheet the page gets: the CSS, then one hiding rule per
-    /// zapped selector (a rule of its own, so one bad selector drops only
-    /// itself).
-    var stylesheet: String {
-        let hidden = zaps.map { "\($0) { display: none !important; }" }
-        return ([css] + hidden).filter { !$0.isEmpty }.joined(separator: "\n")
-    }
+    /// The page gets a Boost sheet: CSS, or zapped selectors (one hiding
+    /// rule each, `BrowserBoostScripts.styleSource`).
+    var hasStyle: Bool { !css.isEmpty || !zaps.isEmpty }
 
     var isEmpty: Bool { css.isEmpty && js.isEmpty && zaps.isEmpty }
 

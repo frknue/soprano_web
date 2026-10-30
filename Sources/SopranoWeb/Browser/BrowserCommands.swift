@@ -8,7 +8,7 @@ enum BrowserCommandID: String, CaseIterable, Sendable {
     case newLittleArc = "new-little-arc", openInSpaceWindow = "open-in-space-window"
     case reopenClosed = "reopen-closed", openLocation = "open-location"
     case closeTab = "close-tab", closeWindow = "close-window"
-    case saveAs = "save-as", exportPDF = "export-pdf", print
+    case saveAs = "save-as", exportPDF = "export-pdf", print, capture
     case importBrowserData = "import-browser-data", exportPins = "export-pins"
     case undo, redo, cut, copy, paste, selectAll = "select-all"
     case find, findNext = "find-next", findPrevious = "find-previous"
@@ -336,6 +336,10 @@ struct BrowserAppCommand: Sendable {
         make(.exportPDF, "Export as PDF…", .file, 3, symbol: "doc.richtext",
              state: { .when($0.controller?.canUsePageTools ?? false) }) {
             $0.controller?.exportSelectedPageAsPDF()
+        },
+        make(.capture, "Capture…", .file, 3, "shift+cmd+2", synonyms: ["screenshot", "full page", "snapshot"],
+             symbol: "camera.viewfinder", state: { .when($0.controller?.canCapture ?? false) }) {
+            $0.controller?.toggleCaptureOverlay()
         },
         make(.importBrowserData, "Import Browser Data…", .file, 5, synonyms: ["arc", "chrome", "safari", "bookmarks"],
              symbol: "square.and.arrow.down.on.square") { context in

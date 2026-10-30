@@ -2,6 +2,7 @@
 import Foundation
 import JavaScriptCore
 import Testing
+import WebKit
 
 @MainActor
 struct BrowserBoostTests {
@@ -60,9 +61,11 @@ struct BrowserBoostTests {
     }
 
     @Test func zapsBecomeHidingRules() {
-        let boost = BrowserBoost(host: "a", css: "p { color: red }", zaps: ["#ad", ".x > b"])
-        #expect(boost.stylesheet == "p { color: red }\n#ad { display: none !important; }\n.x > b { display: none !important; }")
-        #expect(BrowserBoost(host: "a").stylesheet.isEmpty)
+        #expect(BrowserBoostScripts.hidingRule(".x > b") == ".x > b { display: none !important; }")
+        #expect(BrowserBoost(host: "a", zaps: ["#ad"]).hasStyle)
+        #expect(BrowserBoost(host: "a", css: "p{}").hasStyle)
+        #expect(!BrowserBoost(host: "a", js: "1").hasStyle)
+        #expect(BrowserBoostScripts.literal(["a\"", "b"]) == "[\"a\\\"\", \"b\"]")
     }
 
     // MARK: Store
@@ -137,8 +140,18 @@ struct BrowserBoostTests {
         #expect(BrowserZapSelector.selector(for: [Node(tag: "a", id: ":r1:")]) == "body > a")
         #expect(BrowserZapSelector.selector(for: []) == nil)
         #expect(BrowserZapSelector.escape("1st.item") == "\\31 st\\.item")
+        // P7 review P3-3: `CSS.escape`'s rules.
+        #expect(BrowserZapSelector.escape("-1ad") == "-\\31 ad")
+        #expect(BrowserZapSelector.escape("\u{663}x") == "\u{663}x")
+        #expect(BrowserZapSelector.escape("-") == "\\-")
+        #expect(BrowserZapSelector.escape("a\u{1}b") == "a\\1 b")
+        #expect(BrowserZapSelector.escape("x-ui_card") == "x-ui_card")
         #expect(BrowserZapSelector.Node(["tag": "DIV", "index": 2, "count": 2]) == Node(tag: "div", index: 2, count: 2))
         #expect(BrowserZapSelector.Node(["tag": "a b"]) == nil)
+        // Custom element names may use `_` and `.`; the dot is escaped.
+        let custom = BrowserZapSelector.Node(["tag": "my_el.v2-x", "index": 1, "count": 1])
+        #expect(custom != nil)
+        #expect(custom.flatMap { BrowserZapSelector.selector(for: [$0]) } == "body > my_el\\.v2-x")
     }
 
     // MARK: CLI
@@ -159,6 +172,23 @@ struct BrowserBoostTests {
         #expect(try parse(["boost", "css", "127.0.0.1", "-"], stdin: "body{background:red}\n")?.arguments
             == ["css", "127.0.0.1", "body{background:red}\n"])
         #expect(try parse(["boost", "zap", "a.example", "div", ">", "p"])?.arguments == ["zap", "a.example", "div > p"])
+        // P7 review P3-7: pages report punycode, so a Unicode host is refused with that hint.
+        #expect(throws: BrowserAutomationError.self) { try parse(["boost", "css", "bücher.de", "-"], stdin: "p{}") }
+        do {
+            _ = try parse(["boost", "show", "bücher.de"])
+            Issue.record("a Unicode host was accepted")
+        } catch {
+            #expect(error.localizedDescription.contains("punycode"))
+        }
+        #expect(try parse(["boost", "show", "xn--bcher-kva.de"])?.arguments == ["show", "xn--bcher-kva.de"])
+        // P3-8: input the app can't take is refused client-side, by name.
+        let large = String(repeating: "a", count: BrowserAutomationServer.maxRequestBytes)
+        do {
+            _ = try parse(["boost", "css", "a.example", "-"], stdin: large)
+            Issue.record("a 16 MB stdin was accepted")
+        } catch {
+            #expect(error.localizedDescription == "The standard input is larger than 16 MB")
+        }
         for bad in [
             ["boost", "show"], ["boost", "show", "https://a.example/"], ["boost", "css", "a.example"],
             ["boost", "zap", "a.example"], ["boost", "wipe", "a.example"], ["boost", "list", "x"],
@@ -195,5 +225,94 @@ struct BrowserBoostTests {
         #expect(try BrowserBoostCommands.perform(["list"], in: store).get().hasPrefix("a.example\toff"))
         _ = try BrowserBoostCommands.perform(["remove", "a.example"], in: store).get()
         #expect(store.boosts.isEmpty)
+    }
+
+    // MARK: In a page
+
+    /// A web view with `boost`'s user scripts, showing `html` as
+    /// https://boost.test/, loaded.
+    private func boostPage(_ boost: BrowserBoost, html: String) async throws -> WKWebView {
+        let configuration = WKWebViewConfiguration()
+        configuration.websiteDataStore = .nonPersistent()
+        BrowserBoostScripts.userScripts([boost]).forEach(configuration.userContentController.addUserScript)
+        let webView = WKWebView(frame: NSRect(x: 0, y: 0, width: 400, height: 300), configuration: configuration)
+        webView.loadHTMLString("<!doctype html><title>loaded</title>" + html, baseURL: URL(string: "https://boost.test/")!)
+        let deadline = Date().addingTimeInterval(10)
+        while (try? await run("document.readyState === 'complete' ? document.title : ''", in: webView)) == "", Date() < deadline {
+            try await Task.sleep(nanoseconds: 50_000_000)
+        }
+        return webView
+    }
+
+    private func run(_ script: String, in webView: WKWebView, world: WKContentWorld = .page) async throws -> String {
+        let value = try await webView.evaluateJavaScript(script, contentWorld: world)
+        return value.map { "\($0)" } ?? ""
+    }
+
+    private func color(of id: String, in webView: WKWebView) async throws -> String {
+        try await run("getComputedStyle(document.getElementById('\(id)')).color", in: webView)
+    }
+
+    /// P7 review: a page whose CSP has `style-src 'self'` blocks an added
+    /// `<style>`, even one an isolated world adds. The Boost sheet is a
+    /// constructed sheet in `adoptedStyleSheets`, which CSP leaves alone,
+    /// both at document start and when the editor re-applies it live.
+    @Test func aStrictStyleCSPKeepsTheBoostSheet() async throws {
+        let webView = try await boostPage(
+            BrowserBoost(host: "boost.test", css: "p { color: rgb(255, 0, 0); }"),
+            html: "<meta http-equiv=\"Content-Security-Policy\" content=\"style-src 'self'\"><p id=p>text</p><b id=b>bold</b>"
+        )
+        #expect(try await color(of: "p", in: webView) == "rgb(255, 0, 0)")
+
+        // The policy is in force: a `<style>` the Boost world adds is blocked.
+        _ = try await run(
+            "var s = document.createElement('style'); s.textContent = '#b { color: rgb(0, 0, 255); }';"
+                + " document.head.appendChild(s); 'ok'",
+            in: webView,
+            world: BrowserBoostScripts.world
+        )
+        #expect(try await color(of: "b", in: webView) != "rgb(0, 0, 255)")
+
+        // The live update (`applyBoostStyle`) replaces the rules, and empty CSS takes the sheet out.
+        _ = try await run(
+            BrowserBoostScripts.styleSource(host: "boost.test", css: "p { color: rgb(0, 128, 0); }"),
+            in: webView,
+            world: BrowserBoostScripts.world
+        )
+        #expect(try await color(of: "p", in: webView) == "rgb(0, 128, 0)")
+        _ = try await run(BrowserBoostScripts.styleSource(host: "boost.test", css: ""), in: webView, world: BrowserBoostScripts.world)
+        #expect(try await color(of: "p", in: webView) == "rgb(0, 0, 0)")
+        #expect(try await run("String(document.adoptedStyleSheets.length)", in: webView) == "0")
+    }
+
+    /// P7 review P2-2: the Boost sheet cascades after the page's own
+    /// sheets, so it wins a tie from the first load (the old `<style>`
+    /// landed before `<head>` at document start and lost).
+    @Test func theBoostWinsTiesWithThePagesSheets() async throws {
+        let webView = try await boostPage(
+            BrowserBoost(host: "boost.test", css: "p { color: rgb(255, 0, 0); }"),
+            html: "<style>p { color: rgb(0, 0, 255); }</style><p id=p>text</p>"
+        )
+        #expect(try await color(of: "p", in: webView) == "rgb(255, 0, 0)")
+    }
+
+    /// P7 review P2-1: the host guard declares nothing, so a Boost's own
+    /// top-level `const h` runs.
+    @Test func boostCodeMayUseAnyNames() async throws {
+        let webView = try await boostPage(
+            BrowserBoost(host: "boost.test", js: "const h = 1; let host = 2; document.title = 'ran ' + (h + host);"),
+            html: "<p>text</p>"
+        )
+        #expect(try await run("document.title", in: webView) == "ran 3")
+    }
+
+    /// P7 review P3-4: a zap that isn't one valid rule drops only itself.
+    @Test func aBadZapDropsOnlyItself() async throws {
+        let webView = try await boostPage(
+            BrowserBoost(host: "boost.test", css: "p { color: rgb(255, 0, 0); }", zaps: ["div:not(.x", "a} p {color: blue", ".ad"]),
+            html: "<p id=p>text</p><div class=ad id=ad>ad</div>"
+        )
+        #expect(try await run("getComputedStyle(document.getElementById('ad')).display", in: webView) == "none")
+        #expect(try await color(of: "p", in: webView) == "rgb(255, 0, 0)")
     }
 }

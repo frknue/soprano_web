@@ -119,12 +119,14 @@ extension BrowserWindowController {
     }
 
     /// What follows the page shown (the Peek's or the selected tab's): the
-    /// zoom chip, the capture indicator and the extensions' toolbar
-    /// buttons.
+    /// zoom chip, the capture indicator, the extensions' toolbar buttons,
+    /// and Capture's overlay and Zap mode, which end with their page.
     private func refreshChromeForPageTab() {
         updateZoomChip()
         updateCaptureIndicator()
         updateExtensionButtons()
+        updateCaptureOverlay()
+        updateZapSession()
     }
 
     /// ⌘O / "Open as Tab": the Peek's web view becomes a selected Today tab

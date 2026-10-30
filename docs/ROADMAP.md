@@ -118,7 +118,10 @@ and bookmarks HTML files, and File ▸ Export Pinned Tabs… as bookmarks HTML.
 - Boosts: built in Stage 4 P7 (per host and its `www.` form, app-wide; CSS and Zap
   live, JavaScript in its own content world from the next load; editor sheet from the
   Site Control Center and `/boost`; CLI `browser boost`).
-- Capture: area and full-page screenshots (`takeSnapshot(with:)`).
+- Capture: built in Stage 4 P8 (⇧⌘2 overlay over the page tab: drag an area, click for
+  the visible page, Full Page through `createPDF` capped at 16,384 px; pasteboard, a
+  unique PNG in the download folder and a thumbnail toast; `/capture`; CLI `browser
+  screenshot --full`). Not built: Arc's portrait (phone-width) capture.
 - Web extensions, what is left: 1Password signed in (stage 4 P2 runs it up to its sign-in
   page; the signed-in popup, inline menu and notifier socket await the user's sign-in,
   see `docs/STATUS.md`). Built in P1/P2: the runtime on `WKWebExtension` (tabs and

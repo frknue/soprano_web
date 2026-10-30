@@ -281,17 +281,19 @@ extension BrowserWindowController {
             )
 
         case "screenshot":
-            guard let path = arguments.first else {
-                completion(.failure(BrowserAutomationError.invalidArguments(
-                    "Usage: soprano-web browser screenshot <path.png>"
-                )))
+            guard let path = arguments.last else {
+                completion(.failure(BrowserAutomationError.invalidArguments(BrowserCommandRequest.screenshotUsage)))
                 return
             }
             guard let tab = target else {
                 completion(.failure(noTab))
                 return
             }
-            takeScreenshot(of: tab, path: path, completion: completion)
+            if arguments.first == "--full" {
+                takeFullPageScreenshot(of: tab, path: path, completion: completion)
+            } else {
+                takeScreenshot(of: tab, path: path, completion: completion)
+            }
 
         default:
             completion(.failure(BrowserAutomationError.invalidArguments(
@@ -414,6 +416,33 @@ extension BrowserWindowController {
                 )
                 try png.write(to: url, options: .atomic)
                 completion(.success(url.path))
+            } catch {
+                completion(.failure(BrowserAutomationError.screenshot(error.localizedDescription)))
+            }
+        }
+    }
+
+    /// `screenshot --full`: the whole document (`BrowserCaptureRenderer`),
+    /// at the window's scale; a page cut at the height cap says so.
+    private func takeFullPageScreenshot(
+        of tab: BrowserTab,
+        path: String,
+        completion: @escaping (Result<String, Error>) -> Void
+    ) {
+        Task { @MainActor in
+            do {
+                let image = try await BrowserCaptureRenderer.fullPage(
+                    of: tab.webView,
+                    scale: BrowserCaptureRenderer.scale(of: tab.webView)
+                )
+                let url = URL(fileURLWithPath: path)
+                try FileManager.default.createDirectory(
+                    at: url.deletingLastPathComponent(),
+                    withIntermediateDirectories: true
+                )
+                try image.png.write(to: url, options: .atomic)
+                let cut = image.isCut ? "\ncut at \(BrowserCaptureGeometry.maxPixelLength) px" : ""
+                completion(.success(url.path + cut))
             } catch {
                 completion(.failure(BrowserAutomationError.screenshot(error.localizedDescription)))
             }

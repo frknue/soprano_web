@@ -53,8 +53,13 @@ final class BrowserBoostEditor: NSObject {
         window.makeFirstResponder(cssView)
     }
 
-    /// The store changed (a zap, the CLI): the zap list follows; other
-    /// fields keep the user's edits.
+    /// The zaps the editor last loaded from the store: a store change
+    /// that leaves these alone (another site's Boost, its CSS) keeps the
+    /// user's unsaved zap list.
+    var loadedZaps: [String] { original.zaps }
+
+    /// The store changed the zaps (a zap, the CLI): the zap list follows;
+    /// other fields keep the user's edits.
     func refreshZaps(_ zaps: [String]) {
         original.zaps = zaps
         zapView.string = zaps.joined(separator: "\n")
@@ -106,7 +111,11 @@ final class BrowserBoostEditor: NSObject {
         let cancel = button("Cancel", #selector(cancelPressed))
         cancel.keyEquivalent = "\u{1b}"
         let save = button("Save", #selector(savePressed))
+        // ⌘↩, not ↩: Return types a newline in the code views (key
+        // equivalents are offered before the text view's keyDown).
         save.keyEquivalent = "\r"
+        save.keyEquivalentModifierMask = .command
+        save.toolTip = "Save (⌘↩)"
         let spacer = NSView()
         spacer.setContentHuggingPriority(.init(1), for: .horizontal)
         let buttons = NSStackView(views: [zap, delete, spacer, cancel, save])
@@ -114,7 +123,8 @@ final class BrowserBoostEditor: NSObject {
 
         let stack = NSStackView(views: [
             title, header,
-            caption("CSS (added to the page at document start)"), scroll(cssView, height: 150, label: "CSS"),
+            caption("CSS (added to the page at document start; @import isn’t supported)"),
+            scroll(cssView, height: 150, label: "CSS"),
             caption("JavaScript (runs from the next page load)"), scroll(jsView, height: 150, label: "JavaScript"),
             caption("Zapped elements (one CSS selector per line, hidden)"), scroll(zapView, height: 70, label: "Zapped elements"),
             buttons,

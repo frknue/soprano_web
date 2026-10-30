@@ -112,15 +112,15 @@ struct BrowserCommandRequest: Codable, Equatable, Sendable {
             return BrowserCommandRequest(command: "help", arguments: [], tabIndex: tabIndex, windowIndex: windowIndex)
         }
         var arguments = Array(tokens.dropFirst())
-        if command == "screenshot", let path = arguments.first, !path.hasPrefix("/") {
-            let workingDirectory = environment["PWD"] ?? FileManager.default.currentDirectoryPath
-            arguments[0] = URL(
-                fileURLWithPath: workingDirectory,
-                isDirectory: true
-            ).appendingPathComponent(path).standardizedFileURL.path
+        var timeout: TimeInterval?
+        if command == "screenshot" {
+            arguments = try parseScreenshot(arguments, environment: environment)
+            if arguments.first == "--full" {
+                // A tall page's PDF, rasterized and encoded.
+                timeout = fullScreenshotTimeout
+            }
         }
 
-        var timeout: TimeInterval?
         if command == "wait-for-load" || command == "wait-for" {
             timeout = try extractTimeout(from: &arguments) ?? defaultWaitTimeout
         }
@@ -255,6 +255,39 @@ struct BrowserCommandRequest: Codable, Equatable, Sendable {
         }
     }
 
+    static let screenshotUsage = "Usage: soprano-web browser screenshot [--full] <path.png>"
+    /// `screenshot --full`: the PDF of a tall page, rasterized and encoded.
+    static let fullScreenshotTimeout: TimeInterval = 60
+
+    /// `screenshot [--full] [--] <path>`: the options pulled out first, so
+    /// `--full` never becomes the path; the path made absolute against the
+    /// CLI's `PWD`. Returns `[path]` or `["--full", path]`.
+    static func parseScreenshot(_ arguments: [String], environment: [String: String]) throws -> [String] {
+        var full = false
+        var paths: [String] = []
+        var optionsEnded = false
+        for argument in arguments {
+            if !optionsEnded, argument == "--" {
+                optionsEnded = true
+            } else if !optionsEnded, argument == "--full" {
+                full = true
+            } else if !optionsEnded, argument.hasPrefix("-"), argument.count > 1 {
+                throw BrowserAutomationError.invalidArguments("Unknown option \(argument)\n\(screenshotUsage)")
+            } else {
+                paths.append(argument)
+            }
+        }
+        guard paths.count == 1, let path = paths.first, !path.isEmpty else {
+            throw BrowserAutomationError.invalidArguments(screenshotUsage)
+        }
+        let workingDirectory = environment["PWD"] ?? FileManager.default.currentDirectoryPath
+        let absolute = path.hasPrefix("/")
+            ? path
+            : URL(fileURLWithPath: workingDirectory, isDirectory: true)
+                .appendingPathComponent(path).standardizedFileURL.path
+        return full ? ["--full", absolute] : [absolute]
+    }
+
     /// `boost list|show <host>|css <host> <file|->|js <host> <file|->|zap
     /// <host> <selector>|enable|disable|remove <host>`. The CLI reads the
     /// file (relative to `PWD`) or its own stdin for `-` and sends the
@@ -273,7 +306,13 @@ struct BrowserCommandRequest: Codable, Equatable, Sendable {
             guard arguments.count == 1 else { throw usage }
             return
         }
-        guard arguments.count >= 2, isBoostHost(arguments[1]) else { throw usage }
+        guard arguments.count >= 2 else { throw usage }
+        guard arguments[1].allSatisfy(\.isASCII) else {
+            throw BrowserAutomationError.invalidArguments(
+                "\(arguments[1]): use the host's punycode form (xn--…), as the page reports it"
+            )
+        }
+        guard isBoostHost(arguments[1]) else { throw usage }
         switch action {
         case "show", "enable", "disable", "remove":
             guard arguments.count == 2 else { throw usage }
@@ -296,6 +335,15 @@ struct BrowserCommandRequest: Codable, Equatable, Sendable {
             guard let text = String(data: data, encoding: .utf8) else {
                 throw BrowserAutomationError.invalidArguments("The \(action.uppercased()) is not UTF-8 text")
             }
+            // The request (JSON, the text escaped in it) must fit what the
+            // app reads; say so here rather than get a broken pipe.
+            let encoded = (try? JSONEncoder().encode(text).count) ?? data.count
+            guard encoded <= BrowserAutomationServer.maxRequestBytes - 64 * 1024 else {
+                let name = source == "-" ? "The standard input" : source
+                throw BrowserAutomationError.invalidArguments(
+                    "\(name) is larger than \(BrowserAutomationServer.maxRequestBytes / 1024 / 1024) MB"
+                )
+            }
             arguments[2] = text
         case "zap":
             let selector = arguments.dropFirst(2).joined(separator: " ").trimmingCharacters(in: .whitespacesAndNewlines)
@@ -306,10 +354,11 @@ struct BrowserCommandRequest: Codable, Equatable, Sendable {
         }
     }
 
-    /// A host name, not an address: no scheme, path, port or spaces.
+    /// A host name, not an address: no scheme, path, port or spaces; ASCII
+    /// only (pages report Unicode hosts in punycode).
     static func isBoostHost(_ value: String) -> Bool {
         BrowserBoost.key(value) != nil
-            && value.allSatisfy { $0.isLetter || $0.isNumber || $0 == "." || $0 == "-" || $0 == "_" }
+            && value.allSatisfy { $0.isASCII && ($0.isLetter || $0.isNumber || $0 == "." || $0 == "-" || $0 == "_") }
     }
 
     private static func extractTimeout(from arguments: inout [String]) throws -> TimeInterval? {
@@ -390,7 +439,7 @@ enum BrowserCommand {
       soprano-web browser [--window n] [--tab n] press <key>
       soprano-web browser [--window n] [--tab n] get <text|html|value|attr|count> <selector> [attribute]
       soprano-web browser [--window n] [--tab n] is <visible|enabled|checked> <selector|@ref>
-      soprano-web browser [--window n] [--tab n] screenshot <path.png>
+      soprano-web browser [--window n] [--tab n] screenshot [--full] <path.png>
       soprano-web browser [--window n] tabs
       soprano-web browser [--window n] new-tab [url]
       soprano-web browser [--window n] select-tab <n>

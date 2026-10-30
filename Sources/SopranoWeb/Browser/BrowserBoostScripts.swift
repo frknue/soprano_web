@@ -13,42 +13,62 @@ enum BrowserBoostScripts {
 
     static let world = WKContentWorld.world(name: "SopranoWebBoost")
 
-    /// The attribute of the one `<style>` a Boost adds.
-    nonisolated static let styleAttribute = "data-soprano-web-boost"
+    /// The Boost world's global holding the page's Boost sheet (a
+    /// constructed `CSSStyleSheet` in `document.adoptedStyleSheets`; page
+    /// scripts can't see it).
+    nonisolated static let sheetGlobal = "__sopranoWebBoostSheet"
 
     /// JavaScript that returns from the enclosing function unless the page's
-    /// host has Boost key `host` (`BrowserBoost.key`).
+    /// host has Boost key `host` (`BrowserBoost.key`). It declares nothing,
+    /// so a Boost's own top-level `const h` or `let host` can't collide
+    /// with it.
     nonisolated static func hostGuard(_ host: String) -> String {
-        "var h = location.hostname.toLowerCase().replace(/\\.+$/, \"\"); "
-            + "if (h.indexOf(\"www.\") === 0 && h.length > 4) h = h.slice(4); "
-            + "if (h !== \(literal(host))) return;"
+        "if ((function (h) { h = String(h).toLowerCase().replace(/\\.+$/, \"\"); "
+            + "return h.indexOf(\"www.\") === 0 && h.length > 4 ? h.slice(4) : h; })(location.hostname)"
+            + " !== \(literal(host))) return;"
     }
 
-    /// Sets the Boost `<style>` of a page of `host` to `css` (removes it
-    /// when empty). At document start the element to hold it may not
-    /// exist yet, so it waits for one.
-    nonisolated static func styleSource(host: String, css: String) -> String {
+    /// The rule that hides a zapped selector.
+    nonisolated static func hidingRule(_ selector: String) -> String {
+        "\(selector) { display: none !important; }"
+    }
+
+    /// Sets the Boost stylesheet of a page of `host` to `css` plus one
+    /// hiding rule per zap (takes it out of the document when both are
+    /// empty). A constructed sheet in `document.adoptedStyleSheets`, not a
+    /// `<style>`: a page's CSP `style-src` blocks an added `<style>` (even
+    /// from an isolated world) but not a constructed sheet; a document has
+    /// `adoptedStyleSheets` from the start, before any root element; and
+    /// adopted sheets cascade after the page's own, so a Boost wins ties.
+    /// Each zap goes in through `insertRule`, which refuses a selector that
+    /// isn't one rule, so a bad zap drops only itself. `replaceSync` drops
+    /// `@import` (constructed sheets don't allow it).
+    nonisolated static func styleSource(host: String, css: String, zaps: [String] = []) -> String {
         """
         \(marker)
         (function () {
           \(hostGuard(host))
           var css = \(literal(css));
-          function apply() {
-            var root = document.head || document.documentElement;
-            if (!root) return false;
-            var style = document.querySelector("style[\(styleAttribute)]");
-            if (!css) { if (style) style.remove(); return true; }
-            if (!style) {
-              style = document.createElement("style");
-              style.setAttribute("\(styleAttribute)", "");
-            }
-            if (style.textContent !== css) style.textContent = css;
-            if (style.parentNode !== root) root.appendChild(style);
-            return true;
+          var rules = \(literal(zaps.map(hidingRule)));
+          var sheet = window.\(sheetGlobal);
+          var empty = !css && rules.length === 0;
+          if (!sheet) {
+            if (empty) return;
+            sheet = new CSSStyleSheet();
+            window.\(sheetGlobal) = sheet;
           }
-          if (apply()) return;
-          var observer = new MutationObserver(function () { if (apply()) observer.disconnect(); });
-          observer.observe(document, { childList: true, subtree: true });
+          sheet.replaceSync(css);
+          rules.forEach(function (rule) {
+            try { sheet.insertRule(rule, sheet.cssRules.length); } catch (e) {}
+          });
+          var sheets = Array.from(document.adoptedStyleSheets);
+          var index = sheets.indexOf(sheet);
+          if (!empty && index < 0) {
+            document.adoptedStyleSheets = sheets.concat([sheet]);
+          } else if (empty && index >= 0) {
+            sheets.splice(index, 1);
+            document.adoptedStyleSheets = sheets;
+          }
         })();
         """
     }
@@ -68,10 +88,9 @@ enum BrowserBoostScripts {
     static func userScripts(_ boosts: [BrowserBoost]) -> [WKUserScript] {
         boosts.filter(\.isEnabled).flatMap { boost -> [WKUserScript] in
             var scripts: [WKUserScript] = []
-            let stylesheet = boost.stylesheet
-            if !stylesheet.isEmpty {
+            if boost.hasStyle {
                 scripts.append(WKUserScript(
-                    source: styleSource(host: boost.host, css: stylesheet),
+                    source: styleSource(host: boost.host, css: boost.css, zaps: boost.zaps),
                     injectionTime: .atDocumentStart,
                     forMainFrameOnly: true,
                     in: world
@@ -134,24 +153,25 @@ enum BrowserBoostScripts {
         target.style.setProperty("display", "none", "important");
         box.style.display = "none"; target = null;
       }
-      function swallow(event) { event.preventDefault(); event.stopPropagation(); }
+      function swallow(event) { event.preventDefault(); event.stopPropagation(); event.stopImmediatePropagation(); }
       function key(event) {
         if (event.key !== "Escape") return;
         swallow(event); stop(); post({ type: "zapEnd" });
       }
+      // On `window` in the capture phase, the first a page can listen at,
+      // so page handlers (menus opening on pointerdown) never see a zap.
+      var swallowed = ["mousedown", "mouseup", "pointerdown", "pointerup", "dblclick", "auxclick", "contextmenu"];
       function stop() {
-        document.removeEventListener("mousemove", move, true);
-        document.removeEventListener("click", click, true);
-        document.removeEventListener("mousedown", swallow, true);
-        document.removeEventListener("mouseup", swallow, true);
-        document.removeEventListener("keydown", key, true);
+        window.removeEventListener("mousemove", move, true);
+        window.removeEventListener("click", click, true);
+        window.removeEventListener("keydown", key, true);
+        swallowed.forEach(function (type) { window.removeEventListener(type, swallow, true); });
         box.remove(); delete window.__sopranoWebZap;
       }
-      document.addEventListener("mousemove", move, true);
-      document.addEventListener("click", click, true);
-      document.addEventListener("mousedown", swallow, true);
-      document.addEventListener("mouseup", swallow, true);
-      document.addEventListener("keydown", key, true);
+      window.addEventListener("mousemove", move, true);
+      window.addEventListener("click", click, true);
+      window.addEventListener("keydown", key, true);
+      swallowed.forEach(function (type) { window.addEventListener(type, swallow, true); });
       window.__sopranoWebZap = stop;
     })();
     """
@@ -164,6 +184,10 @@ enum BrowserBoostScripts {
         return String(decoding: data, as: UTF8.self)
             .replacingOccurrences(of: "\u{2028}", with: "\\u2028")
             .replacingOccurrences(of: "\u{2029}", with: "\\u2029")
+    }
+
+    nonisolated static func literal(_ values: [String]) -> String {
+        "[" + values.map(literal).joined(separator: ", ") + "]"
     }
 }
 
@@ -210,7 +234,7 @@ enum BrowserZapSelector {
                 steps.append("#" + escape(node.id))
                 return steps.reversed().joined(separator: " > ")
             }
-            var step = node.tag
+            var step = escape(node.tag)
             for name in node.classes.filter(isStableClass).prefix(2) {
                 step += "." + escape(name)
             }
@@ -243,22 +267,38 @@ enum BrowserZapSelector {
         return false
     }
 
+    /// A tag name as the page reports it: ASCII letters, digits, `-`, and
+    /// the `_` and `.` custom element names may use.
     private static func isIdentifier(_ value: String) -> Bool {
-        !value.isEmpty && value.allSatisfy { $0.isASCII && ($0.isLetter || $0.isNumber || $0 == "-") }
+        !value.isEmpty && value.allSatisfy {
+            $0.isASCII && ($0.isLetter || $0.isNumber || $0 == "-" || $0 == "_" || $0 == ".")
+        }
     }
 
-    /// CSS identifier escaping (`CSS.escape` for the characters ids and
-    /// classes use).
+    /// CSS identifier escaping, as `CSS.escape` does it: an ASCII digit
+    /// first (or second, after `-`) becomes `\3X `, a lone `-` is escaped,
+    /// control characters become hex escapes, ASCII other than letters,
+    /// digits, `-` and `_` gets a backslash, and everything from U+0080 on
+    /// stays as it is.
     static func escape(_ value: String) -> String {
+        let scalars = Array(value.unicodeScalars)
         var result = ""
-        for (offset, scalar) in value.unicodeScalars.enumerated() {
-            let character = Character(scalar)
-            if offset == 0, character.isNumber {
-                result += "\\3\(character) "
-            } else if character.isLetter || character.isNumber || character == "-" || character == "_" || scalar.value > 0x7F {
+        for (offset, scalar) in scalars.enumerated() {
+            let isDigit = ("0"..."9").contains(scalar)
+            if scalar.value == 0 {
+                result += "\u{FFFD}"
+            } else if (0x01...0x1F).contains(scalar.value) || scalar.value == 0x7F {
+                result += "\\" + String(scalar.value, radix: 16) + " "
+            } else if isDigit, offset == 0 || (offset == 1 && scalars[0] == "-") {
+                result += "\\3\(Character(scalar)) "
+            } else if offset == 0, scalar == "-", scalars.count == 1 {
+                result += "\\-"
+            } else if scalar.value >= 0x80 || isDigit || scalar == "-" || scalar == "_"
+                || ("a"..."z").contains(scalar) || ("A"..."Z").contains(scalar)
+            {
                 result.unicodeScalars.append(scalar)
             } else {
-                result += "\\" + String(character)
+                result += "\\" + String(Character(scalar))
             }
         }
         return result
