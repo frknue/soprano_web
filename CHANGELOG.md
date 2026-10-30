@@ -10,6 +10,10 @@ app.
 ## [Unreleased]
 
 ### Added
+- File ▸ Import Browser Data… imports from Brave, Edge, Vivaldi and Chromium like
+  Chrome: each profile's bookmarks as a pinned folder named after the browser and its
+  History into the chosen Space. The sheet lists them when they're on this Mac; when
+  macOS doesn't let Soprano Web read one, it says where to allow it.
 - AppleScript: Soprano Web has a scripting dictionary (open it in Script Editor). Scripts
   see the windows (the most recently active first; private windows never), the tabs of
   each window's current Space (name, URL — set it to load an address or search —,

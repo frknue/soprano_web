@@ -1,9 +1,10 @@
 # Status
 
-Stage 3 is merged to `main` (#3, `2fdbdaa`, 2026-10-27), followed by #4 (`727eca4`: every
-Space has its own profile, so its own cookies, History and Archive), and installed in
-`/Applications/Soprano Web.app`. Its first launch migrates `bookmarks.json` into
-`spaces.json` (kept as `bookmarks.json.migrated`) and the session to version 3.
+Stage 4 (P0–P12) is merged to `main` (#5, `2c277d7`, 2026-10-30) and installed in
+`/Applications/Soprano Web.app`, which hasn't launched since: its first launch moves the
+session to version 5 and rebuilds the ad-block lists. The version 3 session is kept as
+`session.v3-before-stage-4.json` in its support folder. Stage 3 is #3 (`2fdbdaa`), Space
+isolation #4 (`727eca4`).
 
 Live check of #4 in the running dev app (2026-10-27; Work Space made through the New
 Space path, then driven over the `browser` CLI against a local server): a cookie set in
@@ -24,7 +25,8 @@ contract is `docs/STAGE-3-PLAN.md`.
 | Branch | Base | State |
 |---|---|---|
 | `feat/stage-3` | `main` | Squash-merged as #3. 518 tests green in debug and release. |
-| `feat/stage-4` | `main` | Stage 4 built (P0–P12), PR #5 open (not merged); 801 tests green in debug and release; the real EasyList's element hiding proven (`1f3cc7f`), compiled lists rebuilt at launch by converter version 2 (`9e162c7`). Open: 1Password sign-in and the by-hand checks below (Furkan), then a PR to `main`. |
+| `feat/stage-4` | `main` | Squash-merged as #5 (`2c277d7`). 801 tests green in debug and release. |
+| `feat/chromium-import` | `main` | Brave, Edge, Vivaldi and Chromium as import sources (Chrome's reader under each browser's folder; the sheet lists them when found; an unreadable folder says so). Harness: a Brave folder with two profiles → "Brave Bookmarks" (2 pins, 2 folders) and "Brave History (Work)" 327 visits; a second run adds nothing; real Edge folder (macOS-protected for the shell) → the Privacy & Security message; real Chrome plan unchanged. |
 | `feat/stage-3-search`, `feat/stage-3-import` | — | Merged into `feat/stage-3`; no further work there. |
 
 ## Done
@@ -139,7 +141,8 @@ its welcome page, no update additions pending; only 1Password keeps `webSocket`.
    rail outline, the Command Bar's rounded corners in Folio Ink, Delete Space from the
    switcher's menu (the CLI has no Space create/delete).
 3. By hand (Furkan): AppleScript's `execute javascript` from Script Editor or Terminal against the dev app (macOS asks once to let it control "Soprano Web Dev"): turn on Settings ▸ "Allow JavaScript from Apple Events", then `osascript -e 'tell application "Soprano Web Dev" to execute javascript "document.title"'` answers the front tab's title as JSON (`"…"`), and with the setting off it fails with -1743; the Dock menu's New Little Arc and a Space. A live folder from the rail's menu (New Live Folder…, a click on a PR, Refresh, Edit Live Folder…); Translate with a downloaded language pair (System Settings ▸ General ▸ Language & Region ▸ Translation Languages); ⇧⌘2 with a real pointer (drag an area, click for the visible page, Full Page, Esc) and a click on the toast revealing the file in Finder; Zap mode with a real pointer (hover outline, click hides, Esc ends) and typing in the Boost editor (↩ newline, ⌘↩ saves); a real tab drag onto a pane edge and a real divider drag (P5), and the lock's popover menus (Ask/Allow/Block, extension access) with real clicks; the Mini Player with a real video in the dev app (P9).
-4. Merge PR #5 (https://github.com/frknue/soprano_web/pull/5) into `main` on Furkan's go.
+4. Launch the installed app once and check the session came back (Little Arc windows,
+   Spaces, tabs); `session.v3-before-stage-4.json` is the way back.
 
 Known, not planned: each tab change rebuilds every rail row (~40 ms with 20+ tabs); batch
 closes do it once.

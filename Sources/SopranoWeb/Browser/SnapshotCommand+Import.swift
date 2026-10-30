@@ -6,7 +6,9 @@ import AppKit
 /// read (Chromium History opens `immutable`).
 ///
 /// - `--import-arc [dir]` (default `~/Library/Application Support/Arc`),
-///   `--import-chrome <dir>` (a Chromium user-data folder),
+///   `--import-chrome <dir>`, `--import-brave <dir>`, `--import-edge <dir>`,
+///   `--import-vivaldi <dir>`, `--import-chromium <dir>` (a Chromium
+///   browser's user-data folder),
 ///   `--import-safari <zip>`, `--import-html <file>` (repeatable, in
 ///   order): each prints `import-plan:` (one JSON line: each source
 ///   profile's home Space, Spaces with counts and create/skip/take-over,
@@ -14,7 +16,7 @@ import AppKit
 ///   the plan as the sheet checks it by default and prints
 ///   `import-result:` (what was made, History added/skipped and seconds
 ///   per Space).
-/// - `--import-space <name>`: a Chrome, Safari or bookmarks-file import
+/// - `--import-space <name>`: any import but Arc's
 ///   goes into that Space (the sheet's Space menu) instead of the
 ///   window's.
 /// - `--import-plan`: plans only, applies nothing.
@@ -52,13 +54,14 @@ struct SnapshotImportOptions {
     var targetSpace: String?
 
     static let flags: Set<String> = [
-        "--import-arc", "--import-chrome", "--import-safari", "--import-html", "--import-plan", "--import-sheet",
+        "--import-arc", "--import-chrome", "--import-brave", "--import-edge", "--import-vivaldi", "--import-chromium",
+        "--import-safari", "--import-html", "--import-plan", "--import-sheet",
         "--export-pins", "--export-all-pins", "--open-link", "--link-routing-sheet", "--import-from-private",
         "--import-space", "--outside-links",
     ]
 
     static let usage = """
-                               [--import-arc [dir]] [--import-chrome <dir>] [--import-safari <zip>]
+                               [--import-arc [dir]] [--import-chrome|brave|edge|vivaldi|chromium <dir>] [--import-safari <zip>]
                                [--import-html <file>] [--import-plan] [--import-sheet [checklist|progress|result]]
                                [--export-pins <file>] [--export-all-pins <file>] [--open-link <url>]...
                                [--link-routing-sheet] [--import-from-private] [--import-space <name>]
@@ -88,8 +91,6 @@ struct SnapshotImportOptions {
         switch option {
         case "--import-arc":
             requests.append(.arc(optional().map(file) ?? BrowserArcImportReader.defaultSupportDirectory))
-        case "--import-chrome":
-            requests.append(.chrome(file(try value())))
         case "--import-safari":
             requests.append(.safari(file(try value())))
         case "--import-html":
@@ -122,7 +123,12 @@ struct SnapshotImportOptions {
         case "--link-routing-sheet":
             showsLinkRoutingSheet = true
         default:
-            throw SnapshotCommand.OptionError.unknownOption(option)
+            // `--import-chrome|brave|edge|vivaldi|chromium <dir>`.
+            guard option.hasPrefix("--import-"),
+                  let browser = BrowserImportSourceKind(rawValue: String(option.dropFirst("--import-".count))),
+                  browser.isChromium
+            else { throw SnapshotCommand.OptionError.unknownOption(option) }
+            requests.append(.chromium(browser, file(try value())))
         }
     }
 
@@ -267,7 +273,7 @@ struct SnapshotImportOptions {
         for request in requests {
             detected.removeAll { $0.kind == request.kind }
         }
-        detected = requests.filter { $0.kind == .arc || $0.kind == .chrome } + detected
+        detected = requests.filter { $0.kind == .arc || $0.kind.isChromium } + detected
         let sheet = BrowserImportSheet(manager: manager, controller: controller, detected: detected)
         if let request = requests.first {
             sheet.select(request)

@@ -179,7 +179,8 @@ struct BrowserImportedRoutingRule: Sendable, Equatable {
 enum BrowserImportError: Error, Equatable, CustomStringConvertible {
     /// The source's main file is missing (Arc not installed, wrong folder).
     case missingFile(URL)
-    /// The file exists but is not in the expected format.
+    /// The source can't be read: not in the expected format, or macOS
+    /// refuses the app access to it.
     case unreadable(URL, String)
     /// `ditto` could not expand the archive.
     case unzipFailed(String)
