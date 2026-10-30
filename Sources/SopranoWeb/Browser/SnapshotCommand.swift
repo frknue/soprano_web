@@ -34,6 +34,7 @@ enum SnapshotCommand {
         var showSiteControl = false
         var boosts = SnapshotBoostOptions()
         var capture = SnapshotCaptureOptions()
+        var media = SnapshotMediaOptions()
         var session = SnapshotSessionOptions()
         var tabAudio = false
         var hoverSelector: String?
@@ -89,6 +90,7 @@ enum SnapshotCommand {
     \(SnapshotSessionOptions.usage)
     \(SnapshotBoostOptions.usage)
     \(SnapshotCaptureOptions.usage)
+    \(SnapshotMediaOptions.usage)
                                [--tabs <url>,<url>…] [--tab-audio] [--hover <css selector>]
                                [--back-url <url>]
                                [--address <text>] [--focus-address]
@@ -188,6 +190,12 @@ enum SnapshotCommand {
                 try options.capture.parse(
                     flag,
                     value: { try value(flag) },
+                    peek: { index + 1 < arguments.count ? arguments[index + 1] : nil },
+                    skip: { index += 1 }
+                )
+            case let flag where SnapshotMediaOptions.flags.contains(flag):
+                try options.media.parse(
+                    flag,
                     peek: { index + 1 < arguments.count ? arguments[index + 1] : nil },
                     skip: { index += 1 }
                 )
@@ -436,6 +444,8 @@ enum SnapshotCommand {
         for value in options.extraTabs {
             controller.newTab(url: value, select: false)
         }
+        // `--media-seed`: the playing page, before the window flags leave it.
+        options.media.runSeed(controller: controller, directory: temp) { wait($0) }
         if options.tabAudio {
             // The second tab plays audio, the third is muted (or the
             // selected tab plays when there is only one).
@@ -609,6 +619,7 @@ enum SnapshotCommand {
         }
         SnapshotPageTools.run(options.pageTools, controller: controller)
         options.capture.run(controller: controller) { wait($0) }
+        options.media.run(controller: controller) { wait($0) }
 
         if options.showHints {
             controller.selectedTab?.vimium?.startHintsForSnapshot()
@@ -746,6 +757,10 @@ enum SnapshotCommand {
                 )
             }
         }
+        // An open Mini Player floats over the window (its own panel).
+        let miniPlayerImage = captureWindow === window
+            ? SnapshotMediaOptions.miniPlayerImage(controller, window: window, in: captureContent) { wait($0) }
+            : nil
 
         let output = NSImage(size: captureContent.bounds.size)
         output.lockFocus()
@@ -819,6 +834,9 @@ enum SnapshotCommand {
             let image = NSImage(size: overlay.bounds.size)
             image.addRepresentation(rep)
             image.draw(in: overlay.convert(overlay.bounds, to: captureContent))
+        }
+        if let miniPlayerImage {
+            SnapshotMediaOptions.draw(miniPlayerImage)
         }
         // An extension's popup hangs under its toolbar button.
         if let popup = extensionPopup, let anchor = controller.toolbar.extensionButton(id: popup.extensionID),

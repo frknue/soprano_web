@@ -75,6 +75,20 @@ final class BrowserCaptureOverlay: NSView {
     override var isFlipped: Bool { true }
     override var acceptsFirstResponder: Bool { true }
 
+    /// The overlay lives only while it has the keyboard (Esc must reach
+    /// it): ⌘L, ⌘T or a click elsewhere that takes focus cancels it. Async,
+    /// so a focus change that comes straight back doesn't.
+    override func resignFirstResponder() -> Bool {
+        let resigned = super.resignFirstResponder()
+        if resigned {
+            Task { @MainActor [weak self] in
+                guard let self, self.superview != nil, self.window?.firstResponder !== self else { return }
+                self.onChoice?(.cancel)
+            }
+        }
+        return resigned
+    }
+
     func apply(theme: AppTheme) {
         self.theme = theme
         let colors = theme.colors

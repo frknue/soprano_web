@@ -164,6 +164,9 @@ struct BrowserSettings: Codable, Equatable, Sendable {
     var globalLittleArcEnabled: Bool = false
     /// That shortcut, as `"opt+cmd+n"`.
     var globalLittleArcShortcut: String = BrowserGlobalShortcut.fallback
+    /// Settings ▸ "Mini Player": leaving a tab with a playing, visible
+    /// video moves it into a floating panel.
+    var miniPlayer: Bool = true
 
     static let `default` = BrowserSettings()
 
@@ -249,6 +252,7 @@ extension BrowserSettings {
         shortcuts = (try? c.decodeIfPresent(BrowserShortcutSettings.self, forKey: .shortcuts)) ?? shortcuts
         globalLittleArcEnabled = (try? c.decodeIfPresent(Bool.self, forKey: .globalLittleArcEnabled))
             ?? globalLittleArcEnabled
+        miniPlayer = (try? c.decodeIfPresent(Bool.self, forKey: .miniPlayer)) ?? miniPlayer
         // A chord the system, text editing or another command uses never
         // becomes a global hotkey (a hand-edited file included): a taken
         // chord falls back to the default, and when that one is taken too

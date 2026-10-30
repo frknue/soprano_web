@@ -69,6 +69,21 @@ enum BrowserBoostScripts {
             sheets.splice(index, 1);
             document.adoptedStyleSheets = sheets;
           }
+          // A page that assigns `document.adoptedStyleSheets` without the
+          // old ones (`= [own]`) drops the sheet: put it back at
+          // DOMContentLoaded, load and pageshow while it has rules.
+          if (!window.\(sheetGlobal)Ensure) {
+            window.\(sheetGlobal)Ensure = true;
+            var ensure = function () {
+              var current = window.\(sheetGlobal);
+              if (!current || !current.cssRules.length) return;
+              var list = Array.from(document.adoptedStyleSheets);
+              if (list.indexOf(current) < 0) document.adoptedStyleSheets = list.concat([current]);
+            };
+            document.addEventListener('DOMContentLoaded', ensure);
+            window.addEventListener('load', ensure);
+            window.addEventListener('pageshow', ensure);
+          }
         })();
         """
     }

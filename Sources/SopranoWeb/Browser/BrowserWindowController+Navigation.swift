@@ -212,6 +212,7 @@ extension BrowserWindowController {
 
     func updateChrome() {
         updateCaptureIndicator()
+        updateMediaControls()
         updateCaptureOverlay()
         updateZapSession()
         updateSiteControlPanel()

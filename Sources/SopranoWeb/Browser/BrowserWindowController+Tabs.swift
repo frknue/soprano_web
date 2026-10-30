@@ -137,6 +137,7 @@ extension BrowserWindowController {
         tab.replaceWebView(with: makeWebView(context: tab.dataContext, configuration: nil, for: url))
         tab.media.frames.removeAll()
         tab.media.audio.reset()
+        tab.media.info.reset()
         connectKeyHandler(tab)
         refreshStateScripts(tab)
         guard attached else { return }
@@ -246,7 +247,7 @@ extension BrowserWindowController {
     /// Puts a web view in the page area, hidden, under the find bar and
     /// the Peek, filling it. Its sides are kept on the web view, so a
     /// split's pane layout (`applyPaneLayout`) can turn them off.
-    private func installWebView(_ webView: BrowserWebView) {
+    func installWebView(_ webView: BrowserWebView) {
         webView.isHidden = true
         if let peekView = peek?.view {
             webArea.addSubview(webView, positioned: .below, relativeTo: peekView)
@@ -412,6 +413,9 @@ extension BrowserWindowController {
     }
 
     func unbindTab(_ tab: BrowserTab) {
+        // A tab leaving the window (closed, moved, its web view replaced)
+        // takes its web view out of the Mini Player first.
+        releaseMiniPlayer(of: tab)
         let webView = tab.webView
         webView.navigationDelegate = nil
         webView.uiDelegate = nil
@@ -512,6 +516,11 @@ extension BrowserWindowController {
             updateChrome()
         }
         updateTabStrip()
+        // Title, favicon and mute show in the media controls and the panel.
+        if manager.miniPlayer.hosts(tab) {
+            manager.miniPlayer.update(title: mediaTitle(of: tab), isPlaying: tab.media.info.isPlaying)
+        }
+        updateMediaControls()
         saveSession()
     }
 
@@ -566,6 +575,13 @@ extension BrowserWindowController {
         let leavingPage = previous.map(pageTabs(of:)) ?? []
         if let index = splits.firstIndex(where: { $0.contains(tab.id) }) {
             splits[index].focus(tab.id)
+        }
+        // What comes on screen leaves the Mini Player; a playing video
+        // leaving the screen may go into it.
+        let comingShown = pageTabs(of: tab)
+        returnMiniPlayerIfShown(comingShown)
+        if let previous, previous.id != tab.id {
+            miniPlayerLeaving(leavingPage, previous: previous, shown: comingShown)
         }
         applyPaneLayout()
         let shown = shownTabs

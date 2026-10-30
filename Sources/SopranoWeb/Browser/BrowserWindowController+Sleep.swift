@@ -10,6 +10,7 @@ extension BrowserWindowController {
         return BrowserTabSleepCandidate(
             isSelected: tab.id == selectedTab?.id,
             isVisiblePane: isVisiblePane(tab),
+            isInMiniPlayer: manager.miniPlayer.hosts(tab),
             isLoaded: !tab.isRestorePending && webView.url != nil,
             isPlayingAudio: tab.isPlayingAudio,
             isCapturing: webView.cameraCaptureState != .none

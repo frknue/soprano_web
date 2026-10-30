@@ -48,6 +48,8 @@ enum BrowserTabSleepExemption: String, Equatable, Sendable {
     /// A pane of the split on screen (`BrowserSplit`): visible, though
     /// not focused.
     case visiblePane
+    /// Its video plays in the Mini Player (`BrowserMiniPlayer`).
+    case miniPlayer
     /// Nothing to release: already asleep, or restored and never loaded.
     case notLoaded
     case playingAudio
@@ -69,6 +71,8 @@ struct BrowserTabSleepCandidate: Equatable, Sendable {
     var isSelected = false
     /// A pane of its window's split on screen other than the focused one.
     var isVisiblePane = false
+    /// Its web view is in the Mini Player.
+    var isInMiniPlayer = false
     var isLoaded = true
     var isPlayingAudio = false
     var isCapturing = false
@@ -89,6 +93,7 @@ enum BrowserTabSleepPolicy {
     static func exemption(for candidate: BrowserTabSleepCandidate) -> BrowserTabSleepExemption? {
         if candidate.isSelected { return .selected }
         if candidate.isVisiblePane { return .visiblePane }
+        if candidate.isInMiniPlayer { return .miniPlayer }
         if !candidate.isLoaded { return .notLoaded }
         if candidate.isPopup { return .popup }
         if candidate.isPlayingAudio { return .playingAudio }

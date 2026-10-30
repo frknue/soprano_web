@@ -133,7 +133,7 @@ struct BrowserCaptureWindowTests {
 
     /// A capture lands on the pasteboard and in the download folder under a
     /// unique name, private windows alike; the toast names the file.
-    @Test func aCaptureIsCopiedAndSavedUniquely() throws {
+    @Test func aCaptureIsCopiedAndSavedUniquely() async throws {
         let fixture = makeFixture()
         defer { fixture.tearDown() }
         let window = fixture.manager.newPrivateWindow(url: "https://a.example/")
@@ -143,8 +143,8 @@ struct BrowserCaptureWindowTests {
         )?.representation(using: .png, properties: [:]))
         let image = BrowserCaptureImage(png: png, pixelWidth: 4, pixelHeight: 2)
         let date = Date()
-        let first = window.deliverCapture(image, date: date)
-        let second = window.deliverCapture(image, date: date)
+        let first = await window.deliverCapture(image, date: date)
+        let second = await window.deliverCapture(image, date: date)
         let downloads = fixture.directory.appendingPathComponent("Downloads", isDirectory: true)
         #expect(first.fileURL?.deletingLastPathComponent().standardizedFileURL == downloads.standardizedFileURL)
         #expect(first.fileURL != second.fileURL)
@@ -156,5 +156,38 @@ struct BrowserCaptureWindowTests {
         let toast = try #require(window.captureToast)
         #expect(toast.detailLabel.stringValue == second.fileURL?.lastPathComponent)
         #expect(toast.titleLabel.stringValue == "Copied and saved to Downloads")
+    }
+
+    /// P8 review P3-1: an overlay that closes because its tab left the
+    /// screen (a CLI selection, without focus) hands the keyboard to the
+    /// page now shown, not to the hidden one.
+    @Test func aClosedOverlayFocusesThePageNowShown() throws {
+        let fixture = makeFixture()
+        defer { fixture.tearDown() }
+        let window = fixture.manager.newWindow(url: "https://a.example/")
+        let second = window.newTab(url: "https://b.example/", select: false)
+        window.toggleCaptureOverlay()
+        #expect(window.captureOverlay != nil)
+        window.selectTab(id: second.id, focus: false)
+        #expect(window.captureOverlay == nil)
+        #expect(window.window?.firstResponder === second.webView)
+    }
+
+    /// P8 review P3-2: the overlay ends when it loses the keyboard (⌘L,
+    /// ⌘T, a click into the page), so Esc never goes elsewhere while the
+    /// page stays dimmed.
+    @Test func losingTheKeyboardCancelsTheOverlay() async throws {
+        let fixture = makeFixture()
+        defer { fixture.tearDown() }
+        let window = fixture.manager.newWindow(url: "https://a.example/")
+        window.toggleCaptureOverlay()
+        let overlay = try #require(window.captureOverlay)
+        window.window?.makeFirstResponder(window.selectedTab?.webView)
+        for _ in 0..<50 where window.captureOverlay != nil {
+            try await Task.sleep(for: .milliseconds(10))
+        }
+        #expect(window.captureOverlay == nil)
+        #expect(overlay.superview == nil)
+        #expect(fixture.pasteboard.data(forType: .png) == nil)
     }
 }

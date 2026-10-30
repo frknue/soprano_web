@@ -258,14 +258,20 @@ extension BrowserWindowController {
     }
 
     /// The page of `tab` leaves the screen without another selection yet
-    /// (a Space switch): every tab on it is hidden, its idle time starts
-    /// and `tab` becomes the previous selection.
+    /// (a Space switch): its playing video may move into the Mini Player,
+    /// every other tab on it is hidden, its idle time starts and `tab`
+    /// becomes the previous selection.
     func leavePage(of tab: BrowserTab) {
         previousSelectedTabID = tab.id
         let now = manager.tabSleeper.now()
-        for leaving in pageTabs(of: tab) {
+        let leaving = pageTabs(of: tab)
+        miniPlayerLeaving(leaving, previous: tab, shown: [])
+        for leaving in leaving {
             leaving.lifecycle.lastActiveAt = now
-            leaving.webView.isHidden = true
+            // The Mini Player's web view stays shown in its panel.
+            if !manager.miniPlayer.hosts(leaving) {
+                leaving.webView.isHidden = true
+            }
             removeWakeSnapshot(leaving)
         }
         splitPage.focusRing.isHidden = true

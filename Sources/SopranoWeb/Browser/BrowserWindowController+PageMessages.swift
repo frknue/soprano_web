@@ -36,6 +36,8 @@ extension BrowserWindowController {
             handleMediaFrame(body: body, tab: tab, frame: frame)
         case ("mediaState", .isolated):
             handleMediaState(body: body, tab: tab, frame: frame)
+        case ("mediaInfo", .isolated):
+            handleMediaInfo(body: body, tab: tab, frame: frame)
         case ("notificationRequest", .page):
             handleNotificationRequest(body: body, tab: tab, frame: frame)
         case ("notificationShow", .page):

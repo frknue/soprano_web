@@ -59,13 +59,16 @@ extension BrowserWindowController {
         window.makeFirstResponder(overlay)
     }
 
+    /// Closes the overlay; when it had the keyboard, the page the user
+    /// now looks at (`pageTab`) gets it — not the overlay's tab, which may
+    /// have just left the screen (a CLI selection, a Space switch).
     func closeCaptureOverlay() {
         guard let overlay = captureOverlay else { return }
         captureOverlay = nil
         let hadFocus = window?.firstResponder === overlay
         overlay.removeFromSuperview()
-        if hadFocus, let webView = windowTab(id: overlay.tabID)?.webView, webView.window === window {
-            window?.makeFirstResponder(webView)
+        if hadFocus {
+            focusPage()
         }
     }
 
@@ -90,7 +93,7 @@ extension BrowserWindowController {
         case .visible, .cancel: image = try await BrowserCaptureRenderer.snapshot(of: webView, rect: nil, scale: scale)
         case .fullPage: image = try await BrowserCaptureRenderer.fullPage(of: webView, scale: scale)
         }
-        let result = deliverCapture(image, date: Date())
+        let result = await deliverCapture(image, date: Date())
         let thumbnailPixels = Int(BrowserCaptureToast.thumbnailHeight * 2 * 3)
         let thumbnail = await Task.detached(priority: .userInitiated) {
             Self.thumbnail(of: image.png, maxPixels: thumbnailPixels)
@@ -100,25 +103,28 @@ extension BrowserWindowController {
     }
 
     /// The pasteboard first (it can't fail for want of a folder), then a
-    /// unique file in the download folder.
-    func deliverCapture(_ image: BrowserCaptureImage, date: Date) -> BrowserCaptureResult {
+    /// unique file in the download folder, written off the main actor
+    /// (`BrowserCaptureFile.save`: whole or not at all, never replacing).
+    func deliverCapture(_ image: BrowserCaptureImage, date: Date) async -> BrowserCaptureResult {
         let pasteboard = manager.pasteboard
         pasteboard.clearContents()
         pasteboard.setData(image.png, forType: .png)
         let directory = manager.settingsStore.settings.downloadDirectoryURL
-        do {
-            try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
-            let url = BrowserCaptureFile.url(in: directory, date: date)
-            try image.png.write(to: url, options: .withoutOverwriting)
+        let png = image.png
+        let saved = await Task.detached(priority: .userInitiated) {
+            Result { try BrowserCaptureFile.save(png, in: directory, date: date) }
+        }.value
+        switch saved {
+        case .success(let url):
             return BrowserCaptureResult(image: image, fileURL: url)
-        } catch {
+        case .failure(let error):
             return BrowserCaptureResult(image: image, fileURL: nil, saveError: error.localizedDescription)
         }
     }
 
     func showCaptureToast(_ result: BrowserCaptureResult, thumbnail: CGImage?) {
         captureToast?.removeFromSuperview()
-        let note = result.image.isCut ? "cut at \(BrowserCaptureGeometry.maxPixelLength) px" : nil
+        let note = result.image.isCut ? "cut at \(result.image.pixelHeight) px" : nil
         let toast = BrowserCaptureToast(
             fileURL: result.fileURL,
             fallbackName: result.saveError.map { "Couldn’t save: \($0)" } ?? "",

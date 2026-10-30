@@ -98,6 +98,8 @@ final class BrowserWindowManager {
     /// Chrome extensions: the one `WKWebExtensionController` every tab
     /// carries, the installed extensions in `<support>/Extensions/`.
     let extensions: BrowserExtensions
+    /// The one Mini Player (a tab's video in a floating panel).
+    private(set) lazy var miniPlayer = BrowserMiniPlayer(defaults: defaults, isOffscreen: placement.isOffscreen)
 
     /// Open windows in the order they opened; the CLI numbers them 1…n.
     private(set) var controllers: [BrowserWindowController] = []

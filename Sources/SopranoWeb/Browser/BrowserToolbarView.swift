@@ -37,6 +37,14 @@ final class BrowserToolbarView: NSView, NSTextFieldDelegate {
     /// Camera/microphone in-use mark between the address field and the
     /// bookmark button; hidden while the selected tab captures nothing.
     let captureIndicator: BrowserCaptureIndicator
+    /// The playing tab's controls when the window has no rail on screen;
+    /// between the address field and the capture mark, no width while
+    /// hidden.
+    let mediaControls: BrowserMediaControlsView
+    private lazy var mediaTrailing = mediaControls.trailingAnchor.constraint(
+        equalTo: captureIndicator.leadingAnchor,
+        constant: 0
+    )
     /// Extensions' action buttons, between the capture mark and the
     /// bookmark star; empty without extensions.
     private let extensionStack = NSStackView()
@@ -144,6 +152,7 @@ final class BrowserToolbarView: NSView, NSTextFieldDelegate {
             action: nil
         )
         self.captureIndicator = BrowserCaptureIndicator(theme: theme)
+        self.mediaControls = BrowserMediaControlsView(style: .toolbar, theme: theme)
         super.init(frame: .zero)
         translatesAutoresizingMaskIntoConstraints = false
         wantsLayer = true
@@ -220,6 +229,7 @@ final class BrowserToolbarView: NSView, NSTextFieldDelegate {
         addSubview(progressBar)
         progressBar.translatesAutoresizingMaskIntoConstraints = false
         addSubview(captureIndicator)
+        addSubview(mediaControls)
         extensionStack.orientation = .horizontal
         extensionStack.spacing = 2
         extensionStack.translatesAutoresizingMaskIntoConstraints = false
@@ -246,7 +256,9 @@ final class BrowserToolbarView: NSView, NSTextFieldDelegate {
             addressLeadingToNavigation,
             windowMark.leadingAnchor.constraint(equalTo: navigationControls.trailingAnchor, constant: 10),
             windowMark.centerYAnchor.constraint(equalTo: addressFrame.centerYAnchor),
-            addressFrame.trailingAnchor.constraint(equalTo: captureIndicator.leadingAnchor, constant: -6),
+            addressFrame.trailingAnchor.constraint(equalTo: mediaControls.leadingAnchor, constant: -6),
+            mediaTrailing,
+            mediaControls.centerYAnchor.constraint(equalTo: addressFrame.centerYAnchor),
             addressFrame.centerYAnchor.constraint(equalTo: verticalTabsButton.centerYAnchor),
             addressFrame.heightAnchor.constraint(equalToConstant: Chrome.fieldHeight),
 
@@ -304,6 +316,7 @@ final class BrowserToolbarView: NSView, NSTextFieldDelegate {
         progressBar.color = theme.colors.blue
         windowMark.apply(theme: theme)
         captureIndicator.apply(theme: theme)
+        mediaControls.apply(theme: theme)
         extensionButtons.forEach { $0.apply(theme: theme) }
         refreshSecurityIcon()
         needsDisplay = true
@@ -331,6 +344,12 @@ final class BrowserToolbarView: NSView, NSTextFieldDelegate {
 
     func setBookmarkEnabled(_ enabled: Bool) {
         bookmarkButton.isEnabled = enabled
+    }
+
+    /// The playing tab's controls (nil hides them).
+    func setMedia(_ item: BrowserMediaControlItem?) {
+        mediaControls.update(item)
+        mediaTrailing.constant = item == nil ? 0 : -6
     }
 
     /// The star, which the bookmark popover hangs from.

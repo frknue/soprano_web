@@ -8,7 +8,7 @@ extension BrowserWindowController {
     /// lazily restored tab unloaded.
     static let commandsWithoutPage: Set<String> = [
         "goto", "navigate", "url", "get-url", "title", "tabs", "new-tab",
-        "select-tab", "close-tab", "focus-address",
+        "select-tab", "close-tab", "focus-address", "media",
     ]
 
     /// Runs one CLI request. `--tab n` targets tab n of the current Space
@@ -47,6 +47,9 @@ extension BrowserWindowController {
                 return
             }
             performSiteCommand(arguments, tab: tab, completion: completion)
+        case "media":
+            // Without `--tab`, the tab the media controls show.
+            performMediaCommand(arguments, tab: request.tabIndex == nil ? nil : target, completion: completion)
         case "goto", "navigate":
             guard let input = arguments.first else {
                 completion(.failure(BrowserAutomationError.invalidArguments(

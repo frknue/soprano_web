@@ -10,6 +10,15 @@ app.
 ## [Unreleased]
 
 ### Added
+- Mini Player: leave a tab whose video plays and is in view (another tab, another Space)
+  and the video keeps playing in a small floating panel above every window and Space;
+  hover it for Back to Tab, play/pause and Close (which pauses). Selecting the tab again
+  puts the page back as it was (same page, same history). The panel remembers where you
+  put it (never from a private window). Split panes on screen and Peeks never move.
+  Settings ▸ "Mini Player for videos" turns it off. The playing tab (audio too) shows at
+  the bottom of the rail — or in the toolbar without a rail — with its artwork, title,
+  play/pause, next track (sites with Media Session) and mute; a click goes to the tab.
+  CLI `browser media [info|play|pause|next|previous|mute]`.
 - Capture (⇧⌘2, remappable; File ▸ Capture…, `/capture`): an overlay over the page you
   look at (a Peek's, the focused pane's) — drag an area, click for the visible page, or
   "Full Page" for the whole document (taller than 16,384 px it renders at a lower scale,
@@ -511,6 +520,12 @@ app.
   `bookmarks.json.migrated`.
 
 ### Fixed
+- Capture (P8 review): Full Page no longer includes what a page hides sideways (an
+  off-canvas menu) and stays within ~42 million pixels; the file appears whole and never
+  replaces one; the overlay closes when another field takes the keyboard, and the page
+  shown gets the keyboard back.
+- Boosts (P8 review): a page that replaces its adopted stylesheets no longer drops the
+  Boost's CSS.
 - Site Control Center (P6 review): the open popover closes when its tab stops being the
   page you look at and follows the tab's navigations; its zoom acts on its own tab, and
   "Block ads on this site" and extension access write the tab's current site, not the

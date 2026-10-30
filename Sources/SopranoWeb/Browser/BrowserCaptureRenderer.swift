@@ -46,20 +46,41 @@ enum BrowserCaptureRenderer {
     }
 
     /// The document's size in CSS pixels, read in an isolated world so the
-    /// page can't answer for it.
+    /// page can't answer for it: scroll width and height, the layout
+    /// viewport's width and the root's and body's `overflow-x`
+    /// (`BrowserCaptureGeometry.documentWidth` picks the width).
     private static let documentSizeScript = """
     (function () {
       var d = document.documentElement, b = document.body;
+      var overflow = function (e) { return e ? getComputedStyle(e).overflowX : 'visible'; };
       return [Math.max(d ? d.scrollWidth : 0, b ? b.scrollWidth : 0),
-              Math.max(d ? d.scrollHeight : 0, b ? b.scrollHeight : 0)];
+              Math.max(d ? d.scrollHeight : 0, b ? b.scrollHeight : 0),
+              d ? d.clientWidth : 0, overflow(d), overflow(b)];
     })()
     """
 
+    /// The document size `fullPage` captures (CSS pixels), nil when the
+    /// page didn't answer.
+    static func documentSize(of webView: WKWebView) async -> CGSize? {
+        guard let values = try? await webView.evaluateJavaScript(documentSizeScript, contentWorld: .defaultClient) as? [Any],
+              values.count == 5,
+              let scrollWidth = (values[0] as? NSNumber)?.doubleValue,
+              let scrollHeight = (values[1] as? NSNumber)?.doubleValue,
+              let clientWidth = (values[2] as? NSNumber)?.doubleValue,
+              scrollWidth > 0, scrollHeight > 0
+        else { return nil }
+        let width = BrowserCaptureGeometry.documentWidth(
+            scrollWidth: scrollWidth,
+            clientWidth: clientWidth,
+            overflowX: [values[3], values[4]].compactMap { $0 as? String }
+        )
+        return CGSize(width: width, height: scrollHeight)
+    }
+
     /// The whole document from its top, cut at
-    /// `BrowserCaptureGeometry.maxPixelLength`.
+    /// `BrowserCaptureGeometry.maxPixelLength` and `maxPixelArea`.
     static func fullPage(of webView: WKWebView, scale: CGFloat) async throws -> BrowserCaptureImage {
-        let size = try? await webView.evaluateJavaScript(documentSizeScript, contentWorld: .defaultClient) as? [Double]
-        let contentSize = size.flatMap { $0.count == 2 && $0[0] > 0 && $0[1] > 0 ? CGSize(width: $0[0], height: $0[1]) : nil }
+        let contentSize = await documentSize(of: webView)
             ?? CGSize(width: webView.bounds.width / max(webView.pageZoom, 0.01), height: webView.bounds.height / max(webView.pageZoom, 0.01))
         let plan = BrowserCaptureGeometry.fullPage(contentSize: contentSize, pageZoom: webView.pageZoom, scale: scale)
         let configuration = WKPDFConfiguration()

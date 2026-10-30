@@ -244,6 +244,27 @@ struct BrowserBoostTests {
         return webView
     }
 
+    /// A page served as boosttest://boost.test/ with a real
+    /// `Content-Security-Policy` response header — in force before any
+    /// user script runs, unlike a `<meta>` one parsed after document start
+    /// — loaded.
+    private func cspPage(_ boost: BrowserBoost, html: String, csp: String) async throws -> WKWebView {
+        let configuration = WKWebViewConfiguration()
+        configuration.websiteDataStore = .nonPersistent()
+        configuration.setURLSchemeHandler(
+            BoostTestSchemeHandler(html: "<!doctype html><title>loaded</title>" + html, csp: csp),
+            forURLScheme: "boosttest"
+        )
+        BrowserBoostScripts.userScripts([boost]).forEach(configuration.userContentController.addUserScript)
+        let webView = WKWebView(frame: NSRect(x: 0, y: 0, width: 400, height: 300), configuration: configuration)
+        webView.load(URLRequest(url: URL(string: "boosttest://boost.test/")!))
+        let deadline = Date().addingTimeInterval(10)
+        while (try? await run("document.readyState === 'complete' ? document.title : ''", in: webView)) == "", Date() < deadline {
+            try await Task.sleep(nanoseconds: 50_000_000)
+        }
+        return webView
+    }
+
     private func run(_ script: String, in webView: WKWebView, world: WKContentWorld = .page) async throws -> String {
         let value = try await webView.evaluateJavaScript(script, contentWorld: world)
         return value.map { "\($0)" } ?? ""
@@ -256,12 +277,16 @@ struct BrowserBoostTests {
     /// P7 review: a page whose CSP has `style-src 'self'` blocks an added
     /// `<style>`, even one an isolated world adds. The Boost sheet is a
     /// constructed sheet in `adoptedStyleSheets`, which CSP leaves alone,
-    /// both at document start and when the editor re-applies it live.
+    /// both at document start and when the editor re-applies it live. (P8
+    /// review P3-4: the policy comes as a response header, so it is in
+    /// force at document start.)
     @Test func aStrictStyleCSPKeepsTheBoostSheet() async throws {
-        let webView = try await boostPage(
+        let webView = try await cspPage(
             BrowserBoost(host: "boost.test", css: "p { color: rgb(255, 0, 0); }"),
-            html: "<meta http-equiv=\"Content-Security-Policy\" content=\"style-src 'self'\"><p id=p>text</p><b id=b>bold</b>"
+            html: "<p id=p>text</p><b id=b>bold</b>",
+            csp: "style-src 'self'"
         )
+        #expect(try await run("location.hostname", in: webView) == "boost.test")
         #expect(try await color(of: "p", in: webView) == "rgb(255, 0, 0)")
 
         // The policy is in force: a `<style>` the Boost world adds is blocked.
@@ -315,4 +340,44 @@ struct BrowserBoostTests {
         #expect(try await run("getComputedStyle(document.getElementById('ad')).display", in: webView) == "none")
         #expect(try await color(of: "p", in: webView) == "rgb(255, 0, 0)")
     }
+
+    /// P8 review P3-3: a page that assigns `document.adoptedStyleSheets`
+    /// without the old ones (MDN's own example) gets the Boost sheet back.
+    @Test func aPageReplacingItsAdoptedSheetsKeepsTheBoost() async throws {
+        let webView = try await boostPage(
+            BrowserBoost(host: "boost.test", css: "p { color: rgb(255, 0, 0); }"),
+            html: "<p id=p>text</p><script>var s = new CSSStyleSheet(); s.replaceSync('i { color: blue; }');"
+                + " document.adoptedStyleSheets = [s];</script>"
+        )
+        #expect(try await color(of: "p", in: webView) == "rgb(255, 0, 0)")
+        #expect(try await run("String(document.adoptedStyleSheets.length)", in: webView) == "2")
+    }
+}
+
+/// Serves one HTML page with a `Content-Security-Policy` header.
+@MainActor
+private final class BoostTestSchemeHandler: NSObject, WKURLSchemeHandler {
+    let html: String
+    let csp: String
+
+    init(html: String, csp: String) {
+        self.html = html
+        self.csp = csp
+    }
+
+    func webView(_ webView: WKWebView, start urlSchemeTask: any WKURLSchemeTask) {
+        guard let url = urlSchemeTask.request.url,
+              let response = HTTPURLResponse(
+                  url: url,
+                  statusCode: 200,
+                  httpVersion: "HTTP/1.1",
+                  headerFields: ["Content-Type": "text/html; charset=utf-8", "Content-Security-Policy": csp]
+              )
+        else { return }
+        urlSchemeTask.didReceive(response)
+        urlSchemeTask.didReceive(Data(html.utf8))
+        urlSchemeTask.didFinish()
+    }
+
+    func webView(_ webView: WKWebView, stop urlSchemeTask: any WKURLSchemeTask) {}
 }

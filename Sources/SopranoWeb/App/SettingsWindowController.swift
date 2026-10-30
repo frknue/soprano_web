@@ -144,6 +144,14 @@ final class SettingsWindowController: NSWindowController, NSTextFieldDelegate {
         target: self,
         action: #selector(blockAdsChanged)
     )
+    /// "Mini Player": a playing video moves into a floating panel when
+    /// its tab is left.
+    private lazy var miniPlayerSwitch = ChromeSwitch(
+        isOn: settingsStore.settings.miniPlayer,
+        theme: theme,
+        target: self,
+        action: #selector(miniPlayerChanged)
+    )
     private lazy var updateListsButton: ChromeButton = {
         let button = ChromeButton(title: "Update Now", theme: theme, kind: .standard)
         button.target = self
@@ -317,6 +325,7 @@ final class SettingsWindowController: NSWindowController, NSTextFieldDelegate {
             [rowLabel("Downloads"), downloadRow()],
             [rowLabel("Ask where to save"), askDownloadSwitch],
             [rowLabel("Autoplay"), autoplayButton],
+            [rowLabel("Mini Player for videos"), miniPlayerSwitch],
             [rowLabel("Notifications"), notificationsRow()],
             [rowLabel("Block ads and trackers"), contentBlockingRow()],
             [rowLabel("Keyboard shortcuts"), shortcutsRow()],
@@ -328,7 +337,7 @@ final class SettingsWindowController: NSWindowController, NSTextFieldDelegate {
         ]
         let grid = NSGridView(views: rows)
         grid.translatesAutoresizingMaskIntoConstraints = false
-        // 21 rows; the window stays under 900 pt for small displays.
+        // 22 rows; the window stays under 900 pt for small displays.
         grid.rowSpacing = 10
         grid.column(at: 0).xPlacement = .trailing
         grid.column(at: 1).xPlacement = .fill
@@ -475,6 +484,7 @@ final class SettingsWindowController: NSWindowController, NSTextFieldDelegate {
         extensionsButton.apply(theme: theme)
         askDownloadSwitch.apply(theme: theme)
         blockAdsSwitch.apply(theme: theme)
+        miniPlayerSwitch.apply(theme: theme)
         updateListsButton.apply(theme: theme)
         blockerStatusLabel.textColor = theme.colors.textMuted
         websiteDataButton.apply(theme: theme)
@@ -508,6 +518,7 @@ final class SettingsWindowController: NSWindowController, NSTextFieldDelegate {
         notificationsSwitch.isOn = settingsStore.settings.allowsNotificationRequests
         askDownloadSwitch.isOn = settingsStore.settings.askDownloadLocation
         blockAdsSwitch.isOn = settingsStore.settings.blockAdsAndTrackers
+        miniPlayerSwitch.isOn = settingsStore.settings.miniPlayer
         globalLittleArcSwitch.isOn = settingsStore.settings.globalLittleArcEnabled
         globalLittleArcButton.title = globalLittleArcTitle
         refreshContentBlocking()
@@ -826,6 +837,11 @@ extension SettingsWindowController {
     @objc private func blockAdsChanged() {
         let value = blockAdsSwitch.isOn
         settingsStore.update { $0.blockAdsAndTrackers = value }
+    }
+
+    @objc private func miniPlayerChanged() {
+        let value = miniPlayerSwitch.isOn
+        settingsStore.update { $0.miniPlayer = value }
     }
 
     /// Downloads both lists now (conditionally) and recompiles what changed.

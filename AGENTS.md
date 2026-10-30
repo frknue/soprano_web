@@ -764,7 +764,8 @@ surrounding style.
   cascade after the page's own; `replaceSync` drops `@import`; each zap is
   its own `insertRule` (`hidingRule`), so a bad selector drops only
   itself; a page that assigns `document.adoptedStyleSheets` without
-  keeping the old ones drops the Boost sheet until the next load or edit.
+  keeping the old ones gets the sheet back at DOMContentLoaded, load and
+  pageshow (`__sopranoWebBoostSheetEnsure`).
   JS runs at document end, main frame only.
   `refreshStateScripts` swaps state and Boost scripts together (both
   `removeAllUserScripts`), so every tab — private, Peek, panes, Little Arc —
@@ -822,6 +823,49 @@ surrounding style.
   leaves the overlay open (that selection drawn) for the PNG. Files land in
   the harness's download folder (its temporary support folder; use
   `--support-dir` to keep them).
+- Mini Player and media controls (stage 4 P9): `BrowserMedia.swift` (pure:
+  `BrowserMediaReport` — one frame's `mediaInfo`, capped text, artwork only
+  http(s) or `data:image/` —, `BrowserTabMediaInfo` — the main frame's report
+  wins, else the latest playing frame; only a main-frame video counts as
+  visible —, `BrowserMiniPlayerRule` — open only for a playing visible video
+  leaving the screen, never a Peek's, a pane still shown, a pop-up window or
+  with Settings ▸ "Mini Player for videos" (`miniPlayer`) off; private
+  windows may —, `BrowserMiniPlayerFrame`, `BrowserMediaTabChoice`,
+  `BrowserMediaAction`). `BrowserMediaScripts.reporter` (isolated world,
+  every frame) posts `mediaInfo` debounced on media events, scroll and resize
+  and each second while playing (Media Session metadata has no event); it
+  reads `navigator.mediaSession` and calls the page's handlers with WebKit's
+  `callActionHandler` from the isolated world (verified: the harness's
+  `next` reaches the page's handler) and defines `__sopranoMediaControl`
+  and `__sopranoMiniPlayer` (the fill style: a constructed sheet + an
+  attribute on the video). `BrowserMiniPlayer.swift` (manager-owned
+  `manager.miniPlayer`, one app-wide; `BrowserMiniPlayerPanel`: titled,
+  hidden-titlebar, non-activating floating panel on every Space;
+  `miniPlayerFrame` in the manager's defaults, saved on user moves only and
+  never for a private tab), `BrowserMiniPlayerView.swift` (hover controls:
+  Back to Tab, title, Close = pause + return, play/pause),
+  `BrowserMediaControlsView.swift` (`.rail` bar above the switcher in the
+  rail's footer stack, `.toolbar` chip before the capture mark when there is
+  no rail). `BrowserWindowController+Media`: `handleMediaInfo`,
+  `mediaControlTab` (an off-screen or Mini Player tab with media, playing
+  first), `performMediaAction` (every media frame), `miniPlayerLeaving`
+  (from `showSelectedTab` and `leavePage`), `openMiniPlayer` /
+  `returnMiniPlayer` (back into the page area via `installWebView`) /
+  `releaseMiniPlayer` (from `unbindTab`: close, move, replace, window
+  close). Only the `NSView` moves; the tab stays bound. `applyPaneLayout`
+  touches only web views in `webArea`, `leavePage` skips the panel's,
+  sleep and archive exempt it (`.miniPlayer`). CLI `browser [--tab n] media
+  [info|play|pause|next|previous|mute]` (the controls' tab, else a selected
+  tab with media). Harness (`SnapshotCommand+Media.swift`): `--media-seed
+  [file|url]` (before the window flags; without a value a built-in page with
+  ffmpeg's test pattern MP4 when ffmpeg is installed — WebKit draws no
+  canvas `captureStream` frames off screen — Media Session metadata,
+  artwork and next/previous counters `window.__next`/`__previous`), then
+  e.g. `--cli "select-tab 1"`; `--mini-player [return|close]` presses the
+  panel's buttons and prints `mini-player:`; `--print-media` prints one
+  `media:` JSON line (each tab's state, exemptions, back list, fill size,
+  page counters, rail/toolbar items, the panel's delegates); the capture
+  draws an open panel with its controls where it sits over the window.
 - `Browser/Extensions/` — Chrome extensions on `WKWebExtension`.
   `BrowserExtensions.swift` (manager-owned, `manager.extensions`): the one
   app-wide `WKWebExtensionController` (fixed storage identifier; the

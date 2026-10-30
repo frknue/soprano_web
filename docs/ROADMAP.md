@@ -110,9 +110,10 @@ and bookmarks HTML files, and File ▸ Export Pinned Tabs… as bookmarks HTML.
   on this site", extensions' site access, "Clear site data"; autoplay stays global).
 - Air Traffic Control: "URL contains / equals" → Space, plus the default for links from
   other apps.
-- Mini Player: when you leave a playing video's tab, its web view moves into a floating
-  panel (WebKit's Picture in Picture switch is private on macOS); audio controls in the
-  sidebar from Media Session metadata.
+- Mini Player: built in Stage 4 P9 (leaving a tab with a playing, visible video moves its
+  web view into a floating non-activating panel filled by the video; Back to Tab, Close
+  pauses; position remembered; rail bottom / toolbar media controls from Media Session
+  metadata; Settings ▸ "Mini Player for videos"; CLI `browser media`).
 - Site Control Center: per-site popover for permissions, zoom, content blocking,
   extensions, Boosts and clearing site data.
 - Boosts: built in Stage 4 P7 (per host and its `www.` form, app-wide; CSS and Zap

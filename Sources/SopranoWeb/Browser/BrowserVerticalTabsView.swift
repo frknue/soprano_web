@@ -53,6 +53,8 @@ final class BrowserVerticalTabsView: NSView {
     let pinsView: BrowserRailPinsView
     let switcher: BrowserRailSpaceSwitcher
     let todayHeader: BrowserRailTodayHeader
+    /// The playing tab's controls, between the tabs and the switcher.
+    let mediaControls: BrowserMediaControlsView
     private(set) var content = BrowserRailContent()
 
     private var theme: AppTheme
@@ -73,7 +75,9 @@ final class BrowserVerticalTabsView: NSView {
     private let divider: ChromeRuleView
     private let dragSource = BrowserTabDragSource()
     private let dropMarker = BrowserTabDropMarker()
-    private var scrollToSwitcher: NSLayoutConstraint!
+    /// The media controls over the switcher; hidden ones take no space.
+    private let footer = NSStackView()
+    private var scrollToFooter: NSLayoutConstraint!
     private var scrollToBottom: NSLayoutConstraint!
 
     static let preferredWidth: CGFloat = 232
@@ -91,6 +95,7 @@ final class BrowserVerticalTabsView: NSView {
         self.pinsView = BrowserRailPinsView(theme: theme)
         self.switcher = BrowserRailSpaceSwitcher(theme: theme)
         self.todayHeader = BrowserRailTodayHeader(theme: theme)
+        self.mediaControls = BrowserMediaControlsView(style: .rail, theme: theme)
         super.init(frame: .zero)
         translatesAutoresizingMaskIntoConstraints = false
         wantsLayer = true
@@ -129,11 +134,19 @@ final class BrowserVerticalTabsView: NSView {
         }
         sections.setCustomSpacing(4, after: todayHeader)
 
-        addSubview(switcher)
+        footer.translatesAutoresizingMaskIntoConstraints = false
+        footer.orientation = .vertical
+        footer.spacing = 0
+        footer.detachesHiddenViews = true
+        for view in [mediaControls, switcher] as [NSView] {
+            footer.addArrangedSubview(view)
+            view.widthAnchor.constraint(equalTo: footer.widthAnchor).isActive = true
+        }
+        addSubview(footer)
         addSubview(divider)
         registerForDraggedTypes([.browserTab])
 
-        scrollToSwitcher = scrollView.bottomAnchor.constraint(equalTo: switcher.topAnchor)
+        scrollToFooter = scrollView.bottomAnchor.constraint(equalTo: footer.topAnchor)
         scrollToBottom = scrollView.bottomAnchor.constraint(equalTo: bottomAnchor, constant: -8)
         NSLayoutConstraint.activate([
             headerLabel.topAnchor.constraint(equalTo: topAnchor, constant: Self.controlsTop),
@@ -145,9 +158,9 @@ final class BrowserVerticalTabsView: NSView {
             scrollView.trailingAnchor.constraint(equalTo: trailingAnchor),
             scrollToBottom,
 
-            switcher.leadingAnchor.constraint(equalTo: leadingAnchor),
-            switcher.trailingAnchor.constraint(equalTo: trailingAnchor),
-            switcher.bottomAnchor.constraint(equalTo: bottomAnchor),
+            footer.leadingAnchor.constraint(equalTo: leadingAnchor),
+            footer.trailingAnchor.constraint(equalTo: trailingAnchor),
+            footer.bottomAnchor.constraint(equalTo: bottomAnchor),
 
             documentView.leadingAnchor.constraint(equalTo: scrollView.contentView.leadingAnchor),
             documentView.topAnchor.constraint(equalTo: scrollView.contentView.topAnchor),
@@ -184,12 +197,30 @@ final class BrowserVerticalTabsView: NSView {
         // An empty Space keeps its outline (a hint and the New Folder menu).
         pinsView.isHidden = !content.showsSpaces
         switcher.isHidden = !content.showsSpaces
-        if modeChanged || scrollToSwitcher.isActive != content.showsSpaces {
+        if modeChanged {
             todayHeader.setShowsLabel(content.showsSpaces)
-            scrollToBottom.isActive = false
-            scrollToSwitcher.isActive = false
-            (content.showsSpaces ? scrollToSwitcher : scrollToBottom).isActive = true
         }
+        updateFooter()
+        needsLayout = true
+    }
+
+    /// The playing tab's controls (nil hides them).
+    func setMedia(_ item: BrowserMediaControlItem?) {
+        let wasHidden = mediaControls.isHidden
+        mediaControls.update(item)
+        if wasHidden != mediaControls.isHidden {
+            updateFooter()
+            needsLayout = true
+        }
+    }
+
+    /// The tabs end above the footer while it shows anything.
+    private func updateFooter() {
+        let showsFooter = !switcher.isHidden || !mediaControls.isHidden
+        guard scrollToFooter.isActive != showsFooter || scrollToBottom.isActive == showsFooter else { return }
+        scrollToBottom.isActive = false
+        scrollToFooter.isActive = false
+        (showsFooter ? scrollToFooter : scrollToBottom).isActive = true
         needsLayout = true
     }
 
@@ -257,6 +288,7 @@ final class BrowserVerticalTabsView: NSView {
         favoritesView.apply(theme: theme)
         pinsView.apply(theme: theme)
         switcher.apply(theme: theme)
+        mediaControls.apply(theme: theme)
         todayHeader.apply(theme: theme)
         dropMarker.apply(theme: theme)
         needsDisplay = true

@@ -150,13 +150,23 @@ struct BrowserTabAudioState: Equatable, Sendable {
     }
 }
 
-/// Per-tab media bookkeeping: the audio reducer and the frames that run the
-/// media script, so a mute toggle reaches every frame of the current page.
+/// Per-tab media bookkeeping: the audio reducer, the frames that run the
+/// media script (so a mute toggle reaches every frame of the current
+/// page), and what the Mini Player and the media controls read.
 @MainActor
 final class BrowserTabMedia {
     var audio = BrowserTabAudioState()
     /// Frame token (minted by the media script per document) → the frame.
     var frames: [String: WKFrameInfo] = [:]
+    /// The frames' `mediaInfo` reports.
+    var info = BrowserTabMediaInfo()
+    /// When `info` last changed (which tab the controls show).
+    var changedAt = Date.distantPast
+    /// The artwork image for `info.current?.artwork`.
+    var artwork: (url: String, image: NSImage)?
+    /// The main document the Mini Player's fill style was applied to (a
+    /// new document in the panel gets it again).
+    var filledFrame: String?
 }
 
 // MARK: - Settings ▸ Websites

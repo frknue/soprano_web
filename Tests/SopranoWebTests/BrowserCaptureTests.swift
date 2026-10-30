@@ -1,6 +1,7 @@
 @testable import SopranoWeb
 import AppKit
 import Testing
+import WebKit
 
 @MainActor
 struct BrowserCaptureTests {
@@ -117,6 +118,69 @@ struct BrowserCaptureTests {
             "Soprano Capture 2026-10-26 at 07.33.20 (2).png",
             "Soprano Capture 2026-10-26 at 07.33.20 (3).png",
         ])
+    }
+
+    /// P8 review P3-5: the file appears whole (renamed from a hidden
+    /// temporary file) and never replaces one; a name taken after the
+    /// check moves on to the next number.
+    @Test func aSaveNeverReplacesAFileAndRenumbersOnARace() throws {
+        let directory = FileManager.default.temporaryDirectory
+            .appendingPathComponent("SopranoWebCaptureSave-\(UUID().uuidString)", isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let date = Date(timeIntervalSince1970: 1_793_000_000)
+        let utc = TimeZone(identifier: "UTC")!
+        let first = try BrowserCaptureFile.save(Data("one".utf8), in: directory, date: date, timeZone: utc)
+        #expect(first.lastPathComponent == "Soprano Capture 2026-10-26 at 07.33.20.png")
+        // The check says the name is free, but the file is there by now.
+        let raced = try BrowserCaptureFile.save(Data("two".utf8), in: directory, date: date, timeZone: utc) { _ in false }
+        #expect(raced.lastPathComponent == "Soprano Capture 2026-10-26 at 07.33.20 (2).png")
+        #expect(try Data(contentsOf: first) == Data("one".utf8))
+        #expect(try Data(contentsOf: raced) == Data("two".utf8))
+        let left = try FileManager.default.contentsOfDirectory(atPath: directory.path)
+        #expect(left.sorted() == [first.lastPathComponent, raced.lastPathComponent].sorted())
+    }
+
+    /// P8 review P2-1: a full page never holds more than `maxPixelArea`
+    /// pixels: the scale drops first, then the height is cut.
+    @Test func aFullPageStaysWithinThePixelBudget() {
+        let budget = BrowserCaptureGeometry.maxPixelArea
+        let square = BrowserCaptureGeometry.fullPage(contentSize: CGSize(width: 16_384, height: 16_384), pageZoom: 1, scale: 2)
+        #expect(square.pixelWidth * square.pixelHeight <= budget)
+        #expect(square.isCut && square.scale == 1)
+        let wide = BrowserCaptureGeometry.fullPage(contentSize: CGSize(width: 1440, height: 8000), pageZoom: 1, scale: 2)
+        #expect(wide.pixelWidth * wide.pixelHeight <= budget)
+        #expect(!wide.isCut && wide.scale < 2 && wide.rect.height == 8000)
+        let tall = BrowserCaptureGeometry.fullPage(contentSize: CGSize(width: 2880, height: 16_000), pageZoom: 1, scale: 2)
+        #expect(tall.pixelWidth * tall.pixelHeight <= budget)
+        #expect(tall.isCut && tall.rect.height < 16_000)
+    }
+
+    /// P8 review P2-1: what an `overflow-x: hidden` root or body hides
+    /// (an off-canvas drawer) is no part of the page's width.
+    @Test func aFullPageIsAsWideAsWhatScrolls() {
+        #expect(BrowserCaptureGeometry.documentWidth(scrollWidth: 2400, clientWidth: 1200, overflowX: ["visible", "hidden"]) == 1200)
+        #expect(BrowserCaptureGeometry.documentWidth(scrollWidth: 2400, clientWidth: 1200, overflowX: ["clip", "visible"]) == 1200)
+        #expect(BrowserCaptureGeometry.documentWidth(scrollWidth: 2400, clientWidth: 1200, overflowX: ["visible", "visible"]) == 2400)
+        #expect(BrowserCaptureGeometry.documentWidth(scrollWidth: 1000, clientWidth: 1200, overflowX: ["auto"]) == 1200)
+        #expect(BrowserCaptureGeometry.documentWidth(scrollWidth: 900, clientWidth: 0, overflowX: []) == 900)
+    }
+
+    @Test func anOffCanvasDrawerIsLeftOut() async throws {
+        func size(_ body: String) async throws -> CGSize? {
+            let webView = WKWebView(frame: NSRect(x: 0, y: 0, width: 400, height: 300), configuration: WKWebViewConfiguration())
+            webView.loadHTMLString("<!doctype html><title>loaded</title>" + body, baseURL: URL(string: "https://capture.test/")!)
+            for _ in 0..<200 {
+                let state = try? await webView.evaluateJavaScript("document.readyState === 'complete' ? document.title : ''") as? String
+                if state == "loaded" { break }
+                try await Task.sleep(for: .milliseconds(20))
+            }
+            return await BrowserCaptureRenderer.documentSize(of: webView)
+        }
+        let drawer = "<div style='position:absolute;left:100%;top:0;width:400px;height:10px'></div>"
+        let hidden = try await size("<body style='margin:0;overflow-x:hidden'>\(drawer)<p>page</p></body>")
+        #expect(hidden?.width == 400)
+        let scrolling = try await size("<body style='margin:0'>\(drawer)<p>page</p></body>")
+        #expect((scrolling?.width ?? 0) >= 800)
     }
 
     // MARK: CLI

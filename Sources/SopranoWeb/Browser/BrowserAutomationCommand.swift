@@ -188,6 +188,12 @@ struct BrowserCommandRequest: Codable, Equatable, Sendable {
             }
             guard valid else { throw BrowserAutomationError.invalidArguments(siteUsage) }
         }
+        if command == "media" {
+            let words = ["info", "mute"] + BrowserMediaAction.allCases.map(\.word)
+            guard arguments.count <= 1, arguments.first.map(words.contains) ?? true else {
+                throw BrowserAutomationError.invalidArguments(mediaUsage)
+            }
+        }
 
         return BrowserCommandRequest(
             command: command,
@@ -384,6 +390,9 @@ struct BrowserCommandRequest: Codable, Equatable, Sendable {
     static let siteUsage = """
     Usage: soprano-web browser [--window n] [--tab n] site [info|clear|permission <camera|microphone|notifications|popups> allow|deny|ask]
     """
+    static let mediaUsage = """
+    Usage: soprano-web browser [--window n] [--tab n] media [info|play|pause|next|previous|mute]
+    """
     static let boostUsage = """
     Usage: soprano-web browser boost [list]
            soprano-web browser boost show|enable|disable|remove <host>
@@ -453,6 +462,7 @@ enum BrowserCommand {
       soprano-web browser [--window n] peek [<url>|close|open-as-tab]
       soprano-web browser [--window n] split [<url>|close|focus <n>]
       soprano-web browser [--window n] [--tab n] site [info|clear|permission <name> allow|deny|ask]
+      soprano-web browser [--window n] [--tab n] media [info|play|pause|next|previous|mute]
       soprano-web browser boost [list]
       soprano-web browser boost show|enable|disable|remove <host>
       soprano-web browser boost css|js <host> <file|->
@@ -478,6 +488,11 @@ enum BrowserCommand {
     window's tab count in it; `*` marks the window's current Space.
     `space` switches the window to Space n or the Space named (any case).
     Every Space keeps its own cookies, History and Archive.
+    `media` acts on the tab the media controls show (the off-screen tab
+    that plays, or the Mini Player's), or `--tab n`: `info` prints its
+    state, Media Session, artwork and the Mini Player; `play`, `pause`,
+    `next`, `previous` act like the controls and print `info` after;
+    `mute` toggles the tab's mute.
     `extensions` lists the installed Chrome extensions: id, name, version,
     state (on, off, not running, installing), private windows, site access,
     source and how many errors WebKit reported. `extension install` takes a

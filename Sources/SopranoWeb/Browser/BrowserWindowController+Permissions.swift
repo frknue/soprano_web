@@ -195,6 +195,7 @@ extension BrowserWindowController {
         if frame.isMainFrame {
             tab.media.frames.removeAll()
             tab.media.audio.reset()
+            resetMediaInfo(tab)
         }
         tab.media.frames[token] = frame
         if tab.isMuted {

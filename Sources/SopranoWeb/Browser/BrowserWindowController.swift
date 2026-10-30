@@ -487,6 +487,7 @@ final class BrowserWindowController: NSWindowController {
         // rail header, or next to the address field when there is no rail.
         toolbar.setWindowMarkShown(!railShown)
         updateTabStrip()
+        updateMediaControls()
         syncFolderPreview()
         updateWindowMinSize()
         viewNeedsLayout()
@@ -554,6 +555,7 @@ final class BrowserWindowController: NSWindowController {
         sidebar.onDeleteArchived = { [weak self] id in self?.manager.archive.remove(id: id) }
         sidebar.spaceMarkProvider = { [weak self] spaceID in self?.archiveSpaceMark(spaceID) }
         wireRail()
+        wireMediaControls()
         sidebar.onRemoveDownload = { [weak self] id in self?.downloads.remove(id: id) }
         sidebar.onCancelDownload = { [weak self] id in self?.cancelDownload(id: id) }
         sidebar.onResumeDownload = { [weak self] id in self?.resumeDownload(id: id) }

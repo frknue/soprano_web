@@ -36,6 +36,7 @@ enum BrowserPageScripts {
         BrowserTabChromeScripts.linkHover,
         BrowserPermissionScripts.mediaReporter,
         BrowserPermissionScripts.mediaMute,
+        BrowserMediaScripts.reporter,
         BrowserPermissionScripts.notifications,
         BrowserPageToolsScripts.printOverride,
         BrowserPageToolsScripts.contextMenuCapture,
