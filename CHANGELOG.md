@@ -10,6 +10,16 @@ app.
 ## [Unreleased]
 
 ### Added
+- Reader (⇧⌘R, View ▸ Show Reader): pages with an article get a Reader chip in the address
+  field; Reader shows the article in a clean Folio page in the same tab, and toggling back
+  restores the page as it was (no reload, no new history entry). Its colors follow the theme.
+- Translate Page: a page in a language you don't use gets a Translate chip in the address
+  field (Translate to …, Show Original, Never Offer for …), translated on this Mac by
+  macOS's Translation; a language pair not yet downloaded opens System Settings ▸ General ▸
+  Language & Region. A translated page stays translated in Reader. Settings ▸ "Never offer
+  to translate" lists the languages you turned off (choose one to get the offer back);
+  private windows translate too and remember nothing. CLI `browser reader [on|off]` and
+  `browser translate [to <lang>|off]`; harness `--reader`, `--translate <lang>`.
 - Mini Player: leave a tab whose video plays and is in view (another tab, another Space)
   and the video keeps playing in a small floating panel above every window and Space;
   hover it for Back to Tab, play/pause and Close (which pauses). Selecting the tab again
