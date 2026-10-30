@@ -911,6 +911,42 @@ surrounding style.
   `--reader` shows Reader before the capture and prints `reader:` lines
   and its DOM; `--translate <lang>` prints `translate: before/after` text
   and the result (a missing pair names System Settings).
+- Live folders (stage 4 P11): `BrowserLiveFolders.swift` —
+  `BrowserLiveFolderSource` (`githubPullRequests(repo:)` → `gh pr list
+  --repo … --state open`, `githubSearch(query:)` → `gh search prs`, the
+  query split into words with `--` before them when one starts with "-";
+  `parse` reads `owner/repo`, a github.com link or a search),
+  `BrowserPullRequest.decode` (`gh`'s JSON, https URLs only),
+  `BrowserLiveFolderError` (missing `gh`, signed out, timeout, `gh`'s
+  first stderr line), `BrowserGitHubCLI` (finds `gh` in the Homebrew and
+  user tool folders a GUI app's PATH lacks, runs it off the main thread
+  with a 30 s limit, after Soprano Git's `GitRunner`) and
+  `BrowserLiveFolders` (manager-owned, `manager.liveFolders`: a state per
+  live folder of every Space, reconciled on `spaces.changes`; fetched
+  every 5 minutes and when a folder opens or its preview shows, unless
+  the last fetch is under 30 s old; a failure keeps what was shown;
+  memory only; `display(_:)` puts the pull requests, with ids derived
+  from folder and address, before the folder's own children). A live
+  folder is a `BrowserPinFolder` with `source` (saved as `"type":
+  "folder"` plus `source`, so older builds read a plain folder); nothing
+  moves into it (`canMove`, `folderEntries`, `folderForNewPin`).
+  `BrowserWindowController+LiveFolders`: `displayPinTree` (the rail, its
+  folder preview, Open All in Tabs; edits use `currentPinTree`),
+  `openLiveItem` (a Today tab, the one already on it if any, via
+  `openPin`), New / Edit Live Folder… in the pin editor. The Spaces menu
+  and the start page show `display(_:)` too. The harness and tests never
+  run `gh` (the manager starts the timer only on screen). CLI `browser
+  live-folders` (every Space's live folders with state and pull
+  requests), `browser [--window n] live-folder add <owner/repo|link|query>`
+  (in the window's Space, answers after the fetch) and `live-folder
+  refresh`. Harness (`SnapshotCommand+LiveFolders.swift`): `--live-folder
+  "<name>|<source>"` (repeatable, Default's Space, before the first
+  window), `--live-fetch <file|gh|signed-out|no-gh>` (what a fetch
+  answers: `gh`'s JSON from a file, the real `gh`, or a failure; without
+  it nothing is fetched), `--live-refresh`, `--live-open <title>`,
+  `--live-folder-editor new|<name>` (drawn) and `--print-live-folders`
+  (`live-folders:` and `live-row:` lines); `--expand-folder` opens live
+  folders too.
 - `Browser/Extensions/` — Chrome extensions on `WKWebExtension`.
   `BrowserExtensions.swift` (manager-owned, `manager.extensions`): the one
   app-wide `WKWebExtensionController` (fixed storage identifier; the

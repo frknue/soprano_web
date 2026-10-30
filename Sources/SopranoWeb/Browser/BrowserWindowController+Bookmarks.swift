@@ -123,9 +123,10 @@ extension BrowserWindowController {
 
     /// Opens every pin in the folder (subfolders included) and selects the
     /// first: each pin's live tab, opened where it has none (plain tabs in
-    /// a window without Spaces).
+    /// a window without Spaces); a live folder's pull requests as Today
+    /// tabs.
     func openBookmarkFolderInTabs(_ id: UUID) {
-        guard let folder = currentPinTree.folder(id: id), let first = folder.allPins.first else { return }
+        guard let folder = displayPinTree.folder(id: id), let first = folder.allPins.first else { return }
         guard hasSpaces else {
             let firstTab = newTab(url: first.url, select: false)
             for pin in folder.allPins.dropFirst() {
@@ -158,6 +159,10 @@ extension BrowserWindowController {
     /// row in the rail.
     func editBookmarkNodeFromSidebar(_ id: UUID) {
         guard let window, let node = currentPinTree.node(id: id) else { return }
+        if node.folder?.isLive == true {
+            editLiveFolder(id)
+            return
+        }
         guard let editor = makeBookmarkEditor(
             for: id,
             heading: node.isFolder ? "Rename Folder" : "Edit Pin",

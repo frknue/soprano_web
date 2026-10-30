@@ -98,6 +98,9 @@ final class BrowserWindowManager {
     /// Chrome extensions: the one `WKWebExtensionController` every tab
     /// carries, the installed extensions in `<support>/Extensions/`.
     let extensions: BrowserExtensions
+    /// Live folders: pinned folders that show GitHub pull requests through
+    /// `gh`, fetched every 5 minutes and when opened, kept in memory.
+    let liveFolders: BrowserLiveFolders
     /// The one Mini Player (a tab's video in a floating panel).
     private(set) lazy var miniPlayer = BrowserMiniPlayer(defaults: defaults, isOffscreen: placement.isOffscreen)
 
@@ -191,6 +194,7 @@ final class BrowserWindowManager {
             storage: extensionStorage,
             checksForUpdates: checksExtensionUpdates
         )
+        self.liveFolders = BrowserLiveFolders(spaces: spaces)
         historyStores[BrowserProfile.defaultID] = defaultHistory
         themeManager.onThemeChanged = { [weak self] theme in
             self?.websitesSheet?.apply(theme: theme)
@@ -231,6 +235,9 @@ final class BrowserWindowManager {
             boosts.changes.observe { [weak self] in
                 self?.controllers.forEach { $0.boostsChanged() }
             },
+            liveFolders.changes.observe { [weak self] in
+                self?.controllers.forEach { $0.liveFoldersChanged() }
+            },
         ]
         downloadManager.fallbackWindow = { [weak self] in self?.activeController?.window }
         downloadManager.profileContext = { [weak self] id in
@@ -242,6 +249,10 @@ final class BrowserWindowManager {
         tabSleeper.start(manager: self)
         contentBlocker.start()
         extensions.start(manager: self)
+        // The harness and tests never run `gh` unless a run asks for it.
+        if !placement.isOffscreen {
+            liveFolders.start()
+        }
     }
 
     // MARK: - History retention
@@ -746,7 +757,7 @@ final class BrowserWindowManager {
         return BrowserStartPage.html(
             theme: kind.isPrivate ? .folioInk : themeManager.currentTheme,
             settings: settingsStore.settings,
-            pins: space?.pinned ?? BrowserPinTree(),
+            pins: liveFolders.display(space?.pinned ?? BrowserPinTree()),
             history: kind.suggestsHistory ? context.history.recentPages(limit: BrowserStartPage.recentLimit) : [],
             kind: kind
         )

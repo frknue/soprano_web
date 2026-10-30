@@ -60,8 +60,12 @@ extension BrowserWindowController {
 
     /// A pin's row: its live tab, else a new tab linked to it, selected.
     /// The folders holding it open once, so its row shows (and can be
-    /// closed again).
+    /// closed again). A live folder's pull request opens as a Today tab.
     func openPin(_ id: UUID) {
+        if let entry = manager.liveFolders.item(id: id) {
+            openLiveItem(entry.item)
+            return
+        }
         guard let pin = currentPinTree.node(id: id)?.pin else { return }
         guard hasSpaces else {
             newTab(url: pin.url)

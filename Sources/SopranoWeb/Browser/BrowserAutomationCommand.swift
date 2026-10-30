@@ -173,6 +173,16 @@ struct BrowserCommandRequest: Codable, Equatable, Sendable {
             }
             guard valid else { throw BrowserAutomationError.invalidArguments(splitUsage) }
         }
+        if command == "live-folder" {
+            let valid = switch arguments.first {
+            case "add": arguments.count > 1
+            case "refresh": arguments.count == 1
+            default: false
+            }
+            guard valid else { throw BrowserAutomationError.invalidArguments(liveFolderUsage) }
+            // `gh` answers within its own 30 s limit.
+            timeout = 60
+        }
         if command == "boost" {
             try parseBoost(&arguments, environment: environment, standardInput: standardInput)
         }
@@ -409,6 +419,11 @@ struct BrowserCommandRequest: Codable, Equatable, Sendable {
     """
     static let readerUsage = "Usage: soprano-web browser [--window n] [--tab n] reader [on|off]"
     static let translateUsage = "Usage: soprano-web browser [--window n] [--tab n] translate [to <language>|off]"
+    static let liveFolderUsage = """
+    Usage: soprano-web browser live-folders
+           soprano-web browser [--window n] live-folder add <owner/repo|github.com link|search query>
+           soprano-web browser live-folder refresh
+    """
     static let boostUsage = """
     Usage: soprano-web browser boost [list]
            soprano-web browser boost show|enable|disable|remove <host>
@@ -485,6 +500,9 @@ enum BrowserCommand {
       soprano-web browser boost show|enable|disable|remove <host>
       soprano-web browser boost css|js <host> <file|->
       soprano-web browser boost zap <host> <selector>
+      soprano-web browser live-folders
+      soprano-web browser [--window n] live-folder add <owner/repo|github.com link|search query>
+      soprano-web browser live-folder refresh
       soprano-web browser [--window n] spaces
       soprano-web browser [--window n] space <n|name>
       soprano-web browser extensions
@@ -727,6 +745,9 @@ enum BrowserAutomationRouter {
         case "boost":
             completion(BrowserBoostCommands.perform(request.arguments, in: manager.boosts))
             return
+        case "live-folders":
+            completion(.success(BrowserLiveFolderCommands.list(manager)))
+            return
         case "little":
             completion(littleArc(request, in: manager))
             return
@@ -800,6 +821,8 @@ enum BrowserAutomationRouter {
             completion(peek(request, in: target))
         case "split":
             completion(target.performSplitCommand(request.arguments))
+        case "live-folder":
+            BrowserLiveFolderCommands.perform(request.arguments, in: target, manager: manager, completion: completion)
         default:
             target.performAutomation(request, completion: completion)
         }

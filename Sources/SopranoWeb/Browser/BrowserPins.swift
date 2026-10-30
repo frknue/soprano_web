@@ -23,19 +23,31 @@ struct BrowserPin: Codable, Identifiable, Equatable, Sendable {
     }
 }
 
-/// A folder of pins and folders, in the order the user arranged them.
+/// A folder of pins and folders, in the order the user arranged them. A
+/// live folder (`source` set) shows what its source fetches before its
+/// children; nothing fetched is ever saved in `children`.
 struct BrowserPinFolder: Identifiable, Equatable, Sendable {
     var id: UUID
     var name: String
     var addedAt: Date
     var children: [BrowserPinNode]
+    var source: BrowserLiveFolderSource?
 
-    init(id: UUID = UUID(), name: String, addedAt: Date = Date(), children: [BrowserPinNode] = []) {
+    init(
+        id: UUID = UUID(),
+        name: String,
+        addedAt: Date = Date(),
+        children: [BrowserPinNode] = [],
+        source: BrowserLiveFolderSource? = nil
+    ) {
         self.id = id
         self.name = name
         self.addedAt = addedAt
         self.children = children
+        self.source = source
     }
+
+    var isLive: Bool { source != nil }
 
     var displayName: String {
         let trimmed = name.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -248,12 +260,13 @@ struct BrowserPinTree: Equatable, Sendable {
         return result
     }
 
-    /// The root and every folder, depth first, skipping `excluded` and
-    /// everything inside it (a folder can't move into itself).
+    /// The root and every folder a pin or folder may go to, depth first,
+    /// skipping `excluded` and everything inside it (a folder can't move
+    /// into itself) and live folders (they hold what they fetch).
     func folderEntries(excluding excluded: UUID? = nil) -> [BrowserPinFolderEntry] {
         var result: [BrowserPinFolderEntry] = []
         func walk(_ folder: BrowserPinFolder, depth: Int) {
-            guard folder.id != excluded else { return }
+            guard folder.id != excluded, !folder.isLive else { return }
             result.append(BrowserPinFolderEntry(id: folder.id, name: folder.displayName, depth: depth))
             for case let .folder(child) in folder.children {
                 walk(child, depth: depth + 1)
@@ -263,10 +276,41 @@ struct BrowserPinTree: Equatable, Sendable {
         return result
     }
 
+    /// Every live folder with its source, depth first.
+    func liveFolders() -> [(id: UUID, source: BrowserLiveFolderSource)] {
+        var result: [(id: UUID, source: BrowserLiveFolderSource)] = []
+        func walk(_ folder: BrowserPinFolder) {
+            for case let .folder(child) in folder.children {
+                if let source = child.source { result.append((child.id, source)) }
+                walk(child)
+            }
+        }
+        walk(root)
+        return result
+    }
+
+    /// The tree as it is shown: each live folder's `items` (by folder id)
+    /// before its own children. Not for saving.
+    func fillingLiveFolders(_ items: (UUID) -> [BrowserPin]) -> BrowserPinTree {
+        func fill(_ nodes: [BrowserPinNode]) -> [BrowserPinNode] {
+            nodes.map { node in
+                guard case var .folder(folder) = node else { return node }
+                folder.children = fill(folder.children)
+                if folder.isLive {
+                    folder.children = items(folder.id).map(BrowserPinNode.pin) + folder.children
+                }
+                return .folder(folder)
+            }
+        }
+        var tree = self
+        tree.root.children = fill(root.children)
+        return tree
+    }
+
     /// Where ⌘D puts a new pin: the folder last chosen, while it still
-    /// exists, else the root.
+    /// exists and isn't live, else the root.
     func folderForNewPin(lastUsed: UUID?) -> UUID {
-        guard let lastUsed, folder(id: lastUsed) != nil else { return Self.rootID }
+        guard let lastUsed, let folder = folder(id: lastUsed), !folder.isLive else { return Self.rootID }
         return lastUsed
     }
 
@@ -294,9 +338,11 @@ struct BrowserPinTree: Equatable, Sendable {
     }
 
     /// Whether `id` may move into `folderID`: never the root, never a
-    /// folder into itself or one of its descendants.
+    /// folder into itself or one of its descendants, never into a live
+    /// folder.
     func canMove(_ id: UUID, into folderID: UUID) -> Bool {
-        guard id != Self.rootID, node(id: id) != nil, folder(id: folderID) != nil else { return false }
+        guard id != Self.rootID, node(id: id) != nil, let destination = folder(id: folderID), !destination.isLive
+        else { return false }
         return !contains(folderID, within: id)
     }
 
@@ -324,6 +370,18 @@ struct BrowserPinTree: Equatable, Sendable {
         return updateNode(id) { node in
             guard case var .folder(folder) = node else { return false }
             folder.name = name
+            node = .folder(folder)
+            return true
+        }
+    }
+
+    /// Makes folder `id` live (or plain again with nil).
+    @discardableResult
+    mutating func setSource(folder id: UUID, to source: BrowserLiveFolderSource?) -> Bool {
+        guard id != Self.rootID else { return false }
+        return updateNode(id) { node in
+            guard case var .folder(folder) = node else { return false }
+            folder.source = source
             node = .folder(folder)
             return true
         }
@@ -396,9 +454,13 @@ struct BrowserPinTree: Equatable, Sendable {
 /// pins `{ "type": "pin", "id", "url", "title", "addedAt" }` (stage 2's
 /// `"type": "bookmark"` reads as a pin).
 private enum BrowserPinNodeKeys: String, CodingKey {
-    case type, id, url, title, name, addedAt, children
+    case type, id, url, title, name, addedAt, children, source
 }
 
+/// A live folder is still `"type": "folder"` with a `source` object
+/// (`{"kind": "githubPullRequests", "repo"}` or `{"kind": "githubSearch",
+/// "query"}`): an older build reads it as a plain folder. A source that
+/// doesn't decode leaves a plain folder.
 extension BrowserPinFolder: Codable {
     init(from decoder: Decoder) throws {
         let c = try decoder.container(keyedBy: BrowserPinNodeKeys.self)
@@ -406,7 +468,8 @@ extension BrowserPinFolder: Codable {
             id: (try? c.decodeIfPresent(UUID.self, forKey: .id)) ?? UUID(),
             name: (try? c.decodeIfPresent(String.self, forKey: .name)) ?? "",
             addedAt: (try? c.decodeIfPresent(Date.self, forKey: .addedAt)) ?? BrowserPinTree.unknownDate,
-            children: (try? c.decodeIfPresent(LossyArray<BrowserPinNode>.self, forKey: .children))?.elements ?? []
+            children: (try? c.decodeIfPresent(LossyArray<BrowserPinNode>.self, forKey: .children))?.elements ?? [],
+            source: (try? c.decodeIfPresent(BrowserLiveFolderSource.self, forKey: .source)) ?? nil
         )
     }
 
@@ -417,6 +480,7 @@ extension BrowserPinFolder: Codable {
         try c.encode(name, forKey: .name)
         try c.encode(addedAt, forKey: .addedAt)
         try c.encode(children, forKey: .children)
+        try c.encodeIfPresent(source, forKey: .source)
     }
 }
 

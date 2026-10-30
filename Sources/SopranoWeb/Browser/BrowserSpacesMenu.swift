@@ -25,7 +25,7 @@ final class BrowserSpacesMenu: NSObject, NSMenuDelegate, NSMenuItemValidation {
     private let stepCommands: [NSMenuItem]
     private let commands: [NSMenuItem]
     private let windowManager: () -> BrowserWindowManager?
-    private var observation: BrowserObservation?
+    private var observations: [BrowserObservation] = []
     /// The Space whose pins the menu lists (the active window's).
     private var shownSpaceID: UUID?
     /// The Space the menu checks (the active window's current one; none
@@ -52,7 +52,7 @@ final class BrowserSpacesMenu: NSObject, NSMenuDelegate, NSMenuItemValidation {
     /// and the active window's Space when it changed.
     func menuNeedsUpdate(_ menu: NSMenu) {
         guard menu === self.menu else { return }
-        let needsObservation = observation == nil
+        let needsObservation = observations.isEmpty
         observeSpaces()
         if needsObservation || currentSpaceID() != shownSpaceID
             || windowManager()?.tabbedController?.currentSpaceID != checkedSpaceID
@@ -62,8 +62,12 @@ final class BrowserSpacesMenu: NSObject, NSMenuDelegate, NSMenuItemValidation {
     }
 
     private func observeSpaces() {
-        guard observation == nil, let manager = windowManager() else { return }
-        observation = manager.spaces.changes.observe { [weak self] in self?.rebuild() }
+        guard observations.isEmpty, let manager = windowManager() else { return }
+        observations = [
+            manager.spaces.changes.observe { [weak self] in self?.rebuild() },
+            // A live folder's pull requests.
+            manager.liveFolders.changes.observe { [weak self] in self?.rebuild() },
+        ]
     }
 
     /// The window the menu's Space items switch: the active window with
@@ -104,7 +108,7 @@ final class BrowserSpacesMenu: NSObject, NSMenuDelegate, NSMenuItemValidation {
         menu.addItem(.separator())
         commands.forEach(menu.addItem)
         guard let manager, let spaceID = shownSpaceID else { return }
-        let tree = manager.spaces.pinTree(inSpace: spaceID)
+        let tree = manager.liveFolders.display(manager.spaces.pinTree(inSpace: spaceID))
         guard !tree.isEmpty else { return }
         menu.addItem(.separator())
         add(tree.root.children, to: menu, favicons: manager.faviconStore)
@@ -146,7 +150,10 @@ final class BrowserSpacesMenu: NSObject, NSMenuDelegate, NSMenuItemValidation {
                 menu.addItem(item)
             case let .folder(folder):
                 let item = NSMenuItem(title: Self.menuTitle(folder.displayName), action: nil, keyEquivalent: "")
-                item.image = NSImage(systemSymbolName: "folder", accessibilityDescription: "Folder")
+                item.image = NSImage(
+                    systemSymbolName: folder.isLive ? "arrow.triangle.pull" : "folder",
+                    accessibilityDescription: folder.isLive ? "Live folder" : "Folder"
+                )
                 let submenu = NSMenu(title: folder.displayName)
                 if folder.children.isEmpty {
                     let empty = NSMenuItem(title: "Empty", action: nil, keyEquivalent: "")

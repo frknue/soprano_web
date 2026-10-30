@@ -10,6 +10,15 @@ app.
 ## [Unreleased]
 
 ### Added
+- Live folders for GitHub pull requests: right-click the rail's pinned tabs ▸ New Live
+  Folder…, give it `owner/repo` (or a github.com repository link) for that repository's
+  open pull requests, or any GitHub search such as `review-requested:@me is:open`. The
+  folder lists the pull requests through the GitHub CLI (`gh`, signed in with `gh auth
+  login`), refreshes every 5 minutes and when you open it, and a click opens the pull
+  request in a Today tab. The folder is read-only (nothing can be dropped into it); its
+  menu has Refresh, Open All in Tabs and Edit Live Folder…, and its tooltip says when
+  `gh` is missing or signed out. CLI `browser live-folders`, `browser live-folder add
+  <owner/repo|query>` and `browser live-folder refresh`.
 - Reader (⇧⌘R, View ▸ Show Reader): pages with an article get a Reader chip in the address
   field; Reader shows the article in a clean Folio page in the same tab, and toggling back
   restores the page as it was (no reload, no new history entry). Its colors follow the theme.

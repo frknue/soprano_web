@@ -130,9 +130,13 @@ and bookmarks HTML files, and File ▸ Export Pinned Tabs… as bookmarks HTML.
   site access, private windows, toolbar buttons and popups, commands, Settings ▸
   Extensions, the `browser extension` CLI) and the native stand-ins for Chrome APIs
   WebKit lacks or gets wrong (`BrowserExtensionShims`).
-- Page translation with Apple's Translation framework (`TranslationSession` outside SwiftUI
-  from macOS 26); Reader view with Readability.js (Apache-2.0).
-- GitHub pull requests as a live folder through `gh`.
+- Reader and Translate: built in Stage 4 P10 (⇧⌘R with Readability.js 0.6.0; Translate
+  through `TranslationSession(installedSource:target:)`; CLI `browser reader`,
+  `browser translate`).
+- GitHub pull requests as a live folder: built in Stage 4 P11 (a pinned folder with a
+  repository or a `gh search prs` query, refreshed every 5 minutes and when opened;
+  CLI `browser live-folders`). Not built: Arc's other live folder sources (RSS, GitHub
+  issues, Linear).
 - AppleScript (windows, tabs, Spaces, URL, JavaScript behind an opt-in) and a Dock menu.
 
 ## Needs a decision

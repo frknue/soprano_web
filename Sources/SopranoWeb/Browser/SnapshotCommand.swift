@@ -36,6 +36,7 @@ enum SnapshotCommand {
         var capture = SnapshotCaptureOptions()
         var media = SnapshotMediaOptions()
         var reader = SnapshotReaderOptions()
+        var liveFolders = SnapshotLiveFolderOptions()
         var session = SnapshotSessionOptions()
         var tabAudio = false
         var hoverSelector: String?
@@ -93,6 +94,7 @@ enum SnapshotCommand {
     \(SnapshotCaptureOptions.usage)
     \(SnapshotMediaOptions.usage)
     \(SnapshotReaderOptions.usage)
+    \(SnapshotLiveFolderOptions.usage)
                                [--tabs <url>,<url>…] [--tab-audio] [--hover <css selector>]
                                [--back-url <url>]
                                [--address <text>] [--focus-address]
@@ -205,6 +207,8 @@ enum SnapshotCommand {
                 try options.boosts.parse(flag) { try value(flag) }
             case let flag where SnapshotReaderOptions.flags.contains(flag):
                 try options.reader.parse(flag) { try value(flag) }
+            case let flag where SnapshotLiveFolderOptions.flags.contains(flag):
+                try options.liveFolders.parse(flag) { try value(flag) }
             case let flag where SnapshotSessionOptions.flags.contains(flag):
                 try options.session.parse(flag) { try value(flag) }
             case let flag where SnapshotCommandBarAction.flags.contains(flag):
@@ -414,6 +418,7 @@ enum SnapshotCommand {
             sitePermissions.set(seed.permission, seed.decision, host: seed.host)
         }
         options.boosts.seed(manager.boosts, url: options.url)
+        options.liveFolders.prepare(manager)
         manager.restoreSession()
         guard var controller = manager.controllers.first, var window = controller.window else {
             FileHandle.standardError.write(Data("Snapshot could not create the window.\n".utf8))
@@ -552,6 +557,7 @@ enum SnapshotCommand {
             wait(0.35)
         }
         options.boosts.run(controller: controller) { wait($0) }
+        options.liveFolders.run(controller: controller) { wait($0) }
         if let title = options.sheetButton {
             pressSheetButton(title, window: window)
             wait(options.wait)
@@ -670,6 +676,7 @@ enum SnapshotCommand {
         let extensionPopup = options.extensions.performActions(in: controller, wait: wait)
         options.extensions.report(manager, controller: controller)
         let bookmarkPopover = makePinPopover(options.pins, controller: controller)
+        let liveFolderEditor = options.liveFolders.makeEditor(controller: controller)
         let siteControl = options.showSiteControl ? makeSiteControlPopover(controller: controller) : nil
         let pinPreview = makePinPreview(options.pins, controller: controller)
         let spaceSheet = makeSpaceSheet(options.pins, controller: controller)
@@ -828,7 +835,7 @@ enum SnapshotCommand {
         let recentTabs = controller.recentTabsOverlay?.superview == nil ? nil : controller.recentTabsOverlay
         let captureToast = controller.captureToast?.superview == nil ? nil : controller.captureToast
         let floating: [NSView?] = [
-            bookmarkPopover, siteControl, pinPreview, commandBarSurface, recentTabs, controller.captureOverlay, captureToast,
+            bookmarkPopover, liveFolderEditor, siteControl, pinPreview, commandBarSurface, recentTabs, controller.captureOverlay, captureToast,
         ]
         for overlay in floating.compactMap({ $0 })
             where overlay.window === captureWindow && spaceSheet == nil && shortcutsSheet == nil

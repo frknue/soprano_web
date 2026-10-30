@@ -43,10 +43,11 @@ extension BrowserWindowController {
     }
 
     /// The rail's pinned outline: the folders the user expanded (opening a
-    /// pin reveals it once, `revealPinNode`, so it can be closed again).
+    /// pin reveals it once, `revealPinNode`, so it can be closed again),
+    /// live folders with their pull requests.
     var railOutlineRows: [BrowserPinOutline.Row] {
         guard hasSpaces else { return [] }
-        return BrowserPinOutline.rows(currentPinTree, expanded: manager.pinUIState.expandedFolders)
+        return BrowserPinOutline.rows(displayPinTree, expanded: manager.pinUIState.expandedFolders)
     }
 
     /// Refreshes the rail: its sections and the Today rows (a split is one
@@ -73,7 +74,14 @@ extension BrowserWindowController {
             )
         }
         let pins = railOutlineRows.map { row -> BrowserRailPinRow in
-            guard let pin = row.node.pin else { return BrowserRailPinRow(row: row) }
+            guard let pin = row.node.pin else {
+                var content = BrowserRailPinRow(row: row)
+                if row.node.folder?.isLive == true, let state = manager.liveFolders.state(of: row.node.id) {
+                    content.liveStatus = state.status
+                    content.liveFailed = state.error != nil
+                }
+                return content
+            }
             let tab = liveTab(for: .pinned(pin.id))
             return BrowserRailPinRow(
                 row: row,
@@ -171,6 +179,9 @@ extension BrowserWindowController {
 
     func setPinFolderExpanded(_ id: UUID, _ expanded: Bool) {
         manager.pinUIState.setExpanded(expanded, folder: id)
+        if expanded {
+            manager.liveFolders.folderOpened(id)
+        }
         updateRail()
     }
 
@@ -223,16 +234,34 @@ extension BrowserWindowController {
     private func pinMenu(for id: UUID?) -> NSMenu? {
         let menu = NSMenu(title: "Pinned")
         menu.autoenablesItems = false
+        if let id, let entry = manager.liveFolders.item(id: id) {
+            menu.addItem(menuItem("Open", #selector(openPinFromMenu(_:)), id))
+            menu.addItem(menuItem("Copy Link", #selector(copyPinLinkFromMenu(_:)), id))
+            menu.addItem(.separator())
+            menu.addItem(menuItem("Refresh", #selector(refreshLiveFolderFromMenu(_:)), entry.folderID))
+            return menu
+        }
         guard let id, let node = currentPinTree.node(id: id) else {
             menu.addItem(menuItem("New Folder", #selector(newPinFolderFromMenu(_:)), nil))
+            menu.addItem(menuItem("New Live Folder…", #selector(newLiveFolderFromMenu(_:)), nil))
             return menu
         }
         switch node {
+        case let .folder(folder) where folder.isLive:
+            let shown = displayPinTree.folder(id: id)?.allPins ?? []
+            menu.addItem(menuItem("Open All in Tabs", #selector(openPinFolderFromMenu(_:)), id, enabled: !shown.isEmpty))
+            menu.addItem(menuItem("Refresh", #selector(refreshLiveFolderFromMenu(_:)), id))
+            menu.addItem(.separator())
+            menu.addItem(menuItem("Edit Live Folder…", #selector(editPinFromMenu(_:)), id))
+            menu.addItem(.separator())
+            menu.addItem(menuItem("Delete", #selector(deletePinFromMenu(_:)), id))
+            return menu
         case let .folder(folder):
             menu.addItem(menuItem("Open All in Tabs", #selector(openPinFolderFromMenu(_:)), id, enabled: !folder.allPins.isEmpty))
             menu.addItem(.separator())
             menu.addItem(menuItem("Rename…", #selector(editPinFromMenu(_:)), id))
             menu.addItem(menuItem("New Folder", #selector(newPinFolderFromMenu(_:)), id))
+            menu.addItem(menuItem("New Live Folder…", #selector(newLiveFolderFromMenu(_:)), id))
             menu.addItem(.separator())
             menu.addItem(menuItem("Delete", #selector(deletePinFromMenu(_:)), id))
         case .pin:
@@ -248,6 +277,7 @@ extension BrowserWindowController {
             ))
             menu.addItem(menuItem("Edit Pin…", #selector(editPinFromMenu(_:)), id))
             menu.addItem(menuItem("New Folder", #selector(newPinFolderFromMenu(_:)), id))
+            menu.addItem(menuItem("New Live Folder…", #selector(newLiveFolderFromMenu(_:)), id))
             menu.addItem(.separator())
             menu.addItem(menuItem("Delete", #selector(deletePinFromMenu(_:)), id))
         }
@@ -260,7 +290,7 @@ extension BrowserWindowController {
     }
 
     @objc private func copyPinLinkFromMenu(_ sender: NSMenuItem) {
-        guard let id = sender.representedObject as? UUID, let pin = currentPinTree.node(id: id)?.pin else { return }
+        guard let id = sender.representedObject as? UUID, let pin = displayPinTree.node(id: id)?.pin else { return }
         NSPasteboard.general.clearContents()
         NSPasteboard.general.setString(pin.url, forType: .string)
     }
@@ -283,18 +313,28 @@ extension BrowserWindowController {
     /// In a folder: first inside it. On a pin: right after it. Elsewhere:
     /// at the end of the top level.
     @objc private func newPinFolderFromMenu(_ sender: NSMenuItem) {
+        let place = newFolderPlace(for: sender.representedObject as? UUID)
+        newBookmarkFolder(in: place.folderID, at: place.index)
+    }
+
+    @objc private func newLiveFolderFromMenu(_ sender: NSMenuItem) {
+        let place = newFolderPlace(for: sender.representedObject as? UUID)
+        newLiveFolder(in: place.folderID, at: place.index)
+    }
+
+    @objc private func refreshLiveFolderFromMenu(_ sender: NSMenuItem) {
+        guard let id = sender.representedObject as? UUID else { return }
+        manager.liveFolders.refresh(id)
+    }
+
+    /// Where a folder made from `id`'s menu goes: first inside a folder,
+    /// right after a pin, else at the end of the top level.
+    private func newFolderPlace(for id: UUID?) -> (folderID: UUID, index: Int?) {
         let tree = currentPinTree
-        guard let id = sender.representedObject as? UUID, let node = tree.node(id: id),
-              let location = tree.location(of: id)
-        else {
-            newBookmarkFolder(in: BrowserPinTree.rootID, at: nil)
-            return
+        guard let id, let node = tree.node(id: id), let location = tree.location(of: id) else {
+            return (BrowserPinTree.rootID, nil)
         }
-        if node.isFolder {
-            newBookmarkFolder(in: id, at: 0)
-        } else {
-            newBookmarkFolder(in: location.folderID, at: location.index + 1)
-        }
+        return node.isFolder ? (id, 0) : (location.folderID, location.index + 1)
     }
 
     /// Replace Pin (or Favorite) with Current Page, from the rail's menus
@@ -337,7 +377,10 @@ extension BrowserWindowController {
     /// harness's `--pin-preview`).
     @discardableResult
     func showFolderPreview(_ id: UUID, rowFrame: NSRect) -> BrowserPinFolderPreview? {
-        guard let folder = currentPinTree.folder(id: id) else { return nil }
+        guard let folder = displayPinTree.folder(id: id) else { return nil }
+        if folder.isLive {
+            manager.liveFolders.folderOpened(id)
+        }
         if let folderPreview, folderPreview.folderID == id {
             return folderPreview
         }
@@ -374,14 +417,19 @@ extension BrowserWindowController {
 
     /// Closes the preview when what it shows is gone: the rail is hidden,
     /// the window shows another Space, or the folder or its pins changed.
+    /// A live folder's new pull requests show in a fresh preview at its row.
     func syncFolderPreview() {
         guard let folderPreview else { return }
-        guard !verticalTabsView.isHidden,
-              let folder = currentPinTree.folder(id: folderPreview.folderID),
-              Self.entries(in: folder) == folderPreview.entries
-        else {
+        let id = folderPreview.folderID
+        guard !verticalTabsView.isHidden, let folder = displayPinTree.folder(id: id) else {
             closeFolderPreview()
             return
+        }
+        guard Self.entries(in: folder) != folderPreview.entries else { return }
+        closeFolderPreview()
+        let pinsView = verticalTabsView.pinsView
+        if folder.isLive, let row = pinsView.rowView(for: id) {
+            showFolderPreview(id, rowFrame: row.convert(row.bounds, to: pinsView))
         }
     }
 

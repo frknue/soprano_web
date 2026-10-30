@@ -13,6 +13,11 @@ struct BrowserRailPinRow: Equatable {
     var isAway = false
     /// The live tab's title (its current page), shown instead of the pin's.
     var liveTitle: String?
+    /// A live folder's status line (loading, signed out, …); nil when
+    /// its count says it all.
+    var liveStatus: String?
+    /// A live folder's last fetch failed.
+    var liveFailed = false
 
     var id: UUID { row.node.id }
 
@@ -23,6 +28,8 @@ struct BrowserRailPinRow: Equatable {
             && lhs.isSelected == rhs.isSelected
             && lhs.isAway == rhs.isAway
             && lhs.liveTitle == rhs.liveTitle
+            && lhs.liveStatus == rhs.liveStatus
+            && lhs.liveFailed == rhs.liveFailed
     }
 }
 
@@ -137,14 +144,23 @@ final class BrowserPinOutlineCellView: NSView {
         iconLeading.constant = Self.iconInset + CGFloat(row.depth) * Self.indent
         switch row.node {
         case let .folder(folder):
-            iconView.image = symbol(row.isExpanded ? "folder.fill" : "folder", size: 12)
+            if let source = folder.source {
+                // A live folder: the pull request mark, the fetched count
+                // ("!" after a failed fetch), its source and status.
+                iconView.image = symbol("arrow.triangle.pull", size: 12)
+                let count = folder.allPins.count
+                countLabel.stringValue = content.liveFailed ? "!" : (count == 0 ? "" : "\(count)")
+                toolTip = [source.summary, content.liveStatus].compactMap { $0 }.joined(separator: "\n")
+            } else {
+                iconView.image = symbol(row.isExpanded ? "folder.fill" : "folder", size: 12)
+                let count = folder.allPins.count
+                countLabel.stringValue = count == 0 ? "" : "\(count)"
+                toolTip = nil
+            }
             titleLabel.stringValue = folder.displayName
-            let count = folder.allPins.count
-            countLabel.stringValue = count == 0 ? "" : "\(count)"
             chevron.image = symbol(row.isExpanded ? "chevron.down" : "chevron.right", size: 9)
             chevron.isHidden = false
             awayLabel.isHidden = true
-            toolTip = nil
             setAccessibilityLabel(row.isExpanded ? "\(folder.displayName), expanded" : "\(folder.displayName), collapsed")
         case let .pin(pin):
             iconView.image = content.favicon ?? symbol("globe", size: 12)
