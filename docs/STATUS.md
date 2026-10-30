@@ -24,7 +24,7 @@ contract is `docs/STAGE-3-PLAN.md`.
 | Branch | Base | State |
 |---|---|---|
 | `feat/stage-3` | `main` | Squash-merged as #3. 518 tests green in debug and release. |
-| `feat/stage-4` | `main` | Stage 4 built (P0–P12) and pushed, no PR yet; 801 tests green in debug and release; the real EasyList's element hiding proven (`1f3cc7f`), compiled lists rebuilt at launch by converter version 2 (`9e162c7`). Open: 1Password sign-in and the by-hand checks below (Furkan), then a PR to `main`. |
+| `feat/stage-4` | `main` | Stage 4 built (P0–P12), PR #5 open (not merged); 801 tests green in debug and release; the real EasyList's element hiding proven (`1f3cc7f`), compiled lists rebuilt at launch by converter version 2 (`9e162c7`). Open: 1Password sign-in and the by-hand checks below (Furkan), then a PR to `main`. |
 | `feat/stage-3-search`, `feat/stage-3-import` | — | Merged into `feat/stage-3`; no further work there. |
 
 ## Done
@@ -139,7 +139,7 @@ its welcome page, no update additions pending; only 1Password keeps `webSocket`.
    rail outline, the Command Bar's rounded corners in Folio Ink, Delete Space from the
    switcher's menu (the CLI has no Space create/delete).
 3. By hand (Furkan): AppleScript's `execute javascript` from Script Editor or Terminal against the dev app (macOS asks once to let it control "Soprano Web Dev"): turn on Settings ▸ "Allow JavaScript from Apple Events", then `osascript -e 'tell application "Soprano Web Dev" to execute javascript "document.title"'` answers the front tab's title as JSON (`"…"`), and with the setting off it fails with -1743; the Dock menu's New Little Arc and a Space. A live folder from the rail's menu (New Live Folder…, a click on a PR, Refresh, Edit Live Folder…); Translate with a downloaded language pair (System Settings ▸ General ▸ Language & Region ▸ Translation Languages); ⇧⌘2 with a real pointer (drag an area, click for the visible page, Full Page, Esc) and a click on the toast revealing the file in Finder; Zap mode with a real pointer (hover outline, click hides, Esc ends) and typing in the Boost editor (↩ newline, ⌘↩ saves); a real tab drag onto a pane edge and a real divider drag (P5), and the lock's popover menus (Ask/Allow/Block, extension access) with real clicks; the Mini Player with a real video in the dev app (P9).
-4. Then a PR of `feat/stage-4` into `main` (on Furkan's go).
+4. Merge PR #5 (https://github.com/frknue/soprano_web/pull/5) into `main` on Furkan's go.
 
 Known, not planned: each tab change rebuilds every rail row (~40 ms with 20+ tabs); batch
 closes do it once.
