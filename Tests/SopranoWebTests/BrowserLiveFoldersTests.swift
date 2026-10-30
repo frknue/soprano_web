@@ -24,12 +24,17 @@ struct BrowserLiveFoldersTests {
         #expect(BrowserLiveFolderSource.parse("   ") == nil)
     }
 
-    @Test func aSearchSplitsIntoWordsAndNeverPassesAnOption() {
+    @Test func aSearchSplitsIntoWordsAndNeverPassesAnOption() throws {
         #expect(BrowserLiveFolderSource.words("is:open  author:@me") == ["is:open", "author:@me"])
         #expect(BrowserLiveFolderSource.words("label:\"needs review\" is:pr") == ["label:needs review", "is:pr"])
         #expect(BrowserLiveFolderSource.words("-label:bug is:open") == ["--", "-label:bug", "is:open"])
-        let search = BrowserLiveFolderSource.githubSearch(query: "--repo=evil is:open").ghArguments
-        #expect(Array(search.prefix(3)) == ["search", "prs", "--"])
+        // gh's own options come before the "--": everything after it is a
+        // search word, so `--json` there would print no JSON.
+        let search = BrowserLiveFolderSource.githubSearch(query: "-label:bug --repo=evil").ghArguments
+        let separator = try #require(search.firstIndex(of: "--"))
+        #expect(Array(search[separator...]) == ["--", "-label:bug", "--repo=evil"])
+        #expect(search.firstIndex(of: "--json").map { $0 < separator } == true)
+        #expect(search.firstIndex(of: "--limit").map { $0 < separator } == true)
         let list = BrowserLiveFolderSource.githubPullRequests(repo: "o/r").ghArguments
         #expect(Array(list.prefix(4)) == ["pr", "list", "--repo", "o/r"])
         #expect(list.contains("open"))

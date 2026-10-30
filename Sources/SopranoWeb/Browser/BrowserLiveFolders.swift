@@ -82,7 +82,9 @@ enum BrowserLiveFolderSource: Equatable, Hashable, Sendable {
 
     /// `gh`'s arguments. A search query is split into words (quotes keep a
     /// phrase together): `gh` quotes an argument with spaces as one
-    /// keyword, which breaks qualifiers such as `is:open`.
+    /// keyword, which breaks qualifiers such as `is:open`. The query comes
+    /// last: after the `--` a negated word (`-label:bug`) needs, `gh` reads
+    /// everything as search words, its own options too.
     var ghArguments: [String] {
         switch self {
         case let .githubPullRequests(repo):
@@ -91,10 +93,10 @@ enum BrowserLiveFolderSource: Equatable, Hashable, Sendable {
                 "--json", "number,title,url,author,isDraft,updatedAt",
             ]
         case let .githubSearch(query):
-            ["search", "prs"] + Self.words(query) + [
-                "--limit", "\(Self.limit)",
+            [
+                "search", "prs", "--limit", "\(Self.limit)",
                 "--json", "number,title,url,author,isDraft,updatedAt,repository",
-            ]
+            ] + Self.words(query)
         }
     }
 
