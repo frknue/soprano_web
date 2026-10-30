@@ -80,8 +80,9 @@ struct BrowserFilterConversion: Sendable {
 ///
 /// Everything WebKit can't express is skipped and counted by reason.
 enum BrowserFilterConverter {
-    /// Bumped when the output changes, so cached lists are rebuilt.
-    static let version = 1
+    /// Bumped when the output changes, so cached lists are rebuilt at the
+    /// next launch from the cached text (2: `:has()` inside `:has()` skipped).
+    static let version = 2
     /// WebKit compiles at most this many rules into one list.
     static let maxRulesPerList = 150_000
     static let selectorsPerRule = 250
@@ -415,7 +416,8 @@ enum BrowserFilterConverter {
     ]
 
     /// Why WebKit would drop `selector` (it drops a whole batch for one
-    /// bad selector), or nil.
+    /// bad selector), or nil. Its parser also rejects `:has()` inside
+    /// `:has()`.
     static func selectorProblem(_ selector: String) -> BrowserFilterSkipReason? {
         guard !selector.isEmpty else { return .malformed }
         let lowercased = selector.lowercased()
@@ -426,7 +428,9 @@ enum BrowserFilterConverter {
         var index = 0
         var quote: Character?
         var brackets = 0
-        var parens = 0
+        /// Each open parenthesis: whether it is a `:has(`.
+        var parens: [Bool] = []
+        var hasOpens = false
         while index < chars.count {
             let char = chars[index]
             if char == "\\" {
@@ -444,10 +448,12 @@ enum BrowserFilterConverter {
             case "]":
                 brackets -= 1
                 if brackets < 0 { return .unsupportedSelector }
-            case "(": parens += 1
+            case "(":
+                if hasOpens, parens.contains(true) { return .unsupportedSelector }
+                parens.append(hasOpens)
+                hasOpens = false
             case ")":
-                parens -= 1
-                if parens < 0 { return .unsupportedSelector }
+                guard parens.popLast() != nil else { return .unsupportedSelector }
             case "{", "}", ";": return .unsupportedSelector
             case ":" where brackets == 0:
                 var start = index + 1
@@ -456,14 +462,16 @@ enum BrowserFilterConverter {
                 while end < chars.count, chars[end].isLetter || chars[end].isNumber || chars[end] == "-" || chars[end] == "_" {
                     end += 1
                 }
-                guard pseudoNames.contains(String(chars[start..<end])) else { return .unsupportedSelector }
+                let name = String(chars[start..<end])
+                guard pseudoNames.contains(name) else { return .unsupportedSelector }
+                hasOpens = name == "has" && end < chars.count && chars[end] == "("
                 index = end
                 continue
             default: break
             }
             index += 1
         }
-        return quote == nil && brackets == 0 && parens == 0 ? nil : .unsupportedSelector
+        return quote == nil && brackets == 0 && parens.isEmpty ? nil : .unsupportedSelector
     }
 
     // MARK: - Conversion

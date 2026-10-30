@@ -35,6 +35,9 @@ enum BrowserWindowKind: String, Sendable {
     /// copy of every notification, so a private window answers "denied", as
     /// Safari and Chrome do.
     var allowsWebNotifications: Bool { !isPrivate }
+    /// Translate's "Never Offer for <language>" goes into `settings.json`;
+    /// a private window keeps it in memory while it is open.
+    var savesTranslationChoices: Bool { !isPrivate }
 
     /// The window title for a page titled `title`.
     func windowTitle(_ title: String) -> String {

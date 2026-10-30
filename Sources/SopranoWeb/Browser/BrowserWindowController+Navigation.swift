@@ -4,7 +4,10 @@ import WebKit
 extension BrowserWindowController {
     // MARK: - Navigation
 
+    /// The address bar's load: in the selected tab, which the Peek over it
+    /// leaves.
     func navigateCurrent(to input: String) {
+        closePeek(focusPage: false)
         guard let tab = selectedTab else { return }
         navigate(tab, to: input)
         window?.makeFirstResponder(tab.webView)
@@ -31,11 +34,21 @@ extension BrowserWindowController {
             return
         }
         let scheme = url.scheme?.lowercased() ?? ""
-        guard ["http", "https", "file", "about", "blob", "data"].contains(scheme) else {
+        guard ["http", "https", "file", "about", "blob", "data", BrowserExtensions.scheme].contains(scheme) else {
             NSWorkspace.shared.open(url)
             return
         }
         tab.lifecycle.pendingRestore = nil
+        if let context = extensionContext(for: url), kind.isPrivate, !context.hasAccessToPrivateData {
+            // Not allowed in private windows: its pages don't open here.
+            NSSound.beep()
+            return
+        }
+        if !webViewFits(tab, url: url) {
+            // An extension page needs its extension's web view; a web page
+            // leaving one needs the tab's own again.
+            replaceWebView(of: tab, for: url)
+        }
         if reloadCrashedEntry(tab, at: url) { return }
         tab.isStartPage = false
         tab.errorMessage = nil
@@ -50,7 +63,7 @@ extension BrowserWindowController {
     }
 
     func goBack() {
-        guard let tab = selectedTab else { return }
+        guard let tab = pageTab else { return }
         goBack(tab)
     }
 
@@ -61,7 +74,7 @@ extension BrowserWindowController {
     }
 
     func goForward() {
-        guard let tab = selectedTab else { return }
+        guard let tab = pageTab else { return }
         goForward(tab)
     }
 
@@ -72,7 +85,7 @@ extension BrowserWindowController {
     }
 
     func reloadOrStop() {
-        guard let tab = selectedTab else { return }
+        guard let tab = pageTab else { return }
         if tab.webView.isLoading {
             tab.webView.stopLoading()
         } else if let failed = tab.failedURL, let url = URL(string: failed) {
@@ -86,7 +99,7 @@ extension BrowserWindowController {
     }
 
     func reload() {
-        guard let tab = selectedTab else { return }
+        guard let tab = pageTab else { return }
         reload(tab)
     }
 
@@ -105,7 +118,7 @@ extension BrowserWindowController {
     /// CLI): the toolbar's field, or with the toolbar hidden (⇧⌘D) the
     /// Command Bar on the selected tab's address.
     func focusAddressBar() {
-        if isToolbarHidden, !isPopup {
+        if isToolbarHidden, !role.isCompact {
             showCommandBar(.editCurrent, toggles: false)
             return
         }
@@ -113,7 +126,7 @@ extension BrowserWindowController {
     }
 
     func focusPage() {
-        guard let tab = selectedTab else { return }
+        guard let tab = pageTab else { return }
         window?.makeFirstResponder(tab.webView)
     }
 
@@ -157,7 +170,7 @@ extension BrowserWindowController {
             repeats: false
         ) { [weak self, weak tab] _ in
             MainActor.assumeIsolated {
-                guard let self, let tab, self.tabs.contains(where: { $0 === tab }) else { return }
+                guard let self, let tab, self.tabsWithPeek.contains(where: { $0 === tab }) else { return }
                 tab.sameDocumentTimer = nil
                 guard tab.dataContext.kind.recordsHistory,
                       let url = tab.sameDocumentVisits.takeDueVisit(
@@ -171,6 +184,26 @@ extension BrowserWindowController {
         }
     }
 
+    /// The page set its title (`document.title`) after its load finished,
+    /// when its visit was already recorded under the old one: that row
+    /// takes the new title in the tab's own History. A private window's
+    /// Command Bar pages take it in memory; nothing is written.
+    func lateTitleChanged(_ tab: BrowserTab, title: String) {
+        guard let url = tab.webView.url?.absoluteString else { return }
+        guard tab.dataContext.kind.recordsHistory else {
+            tab.dataContext.sessionVisits.updateTitle(url: url, title: title)
+            return
+        }
+        // During a load the visit isn't recorded yet (it takes the title
+        // then); error pages (`errorMessage` lasts until the next
+        // navigation, unlike `isShowingErrorPage`) and the start page are
+        // never rows.
+        guard !tab.webView.isLoading, !tab.isStartPage, tab.errorMessage == nil,
+              tab.certificateInterstitial == nil
+        else { return }
+        tab.dataContext.history.updateTitle(url: url, title: title)
+    }
+
     func markStartPagesStale() {
         for tab in tabs where tab.isStartPage {
             staleStartTabs.insert(tab.id)
@@ -179,6 +212,10 @@ extension BrowserWindowController {
 
     func updateChrome() {
         updateCaptureIndicator()
+        updateMediaControls()
+        updateCaptureOverlay()
+        updateZapSession()
+        updateSiteControlPanel()
         guard let tab = selectedTab else { return }
         updateTabChrome(for: tab)
         let url = tab.webView.url
@@ -194,6 +231,8 @@ extension BrowserWindowController {
         window?.representedURL = tab.isStartPage ? nil : url
         updatePopupBlockedControl()
         updateZoomChip()
+        updateReaderChip()
+        updateTranslateChip()
     }
 }
 
@@ -218,6 +257,9 @@ extension BrowserWindowController: WKNavigationDelegate {
         }
         if tab.id == selectedTab?.id {
             updateChrome()
+        } else if tab === peek?.tab {
+            // A Peek's navigation: the open Site Control Center follows it.
+            updateSiteControlPanel()
         }
     }
 
@@ -238,6 +280,8 @@ extension BrowserWindowController: WKNavigationDelegate {
         tab.lifecycle.capturingFrames.removeAll()
         wakeSnapshotPageCommitted(tab)
         linksDidCommit(tab)
+        zapPageCommitted(tab)
+        readerPageCommitted(tab)
         tab.isStartPage = webView.url?.scheme?.lowercased() == BrowserStartPageSchemeHandler.scheme
         if !tab.isStartPage, tab.errorMessage == nil, tab.certificateInterstitial == nil {
             // A committed page doesn't inherit the previous title ("New Tab"
@@ -336,7 +380,6 @@ extension BrowserWindowController: WKNavigationDelegate {
         guard let tab = tab(for: webView) else { return }
         removeWakeSnapshot(tab)
         let failedURL = (nsError.userInfo[NSURLErrorFailingURLErrorKey] as? URL)?.absoluteString
-            ?? nsError.userInfo[NSURLErrorFailingURLStringErrorKey] as? String
             ?? tab.pendingURL
             ?? tab.failedURL
             ?? ""
@@ -357,7 +400,11 @@ extension BrowserWindowController: WKNavigationDelegate {
             baseURL: nil
         )
         updateTabStrip()
-        updateChrome()
+        if tab === peek?.tab {
+            updatePeekChrome()
+        } else {
+            updateChrome()
+        }
         resolveLoadWaiters(
             for: tab,
             result: .failure(BrowserAutomationError.unavailable(nsError.localizedDescription))
@@ -383,8 +430,24 @@ extension BrowserWindowController: WKNavigationDelegate {
             decisionHandler(.download)
             return
         }
+        if let tab = tab(for: webView), !allowsExtensionNavigation(navigationAction, to: url, in: tab) {
+            // A page asking for an extension's page, or an extension page
+            // for a local file (`allowsExtensionNavigation`).
+            decisionHandler(.cancel)
+            return
+        }
         if handleLinkNavigation(navigationAction, in: webView) {
             decisionHandler(.cancel)
+            return
+        }
+        if navigationAction.targetFrame?.isMainFrame == true, let tab = tab(for: webView), !webViewFits(tab, url: url) {
+            // Into or out of an extension page: the tab's web view is
+            // swapped for one that can show it.
+            decisionHandler(.cancel)
+            DispatchQueue.main.async { [weak self, weak tab] in
+                guard let self, let tab, self.tabsWithPeek.contains(where: { $0 === tab }) else { return }
+                self.navigate(tab, to: url)
+            }
             return
         }
         if navigationAction.targetFrame?.isMainFrame != false,

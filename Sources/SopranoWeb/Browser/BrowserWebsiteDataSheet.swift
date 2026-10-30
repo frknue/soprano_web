@@ -283,8 +283,9 @@ final class BrowserWebsiteDataSheet: NSWindowController, NSTableViewDataSource, 
     private func remove(_ targets: [WKWebsiteDataRecord]) {
         guard let dataStore, !targets.isEmpty else { return }
         let types = targets.reduce(into: Set<String>()) { $0.formUnion($1.dataTypes) }
+        // WebKit calls back on the main thread.
         dataStore.removeData(ofTypes: types, for: targets) { [weak self] in
-            self?.reload()
+            MainActor.assumeIsolated { self?.reload() }
         }
     }
 

@@ -5,7 +5,8 @@ extension BrowserWindowController {
     // MARK: - Session
 
     /// What the session saves for this window: every tab of every Space,
-    /// the current Space and each Space's selection.
+    /// the current Space (a Little Arc's own Space), each Space's
+    /// selection and the split views.
     var windowState: BrowserWindowState {
         let ids = tabs.map(\.id)
         return BrowserWindowState(
@@ -14,10 +15,12 @@ extension BrowserWindowController {
             tabs: tabs.map(\.state),
             selectedIndex: selectedTab.flatMap { selected in ids.firstIndex(of: selected.id) } ?? 0,
             profileID: profileID,
-            currentSpaceID: currentSpaceID,
+            currentSpaceID: currentSpaceID ?? littleSpaceID,
             spaceSelections: spaceSelections.compactMap { spaceID, tabID in
                 ids.firstIndex(of: tabID).map { BrowserSpaceSelection(spaceID: spaceID, index: $0) }
-            }.sorted { $0.index < $1.index }
+            }.sorted { $0.index < $1.index },
+            role: role == .little ? .little : .normal,
+            splits: splits.compactMap { $0.state(windowTabs: ids) }
         )
     }
 
@@ -29,9 +32,10 @@ extension BrowserWindowController {
 
     /// Adds a saved window's tabs (placed in today's Spaces,
     /// `BrowserWindowState.placedInSpaces`), each in its Space with its
-    /// profile's context, and each Space's selection. Only the current
-    /// Space's selected tab loads; the others load on first selection. A
-    /// current Space without tabs gets a start tab.
+    /// profile's context, each Space's selection and the split views
+    /// (`BrowserSplit.restored`). Only what the current Space shows loads;
+    /// the others load on first selection. A current Space without tabs
+    /// gets a start tab.
     func restoreTabs(_ state: BrowserWindowState) {
         var restored: [BrowserTab] = []
         for tab in state.tabs {
@@ -39,6 +43,13 @@ extension BrowserWindowController {
         }
         for selection in state.spaceSelections where restored.indices.contains(selection.index) {
             spaceSelections[selection.spaceID] = restored[selection.index].id
+        }
+        if allowsSplits {
+            splits += BrowserSplit.restored(
+                state.splits,
+                tabIDs: restored.map(\.id),
+                spaceIDs: restored.map(\.spaceID)
+            )
         }
         guard !tabs.isEmpty else { return }
         let selected = restored.indices.contains(state.selectedIndex) ? restored[state.selectedIndex] : nil
@@ -69,13 +80,13 @@ extension BrowserWindowController {
         tab.lifecycle.pendingRestore = nil
         if let sleep = tab.lifecycle.sleep {
             tab.lifecycle.sleep = nil
-            if tab.id == selectedTab?.id {
+            if isShown(tab) {
                 showWakeSnapshot(sleep.snapshot, for: tab)
             }
             metadataChanged(tab)
         }
         tab.suppressNextHistoryRecord = true
-        if let data = state.interactionState {
+        if let data = state.interactionState, state.url.flatMap(URL.init(string:)).map({ webViewFits(tab, url: $0) }) ?? true {
             // Restoring the archived list also navigates to its current item.
             tab.webView.interactionState = data
             if let current = tab.webView.backForwardList.currentItem?.url,
@@ -88,7 +99,7 @@ extension BrowserWindowController {
         }
         if let value = state.url,
            let url = URL(string: value),
-           ["http", "https", "file", "about", "blob", "data"].contains(url.scheme?.lowercased() ?? "")
+           ["http", "https", "file", "about", "blob", "data", BrowserExtensions.scheme].contains(url.scheme?.lowercased() ?? "")
         {
             navigate(tab, to: url)
         } else {
@@ -107,6 +118,7 @@ extension BrowserWindowController {
     /// Releases a tab that left the window for good (closed). The caller
     /// detaches it first.
     func discardTab(_ tab: BrowserTab) {
+        extensions.tabClosed(tab)
         resolveLoadWaiters(
             for: tab,
             result: .failure(BrowserAutomationError.unavailable("The tab was closed."))
@@ -123,7 +135,7 @@ extension BrowserWindowController {
     func handleWebContentCrash(_ tab: BrowserTab) {
         let now = Date()
         let action = BrowserCrashPolicy.action(
-            isSelected: tab.id == selectedTab?.id,
+            isSelected: isShown(tab) || tab === peek?.tab,
             previousCrash: tab.lifecycle.lastCrashAt,
             now: now
         )
@@ -134,6 +146,14 @@ extension BrowserWindowController {
             tab.failedURL = tab.failedURL ?? tab.webView.url?.absoluteString ?? tab.pendingURL
             tab.lifecycle.crashedURL = tab.failedURL
         }
+        // The Mini Player's page is gone: back into the window (hidden,
+        // a background tab), its media state cleared.
+        if manager.miniPlayer.hosts(tab) {
+            returnMiniPlayer()
+        }
+        tab.media.frames.removeAll()
+        tab.media.audio.reset()
+        resetMediaInfo(tab)
         switch action {
         case .reload:
             reloadAfterCrash(tab)
@@ -232,10 +252,19 @@ extension BrowserWindowController: NSWindowDelegate {
     /// another app): a ⌃ released elsewhere must not pick a tab later.
     func windowDidResignKey(_ notification: Notification) {
         cancelRecentTabs()
+        markLittleArcUsed()
     }
 
     func windowDidBecomeKey(_ notification: Notification) {
         manager.windowBecameActive(self)
+        markLittleArcUsed()
+    }
+
+    /// A Little Arc's idle time (6 hours closes it) starts when it was last
+    /// key.
+    private func markLittleArcUsed() {
+        guard role == .little else { return }
+        selectedTab?.lifecycle.lastActiveAt = manager.tabSleeper.now()
     }
 
     func windowDidMove(_ notification: Notification) {

@@ -1,9 +1,9 @@
-// swift-tools-version: 6.0
+// swift-tools-version: 6.2
 import PackageDescription
 
 let package = Package(
     name: "SopranoWeb",
-    platforms: [.macOS(.v14)],
+    platforms: [.macOS(.v26)],
     targets: [
         .executableTarget(
             name: "SopranoWeb",
@@ -11,6 +11,8 @@ let package = Package(
             exclude: ["Vendored/SOPRANO_COMMIT"],
             resources: [
                 .copy("Resources/AppIcon.icns"),
+                // Readability.js 0.6.0 with its LICENSE and NOTICE (Reader).
+                .copy("Resources/Readability"),
             ],
             linkerSettings: [
                 .linkedFramework("WebKit"),

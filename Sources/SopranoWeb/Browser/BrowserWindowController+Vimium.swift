@@ -3,7 +3,7 @@ import WebKit
 
 extension BrowserWindowController {
     func vimiumFocusChanged(tabID: UUID, editable: Bool) {
-        guard let tab = tabs.first(where: { $0.id == tabID }) else { return }
+        guard let tab = windowTab(id: tabID) else { return }
         tab.vimium?.pageFocusChanged(editable)
     }
 

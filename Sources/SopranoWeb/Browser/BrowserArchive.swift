@@ -159,6 +159,10 @@ enum BrowserArchiveExemption: String, Equatable, Sendable {
     case startPage
     /// The selected tab of its window.
     case selected
+    /// A pane of the split on screen, not focused.
+    case visiblePane
+    /// Its video plays in the Mini Player.
+    case miniPlayer
     /// A tab with a pop-up window open.
     case popup
     case playingAudio
@@ -196,6 +200,8 @@ enum BrowserArchivePolicy {
         if candidate.isStartPage { return .startPage }
         let activity = candidate.activity
         if activity.isSelected { return .selected }
+        if activity.isVisiblePane { return .visiblePane }
+        if activity.isInMiniPlayer { return .miniPlayer }
         if activity.isPopup { return .popup }
         if activity.isPlayingAudio { return .playingAudio }
         if activity.isCapturing { return .capturing }

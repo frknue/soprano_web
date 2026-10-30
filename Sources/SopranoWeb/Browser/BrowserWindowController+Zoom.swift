@@ -6,21 +6,22 @@ extension BrowserWindowController {
 
     /// ⌘+ (and Vimium `zi`): the selected page's site one step larger, in
     /// every tab of that site that reads the tab's profile's site decisions.
-    func zoomIn() {
-        guard let tab = selectedTab else { return }
+    func zoomIn(_ target: BrowserTab? = nil) {
+        guard let tab = target ?? pageTab else { return }
         setZoom(BrowserZoom.zoomedIn(from: tab.zoom), for: tab)
     }
 
     /// ⌘- (and Vimium `zo`).
-    func zoomOut() {
-        guard let tab = selectedTab else { return }
+    func zoomOut(_ target: BrowserTab? = nil) {
+        guard let tab = target ?? pageTab else { return }
         setZoom(BrowserZoom.zoomedOut(from: tab.zoom), for: tab)
     }
 
     /// ⌘0, Vimium `z0` and the zoom chip: the site forgets its zoom and
-    /// follows Settings ▸ Default page zoom again.
-    func resetZoom() {
-        guard let tab = selectedTab else { return }
+    /// follows Settings ▸ Default page zoom again. `target` (the Site
+    /// Control Center's tab) defaults to the page the user looks at.
+    func resetZoom(_ target: BrowserTab? = nil) {
+        guard let tab = target ?? pageTab else { return }
         if let key = BrowserSitePermissionStore.siteKey(for: tab.webView.url) {
             tab.dataContext.sitePermissions.setZoom(nil, host: key)
         }
@@ -50,7 +51,7 @@ extension BrowserWindowController {
     /// Every loaded page with a site (and every start page) takes its
     /// site's zoom: a remembered zoom or the default page zoom changed.
     func applySiteZooms() {
-        for tab in tabs where !tab.isRestorePending {
+        for tab in tabsWithPeek where !tab.isRestorePending {
             let url = tab.webView.url
             guard tab.isStartPage || BrowserSitePermissionStore.siteKey(for: url) != nil else { continue }
             apply(zoom: siteZoom(for: url, in: tab), to: tab)
@@ -62,16 +63,17 @@ extension BrowserWindowController {
         if tab.webView.pageZoom != zoom {
             tab.webView.pageZoom = zoom
         }
-        if tab.id == selectedTab?.id {
+        if tab === pageTab {
             updateZoomChip()
         }
     }
 
-    /// The percentage chip in the address field while the selected page's
-    /// zoom differs from the default; clicking it resets the site (⌘0).
+    /// The percentage chip in the address field while the page's zoom (the
+    /// Peek's when one is open) differs from the default; clicking it
+    /// resets that site (⌘0).
     func updateZoomChip() {
         let defaultZoom = settingsStore.settings.defaultZoom
-        guard let tab = selectedTab, !tab.isRestorePending, !BrowserZoom.isSame(tab.zoom, defaultZoom) else {
+        guard let tab = pageTab, !tab.isRestorePending, !BrowserZoom.isSame(tab.zoom, defaultZoom) else {
             zoomChip?.isHidden = true
             return
         }

@@ -38,6 +38,18 @@ extension BrowserWindowManager {
         return context
     }
 
+    /// The normal context of profile `id` while it exists (Default always),
+    /// nil once it was deleted: a deleted Space's download row never
+    /// resumes in Default's data store (`context(for:)` falls back to it).
+    static func existingProfileContext(
+        _ id: UUID,
+        profiles: BrowserProfileStore,
+        context: (UUID) -> BrowserDataContext
+    ) -> BrowserDataContext? {
+        guard id == BrowserProfile.defaultID || profiles.profile(id: id) != nil else { return nil }
+        return context(id)
+    }
+
     /// The profile's History (`<its folder>/History.sqlite`), opened on
     /// first use.
     func history(for profile: BrowserProfile) -> BrowserHistoryStore {
@@ -55,17 +67,20 @@ extension BrowserWindowManager {
         profiles.profile(id: controller.profileID) ?? .defaultProfile
     }
 
-    /// The Space a window's data belongs to: its current Space, a private
-    /// or pop-up window's the one it was opened over.
+    /// The Space a window's data belongs to: its current Space, a Little
+    /// Arc's own, a private or pop-up window's the one it was opened over.
     func space(of controller: BrowserWindowController) -> BrowserSpace? {
-        controller.currentSpaceID.flatMap(spaces.space(id:)) ?? spaces.space(ofProfile: controller.profileID)
+        (controller.currentSpaceID ?? controller.littleSpaceID).flatMap(spaces.space(id:))
+            ?? spaces.space(ofProfile: controller.profileID)
     }
 
     /// What a window shows next to its tabs: its Space (icon, name and
-    /// color) when more than one Space exists, "Private" (with that Space
-    /// when there are several) in a private window.
+    /// color) when more than one Space exists (a Little Arc's always),
+    /// "Private" (with that Space when there are several) in a private
+    /// window.
     func windowMark(for controller: BrowserWindowController) -> BrowserWindowMark {
-        BrowserWindowMark(kind: controller.kind, space: spaces.spaces.count > 1 ? space(of: controller) : nil)
+        let showsSpace = spaces.spaces.count > 1 || controller.role == .little
+        return BrowserWindowMark(kind: controller.kind, space: showsSpace ? space(of: controller) : nil)
     }
 
     /// The switcher's "+": a Space with a profile of its own (no cookies,
@@ -116,7 +131,8 @@ extension BrowserWindowManager {
     /// first; `windowsClosing(onDeleteOf:)` close whole) and its private
     /// windows, none onto Recently Closed; drops its Recently Closed tabs
     /// and its Archive; deletes its Space and Favorites; removes it from
-    /// `profiles.json`; then, once its web views are released, removes its
+    /// `profiles.json` and stops its running downloads (their rows stay,
+    /// and never resume elsewhere); then, once its web views are released, removes its
     /// data store (`WKWebsiteDataStore.remove(forIdentifier:)`) and deletes
     /// its folder (History, site decisions). `completion` gets the data
     /// store removal's error, if it never succeeded. Default can't be
@@ -139,6 +155,8 @@ extension BrowserWindowManager {
         // Everything still holding the profile's stores (Settings sheets,
         // chrome) lets go when the list changes.
         profiles.remove(id: id)
+        // Its downloads stop (keeping their rows): their data store goes.
+        downloadManager.cancelDownloads(ofProfile: id)
         profileContexts[id] = nil
         historyStores[id] = nil
         scheduleSessionSave()

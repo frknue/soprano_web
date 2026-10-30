@@ -170,6 +170,12 @@ final class VimiumController: NSObject {
         keyMap.reset()
     }
 
+    /// Nothing for Esc to end: normal mode, no pending keys or hints.
+    var isIdle: Bool {
+        guard case .normal = mode else { return false }
+        return !keyMap.hasPendingInput && !isStartingHints
+    }
+
     // MARK: - Modes
 
     private func handleEscape() -> Bool {
@@ -223,7 +229,7 @@ final class VimiumController: NSObject {
     }
 
     private func focusPage() {
-        guard let tab, tab.id == windowController?.selectedTab?.id else { return }
+        guard let tab, tab === windowController?.pageTab else { return }
         tab.webView.window?.makeFirstResponder(tab.webView)
     }
 
@@ -463,6 +469,12 @@ final class VimiumController: NSObject {
     /// `<<` / `>>`: moves the tab within its Space's tab list.
     private func moveTab(by offset: Int) {
         guard let tab, let windowController else { return }
+        if let moved = windowController.moveSplitRow(containing: tab.id, by: offset) {
+            if !moved {
+                toast(offset < 0 ? "Already the first tab." : "Already the last tab.")
+            }
+            return
+        }
         let tabs = windowController.visibleTabs
         guard tabs.count > 1 else {
             toast("Only one tab is open.")
@@ -531,7 +543,7 @@ final class VimiumController: NSObject {
     // MARK: - Hints
 
     private func startHints(_ action: VimiumHintMode) {
-        guard let tab, tab.id == windowController?.selectedTab?.id else { return }
+        guard let tab, tab === windowController?.pageTab else { return }
         hintGeneration += 1
         let generation = hintGeneration
         isStartingHints = true

@@ -14,6 +14,8 @@ struct BrowserPinEditorContent: Equatable {
     var folders: [BrowserPinFolderEntry]
     /// "Remove" / "Delete"; nil hides the button.
     var removeTitle: String?
+    /// The address field's placeholder (a live folder's source).
+    var urlPlaceholder = "Address"
 
     /// The address an edited field saves: trimmed, `https://` added when it
     /// names no scheme (`example.com`, `localhost:8080`); nil (keep the
@@ -159,7 +161,7 @@ final class BrowserPinEditorView: NSView, NSTextFieldDelegate {
         heading.apply(theme: theme)
         nameFrame.apply(theme: theme)
         urlFrame.apply(theme: theme)
-        for (field, placeholder) in [(nameField, content.namePlaceholder), (urlField, "Address")] {
+        for (field, placeholder) in [(nameField, content.namePlaceholder), (urlField, content.urlPlaceholder)] {
             ChromeFieldView.styleEmbedded(field, colors: colors, font: ChromeFont.label)
             field.placeholderAttributedString = NSAttributedString(
                 string: placeholder,

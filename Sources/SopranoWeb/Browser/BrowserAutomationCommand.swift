@@ -74,7 +74,8 @@ struct BrowserCommandRequest: Codable, Equatable, Sendable {
 
     static func parse(
         _ commandLine: [String],
-        environment: [String: String] = ProcessInfo.processInfo.environment
+        environment: [String: String] = ProcessInfo.processInfo.environment,
+        standardInput: () -> Data = { FileHandle.standardInput.readDataToEndOfFile() }
     ) throws -> BrowserCommandRequest? {
         guard commandLine.count >= 2, commandLine[1] == "browser" else { return nil }
 
@@ -111,15 +112,15 @@ struct BrowserCommandRequest: Codable, Equatable, Sendable {
             return BrowserCommandRequest(command: "help", arguments: [], tabIndex: tabIndex, windowIndex: windowIndex)
         }
         var arguments = Array(tokens.dropFirst())
-        if command == "screenshot", let path = arguments.first, !path.hasPrefix("/") {
-            let workingDirectory = environment["PWD"] ?? FileManager.default.currentDirectoryPath
-            arguments[0] = URL(
-                fileURLWithPath: workingDirectory,
-                isDirectory: true
-            ).appendingPathComponent(path).standardizedFileURL.path
+        var timeout: TimeInterval?
+        if command == "screenshot" {
+            arguments = try parseScreenshot(arguments, environment: environment)
+            if arguments.first == "--full" {
+                // A tall page's PDF, rasterized and encoded.
+                timeout = fullScreenshotTimeout
+            }
         }
 
-        var timeout: TimeInterval?
         if command == "wait-for-load" || command == "wait-for" {
             timeout = try extractTimeout(from: &arguments) ?? defaultWaitTimeout
         }
@@ -145,11 +146,76 @@ struct BrowserCommandRequest: Codable, Equatable, Sendable {
         if command == "space", arguments.joined(separator: " ").trimmingCharacters(in: .whitespaces).isEmpty {
             throw BrowserAutomationError.invalidArguments(spaceUsage)
         }
+        if command == "extension" {
+            try parseExtension(&arguments, environment: environment)
+            if ["install", "update"].contains(arguments.first) {
+                // A download, its check and WebKit's load of the package.
+                timeout = maxWaitTimeout
+            }
+        }
         var space: String?
-        if command == "new-window" {
+        if command == "new-window" || command == "little" {
             space = try extractSpace(from: &arguments)
             guard arguments.count <= 1 else {
-                throw BrowserAutomationError.invalidArguments(newWindowUsage)
+                throw BrowserAutomationError.invalidArguments(command == "little" ? littleUsage : newWindowUsage)
+            }
+        }
+        if command == "peek", arguments.count > 1 {
+            throw BrowserAutomationError.invalidArguments(peekUsage)
+        }
+        if command == "split" {
+            let valid: Bool
+            switch arguments.first {
+            case nil: valid = true
+            case "close": valid = arguments.count == 1
+            case "focus": valid = arguments.count == 2 && (Int(arguments[1]) ?? 0) > 0
+            default: valid = arguments.count == 1
+            }
+            guard valid else { throw BrowserAutomationError.invalidArguments(splitUsage) }
+        }
+        if command == "live-folder" {
+            let valid = switch arguments.first {
+            case "add": arguments.count > 1
+            case "refresh": arguments.count == 1
+            default: false
+            }
+            guard valid else { throw BrowserAutomationError.invalidArguments(liveFolderUsage) }
+            // `gh` answers within its own 30 s limit.
+            timeout = 60
+        }
+        if command == "boost" {
+            try parseBoost(&arguments, environment: environment, standardInput: standardInput)
+        }
+        if command == "site" {
+            let valid: Bool
+            switch arguments.first {
+            case nil, "info", "clear": valid = arguments.count <= 1
+            case "permission":
+                valid = arguments.count == 3
+                    && BrowserSiteControlState.permissionRows.contains { $0.0.rawValue == arguments[1] }
+                    && BrowserSiteChoice(rawValue: arguments[2]) != nil
+            default: valid = false
+            }
+            guard valid else { throw BrowserAutomationError.invalidArguments(siteUsage) }
+        }
+        if command == "media" {
+            let words = ["info", "mute"] + BrowserMediaAction.allCases.map(\.word)
+            guard arguments.count <= 1, arguments.first.map(words.contains) ?? true else {
+                throw BrowserAutomationError.invalidArguments(mediaUsage)
+            }
+        }
+        if command == "reader" {
+            guard arguments.count <= 1, arguments.first.map(["on", "off"].contains) ?? true else {
+                throw BrowserAutomationError.invalidArguments(readerUsage)
+            }
+        }
+        if command == "translate" {
+            let valid = arguments.isEmpty || arguments == ["off"]
+                || (arguments.count == 2 && arguments[0] == "to" && !arguments[1].isEmpty)
+            guard valid else { throw BrowserAutomationError.invalidArguments(translateUsage) }
+            if arguments.first == "to" {
+                // A long page is translated in many batches.
+                timeout = maxWaitTimeout
             }
         }
 
@@ -177,6 +243,154 @@ struct BrowserCommandRequest: Codable, Equatable, Sendable {
         return value
     }
 
+    /// `extension install <store url|id|folder>` (a relative folder is
+    /// resolved against the shell's directory here),
+    /// `extension enable|disable|remove|errors <id>`, `extension update`.
+    private static func parseExtension(_ arguments: inout [String], environment: [String: String]) throws {
+        guard let action = arguments.first else {
+            throw BrowserAutomationError.invalidArguments(extensionUsage)
+        }
+        switch action {
+        case "install":
+            let input = arguments.dropFirst().joined(separator: " ")
+            let directory = URL(
+                fileURLWithPath: environment["PWD"] ?? FileManager.default.currentDirectoryPath,
+                isDirectory: true
+            )
+            switch BrowserWebStore.source(for: input, workingDirectory: directory) {
+            case let .webStore(id)?:
+                arguments = ["install", id]
+            case let .folder(url)?:
+                arguments = ["install", url.path]
+            case nil:
+                throw BrowserAutomationError.invalidArguments(extensionUsage)
+            }
+        case "enable", "disable", "remove", "errors":
+            guard arguments.count == 2, BrowserExtensionID.isValid(arguments[1]) else {
+                throw BrowserAutomationError.invalidArguments(extensionUsage)
+            }
+        case "update":
+            guard arguments.count == 1 else { throw BrowserAutomationError.invalidArguments(extensionUsage) }
+        case "action":
+            guard arguments.count == 2 || arguments.count == 3, BrowserExtensionID.isValid(arguments[1]) else {
+                throw BrowserAutomationError.invalidArguments(extensionUsage)
+            }
+            if arguments.count == 3, !arguments[2].hasPrefix("/") {
+                let directory = environment["PWD"] ?? FileManager.default.currentDirectoryPath
+                arguments[2] = URL(fileURLWithPath: directory, isDirectory: true)
+                    .appendingPathComponent(arguments[2]).standardizedFileURL.path
+            }
+        default:
+            throw BrowserAutomationError.invalidArguments(extensionUsage)
+        }
+    }
+
+    static let screenshotUsage = "Usage: soprano-web browser screenshot [--full] <path.png>"
+    /// `screenshot --full`: the PDF of a tall page, rasterized and encoded.
+    static let fullScreenshotTimeout: TimeInterval = 60
+
+    /// `screenshot [--full] [--] <path>`: the options pulled out first, so
+    /// `--full` never becomes the path; the path made absolute against the
+    /// CLI's `PWD`. Returns `[path]` or `["--full", path]`.
+    static func parseScreenshot(_ arguments: [String], environment: [String: String]) throws -> [String] {
+        var full = false
+        var paths: [String] = []
+        var optionsEnded = false
+        for argument in arguments {
+            if !optionsEnded, argument == "--" {
+                optionsEnded = true
+            } else if !optionsEnded, argument == "--full" {
+                full = true
+            } else if !optionsEnded, argument.hasPrefix("-"), argument.count > 1 {
+                throw BrowserAutomationError.invalidArguments("Unknown option \(argument)\n\(screenshotUsage)")
+            } else {
+                paths.append(argument)
+            }
+        }
+        guard paths.count == 1, let path = paths.first, !path.isEmpty else {
+            throw BrowserAutomationError.invalidArguments(screenshotUsage)
+        }
+        let workingDirectory = environment["PWD"] ?? FileManager.default.currentDirectoryPath
+        let absolute = path.hasPrefix("/")
+            ? path
+            : URL(fileURLWithPath: workingDirectory, isDirectory: true)
+                .appendingPathComponent(path).standardizedFileURL.path
+        return full ? ["--full", absolute] : [absolute]
+    }
+
+    /// `boost list|show <host>|css <host> <file|->|js <host> <file|->|zap
+    /// <host> <selector>|enable|disable|remove <host>`. The CLI reads the
+    /// file (relative to `PWD`) or its own stdin for `-` and sends the
+    /// text, since the app can't read either.
+    static func parseBoost(
+        _ arguments: inout [String],
+        environment: [String: String],
+        standardInput: () -> Data
+    ) throws {
+        let usage = BrowserAutomationError.invalidArguments(boostUsage)
+        if arguments.isEmpty {
+            arguments = ["list"]
+        }
+        let action = arguments[0]
+        if action == "list" {
+            guard arguments.count == 1 else { throw usage }
+            return
+        }
+        guard arguments.count >= 2 else { throw usage }
+        guard arguments[1].allSatisfy(\.isASCII) else {
+            throw BrowserAutomationError.invalidArguments(
+                "\(arguments[1]): use the host's punycode form (xn--…), as the page reports it"
+            )
+        }
+        guard isBoostHost(arguments[1]) else { throw usage }
+        switch action {
+        case "show", "enable", "disable", "remove":
+            guard arguments.count == 2 else { throw usage }
+        case "css", "js":
+            guard arguments.count == 3 else { throw usage }
+            let source = arguments[2]
+            let data: Data
+            if source == "-" {
+                data = standardInput()
+            } else {
+                let directory = environment["PWD"] ?? FileManager.default.currentDirectoryPath
+                let url = source.hasPrefix("/")
+                    ? URL(fileURLWithPath: source)
+                    : URL(fileURLWithPath: directory, isDirectory: true).appendingPathComponent(source)
+                guard let contents = try? Data(contentsOf: url.standardizedFileURL) else {
+                    throw BrowserAutomationError.invalidArguments("Can't read \(url.standardizedFileURL.path)")
+                }
+                data = contents
+            }
+            guard let text = String(data: data, encoding: .utf8) else {
+                throw BrowserAutomationError.invalidArguments("The \(action.uppercased()) is not UTF-8 text")
+            }
+            // The request (JSON, the text escaped in it) must fit what the
+            // app reads; say so here rather than get a broken pipe.
+            let encoded = (try? JSONEncoder().encode(text).count) ?? data.count
+            guard encoded <= BrowserAutomationServer.maxRequestBytes - 64 * 1024 else {
+                let name = source == "-" ? "The standard input" : source
+                throw BrowserAutomationError.invalidArguments(
+                    "\(name) is larger than \(BrowserAutomationServer.maxRequestBytes / 1024 / 1024) MB"
+                )
+            }
+            arguments[2] = text
+        case "zap":
+            let selector = arguments.dropFirst(2).joined(separator: " ").trimmingCharacters(in: .whitespacesAndNewlines)
+            guard !selector.isEmpty else { throw usage }
+            arguments = ["zap", arguments[1], selector]
+        default:
+            throw usage
+        }
+    }
+
+    /// A host name, not an address: no scheme, path, port or spaces; ASCII
+    /// only (pages report Unicode hosts in punycode).
+    static func isBoostHost(_ value: String) -> Bool {
+        BrowserBoost.key(value) != nil
+            && value.allSatisfy { $0.isASCII && ($0.isLetter || $0.isNumber || $0 == "." || $0 == "-" || $0 == "_") }
+    }
+
     private static func extractTimeout(from arguments: inout [String]) throws -> TimeInterval? {
         guard let index = arguments.firstIndex(of: "--timeout") else { return nil }
         guard index + 1 < arguments.count,
@@ -193,7 +407,35 @@ struct BrowserCommandRequest: Codable, Equatable, Sendable {
 
     static let moveToWindowUsage = "Usage: soprano-web browser [--window n] [--tab m] move-to-window <k|new>"
     static let newWindowUsage = "Usage: soprano-web browser new-window [url] [--space <n|name>]"
+    static let littleUsage = "Usage: soprano-web browser little [url] [--space <n|name>] | [--window n] little to-window"
     static let spaceUsage = "Usage: soprano-web browser [--window n] space <n|name>"
+    static let peekUsage = "Usage: soprano-web browser [--window n] peek [<url>|close|open-as-tab]"
+    static let splitUsage = "Usage: soprano-web browser [--window n] split [<url>|close|focus <n>]"
+    static let siteUsage = """
+    Usage: soprano-web browser [--window n] [--tab n] site [info|clear|permission <camera|microphone|notifications|popups> allow|deny|ask]
+    """
+    static let mediaUsage = """
+    Usage: soprano-web browser [--window n] [--tab n] media [info|play|pause|next|previous|mute]
+    """
+    static let readerUsage = "Usage: soprano-web browser [--window n] [--tab n] reader [on|off]"
+    static let translateUsage = "Usage: soprano-web browser [--window n] [--tab n] translate [to <language>|off]"
+    static let liveFolderUsage = """
+    Usage: soprano-web browser live-folders
+           soprano-web browser [--window n] live-folder add <owner/repo|github.com link|search query>
+           soprano-web browser live-folder refresh
+    """
+    static let boostUsage = """
+    Usage: soprano-web browser boost [list]
+           soprano-web browser boost show|enable|disable|remove <host>
+           soprano-web browser boost css|js <host> <file|->
+           soprano-web browser boost zap <host> <selector>
+    """
+    static let extensionUsage = """
+    Usage: soprano-web browser extension install <chrome web store url|id|folder>
+           soprano-web browser extension enable|disable|remove|errors <id>
+           soprano-web browser extension action <id> [<popup.png>]
+           soprano-web browser extension update
+    """
 }
 
 struct BrowserAutomationResponse: Codable, Equatable, Sendable {
@@ -237,19 +479,40 @@ enum BrowserCommand {
       soprano-web browser [--window n] [--tab n] press <key>
       soprano-web browser [--window n] [--tab n] get <text|html|value|attr|count> <selector> [attribute]
       soprano-web browser [--window n] [--tab n] is <visible|enabled|checked> <selector|@ref>
-      soprano-web browser [--window n] [--tab n] screenshot <path.png>
+      soprano-web browser [--window n] [--tab n] screenshot [--full] <path.png>
       soprano-web browser [--window n] tabs
       soprano-web browser [--window n] new-tab [url]
       soprano-web browser [--window n] select-tab <n>
       soprano-web browser [--window n] [--tab n] close-tab [n]
       soprano-web browser windows
       soprano-web browser new-window [url] [--space <n|name>]
+      soprano-web browser little [url] [--space <n|name>]
+      soprano-web browser [--window n] little to-window
       soprano-web browser [--window n] close-window [n]
       soprano-web browser [--window n] [--tab m] move-to-window <k|new>
+      soprano-web browser [--window n] peek [<url>|close|open-as-tab]
+      soprano-web browser [--window n] split [<url>|close|focus <n>]
+      soprano-web browser [--window n] [--tab n] site [info|clear|permission <name> allow|deny|ask]
+      soprano-web browser [--window n] [--tab n] media [info|play|pause|next|previous|mute]
+      soprano-web browser [--window n] [--tab n] reader [on|off]
+      soprano-web browser [--window n] [--tab n] translate [to <language>|off]
+      soprano-web browser boost [list]
+      soprano-web browser boost show|enable|disable|remove <host>
+      soprano-web browser boost css|js <host> <file|->
+      soprano-web browser boost zap <host> <selector>
+      soprano-web browser live-folders
+      soprano-web browser [--window n] live-folder add <owner/repo|github.com link|search query>
+      soprano-web browser live-folder refresh
       soprano-web browser [--window n] spaces
       soprano-web browser [--window n] space <n|name>
+      soprano-web browser extensions
+      soprano-web browser extension install <chrome web store url|id|folder>
+      soprano-web browser extension enable|disable|remove|errors <id>
+      soprano-web browser extension action <id> [<popup.png>]
+      soprano-web browser extension update
 
-    `windows` lists the open windows (1-based) with their current Space,
+    `windows` lists the open windows (1-based) with their kind (`normal`,
+    `little` for a Little Arc or `popup`), current Space (a Little Arc's own),
     its tab count, the selected tab's title and every Space's tab count;
     `*` marks the window commands use by default: the key
     window, else the most recently active one. `--window n` targets window n
@@ -261,16 +524,73 @@ enum BrowserCommand {
     window's tab count in it; `*` marks the window's current Space.
     `space` switches the window to Space n or the Space named (any case).
     Every Space keeps its own cookies, History and Archive.
+    `media` acts on the tab the media controls show (the off-screen tab
+    that plays, or the Mini Player's), or `--tab n`: `info` prints its
+    state, Media Session, artwork and the Mini Player; `play`, `pause`,
+    `next`, `previous` act like the controls and print `info` after;
+    `mute` toggles the tab's mute.
+    `reader` prints whether the page has an article and whether Reader
+    shows it (with its title, byline, site and length); `on` shows the
+    article in Reader in the same tab, `off` puts the page back as it
+    was, without a reload.
+    `translate` prints the page's language, the translation the address
+    field offers, the current translation and the Never Offer languages;
+    `to <language>` (a BCP 47 code: en, de, fr…) translates the page's
+    text into it when both languages are downloaded on this Mac (else it
+    names System Settings' Translation Languages), `off` shows the
+    original.
+    `extensions` lists the installed Chrome extensions: id, name, version,
+    state (on, off, not running, installing), private windows, site access,
+    source and how many errors WebKit reported. `extension install` takes a
+    Chrome Web Store link or id (downloaded, its signatures checked as
+    Chrome checks a store install) or an unpacked folder (copied), and
+    waits until it runs; `errors` prints what WebKit reported (the
+    background's uncaught errors and console errors included); `action`
+    clicks the extension's toolbar button in the window commands use and,
+    when its popup opens, prints the popup's address, size and text (and
+    saves its capture to the PNG); `update`
+    checks the Web Store extensions for updates now.
     `new-window` opens on Space n or the Space named by `--space` (any
     case), else on the current Space of the window commands use by
     default (the Default Space when none is open); an unknown Space is an
     error.
+    `little` opens a Little Arc (one tab, compact toolbar) with `url` or the
+    start page, on the Space named by `--space`, else the Space of the
+    window commands use by default; `little to-window` moves a Little
+    Arc's tab into its Space's window (⌘O: a window showing the Space,
+    else the most recent normal window switched to it) and closes it.
     `close-window` puts the window on History ▸ Recently Closed, like ⇧⌘W.
     `move-to-window` moves the selected tab (or tab m) of the window into
     window k, after the tabs of its current Space, when that is the tab's
     Space, or into a new window on the tab's Space (`new`); the tab
     keeps its page and history. It selects nothing and brings no window
     forward; a window left without tabs closes.
+    `peek <url>` opens a Peek over the selected tab (its data context; one
+    per window, a second replaces it), as ⇧-click does; `peek` prints the
+    open Peek (address, title, back and forward counts, the tab it is
+    over); `peek close` closes it (Esc, ⌘W); `peek open-as-tab` makes it a
+    selected Today tab after that tab, history kept (⌘O). Page commands
+    keep working on the selected tab.
+    `split <url>` opens `url` (the start page without one) in a new pane
+    right of the focused one: a split view of 2–4 tabs side by side, as
+    ⌃⇧= and ⌥-click do; `split close` closes the focused pane (⌃⇧-, its
+    tab as ⌘W closes it); `split focus n` focuses pane n, left to right
+    (⌃⇧1…4). The focused pane is the selected tab every tab command uses;
+    `tabs` marks each pane with `split s, pane p of k`.
+    `site` acts on the page the user looks at (the Peek's, the focused
+    pane's; `--tab n` another) like the lock's Site Control Center: `site`
+    or `site info` prints its site, connection, permissions, zoom, ad
+    blocking and extensions' access; `site permission <camera|microphone|
+    notifications|popups> allow|deny|ask` sets a decision in the tab's
+    profile (a private window's own layer); `site clear` removes the
+    site's website data (its registrable domain's: WebKit keeps no finer
+    grain) and the host's cookies without asking, then reloads the page.
+    `boost` edits Boosts, the user's per-site CSS, JavaScript and hidden
+    elements (app-wide, every Space). A host matches itself and its `www.`
+    form, not other subdomains. `css`/`js` replace the Boost's code with a
+    file or `-` (stdin), making the Boost when there is none; `zap` adds a
+    selector to hide. CSS and zaps apply to open pages at once, JavaScript
+    from the next load.
     `snapshot` assigns ephemeral refs such as `e1`; pass them back as `@e1`.
     `eval` runs an expression, or an async function body that uses `return`;
     Promises are awaited and the result prints as JSON. A thrown error or a
@@ -416,6 +736,25 @@ enum BrowserAutomationRouter {
         case "windows":
             completion(.success(windowList(manager)))
             return
+        case "extensions":
+            completion(.success(BrowserExtensionCommands.list(manager.extensions)))
+            return
+        case "extension":
+            BrowserExtensionCommands.perform(request.arguments, in: manager.extensions, completion: completion)
+            return
+        case "boost":
+            completion(BrowserBoostCommands.perform(request.arguments, in: manager.boosts))
+            return
+        case "live-folders":
+            completion(.success(BrowserLiveFolderCommands.list(manager)))
+            return
+        case "live-folder" where request.arguments == ["refresh"]:
+            // App-wide: needs no window.
+            BrowserLiveFolderCommands.refresh(manager, completion: completion)
+            return
+        case "little":
+            completion(littleArc(request, in: manager))
+            return
         case "new-window":
             let controller: BrowserWindowController
             if let value = request.space {
@@ -482,6 +821,12 @@ enum BrowserAutomationRouter {
             completion(.success(spaceList(for: target, in: manager)))
         case "space":
             completion(switchSpace(request, in: target, manager: manager))
+        case "peek":
+            completion(peek(request, in: target))
+        case "split":
+            completion(target.performSplitCommand(request.arguments))
+        case "live-folder":
+            BrowserLiveFolderCommands.perform(request.arguments, in: target, manager: manager, completion: completion)
         default:
             target.performAutomation(request, completion: completion)
         }
@@ -542,22 +887,101 @@ enum BrowserAutomationRouter {
         return .success("window \(window) tab \(index)")
     }
 
-    /// `* 1\tWork\t2 tabs\tExample Domain\tDefault 3, Work 2`, one line per
-    /// normal window: its current Space (`-` for a pop-up), that Space's
-    /// tab count, the selected tab's title and every Space's tab count in
-    /// the window.
+    /// `peek [<url>|close|open-as-tab]` on `window` (see the help).
+    static func peek(_ request: BrowserCommandRequest, in window: BrowserWindowController) -> Result<String, Error> {
+        switch request.arguments.first {
+        case nil:
+            guard let peek = window.peek else { return .success("no peek") }
+            return .success(peekLine(peek, in: window))
+        case "close":
+            guard window.peek != nil else {
+                return .failure(BrowserAutomationError.unavailable("No Peek is open."))
+            }
+            window.closePeek()
+            return .success("closed peek")
+        case "open-as-tab":
+            guard let tab = window.openPeekAsTab() else {
+                return .failure(BrowserAutomationError.unavailable("No Peek is open."))
+            }
+            let index = (window.visibleTabs.firstIndex { $0 === tab } ?? 0) + 1
+            return .success("tab \(index)\t\(tab.webView.url?.absoluteString ?? "")\tback \(tab.webView.backForwardList.backList.count)")
+        case let input?:
+            guard let opener = window.selectedTab else {
+                return .failure(BrowserAutomationError.unavailable("No tab is open."))
+            }
+            guard let url = BrowserAddressResolver.resolve(input, searchEngines: window.settingsStore.settings.searchEngines),
+                  BrowserWebSchemes.isWeb(url)
+            else {
+                return .failure(BrowserAutomationError.invalidArguments("Invalid browser address: \(input)"))
+            }
+            window.openPeek(url, from: opener)
+            let index = (window.visibleTabs.firstIndex { $0 === opener } ?? 0) + 1
+            return .success("peek \(url.absoluteString) over tab \(index)")
+        }
+    }
+
+    /// `<address>\t<title>\tback n, forward m\tover tab k`.
+    static func peekLine(_ peek: BrowserPeek, in window: BrowserWindowController) -> String {
+        let list = peek.tab.webView.backForwardList
+        let address = peek.tab.webView.url?.absoluteString ?? peek.tab.pendingURL ?? ""
+        let over = (window.visibleTabs.firstIndex { $0.id == peek.openerID } ?? 0) + 1
+        return "\(address)\t\(peek.tab.displayTitle)\tback \(list.backList.count), forward \(list.forwardList.count)\tover tab \(over)"
+    }
+
+    /// `little [url] [--space]` opens a Little Arc; `little to-window` (on
+    /// `--window n`, else the most recent Little Arc) is ⌘O.
+    static func littleArc(_ request: BrowserCommandRequest, in manager: BrowserWindowManager) -> Result<String, Error> {
+        if request.arguments == ["to-window"] {
+            let little: BrowserWindowController?
+            if let number = request.windowIndex {
+                let windows = manager.automationControllers
+                little = windows.indices.contains(number - 1) ? windows[number - 1] : nil
+            } else {
+                little = manager.mostRecentlyActive { $0.role == .little }
+            }
+            guard let little, little.role == .little else {
+                return .failure(BrowserAutomationError.invalidArguments("No Little Arc. Use `windows` to list them."))
+            }
+            guard let target = manager.moveLittleArcToSpaceWindow(little) else {
+                return .failure(BrowserAutomationError.unavailable("The Little Arc has no tab to move."))
+            }
+            let space = manager.space(of: target)?.displayName ?? "-"
+            let index = (target.visibleTabs.firstIndex { $0.id == target.selectedTab?.id } ?? 0) + 1
+            return .success("window \(manager.number(of: target) ?? 0) tab \(index) (\(space))")
+        }
+        var spaceID: UUID?
+        if let value = request.space {
+            switch resolveSpace(value, in: manager) {
+            case .success(let index): spaceID = manager.spaces.spaces[index].id
+            case .failure(let error): return .failure(error)
+            }
+        } else {
+            spaceID = manager.automationActiveController.flatMap(manager.space(of:))?.id
+        }
+        let little = manager.newLittleArc(url: request.arguments.first, spaceID: spaceID)
+        let space = manager.space(of: little)?.displayName ?? "-"
+        return .success("window \(manager.number(of: little) ?? 0) little (\(space))")
+    }
+
+    /// `* 1\tnormal\tWork\t2 tabs\tExample Domain\tDefault 3, Work 2`, one
+    /// line per window the CLI sees: its kind (`normal`, `little`, `popup`),
+    /// its current Space (a Little Arc's own; `-` for a pop-up), that
+    /// Space's tab count, the selected tab's title and every Space's tab
+    /// count in the window.
     static func windowList(_ manager: BrowserWindowManager) -> String {
         let active = manager.automationActiveController
         return manager.automationControllers.enumerated().map { index, controller in
             let mark = controller === active ? "*" : " "
             let count = controller.visibleTabs.count
             let title = controller.selectedTab?.displayTitle ?? "New Tab"
-            let space = controller.currentSpaceID.flatMap(manager.spaces.space(id:))?.displayName ?? "-"
+            let space = (controller.currentSpaceID ?? controller.littleSpaceID)
+                .flatMap(manager.spaces.space(id:))?.displayName ?? "-"
             let perSpace = manager.spaces.spaces.compactMap { space -> String? in
                 let inSpace = controller.tabs.filter { $0.spaceID == space.id }.count
                 return inSpace == 0 ? nil : "\(space.displayName) \(inSpace)"
             }.joined(separator: ", ")
-            return "\(mark) \(index + 1)\t\(space)\t\(count) \(count == 1 ? "tab" : "tabs")\t\(title)\t\(perSpace)"
+            let kind = controller.role.rawValue
+            return "\(mark) \(index + 1)\t\(kind)\t\(space)\t\(count) \(count == 1 ? "tab" : "tabs")\t\(title)\t\(perSpace)"
         }.joined(separator: "\n")
     }
 

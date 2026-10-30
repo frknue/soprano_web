@@ -43,6 +43,10 @@ struct BrowserDownloadRecord: Codable, Identifiable, Equatable, Sendable {
     /// resume-data directory (in memory for a private record); nil when the
     /// download cannot be resumed.
     var resumeDataFile: String?
+    /// The profile (a Space's data) of the tab the download started in;
+    /// Resume and Retry use its data context. Rows saved before rows had
+    /// one are Default's.
+    var profileID: UUID
     /// The private window's data context the download started in. Such a
     /// record is listed while that window is open and never saved.
     var privateContextID: UUID?
@@ -58,6 +62,7 @@ struct BrowserDownloadRecord: Codable, Identifiable, Equatable, Sendable {
         errorMessage: String? = nil,
         fractionCompleted: Double = 0,
         resumeDataFile: String? = nil,
+        profileID: UUID = BrowserProfile.defaultID,
         privateContextID: UUID? = nil
     ) {
         self.id = id
@@ -70,11 +75,30 @@ struct BrowserDownloadRecord: Codable, Identifiable, Equatable, Sendable {
         self.errorMessage = errorMessage
         self.fractionCompleted = fractionCompleted
         self.resumeDataFile = resumeDataFile
+        self.profileID = profileID
         self.privateContextID = privateContextID
     }
 
     private enum CodingKeys: String, CodingKey {
         case id, url, filename, path, startedAt, finishedAt, state, errorMessage, fractionCompleted, resumeDataFile
+        case profileID
+    }
+
+    /// A missing or unreadable `profileID` is Default's.
+    init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        id = try c.decode(UUID.self, forKey: .id)
+        url = try c.decode(String.self, forKey: .url)
+        filename = try c.decode(String.self, forKey: .filename)
+        path = try c.decodeIfPresent(String.self, forKey: .path)
+        startedAt = try c.decode(Date.self, forKey: .startedAt)
+        finishedAt = try c.decodeIfPresent(Date.self, forKey: .finishedAt)
+        state = try c.decode(BrowserDownloadState.self, forKey: .state)
+        errorMessage = try c.decodeIfPresent(String.self, forKey: .errorMessage)
+        fractionCompleted = try c.decode(Double.self, forKey: .fractionCompleted)
+        resumeDataFile = try c.decodeIfPresent(String.self, forKey: .resumeDataFile)
+        profileID = ((try? c.decodeIfPresent(UUID.self, forKey: .profileID)) ?? nil) ?? BrowserProfile.defaultID
+        privateContextID = nil
     }
 
     var canResume: Bool {
@@ -123,15 +147,23 @@ final class BrowserDownloadStore {
         .sorted { $0.startedAt > $1.startedAt }
     }
 
-    /// A new row for a download that just got its destination; a private
-    /// window passes its context id and the row is never saved.
+    /// A new row for a download that just got its destination, from a tab
+    /// of profile `profileID`; a private window passes its context id and
+    /// the row is never saved.
     func begin(
         url address: String,
         filename: String,
         path: String? = nil,
+        profileID: UUID = BrowserProfile.defaultID,
         privateContextID: UUID? = nil
     ) -> BrowserDownloadRecord {
-        let record = BrowserDownloadRecord(url: address, filename: filename, path: path, privateContextID: privateContextID)
+        let record = BrowserDownloadRecord(
+            url: address,
+            filename: filename,
+            path: path,
+            profileID: profileID,
+            privateContextID: privateContextID
+        )
         records.insert(record, at: 0)
         changes.notify()
         persist(after: record)

@@ -111,6 +111,12 @@ struct SnapshotSessionOptions {
         case archive(SnapshotArchiveAction)
         /// Command Bar and shortcut flags (`SnapshotCommandBarAction`).
         case commandBar(SnapshotCommandBarAction)
+        /// Little Arc flags (`SnapshotLittleArcAction`).
+        case littleArc(SnapshotLittleArcAction)
+        /// Peek flags (`SnapshotPeekAction`).
+        case peek(SnapshotPeekAction)
+        /// Split View flags (`SnapshotSplitAction`).
+        case split(SnapshotSplitAction)
     }
 
     static let flags: Set<String> = Set([
@@ -123,7 +129,8 @@ struct SnapshotSessionOptions {
         "--dump-tabs", "--save-session", "--capture-window",
         "--create-space", "--space", "--swipe-rail", "--print-spaces", "--delete-space",
     ]).union(SnapshotSleepAction.flags).union(SnapshotBlockerAction.flags).union(SnapshotRailAction.flags)
-        .union(SnapshotArchiveAction.flags)
+        .union(SnapshotArchiveAction.flags).union(SnapshotLittleArcAction.flags).union(SnapshotPeekAction.flags)
+        .union(SnapshotSplitAction.flags)
     static let usage = """
                                [--session <file>] [--visit <url>] [--select <n>] [--close-tab]
                                [--reopen-closed] [--duplicate] [--go-back] [--reload]
@@ -132,7 +139,7 @@ struct SnapshotSessionOptions {
                                [--move-tab <window>:<tab>:<window>] [--move-to-new-window]
                                [--drop-tab <window>:<tab>:<window>:<gap>]
                                [--drop-outside <window>:<tab>:<x>,<y>] [--merge-windows]
-                               [--click-page X,Y] [--find-text <text>] [--cli "<arguments>"]
+                               [--click-page [cmd-|shift-cmd-|shift-|opt-|middle-]X,Y] [--find-text <text>] [--cli "<arguments>"]
                                [--start-download <url>]
                                [--wait-downloads] [--crash] [--crash-page] [--print-windows]
                                [--dump-tabs] [--save-session <file>] [--capture-window <n>]
@@ -140,6 +147,9 @@ struct SnapshotSessionOptions {
                                [--space <n|name>] [--swipe-rail next|previous] [--print-spaces]
     \(SnapshotRailAction.usage)
     \(SnapshotArchiveAction.usage)
+    \(SnapshotLittleArcAction.usage)
+    \(SnapshotPeekAction.usage)
+    \(SnapshotSplitAction.usage)
     \(SnapshotCommandBarAction.usage)
     """
 
@@ -245,6 +255,18 @@ struct SnapshotSessionOptions {
                 actions.append(.archive(action))
                 return
             }
+            if let action = try SnapshotLittleArcAction.parse(option, value: value) {
+                actions.append(.littleArc(action))
+                return
+            }
+            if let action = try SnapshotPeekAction.parse(option, value: value) {
+                actions.append(.peek(action))
+                return
+            }
+            if let action = try SnapshotSplitAction.parse(option, value: value) {
+                actions.append(.split(action))
+                return
+            }
             if let action = try SnapshotBlockerAction.parse(option, value: value) {
                 actions.append(.blocker(action))
                 return
@@ -307,6 +329,15 @@ struct SnapshotSessionOptions {
             action.perform(in: manager)
             return
         case .commandBar(let action):
+            action.perform(in: manager)
+            return
+        case .littleArc(let action):
+            action.perform(in: manager)
+            return
+        case .peek(let action):
+            action.perform(in: manager)
+            return
+        case .split(let action):
             action.perform(in: manager)
             return
         case let .newWindow(value):
@@ -425,7 +456,8 @@ struct SnapshotSessionOptions {
             // What Window ▸ Move Tab to New Window runs.
             controller.moveSelectedTabToNewWindow()
         case .clickPage(let click):
-            if let webView = controller.selectedTab?.webView {
+            // A Peek covers the page: the click lands in it.
+            if let webView = controller.pageTab?.webView {
                 SnapshotCommand.perform(click, in: webView)
             }
         case .findText(let text):
@@ -462,7 +494,7 @@ struct SnapshotSessionOptions {
             Self.swipeRail(next: next, in: controller, manager: manager)
         case .newWindow, .newPrivateWindow, .deleteSpace, .activateWindow, .moveTab, .dropTab, .dropOutside,
              .mergeWindows, .cli, .waitDownloads, .printWindows, .printSpaces, .reopenClosed, .sleep, .blocker, .rail,
-             .archive, .commandBar:
+             .archive, .commandBar, .littleArc, .peek, .split:
             break
         }
     }
@@ -729,7 +761,9 @@ struct SnapshotSessionOptions {
                 "cliNumber": manager.number(of: controller) ?? NSNull(),
                 "kind": controller.kind.rawValue,
                 "active": controller === active,
-                "popup": controller.isPopup,
+                "popup": controller.role == .popup,
+                "role": controller.role.rawValue,
+                "littleSpace": controller.littleSpaceID.flatMap(manager.spaces.space(id:))?.displayName ?? NSNull(),
                 "title": controller.window?.title ?? "",
                 // The Space whose data the window uses (a private window's:
                 // the one it was opened over) and that data's profile id.
@@ -813,6 +847,7 @@ struct SnapshotSessionOptions {
                 "state": record.state.rawValue,
                 "progress": Int((record.fractionCompleted * 100).rounded()),
                 "private": record.privateContextID != nil,
+                "profile": record.profileID.uuidString,
             ]
         }
         // A closed window's controller must be released (no retain cycle

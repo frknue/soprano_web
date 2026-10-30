@@ -4,9 +4,11 @@ import WebKit
 /// Every `WKDownload` in the app: the delegate WebKit reports to, the map
 /// from downloads to list rows and the progress timer. Windows hand it new
 /// downloads (`adopt`); a download outlives the window that started it and
-/// every window's Downloads sidebar shows the one `store`. A download from a
-/// private window carries that window's data context id, so its row is
-/// listed only there and never saved.
+/// every window's Downloads sidebar shows the one `store`. A row remembers
+/// the profile of the tab that started it, and Resume and Retry run in that
+/// profile's data context, whatever Space the clicked window shows. A
+/// download from a private window carries that window's data context id, so
+/// its row is listed only there and never saved.
 @MainActor
 final class BrowserDownloadManager: NSObject {
     let store: BrowserDownloadStore
@@ -14,17 +16,29 @@ final class BrowserDownloadManager: NSObject {
     /// The window for the "Ask where to save" panel when the starting
     /// window is gone: the key (or most recently active) browser window.
     var fallbackWindow: () -> NSWindow? = { nil }
+    /// The normal data context of a profile (`BrowserWindowManager.context(for:)`):
+    /// where a saved row resumes and retries.
+    var profileContext: (UUID) -> BrowserDataContext? = { _ in nil }
 
     private var downloadsByRecord: [UUID: WKDownload] = [:]
     private var recordsByDownload: [ObjectIdentifier: UUID] = [:]
     private var destinationsByDownload: [ObjectIdentifier: URL] = [:]
     private var startingWindows: [ObjectIdentifier: WeakWindow] = [:]
-    /// The private context a new download's row belongs to.
-    private var privateContexts: [ObjectIdentifier: UUID] = [:]
+    /// Where a new download's row comes from: the tab's profile, and its
+    /// private context for a private window's download.
+    private var origins: [ObjectIdentifier: Origin] = [:]
+    /// The download-only web view a resumed or retried download started
+    /// from, kept until the download ends.
+    private var downloadWebViews: [ObjectIdentifier: WKWebView] = [:]
     private var progressTimer: Timer?
 
     private struct WeakWindow {
         weak var window: NSWindow?
+    }
+
+    private struct Origin {
+        let profileID: UUID
+        let privateContextID: UUID?
     }
 
     init(store: BrowserDownloadStore, settingsStore: BrowserSettingsStore) {
@@ -36,20 +50,22 @@ final class BrowserDownloadManager: NSObject {
         !downloadsByRecord.isEmpty
     }
 
-    /// Takes over a download WebKit just created in `window`;
-    /// `privateContextID` is set for a private window's download.
-    func adopt(_ download: WKDownload, from window: NSWindow?, privateContextID: UUID?) {
+    /// Takes over a download WebKit just created in `window` for a tab of
+    /// `context`: its row remembers the context's profile, and a private
+    /// context's id.
+    func adopt(_ download: WKDownload, from window: NSWindow?, context: BrowserDataContext) {
         download.delegate = self
         let key = ObjectIdentifier(download)
         startingWindows[key] = WeakWindow(window: window)
-        privateContexts[key] = privateContextID
+        origins[key] = Origin(profileID: context.profileID, privateContextID: context.downloadContextID)
     }
 
-    /// Downloads `request` with `webView`'s data store.
-    func start(_ request: URLRequest, in webView: WKWebView, privateContextID: UUID?) {
+    /// Downloads `request` with `webView`'s data store; `context` is the
+    /// data context of `webView`'s tab.
+    func start(_ request: URLRequest, in webView: WKWebView, context: BrowserDataContext) {
         let window = webView.window
         webView.startDownload(using: request) { [weak self] download in
-            self?.adopt(download, from: window, privateContextID: privateContextID)
+            self?.adopt(download, from: window, context: context)
         }
     }
 
@@ -69,22 +85,62 @@ final class BrowserDownloadManager: NSObject {
         }
     }
 
+    /// Deleting a Space: stops every running download of profile `id`
+    /// (normal or from a private window over it) as Cancel does; the rows
+    /// stay, and their Resume and Retry refuse (the profile is gone).
+    func cancelDownloads(ofProfile id: UUID) {
+        let ids = downloadsByRecord.keys.filter { recordID in
+            store.records.first { $0.id == recordID }?.profileID == id
+        }
+        for recordID in ids {
+            cancel(id: recordID)
+        }
+    }
+
+    /// The data context a stopped row continues in: a private row's own
+    /// window's (`windowContext`; another window has no such row), else
+    /// the normal context of the profile the download started in — never
+    /// the current Space's.
+    func dataContext(for record: BrowserDownloadRecord, windowContext: BrowserDataContext) -> BrowserDataContext? {
+        if let privateContextID = record.privateContextID {
+            return windowContext.downloadContextID == privateContextID ? windowContext : nil
+        }
+        return profileContext(record.profileID)
+    }
+
+    /// What a resumed or retried download runs in: `context`'s data store
+    /// and the app's user agent, no page.
+    static func downloadConfiguration(for context: BrowserDataContext) -> WKWebViewConfiguration {
+        let configuration = WKWebViewConfiguration()
+        configuration.websiteDataStore = context.websiteDataStore
+        configuration.applicationNameForUserAgent = BrowserUserAgent.applicationName
+        return configuration
+    }
+
     /// Continues a stopped download from its saved resume data, or starts it
-    /// over when there is none. `webView` is of the data store the download
-    /// started in (a private row's own window).
-    func resume(id: UUID, in webView: WKWebView) {
+    /// over when there is none, in the data context it started in
+    /// (`dataContext(for:windowContext:)`). `window` is the clicked window,
+    /// for the "Ask where to save" panel.
+    func resume(id: UUID, from window: NSWindow?, windowContext: BrowserDataContext) {
         guard let data = store.resumeData(id: id) else {
-            retry(id: id, in: webView)
+            retry(id: id, from: window, windowContext: windowContext)
             return
         }
-        let destination = store.records.first { $0.id == id }?.path.map(URL.init(fileURLWithPath:))
+        guard let record = store.records.first(where: { $0.id == id }),
+              let context = dataContext(for: record, windowContext: windowContext)
+        else {
+            NSSound.beep()
+            return
+        }
+        let destination = record.path.map(URL.init(fileURLWithPath:))
         store.restart(id: id)
-        let window = webView.window
+        let webView = WKWebView(frame: .zero, configuration: Self.downloadConfiguration(for: context))
         webView.resumeDownload(fromResumeData: data) { [weak self] download in
             guard let self else { return }
             // The row already exists, private or not.
-            self.adopt(download, from: window, privateContextID: nil)
+            self.adopt(download, from: window, context: context)
             let key = ObjectIdentifier(download)
+            self.downloadWebViews[key] = webView
             self.recordsByDownload[key] = id
             if let destination {
                 self.destinationsByDownload[key] = destination
@@ -95,11 +151,12 @@ final class BrowserDownloadManager: NSObject {
     }
 
     /// Downloads the record's original URL again from the start, into the
-    /// same list row.
-    func retry(id: UUID, in webView: WKWebView) {
+    /// same list row, in the data context it started in.
+    func retry(id: UUID, from window: NSWindow?, windowContext: BrowserDataContext) {
         guard let record = store.records.first(where: { $0.id == id }),
               record.canRetry,
-              let url = URL(string: record.url)
+              let url = URL(string: record.url),
+              let context = dataContext(for: record, windowContext: windowContext)
         else {
             NSSound.beep()
             return
@@ -109,11 +166,13 @@ final class BrowserDownloadManager: NSObject {
             try? FileManager.default.removeItem(atPath: path)
         }
         store.restart(id: id)
-        let window = webView.window
+        let webView = WKWebView(frame: .zero, configuration: Self.downloadConfiguration(for: context))
         webView.startDownload(using: URLRequest(url: url)) { [weak self] download in
             guard let self else { return }
-            self.adopt(download, from: window, privateContextID: nil)
-            self.recordsByDownload[ObjectIdentifier(download)] = id
+            self.adopt(download, from: window, context: context)
+            let key = ObjectIdentifier(download)
+            self.downloadWebViews[key] = webView
+            self.recordsByDownload[key] = id
             self.downloadsByRecord[id] = download
             self.startProgressTimer()
         }
@@ -152,11 +211,13 @@ final class BrowserDownloadManager: NSObject {
             recordID = existing
             store.setDestination(id: existing, path: destination.path)
         } else {
+            let origin = origins[key]
             recordID = store.begin(
                 url: address,
                 filename: destination.lastPathComponent,
                 path: destination.path,
-                privateContextID: privateContexts[key]
+                profileID: origin?.profileID ?? BrowserProfile.defaultID,
+                privateContextID: origin?.privateContextID
             ).id
             recordsByDownload[key] = recordID
         }
@@ -169,12 +230,19 @@ final class BrowserDownloadManager: NSObject {
         let key = ObjectIdentifier(download)
         recordsByDownload.removeValue(forKey: key)
         destinationsByDownload.removeValue(forKey: key)
-        startingWindows.removeValue(forKey: key)
-        privateContexts.removeValue(forKey: key)
+        dropStartState(key)
         if downloadsByRecord[recordID] === download {
             downloadsByRecord.removeValue(forKey: recordID)
         }
         stopProgressTimerIfIdle()
+    }
+
+    /// What `adopt` and Resume/Retry kept for a download until the download
+    /// ends or is declined.
+    private func dropStartState(_ key: ObjectIdentifier) {
+        startingWindows.removeValue(forKey: key)
+        origins.removeValue(forKey: key)
+        downloadWebViews.removeValue(forKey: key)
     }
 
     private func startProgressTimer() {
@@ -244,6 +312,12 @@ extension BrowserDownloadManager: WKDownloadDelegate {
             completionHandler(destination)
             return
         }
+        if originProfileIsGone(key) {
+            // Its Space was deleted while it started: it never gets a row.
+            dropStartState(key)
+            completionHandler(nil)
+            return
+        }
         let directory = settingsStore.settings.downloadDirectoryURL
         try? FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
         let filename = sanitizedFilename(suggestedFilename)
@@ -272,8 +346,14 @@ extension BrowserDownloadManager: WKDownloadDelegate {
                     self.store.cancel(id: recordID)
                     self.stopProgressTimerIfIdle()
                 }
-                self?.startingWindows.removeValue(forKey: key)
-                self?.privateContexts.removeValue(forKey: key)
+                self?.dropStartState(key)
+                completionHandler(nil)
+                return
+            }
+            // Its Space was deleted while the panel was open: no row, no
+            // download into the deleted profile's store.
+            if self.originProfileIsGone(key) {
+                self.dropStartState(key)
                 completionHandler(nil)
                 return
             }
@@ -285,13 +365,18 @@ extension BrowserDownloadManager: WKDownloadDelegate {
         }
     }
 
+    /// The download started in a normal Space whose profile is deleted now.
+    private func originProfileIsGone(_ key: ObjectIdentifier) -> Bool {
+        guard let origin = origins[key], origin.privateContextID == nil else { return false }
+        return profileContext(origin.profileID) == nil
+    }
+
     func downloadDidFinish(_ download: WKDownload) {
         let key = ObjectIdentifier(download)
         guard let recordID = recordsByDownload[key] else {
             recordsByDownload[key] = nil
             destinationsByDownload[key] = nil
-            startingWindows[key] = nil
-            privateContexts[key] = nil
+            dropStartState(key)
             return
         }
         let path = destinationsByDownload[key]?.path
@@ -308,8 +393,7 @@ extension BrowserDownloadManager: WKDownloadDelegate {
     ) {
         let key = ObjectIdentifier(download)
         guard let recordID = recordsByDownload[key] else {
-            startingWindows[key] = nil
-            privateContexts[key] = nil
+            dropStartState(key)
             return
         }
         if store.records.first(where: { $0.id == recordID })?.state.isStopped == true {

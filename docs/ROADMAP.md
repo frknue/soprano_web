@@ -61,12 +61,13 @@ filters → 66,956 rules) and EasyPrivacy (56,408 → 56,330) download, convert 
 Left:
 - Try a real-mouse drag between two on-screen windows (the harness drives the same drop
   handlers, not a system drag session).
-- Prove generic element hiding with the real EasyList: a selector WebKit rejects drops its
-  whole batch of 250 without a compile error.
+- Generic element hiding with the real EasyList: proven 2026-10-30 (every batch parses in
+  WebKit after refusing `:has()` inside `:has()`; every probed generic batch hides).
 - A blocked-request count (WebKit has no public callback) and the filter types WebKit
   can't express (`$csp`, `$redirect`, `$removeparam`, `$rewrite`, scriptlets, procedural
   CSS) — uBlock Origin Lite in stage 4.
-- Arc's Space→profile mapping (stage 3) and per-profile extensions (stage 4).
+- Arc's Space→profile mapping: done in stage 3 (every Space has its own profile).
+  Extensions are app-wide (stage 4 decision), not per profile.
 
 ## 3. Arc's organization model and import
 
@@ -99,40 +100,55 @@ and bookmarks HTML files, and File ▸ Export Pinned Tabs… as bookmarks HTML.
 
 ## 4. Arc extras
 
-- Little Arc: links from other apps, ⌥⌘N and a global hotkey open a small window; ⌘O moves
-  the page into a Space; archived after 6 h.
-- Peek: links to other sites from pinned tabs and Favorites, and ⇧-clicks, open in an
-  overlay; ⌘O expands it to a tab.
-- Split View: up to 4 panes saved as one sidebar item; ⌃⇧= adds, ⌃⇧- closes, ⌃⇧1…4 focus.
-- Air Traffic Control: "URL contains / equals" → Space, plus the default for links from
-  other apps.
-- Mini Player: when you leave a playing video's tab, its web view moves into a floating
-  panel (WebKit's Picture in Picture switch is private on macOS); audio controls in the
-  sidebar from Media Session metadata.
+- Little Arc: built in Stage 4 P3 (links from other apps default to it; ⌥⌘N, global
+  shortcut, ⌘O, "Open in", 6 h archive).
+- Peek: built in Stage 4 P4 (pinned/favorite links to other sites and ⇧-clicks open an
+  overlay in the tab's data context; ⌘O opens it as a tab with its history).
+- Split View: built in Stage 4 P5 (2–4 panes with resizable dividers as one rail row and
+  strip item; ⌃⇧= / ⌃⇧- / ⌃⇧1…4, ⌥-click, drop on a pane edge; saved in session v5).
+- Site Control Center: built in Stage 4 P6 (the lock's popover for the page in its
+  Space's profile: connection, camera/microphone/notifications/pop-ups, zoom, "Block ads
+  on this site", extensions' site access, "Clear site data"; autoplay stays global).
+- Air Traffic Control: built (stage 3 P7 rules "URL contains / equals / prefix" → Space,
+  stage 4 P3 the default for links from other apps: Little Arc or the most recent window).
+- Mini Player: built in Stage 4 P9 (leaving a tab with a playing, visible video moves its
+  web view into a floating non-activating panel filled by the video; Back to Tab, Close
+  pauses; position remembered; rail bottom / toolbar media controls from Media Session
+  metadata; Settings ▸ "Mini Player for videos"; CLI `browser media`).
 - Site Control Center: per-site popover for permissions, zoom, content blocking,
   extensions, Boosts and clearing site data.
-- Boosts: per-site CSS and JavaScript in an isolated content world, a Zap element picker.
-  An agent can write one through the `browser` CLI.
-- Capture: area and full-page screenshots (`takeSnapshot(with:)`).
-- Web extensions on `WKWebExtension` (macOS 15.4): tab and window protocols, Chrome Web Store
-  install with CRX3 signature check, per-site access, `hasAccessToPrivateData` for private
-  windows, and shims for Chrome APIs WebKit lacks (`notifications`, `storage.managed`,
-  `webNavigation` events), which 1Password needs.
-- Page translation with Apple's Translation framework (`TranslationSession` outside SwiftUI
-  from macOS 26); Reader view with Readability.js (Apache-2.0).
-- GitHub pull requests as a live folder through `gh`, as Soprano Git already does.
-- AppleScript (windows, tabs, Spaces, URL, JavaScript behind an opt-in) and a Dock menu.
+- Boosts: built in Stage 4 P7 (per host and its `www.` form, app-wide; CSS and Zap
+  live, JavaScript in its own content world from the next load; editor sheet from the
+  Site Control Center and `/boost`; CLI `browser boost`).
+- Capture: built in Stage 4 P8 (⇧⌘2 overlay over the page tab: drag an area, click for
+  the visible page, Full Page through `createPDF` capped at 16,384 px; pasteboard, a
+  unique PNG in the download folder and a thumbnail toast; `/capture`; CLI `browser
+  screenshot --full`). Not built: Arc's portrait (phone-width) capture.
+- Web extensions, what is left: 1Password signed in (stage 4 P2 runs it up to its sign-in
+  page; the signed-in popup, inline menu and notifier socket await the user's sign-in,
+  see `docs/STATUS.md`). Built in P1/P2: the runtime on `WKWebExtension` (tabs and
+  windows, Chrome Web Store install with full CRX3 check, daily updates, unpacked folders,
+  site access, private windows, toolbar buttons and popups, commands, Settings ▸
+  Extensions, the `browser extension` CLI) and the native stand-ins for Chrome APIs
+  WebKit lacks or gets wrong (`BrowserExtensionShims`).
+- Reader and Translate: built in Stage 4 P10 (⇧⌘R with Readability.js 0.6.0; Translate
+  through `TranslationSession(installedSource:target:)`; CLI `browser reader`,
+  `browser translate`).
+- GitHub pull requests as a live folder: built in Stage 4 P11 (a pinned folder with a
+  repository or a `gh search prs` query, refreshed every 5 minutes and when opened;
+  CLI `browser live-folders`). Not built: Arc's other live folder sources (RSS, GitHub
+  issues, Linear).
+- AppleScript and the Dock menu: built in Stage 4 P12 (windows, tabs, Spaces; `new
+  window`, `new tab`, `select`, `close`, `reload`; `execute javascript` only with
+  Settings ▸ "Allow JavaScript from Apple Events"; Dock: New Window, New Private Window,
+  New Little Arc, the Spaces).
 
 ## Needs a decision
 
-- **1Password route.** Without an Apple Developer team, 1Password's desktop app won't pair
-  with Soprano Web. (a) Universal Autofill only: free, fills by Accessibility, matching per
-  site untested. (b) Run the 1Password extension on `WKWebExtension` with Chrome-API shims,
-  signed in to the account inside the extension: fails today at `chrome.notifications`, can
-  break with each 1Password update, but its in-page passkey hook needs no Apple
-  entitlement. (c) Soprano Web's own Keychain vault with CSV import, local to this Mac.
-- **macOS floor for extensions.** Keep macOS 14 and gate `WKWebExtension` at 15.4, or raise
-  the minimum.
+Decided on 2026-10-27 (see `docs/STAGE-4-PLAN.md`): macOS 26 is the floor, and passwords
+come from the 1Password extension on `WKWebExtension` with native stand-ins for the Chrome
+APIs WebKit lacks (Universal Autofill until it runs; no own vault).
+
 - **Toolchain.** The geolocation delegate, `willSubmitForm` (password capture), Global
   Privacy Control and `getCookies(for:)` exist only in the Xcode 27 SDK; Homebrew Swift on
   the Command Line Tools macOS 26 SDK cannot build them. Before macOS 27 APIs, WebKit

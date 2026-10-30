@@ -5,18 +5,19 @@ extension BrowserWindowController {
     // MARK: - Tabs
 
     /// A new Today tab at the end of the current Space, the start page or
-    /// `url`, of the current Space's profile. A pop-up window has no tab
-    /// list: its new tabs open in a window whose current Space uses its
-    /// data context.
+    /// `url`, of the current Space's profile. A pop-up or Little Arc window
+    /// has no tab list: its new tabs open in a window whose current Space
+    /// uses its data context (a Little Arc's: its Space). An empty Little
+    /// Arc (just made) gets its one tab here.
     @discardableResult
     func newTab(
         url: String? = nil,
         focusAddress: Bool = false,
         select: Bool = true
     ) -> BrowserTab {
-        if isPopup {
-            let target = manager.windowForNewTabs(from: self).window
-            let tab = target.newTab(url: url, focusAddress: focusAddress, select: select)
+        if role.isCompact, role == .popup || !tabs.isEmpty {
+            let (target, isNew) = manager.windowForNewTabs(from: self)
+            let tab = target.newTab(url: url, focusAddress: focusAddress, select: select || isNew)
             manager.present(target)
             return tab
         }
@@ -40,13 +41,14 @@ extension BrowserWindowController {
     }
 
     /// A tab of `context` that belongs to no window yet: its web view (of
-    /// the context's data store, or of `configuration`, a pop-up's), page
-    /// scripts and Vimium layer. `attachTab` binds it to a window. Nothing
-    /// here refers to this window, so the tab can later move into any
-    /// window whose current Space uses `context`.
-    func makeTab(context: BrowserDataContext, configuration: WKWebViewConfiguration? = nil) -> BrowserTab {
+    /// the context's data store, or of `configuration`, a pop-up's, or of
+    /// the extension whose page `url` is), page scripts and Vimium layer.
+    /// `attachTab` binds it to a window. Nothing here refers to this
+    /// window, so the tab can later move into any window whose current
+    /// Space uses `context`.
+    func makeTab(context: BrowserDataContext, configuration: WKWebViewConfiguration? = nil, for url: URL? = nil) -> BrowserTab {
         let tab = BrowserTab(
-            webView: makeWebView(context: context, configuration: configuration),
+            webView: makeWebView(context: context, configuration: configuration, for: url),
             dataContext: context,
             zoom: settingsStore.settings.defaultZoom
         )
@@ -57,11 +59,15 @@ extension BrowserWindowController {
         return tab
     }
 
-    /// An empty web view of `context` (or of `configuration`, a pop-up's)
-    /// with every page script and the content blocker's lists. It starts
-    /// no web content process until it loads.
-    private func makeWebView(context: BrowserDataContext, configuration: WKWebViewConfiguration?) -> BrowserWebView {
-        let configuration = configuration ?? manager.makeTabConfiguration(for: context)
+    /// An empty web view of `context` (or of `configuration`, a pop-up's;
+    /// an extension page `url` gets its extension's configuration) with
+    /// every page script and the content blocker's lists. It starts no web
+    /// content process until it loads.
+    private func makeWebView(context: BrowserDataContext, configuration: WKWebViewConfiguration?, for url: URL?) -> BrowserWebView {
+        let page = configuration == nil ? extensionContext(for: url) : nil
+        let configuration = configuration
+            ?? page?.webViewConfiguration
+            ?? manager.makeTabConfiguration(for: context)
         if configuration.urlSchemeHandler(forURLScheme: BrowserStartPageSchemeHandler.scheme) == nil {
             configuration.setURLSchemeHandler(
                 manager.makeStartPageSchemeHandler(),
@@ -85,6 +91,7 @@ extension BrowserWindowController {
         configuration.userContentController = contentController
 
         let webView = BrowserWebView(frame: .zero, configuration: configuration)
+        webView.extensionID = page.flatMap { extensions.id(of: $0) }
         webView.allowsBackForwardNavigationGestures = true
         webView.allowsMagnification = true
         webView.isInspectable = true
@@ -96,19 +103,30 @@ extension BrowserWindowController {
         return webView
     }
 
+    /// Vimium's normal mode gets the page's keys first; in a Peek, Esc with
+    /// nothing for Vimium to end (no hints, find, visual mode or typing)
+    /// closes the Peek.
     private func connectKeyHandler(_ tab: BrowserTab) {
-        tab.webView.keyHandler = { [weak vimium = tab.vimium] event in
-            vimium?.handle(event) ?? false
+        tab.webView.keyHandler = { [weak tab] event in
+            guard let tab else { return false }
+            if let controller = tab.vimium?.windowController,
+               controller.endsZap(on: event, in: tab) || controller.closesPeek(on: event, in: tab)
+            {
+                return true
+            }
+            return tab.vimium?.handle(event) ?? false
         }
     }
 
     /// Swaps the tab's web view for a fresh, empty one of the tab's data
-    /// context, so the old one and its web content process go away (a tab
-    /// falling asleep). The tab keeps its place, selection and bindings;
-    /// the caller has saved what the page needs to come back
+    /// context (of the extension whose page `url` is), so the old one and
+    /// its web content process go away (a tab falling asleep, a tab going
+    /// to or from an extension page). The tab keeps its place, selection
+    /// and bindings; the caller has saved what the page needs to come back
     /// (`lifecycle.pendingRestore`).
-    func replaceWebView(of tab: BrowserTab) {
-        let attached = tabs.contains { $0 === tab }
+    func replaceWebView(of tab: BrowserTab, for url: URL? = nil) {
+        let inPeek = tab === peek?.tab
+        let attached = inPeek || tabs.contains { $0 === tab }
         let previousSelection = previousSelectedTabID
         if attached {
             unbindTab(tab)
@@ -116,15 +134,20 @@ extension BrowserWindowController {
         let old = tab.webView
         old.stopLoading()
         old.removeFromSuperview()
-        tab.replaceWebView(with: makeWebView(context: tab.dataContext, configuration: nil))
+        tab.replaceWebView(with: makeWebView(context: tab.dataContext, configuration: nil, for: url))
         tab.media.frames.removeAll()
         tab.media.audio.reset()
+        tab.media.info.reset()
         connectKeyHandler(tab)
         refreshStateScripts(tab)
         guard attached else { return }
         bindTab(tab)
-        installWebView(tab.webView)
-        tab.webView.isHidden = tab.id != selectedTab?.id
+        if let peek, inPeek {
+            peek.view.install(tab.webView)
+        } else {
+            installWebView(tab.webView)
+            applyPaneLayout()
+        }
         previousSelectedTabID = previousSelection
     }
 
@@ -140,7 +163,7 @@ extension BrowserWindowController {
             ? (state.spaceID.flatMap(spaces.space(id:)) ?? currentSpaceID.flatMap(spaces.space(id:)))
             : nil
         let context = space.map { manager.context(for: $0.profileID) } ?? dataContext
-        let tab = makeTab(context: context)
+        let tab = makeTab(context: context, for: state.url.flatMap(URL.init(string:)))
         tab.spaceID = space?.id
         // A link whose pin or favorite is gone, or that already has a live
         // tab here, becomes a Today tab.
@@ -208,6 +231,7 @@ extension BrowserWindowController {
             selectedIndex = visible
         }
         syncContextObservations()
+        extensions.tabAttached(tab, to: self)
         if select {
             selectTab(id: tab.id, focus: true)
         } else if selectedID != nil {
@@ -220,15 +244,23 @@ extension BrowserWindowController {
         saveSession()
     }
 
-    /// Puts a web view in the page area, hidden, under the find bar.
-    private func installWebView(_ webView: BrowserWebView) {
+    /// Puts a web view in the page area, hidden, under the find bar and
+    /// the Peek, filling it. Its sides are kept on the web view, so a
+    /// split's pane layout (`applyPaneLayout`) can turn them off.
+    func installWebView(_ webView: BrowserWebView) {
         webView.isHidden = true
-        webArea.addSubview(webView)
+        if let peekView = peek?.view {
+            webArea.addSubview(webView, positioned: .below, relativeTo: peekView)
+        } else {
+            webArea.addSubview(webView)
+        }
         webArea.addSubview(findBar, positioned: .above, relativeTo: nil)
-        NSLayoutConstraint.activate([
-            webView.topAnchor.constraint(equalTo: webArea.topAnchor),
+        webView.pageEdgeConstraints = [
             webView.leadingAnchor.constraint(equalTo: webArea.leadingAnchor),
             webView.trailingAnchor.constraint(equalTo: webArea.trailingAnchor),
+        ]
+        NSLayoutConstraint.activate(webView.pageEdgeConstraints + [
+            webView.topAnchor.constraint(equalTo: webArea.topAnchor),
             webView.bottomAnchor.constraint(equalTo: webArea.bottomAnchor),
         ])
     }
@@ -243,9 +275,14 @@ extension BrowserWindowController {
     @discardableResult
     func detachTab(_ tab: BrowserTab) -> Bool {
         guard let index = tabs.firstIndex(where: { $0 === tab }) else { return false }
+        if peek?.openerID == tab.id {
+            closePeek()
+        }
         let visibleIndex = visibleTabs.firstIndex { $0 === tab }
         let wasSelected = tab.id == selectedTab?.id
         let selectedID = selectedTab?.id
+        // A pane leaves its split; a focused one hands the focus to a pane.
+        let paneSuccessor = removeFromSplits([tab.id])
         unbindTab(tab)
         if wasSelected, !findBar.isHidden {
             tab.webView.find("", configuration: WKFindConfiguration()) { _ in }
@@ -255,6 +292,7 @@ extension BrowserWindowController {
         if let spaceID = tab.spaceID, spaceSelections[spaceID] == tab.id {
             spaceSelections[spaceID] = nil
         }
+        extensions.tabDetached(tab, from: self, index: index)
         tabs.remove(at: index)
         syncContextObservations()
 
@@ -267,10 +305,13 @@ extension BrowserWindowController {
             // The current Space's last tab left; it shows a start tab.
             selectedIndex = 0
             newTab()
+        } else if wasSelected, let paneSuccessor, visibleTabs.contains(where: { $0.id == paneSuccessor }) {
+            selectTab(id: paneSuccessor, focus: true)
         } else if wasSelected, let visibleIndex {
             selectTab(index: min(visibleIndex, visibleTabs.count - 1), focus: true)
         } else if let selectedID, let kept = visibleTabs.firstIndex(where: { $0.id == selectedID }) {
             selectedIndex = kept
+            applyPaneLayout()
             updateTabStrip()
         }
         saveSession()
@@ -293,11 +334,16 @@ extension BrowserWindowController {
             return present
         }
         let leavingIDs = Set(present.map(\.id))
+        if let openerID = peek?.openerID, leavingIDs.contains(openerID) {
+            closePeek()
+        }
         let oldVisible = visibleTabs
         let selected = selectedTab
         let wasSelected = selected.map { leavingIDs.contains($0.id) } ?? false
-        // Where the selection goes: the first tab after it that stays.
-        let successor = selected.flatMap { selected in
+        // Where the selection goes: a pane of its split that stays, else
+        // the first tab after it that stays.
+        let paneSuccessor = removeFromSplits(leavingIDs)
+        let successor = paneSuccessor ?? selected.flatMap { selected in
             oldVisible.firstIndex { $0 === selected }.flatMap { index in
                 oldVisible[(index + 1)...].first { !leavingIDs.contains($0.id) }?.id
             }
@@ -306,6 +352,9 @@ extension BrowserWindowController {
             selected?.webView.find("", configuration: WKFindConfiguration()) { _ in }
         }
         for tab in present {
+            if let index = tabs.firstIndex(where: { $0 === tab }) {
+                extensions.tabDetached(tab, from: self, index: index)
+            }
             unbindTab(tab)
             removeWakeSnapshot(tab)
             tab.webView.removeFromSuperview()
@@ -330,13 +379,14 @@ extension BrowserWindowController {
             selectTab(index: target, focus: true)
         } else if let selectedID = selected?.id, let kept = visibleTabs.firstIndex(where: { $0.id == selectedID }) {
             selectedIndex = kept
+            applyPaneLayout()
             updateTabStrip()
         }
         saveSession()
         return present
     }
 
-    private func bindTab(_ tab: BrowserTab) {
+    func bindTab(_ tab: BrowserTab) {
         let webView = tab.webView
         webView.navigationDelegate = self
         webView.uiDelegate = self
@@ -362,7 +412,10 @@ extension BrowserWindowController {
         }
     }
 
-    private func unbindTab(_ tab: BrowserTab) {
+    func unbindTab(_ tab: BrowserTab) {
+        // A tab leaving the window (closed, moved, its web view replaced)
+        // takes its web view out of the Mini Player first.
+        releaseMiniPlayer(of: tab)
         let webView = tab.webView
         webView.navigationDelegate = nil
         webView.uiDelegate = nil
@@ -382,8 +435,11 @@ extension BrowserWindowController {
     /// The window closed: every tab is unbound and released without
     /// selecting (and so loading) the lazily restored ones.
     func tearDown() {
+        splits.removeAll()
+        closePeek()
         cancelStoreObservations()
         cancelRecentTabs()
+        extensions.windowClosing(self)
         let closing = tabs
         tabs.removeAll()
         selectedIndex = 0
@@ -408,11 +464,10 @@ extension BrowserWindowController {
                        !title.isEmpty
                     {
                         tab.title = title
-                        if !tab.dataContext.kind.recordsHistory, let url = tab.webView.url?.absoluteString {
-                            tab.dataContext.sessionVisits.updateTitle(url: url, title: title)
-                        }
+                        self.lateTitleChanged(tab, title: title)
                     }
                     self.metadataChanged(tab)
+                    self.extensions.tabChanged(tab, .title)
                 }
             },
             webView.observe(\.url, options: [.new]) { [weak self, weak tab] _, _ in
@@ -421,6 +476,7 @@ extension BrowserWindowController {
                     self.tabURLChanged(tab)
                     self.sameDocumentURLChanged(tab)
                     self.metadataChanged(tab)
+                    self.extensions.tabChanged(tab, .URL)
                 }
             },
             webView.observe(\.estimatedProgress, options: [.new]) { [weak self, weak tab] _, _ in
@@ -433,35 +489,59 @@ extension BrowserWindowController {
                 MainActor.assumeIsolated {
                     guard let self, let tab else { return }
                     self.metadataChanged(tab)
+                    self.extensions.tabChanged(tab, .loading)
                 }
             },
             webView.observe(\.canGoBack, options: [.new]) { [weak self, weak tab] _, _ in
                 MainActor.assumeIsolated {
-                    guard let self, let tab, tab.id == self.selectedTab?.id else { return }
-                    self.updateChrome()
+                    guard let self, let tab else { return }
+                    self.historyChanged(tab)
                 }
             },
             webView.observe(\.canGoForward, options: [.new]) { [weak self, weak tab] _, _ in
                 MainActor.assumeIsolated {
-                    guard let self, let tab, tab.id == self.selectedTab?.id else { return }
-                    self.updateChrome()
+                    guard let self, let tab else { return }
+                    self.historyChanged(tab)
                 }
             },
         ]
     }
 
     func metadataChanged(_ tab: BrowserTab) {
+        if tab === peek?.tab {
+            updatePeekChrome()
+            return
+        }
         if tab.id == selectedTab?.id {
             updateChrome()
         }
         updateTabStrip()
+        // Title, favicon and mute show in the media controls and the panel.
+        if manager.miniPlayer.hosts(tab) {
+            manager.miniPlayer.update(title: mediaTitle(of: tab), isPlaying: tab.media.info.isPlaying)
+        }
+        updateMediaControls()
         saveSession()
+    }
+
+    /// Back or forward became possible or impossible.
+    private func historyChanged(_ tab: BrowserTab) {
+        if tab === peek?.tab {
+            updatePeekChrome()
+        } else if tab.id == selectedTab?.id {
+            updateChrome()
+        }
     }
 
     // MARK: - Selection
 
-    /// Selects tab `id`, switching to its Space when it is in another one.
+    /// Selects tab `id`, switching to its Space when it is in another one;
+    /// a split's id selects its focused pane.
     func selectTab(id: UUID, focus: Bool) {
+        if let split = split(id: id) {
+            selectTab(id: split.focusedTabID, focus: focus)
+            return
+        }
         guard let tab = tabs.first(where: { $0.id == id }) else { return }
         if hasSpaces, let spaceID = tab.spaceID, spaceID != currentSpaceID {
             switchToSpace(spaceID, selecting: id, focus: focus)
@@ -479,18 +559,35 @@ extension BrowserWindowController {
         showSelectedTab(leaving: previous, focus: focus)
     }
 
-    /// Shows `visibleTabs[selectedIndex]` (every other page hidden), loads
-    /// it when it is not loaded, remembers it as its Space's selection and
-    /// refreshes the tab list and chrome. `previous` is the tab selected
-    /// before (of this or, on a Space switch, the Space left); its idle time
-    /// starts now.
+    /// Shows `visibleTabs[selectedIndex]` (with the other panes of its
+    /// split, which it focuses; every other page hidden), loads what is
+    /// shown when it is not loaded, remembers it as its Space's selection
+    /// and refreshes the tab list and chrome. `previous` is the tab
+    /// selected before (of this or, on a Space switch, the Space left);
+    /// the idle time of what leaves the screen starts now.
     func showSelectedTab(leaving previous: BrowserTab?, focus: Bool) {
         guard visibleTabs.indices.contains(selectedIndex) else { return }
         let tab = visibleTabs[selectedIndex]
-        for other in tabs {
-            other.webView.isHidden = other !== tab
+        if let peek, peek.openerID != tab.id {
+            // The Peek belongs to the page it opened over.
+            closePeek()
         }
-        tabWasUsed(tab)
+        let leavingPage = previous.map(pageTabs(of:)) ?? []
+        if let index = splits.firstIndex(where: { $0.contains(tab.id) }) {
+            splits[index].focus(tab.id)
+        }
+        // What comes on screen leaves the Mini Player; a playing video
+        // leaving the screen may go into it.
+        let comingShown = pageTabs(of: tab)
+        returnMiniPlayerIfShown(comingShown)
+        if let previous, previous.id != tab.id {
+            miniPlayerLeaving(leavingPage, previous: previous, shown: comingShown)
+        }
+        applyPaneLayout()
+        let shown = shownTabs
+        for pane in shown {
+            tabWasUsed(pane)
+        }
         recentTabs.touch(tab.id)
         if commandBar.isOpen, previous?.id != tab.id {
             // ⌘L's address and ⌘T's results were the old tab's.
@@ -498,8 +595,10 @@ extension BrowserWindowController {
         }
         if let previous, previous.id != tab.id {
             previousSelectedTabID = previous.id
-            previous.lifecycle.lastActiveAt = tab.lifecycle.lastActiveAt
-            removeWakeSnapshot(previous)
+            for leaving in leavingPage where !shown.contains(where: { $0 === leaving }) {
+                leaving.lifecycle.lastActiveAt = tab.lifecycle.lastActiveAt
+                removeWakeSnapshot(leaving)
+            }
         }
         if let spaceID = currentSpaceID {
             spaceSelections[spaceID] = tab.id
@@ -507,11 +606,21 @@ extension BrowserWindowController {
         if tab.isStartPage, staleStartTabs.remove(tab.id) != nil {
             loadStartPage(tab)
         }
+        for pane in shown where pane !== tab {
+            if pane.isStartPage, staleStartTabs.remove(pane.id) != nil {
+                loadStartPage(pane)
+            }
+            prepareSelectedTab(pane)
+        }
         prepareSelectedTab(tab)
         updateTabStrip()
         updateChrome()
+        if previous !== tab {
+            extensions.tabActivated(tab, previous: previous)
+        }
+        updateExtensionButtons()
         if focus {
-            window?.makeFirstResponder(tab.webView)
+            window?.makeFirstResponder(peek?.tab.webView ?? tab.webView)
         }
         saveSession()
     }
@@ -555,8 +664,17 @@ extension BrowserWindowController {
     /// pin instead (`unloadLinkedTab`). The window's last tab closes the
     /// window instead, which goes onto the stack as one window entry (a
     /// private window goes nowhere). A Space's only tab, when it is the
-    /// start page, stays: closing it would only open another.
+    /// start page, stays: closing it would only open another. A split's id
+    /// closes every pane (`closeSplit`).
     func closeTab(id: UUID, archive: Bool = false) {
+        if peek?.tab.id == id {
+            closePeek()
+            return
+        }
+        if split(id: id) != nil {
+            closeSplit(id: id, archive: archive)
+            return
+        }
         guard let tab = tabs.first(where: { $0.id == id }) else { return }
         if hasSpaces, tab.origin != .today {
             unloadLinkedTab(tab)
@@ -589,8 +707,13 @@ extension BrowserWindowController {
         discardTab(tab)
     }
 
-    /// ⌘W: closes (and archives, for a Today tab) the selected tab.
+    /// ⌘W: closes the Peek when one is open; else closes (and archives,
+    /// for a Today tab) the selected tab.
     func closeSelectedTab() {
+        if peek != nil {
+            closePeek()
+            return
+        }
         guard let tab = selectedTab else { return }
         closeTab(id: tab.id, archive: true)
     }
@@ -628,10 +751,11 @@ extension BrowserWindowController {
 
     // MARK: - Tab list
 
-    /// Refreshes the tab strip and the rail from `visibleTabs`.
+    /// Refreshes the tab strip and the rail from `visibleTabs`: one item
+    /// per tab, one per split (`stripRows`).
     func updateTabStrip() {
-        guard let selectedTab else { return }
-        tabStrip.update(tabs: visibleTabs.map(tabItem), selectedID: selectedTab.id)
+        guard let selectedRowID else { return }
+        tabStrip.update(tabs: stripRows.compactMap(rowItem), selectedID: selectedRowID)
         updateRail()
     }
 
@@ -661,13 +785,26 @@ extension BrowserWindowController {
     }
 
     /// Copies the tab, back/forward list included, into a new selected Today
-    /// tab right after it in its Space. Nil when there is no such tab.
+    /// tab right after it in its Space. A pop-up or Little Arc has one tab:
+    /// the copy goes to the end of a window showing its Space
+    /// (`windowForNewTabs`), selected and brought forward. Nil when there
+    /// is no such tab.
     @discardableResult
     func duplicateTab(id: UUID) -> BrowserTab? {
         guard let tab = tabs.first(where: { $0.id == id }) else { return nil }
-        let index = tabs.filter { $0.spaceID == tab.spaceID }.firstIndex { $0 === tab } ?? 0
         var state = tab.state
         state.origin = .today
+        if role.isCompact {
+            let (target, _) = manager.windowForNewTabs(from: self)
+            state.spaceID = target.currentSpaceID
+            let copy = target.addRestoredTab(state)
+            target.selectTab(id: copy.id, focus: true)
+            target.updateTabStrip()
+            target.saveSession()
+            manager.present(target)
+            return copy
+        }
+        let index = tabs.filter { $0.spaceID == tab.spaceID }.firstIndex { $0 === tab } ?? 0
         let copy = addRestoredTab(state, at: index + 1)
         selectTab(id: copy.id, focus: true)
         updateTabStrip()
@@ -679,10 +816,14 @@ extension BrowserWindowController {
         tab.isMuted.toggle()
         applyMute(tab)
         metadataChanged(tab)
+        extensions.tabChanged(tab, .muted)
     }
 
-    /// The tab of any Space whose web view is `webView`.
+    /// The tab of any Space, or the Peek's, whose web view is `webView`.
     func tab(for webView: WKWebView) -> BrowserTab? {
-        tabs.first { $0.webView === webView }
+        if let tab = peek?.tab, tab.webView === webView {
+            return tab
+        }
+        return tabs.first { $0.webView === webView }
     }
 }

@@ -145,6 +145,19 @@ final class BrowserHistoryDatabase {
         }
     }
 
+    /// A title the page set after its visit was recorded (`document.title`
+    /// late): the page's row takes it while its newest visit is less than
+    /// `mergeWindow` before `date`, so a tab left open never renames an old
+    /// row. One update by the unique `url` index; returns whether the row
+    /// changed.
+    @discardableResult
+    func updateTitle(url: String, title: String, at date: Date) throws -> Bool {
+        try sql.run(
+            "UPDATE urls SET title = ?1 WHERE url = ?2 AND title <> ?1 AND last_visit > ?3",
+            [.text(title), .text(url), .double(date.timeIntervalSince1970 - Self.mergeWindow)]
+        ) > 0
+    }
+
     /// Adds every visit as is (no merging) and refreshes frecency.
     func importVisits(_ visits: [BrowserHistoryImport], now: Date) throws {
         guard !visits.isEmpty else { return }

@@ -5,9 +5,10 @@ import AppKit
 enum BrowserCommandID: String, CaseIterable, Sendable {
     case about, settings, hide, hideOthers = "hide-others", showAll = "show-all", quit
     case newTab = "new-tab", newWindow = "new-window", newPrivateWindow = "new-private-window"
+    case newLittleArc = "new-little-arc", openInSpaceWindow = "open-in-space-window"
     case reopenClosed = "reopen-closed", openLocation = "open-location"
     case closeTab = "close-tab", closeWindow = "close-window"
-    case saveAs = "save-as", exportPDF = "export-pdf", print
+    case saveAs = "save-as", exportPDF = "export-pdf", print, capture
     case importBrowserData = "import-browser-data", exportPins = "export-pins"
     case undo, redo, cut, copy, paste, selectAll = "select-all"
     case find, findNext = "find-next", findPrevious = "find-previous"
@@ -17,6 +18,9 @@ enum BrowserCommandID: String, CaseIterable, Sendable {
     case zoomIn = "zoom-in", zoomOut = "zoom-out", actualSize = "actual-size"
     case toggleSidebar = "toggle-sidebar", toggleRail = "toggle-rail", toggleToolbar = "toggle-toolbar"
     case fullScreen = "full-screen"
+    case splitAdd = "split-add", splitClose = "split-close"
+    case splitPane1 = "split-pane-1", splitPane2 = "split-pane-2", splitPane3 = "split-pane-3"
+    case splitPane4 = "split-pane-4"
     case showHistory = "show-history", showArchive = "show-archive", showDownloads = "show-downloads"
     case clearBrowsingData = "clear-browsing-data"
     case space1 = "space-1", space2 = "space-2", space3 = "space-3", space4 = "space-4", space5 = "space-5"
@@ -31,6 +35,8 @@ enum BrowserCommandID: String, CaseIterable, Sendable {
     case tab7 = "tab-7", tab8 = "tab-8", lastTab = "last-tab"
     case bringAllToFront = "bring-all-to-front"
     case keyboardShortcuts = "keyboard-shortcuts"
+    case editBoost = "edit-boost", zapElements = "zap-elements"
+    case reader, translatePage = "translate-page"
 
     var command: BrowserAppCommand { BrowserAppCommand.byID[self]! }
     var defaultShortcut: BrowserShortcut? { command.shortcut }
@@ -111,6 +117,12 @@ struct BrowserAppCommand: Sendable {
         } else {
             run(context)
         }
+    }
+
+    /// The menu item's title in `state`: the moment's ("Close Peek"),
+    /// else the command's own.
+    func menuTitle(for state: BrowserCommandState) -> String {
+        state.title ?? title
     }
 
     // MARK: Table
@@ -213,6 +225,16 @@ struct BrowserAppCommand: Sendable {
         )
     }
 
+    /// ⌃⇧1…⌃⇧4: pane `number` of the split on screen.
+    private static func splitPaneCommand(_ id: BrowserCommandID, number: Int) -> BrowserAppCommand {
+        make(
+            id, "Focus Split Pane \(number)", .view, 6, "ctrl+shift+\(number)",
+            synonyms: ["split view", "pane \(number)"], symbol: "rectangle.split.2x1", inBar: false,
+            state: { .when(($0.controller?.shownSplit?.tabIDs.count ?? 0) >= number) },
+            run: { $0.controller?.focusPane(number: number) }
+        )
+    }
+
     /// The registry, in menu order.
     static let all: [BrowserAppCommand] = [
         // Soprano Web
@@ -237,6 +259,25 @@ struct BrowserAppCommand: Sendable {
         make(.newWindow, "New Window", .file, 0, "cmd+n", symbol: "macwindow") { $0.manager?.newWindow() },
         make(.newPrivateWindow, "New Private Window", .file, 0, "shift+cmd+n", synonyms: ["incognito"],
              symbol: "eyeglasses") { $0.manager?.newPrivateWindow() },
+        make(.newLittleArc, "New Little Arc", .file, 0, "opt+cmd+n", synonyms: ["little arc", "quick window"],
+             symbol: "macwindow.badge.plus") { $0.manager?.newLittleArc(commandBar: true) },
+        // ⌘O: a Peek opens as a tab; a Little Arc's tab moves into its
+        // Space's window.
+        make(.openInSpaceWindow, "Open in Space Window", .file, 0, "cmd+o",
+             synonyms: ["little arc", "move to window", "peek", "open as tab"], symbol: "arrow.up.left.and.arrow.down.right",
+             state: { context in
+                 if context.controller?.peek != nil {
+                     return BrowserCommandState(isEnabled: true, title: "Open Peek as Tab")
+                 }
+                 return .when(context.controller?.role == .little)
+             }) { context in
+            guard let controller = context.controller else { return }
+            if controller.peek != nil {
+                controller.openPeekAsTab()
+            } else if controller.role == .little {
+                controller.moveLittleArcToSpaceWindow()
+            }
+        },
         make(
             .reopenClosed, "Reopen Closed Tab", .file, 1, "shift+cmd+t",
             synonyms: ["undo close", "restore tab"], symbol: "arrow.uturn.backward",
@@ -268,7 +309,12 @@ struct BrowserAppCommand: Sendable {
             controller.showCommandBar(.editCurrent)
         },
         make(.closeTab, "Close Tab", .file, 2, "cmd+w", symbol: "xmark",
-             state: { .when(!($0.controller?.tabs.isEmpty ?? true)) }) { $0.controller?.closeSelectedTab() },
+             state: { context in
+                 if context.controller?.peek != nil {
+                     return BrowserCommandState(isEnabled: true, title: "Close Peek")
+                 }
+                 return .when(!(context.controller?.tabs.isEmpty ?? true))
+             }) { $0.controller?.closeSelectedTab() },
         make(
             .closeWindow, "Close Window", .file, 2, "shift+cmd+w", symbol: "macwindow.badge.minus",
             state: { .when(NSApp.keyWindow != nil || $0.controller != nil) },
@@ -291,6 +337,10 @@ struct BrowserAppCommand: Sendable {
         make(.exportPDF, "Export as PDF…", .file, 3, symbol: "doc.richtext",
              state: { .when($0.controller?.canUsePageTools ?? false) }) {
             $0.controller?.exportSelectedPageAsPDF()
+        },
+        make(.capture, "Capture…", .file, 3, "shift+cmd+2", synonyms: ["screenshot", "full page", "snapshot"],
+             symbol: "camera.viewfinder", state: { .when($0.controller?.canCapture ?? false) }) {
+            $0.controller?.toggleCaptureOverlay()
         },
         make(.importBrowserData, "Import Browser Data…", .file, 5, synonyms: ["arc", "chrome", "safari", "bookmarks"],
              symbol: "square.and.arrow.down.on.square") { context in
@@ -329,9 +379,9 @@ struct BrowserAppCommand: Sendable {
         make(.searchActions, "Search Actions…", .view, 0, "shift+cmd+p", synonyms: ["command palette", "commands"],
              symbol: "command", inBar: false, state: hasWindow) { $0.controller?.showCommandBar(.actions) },
         make(.back, "Back", .view, 1, "cmd+[", symbol: "chevron.left",
-             state: { .when($0.controller?.selectedTab?.webView.canGoBack ?? false) }) { $0.controller?.goBack() },
+             state: { .when($0.controller?.pageTab?.webView.canGoBack ?? false) }) { $0.controller?.goBack() },
         make(.forward, "Forward", .view, 1, "cmd+]", symbol: "chevron.right",
-             state: { .when($0.controller?.selectedTab?.webView.canGoForward ?? false) }) {
+             state: { .when($0.controller?.pageTab?.webView.canGoForward ?? false) }) {
             $0.controller?.goForward()
         },
         make(.home, "Home", .view, 1, "shift+cmd+h", synonyms: ["start page"], symbol: "house", state: hasWindow) {
@@ -340,7 +390,7 @@ struct BrowserAppCommand: Sendable {
         make(.reload, "Reload", .view, 2, "cmd+r", synonyms: ["refresh"], symbol: "arrow.clockwise",
              state: hasWindow) { $0.controller?.reloadOrStop() },
         make(.stop, "Stop", .view, 2, "cmd+.", symbol: "xmark.circle",
-             state: { .when($0.controller?.isSelectedTabLoading ?? false) }) { $0.controller?.stopLoading() },
+             state: { .when($0.controller?.isPageLoading ?? false) }) { $0.controller?.stopLoading() },
         make(.zoomIn, "Zoom In", .view, 3, "cmd+=", synonyms: ["bigger"], symbol: "plus.magnifyingglass",
              state: hasWindow) { $0.controller?.zoomIn() },
         make(.zoomOut, "Zoom Out", .view, 3, "cmd+-", synonyms: ["smaller"], symbol: "minus.magnifyingglass",
@@ -357,13 +407,64 @@ struct BrowserAppCommand: Sendable {
             state: { context in
                 guard let controller = context.controller else { return .disabled }
                 return BrowserCommandState(
-                    isEnabled: !controller.isPopup,
+                    isEnabled: !controller.role.isCompact,
                     title: controller.isToolbarHidden ? "Show Toolbar" : "Hide Toolbar"
                 )
             },
             run: { $0.controller?.toggleToolbar() }
         ),
         system(.fullScreen, "Enter Full Screen", .view, 5, "ctrl+cmd+f", "toggleFullScreen:"),
+        make(
+            .splitAdd, "Add Split Pane", .view, 6, "ctrl+shift+=", synonyms: ["split view", "side by side", "new pane"],
+            symbol: "rectangle.split.2x1",
+            state: { context in
+                guard let controller = context.controller else { return .disabled }
+                return .when(controller.allowsSplits && !(controller.shownSplit?.isFull ?? false))
+            },
+            run: { $0.controller?.addSplitPane(commandBar: true) }
+        ),
+        make(
+            .splitClose, "Close Split Pane", .view, 6, "ctrl+shift+-", synonyms: ["split view", "close pane"],
+            symbol: "xmark.rectangle",
+            state: { .when($0.controller?.shownSplit != nil) },
+            run: { $0.controller?.closeFocusedPane() }
+        ),
+        splitPaneCommand(.splitPane1, number: 1),
+        splitPaneCommand(.splitPane2, number: 2),
+        splitPaneCommand(.splitPane3, number: 3),
+        splitPaneCommand(.splitPane4, number: 4),
+        make(.editBoost, "Boost This Site…", .view, 7, synonyms: ["boost", "custom css", "user script"],
+             symbol: "paintbrush", state: { .when($0.controller?.boostHost != nil) }) {
+            $0.controller?.showBoostEditor()
+        },
+        make(.zapElements, "Zap Elements", .view, 7, synonyms: ["boost", "zap", "hide element"],
+             symbol: "eye.slash", state: { .when($0.controller?.boostHost != nil) }) {
+            $0.controller?.startZap()
+        },
+        make(
+            .reader, "Show Reader", .view, 8, "shift+cmd+r", synonyms: ["reader", "reader mode", "article", "read"],
+            symbol: "doc.plaintext",
+            state: { context in
+                guard let controller = context.controller, controller.canToggleReader else { return .disabled }
+                return BrowserCommandState(
+                    isEnabled: true,
+                    title: controller.pageTab?.reader.isActive == true ? "Hide Reader" : "Show Reader"
+                )
+            },
+            run: { $0.controller?.toggleReader() }
+        ),
+        make(
+            .translatePage, "Translate Page", .view, 8, synonyms: ["translate", "translation", "language"],
+            symbol: "translate",
+            state: { context in
+                guard let controller = context.controller, let tab = controller.pageTab else { return .disabled }
+                if tab.translation.isTranslated {
+                    return BrowserCommandState(isEnabled: controller.canUsePageTools, title: "Show Original")
+                }
+                return .when(controller.canTranslatePage)
+            },
+            run: { $0.controller?.toggleTranslation() }
+        ),
 
         // History
         make(.showHistory, "Show All History", .history, 0, "cmd+y", symbol: "clock", state: hasWindow) {

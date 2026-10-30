@@ -74,7 +74,10 @@ final class BrowserTabSleeper {
         var falling: [BrowserTab] = []
         for controller in manager.controllers {
             // A selected tab is in use; its idle time starts when it is left.
-            controller.selectedTab?.lifecycle.lastActiveAt = now
+            // A Little Arc's lone tab ages instead (`archiveIdleTabs`).
+            if controller.role != .little {
+                controller.selectedTab?.lifecycle.lastActiveAt = now
+            }
             for tab in controller.tabs where tab.lifecycle.sleepAttempt == nil {
                 guard BrowserTabSleepPolicy.shouldSleep(
                     controller.sleepCandidate(tab),

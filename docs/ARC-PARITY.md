@@ -70,6 +70,7 @@ Status of Soprano Web: **done**, **partial**, **missing**, **broken**. `BWC` =
 | Pinned tabs | per Space, reset to pinned URL | missing (Vimium `⌥P` toast) | app model | 3 |
 | Favorites | ≤12 per Profile | missing | app model | 3 |
 | Folders | nested | missing: bookmarks are a flat list | app model | 3 |
+| Live Folders | GitHub PRs, RSS and others as an auto-updating folder | built (stage 4 P11) for GitHub pull requests only: a pinned folder with a `source` (a repository's open PRs through `gh pr list`, or `gh search prs`), fetched every 5 minutes and when opened, rows open a Today tab, read-only; New / Edit Live Folder… in the rail's menu; CLI `browser live-folders`, `live-folder add|refresh` | app model; `gh` as a process (no WebKit) | 4 |
 | Auto-archive and Archive | Today tabs; searchable Archive | missing: 20 closed tabs in memory (`BWC:571-574`) | app model | 1, 3 |
 | Tab switcher | ⌃Tab over the 5 most recent tabs | ⌃Tab = next tab | AppKit | 3 |
 | Session restore | windows, tabs, back/forward | partial: URL, title and zoom only; every tab loads at launch (`BrowserTab.swift:36-42`, `BWC:448-462`) | `interactionState` (12.0) | 1 |
@@ -78,9 +79,9 @@ Status of Soprano Web: **done**, **partial**, **missing**, **broken**. `BWC` =
 | Audio indicator, mute | badge; mute per tab | partial: Vimium `⌥M` mutes current media elements by script; no indicator | private (`_isPlayingAudio`, `_setPageMuted:`); script on media events | 1 |
 | Favicons | yes | missing | no API: content-world `<link rel=icon>` scan + fetch | 1 |
 | Title tooltip, nav buttons | sidebar header holds back/forward/reload | missing | AppKit | 1 |
-| Split View | ≤4 panes | missing | several `WKWebView`s | 4 |
-| Peek | overlay | missing | overlay `WKWebView` sharing the data store | 4 |
-| Little Arc | small window for external links | missing: external URLs open as tabs (`App/AppDelegate.swift:58-90`) | `application(_:open:)` | 4 |
+| Split View | ≤4 panes | built (stage 4 P5): 2–4 panes, dividers with saved ratios, one rail row/strip item, ⌃⇧=/⌃⇧-/⌃⇧1…4, ⌥-click, drop on a pane edge, Arc Today split views import (vertical layout shown side by side; pinned split views stay pins) | several `WKWebView`s in the page area | 4 |
+| Peek | overlay | done (Stage 4 P4): pinned/favorite links to other sites and ⇧-clicks open a Folio panel over the page with its own web view in the tab's data context; ⌘O "Open as Tab" keeps history; Esc, ⌘W, backdrop close (`BrowserPeek.swift`, `BrowserWindowController+Peek.swift`) | a second `WKWebView` the window's delegates resolve (`tab(for:)`) | 4 |
+| Little Arc | small window for external links | done (Stage 4 P3): links from other apps (unless a rule matches), ⌥⌘N, optional global shortcut, ⌘O, "Open in", 6 h archive (`BrowserLittleArc.swift`, `BrowserWindowManager+LittleArc.swift`) | `application(_:open:)`, Carbon `RegisterEventHotKey` | 4 |
 
 ### Address bar and commands
 
@@ -102,11 +103,11 @@ Status of Soprano Web: **done**, **partial**, **missing**, **broken**. `BWC` =
 | Context menu | custom items | missing: WebKit's default menu | override `willOpenMenu(_:with:)`; match identifier strings such as `WKMenuItemIdentifierOpenLinkInNewWindow` | 1 |
 | Link-hover status | Chromium status bubble | missing | private (`_mouseDidMoveOverElement`); content-world `mouseover` script | 1 |
 | Spelling, Substitutions, Speech, Services, Share | Edit menu, Services | missing menus (`App/MainMenu.swift:61-74`) | NSResponder actions on `WKWebView`; `NSSharingServicePicker` | 1 |
-| Translation | Google Translate | missing | Translation framework: `TranslationSession(installedSource:target:)` (26.0), SwiftUI `.translationTask` (15.0) | 4 |
-| Reader | none | missing | Readability.js (Apache-2.0) in a `WKContentWorld` | 4 |
-| Picture in Picture | automatic when leaving a video tab | missing (WebKit's macOS default is off) | private (`_allowsPictureInPictureMediaPlayback`); floating panel hosting the web view | 4 |
-| Capture | ⇧⌘2 area, full page, portrait | missing (CLI viewport screenshot only) | `takeSnapshot(with:)` (10.13) | 4 |
-| Boosts | per-site CSS/JS, fonts, Zap | missing | `WKUserScript` + `WKContentWorld` (11.0); user style sheets are private, inject `<style>` | 4 |
+| Translation | Google Translate | built (stage 4 P10): offered for pages outside the user's languages, Translate to …, Show Original, Never Offer; a pair not downloaded asks to open System Settings' Translation Languages | Translation framework: `TranslationSession(installedSource:target:)` (26.0), SwiftUI `.translationTask` (15.0) | 4 |
+| Reader | none | built (stage 4 P10): ⇧⌘R, Reader chip; Readability.js 0.6.0 in an isolated world, Folio reader page swapped in and out without reload | Readability.js (Apache-2.0) in a `WKContentWorld` | 4 |
+| Picture in Picture | automatic when leaving a video tab | built (stage 4 P9): leaving a tab with a playing, visible main-frame video moves its own web view (bound, same history) into a floating non-activating panel; injected fill CSS (constructed sheet) removed on return; Back to Tab, Close pauses, position remembered (never from a private window); one at a time; panes and Peeks never move; audio-only shows rail/toolbar controls (artwork, play/pause, next via Media Session, mute); Settings switch; CLI `browser media` | private (`_allowsPictureInPictureMediaPlayback`); floating `NSPanel` hosting the web view; `navigator.mediaSession` read and `callActionHandler` called from the isolated world (verified in the harness) | 4 |
+| Capture | ⇧⌘2 area, full page, portrait | built (stage 4 P8): ⇧⌘2 (remappable) overlay over the page tab (Peek, focused pane): drag an area, click for the visible page, Full Page; pasteboard + `Soprano Capture <date> at <time>.png` in the download folder + thumbnail toast (click reveals in Finder); private windows too; `/capture`; CLI `browser screenshot [--full]`; no portrait capture | `takeSnapshot(with:)` (10.13) for an area or the viewport (its rect stays inside the view); full page through `createPDF` (11.0) with the rect set to the document, rasterized and capped at 16,384 px | 4 |
+| Boosts | per-site CSS/JS, fonts, Zap | built (stage 4 P7): per host (+ `www.`), app-wide `boosts.json`; CSS as a constructed sheet in `adoptedStyleSheets` at document start (live; cascades after the page's sheets, not blocked by a CSP `style-src`; no `@import`), each zap its own `insertRule`, JS in its own content world (next load), Zap picker with stable selectors (live); editor sheet from the Site Control Center and `/boost`; CLI `browser boost`; no font picker (write it as CSS) | `WKUserScript` + `WKContentWorld` (11.0); user style sheets are private; an injected `<style>` falls to a page's CSP `style-src`, a constructed sheet doesn't | 4 |
 | Developer tools | ⌥⌘I, ⌥⌘U, Developer Mode on localhost | partial: `isInspectable` (Safari ▸ Develop), Vimium `gs` | in-app inspector is private | — |
 
 ### Security, privacy and permissions
@@ -115,12 +116,12 @@ Status of Soprano Web: **done**, **partial**, **missing**, **broken**. `BWC` =
 |---|---|---|---|---|
 | HTTP auth, client certificates | Chromium | missing: no `didReceive challenge` | `webView(_:didReceive:completionHandler:)`, `SFChooseIdentityPanel` | 1 |
 | TLS errors | interstitial | partial: dead-end error page (`BWC:1311-1345`) | `serverTrust`, `SFCertificateTrustPanel`, own interstitial with per-host exception | 1 |
-| Security indicator | Site Control Center | partial: lock = `https` scheme (`BWC:745`) | `hasOnlySecureContent`, `serverTrust` | 1 |
-| Camera, mic | per site | partial: alert on every request, no memory or indicator (`BWC:1476-1497`) | `requestMediaCapturePermissionFor` (12.0), `cameraCaptureState`/`microphoneCaptureState` KVO and setters | 1 |
+| Security indicator | Site Control Center | built (stage 4 P6): the lock opens a popover for the page's site in its profile: connection (details sheet, Show Certificate), camera/microphone/notifications/pop-ups Ask/Allow/Block, zoom, "Block ads on this site", extensions' site access, "Clear site data" (the domain's WebKit data + the host's cookies); CLI `browser site` | `hasOnlySecureContent`, `serverTrust`, `WKWebsiteDataStore.removeData(ofTypes:for:)`, `WKHTTPCookieStore` | 1 |
+| Camera, mic | per site | done: remembered per site in the tab's profile (a private window's own layer), set from the prompt, Settings ▸ Websites or the Site Control Center (stage 4 P6) | `requestMediaCapturePermissionFor` (12.0), `cameraCaptureState`/`microphoneCaptureState` KVO and setters | 1 |
 | Screen sharing | Chromium | works without app code | WebKit shows the ScreenCaptureKit picker | — |
 | Geolocation | CoreLocation | missing: WebKit denies without a delegate | `webView(_:requestGeolocationPermissionFor:initiatedBy:)` is **macOS 27 SDK only** | decision |
 | Notifications | Chromium alerts helper | missing: requests auto-deny | private; JS `Notification` shim → `UNUserNotificationCenter` while the tab is open | 1 |
-| Autoplay | Chromium | missing | `mediaTypesRequiringUserActionForPlayback` (10.12); per-site policy is private | 1 |
+| Autoplay | Chromium | global setting only (Settings ▸ Autoplay); no per-site value: WebKit fixes it per web view at creation, so the Site Control Center has no autoplay row | `mediaTypesRequiringUserActionForPlayback` (10.12); per-site policy is private | 1 |
 | External app links | prompt | risky: opened without asking (`BWC:1356-1364`) | `NSWorkspace.open` behind a prompt | 1 |
 | Content blocking | uBlock Origin extension [A4]; 1.169 also bundles EasyList/EasyPrivacy in a native blocker module | missing | uBO Lite via `WKWebExtension`, or `WKContentRuleList` (≤150,000 rules per list) | 2 |
 | Clear browsing data | Chromium; "Clear Cookies and Refresh" | broken: "Clear History" empties `history.json` only (`BWC:904-926`) | `WKWebsiteDataStore.removeData(ofTypes:modifiedSince:)`, `fetchDataRecords` | 1 |
@@ -147,7 +148,7 @@ Status of Soprano Web: **done**, **partial**, **missing**, **broken**. `BWC` =
 | Feature | Arc | Soprano Web | WebKit path | Roadmap |
 |---|---|---|---|---|
 | Default browser | menu item | partial: registered in `Info.plist`, no in-app action | `NSWorkspace.setDefaultApplication(at:toOpenURLsWithScheme:)` (12.0; system confirms) | 1 |
-| AppleScript | windows, tabs, spaces; `execute javascript` behind an opt-in | missing (the `browser` CLI instead) | Cocoa scripting | 4 |
+| AppleScript | windows, tabs, spaces; `execute javascript` behind an opt-in | built (stage 4 P12): `Support/SopranoWeb.sdef` — windows (most recent first, never private), their current Space's tabs (name, URL settable, loading, index, selected), Spaces; `new window`, `new tab`, `select`, `close`, `reload`, `execute javascript` (Settings ▸ "Allow JavaScript from Apple Events", off by default; the CLI's `eval` JSON); Dock menu with New Little Arc and the Spaces | Cocoa scripting | 4 |
 | Handoff | `NSUserActivityTypeBrowsingWeb` | missing | needs a team ID | ✗ |
 | Agent automation | AppleScript only | done: `browser` CLI; IPC unauthenticated, replies broadcast to every observer (`BrowserAutomationCommand.swift:136-170,259-321`), `--tab` changes the visible tab (`BrowserAutomation.swift:157`) | Unix socket, `callAsyncJavaScript` | 1 |
 | Arc Max (AI) | ChatGPT in Command Bar, Tidy titles, 5-Second Previews; Ask on Page removed 2025-08-28 [A4] | — | — | ✗ (agents instead) |
@@ -196,7 +197,7 @@ Load test on 2026-10-23, macOS 27 system WebKit, Chrome MV3 builds, all permissi
 |---|---|
 | uBlock Origin Lite 2026.930 | loads and blocks (`adsbygoogle.js`, `gtag.js` blocked; jQuery loaded). `userScripts` and `offscreen` are dropped, so custom-filter scriptlets don't run. uBOL's repo has a Safari build (`platform/mv3/safari`) [UB]. |
 | Wappalyzer 6.12 | loads cleanly |
-| 1Password 8.12 | background fails: `chrome.notifications` sits behind a non-shipping WebKit preference. With stubs it next fails on `webNavigation.onCreatedNavigationTarget`, `storage.managed` and the window model. Its passkey support hooks `navigator.credentials` from a `world: "MAIN"` content script, which WebKit supports, so passkeys from the 1Password vault would need no Apple entitlement once the background runs. |
+| 1Password 8.12 | background fails: `chrome.notifications` sits behind a non-shipping WebKit preference. With stubs it next fails on `webNavigation.onCreatedNavigationTarget`, `storage.managed` and the window model. Its passkey support hooks `navigator.credentials` from a `world: "MAIN"` content script, which WebKit supports, so passkeys from the 1Password vault would need no Apple entitlement once the background runs. **Stage 4 P2 (2026-10-27, macOS 26, 8.12.42.36):** runs with Soprano Web's stand-ins (`BrowserExtensionShims`: notifications, webNavigation, storage.managed, Chrome user agent, port-less `permissions` origins, `.wasm` MIME, `clients.matchAll`, a native WebSocket — a worker's `new WebSocket` never returns in WebKit); background starts without errors, the toolbar button opens its welcome/sign-in page (no account yet: its popup is unset), content scripts load; the inline menu needs an account (`fm()` gates it). Missing desktop-app host answers as Chrome does ("host not found" on the port). |
 | Vimium 2.4 | fails on `webNavigation.onHistoryStateUpdated`; Soprano Web's native layer replaces it |
 
 - Extensions skip private (non-persistent) data stores unless

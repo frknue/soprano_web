@@ -39,10 +39,20 @@ resource_bundle="$build_dir/SopranoWeb_SopranoWeb.bundle"
 info_plist="$repo_root/Support/Info.plist"
 app_icon="$repo_root/Sources/SopranoWeb/Resources/AppIcon.icns"
 app_license="$repo_root/LICENSE"
+scripting_definition="$repo_root/Support/SopranoWeb.sdef"
 
-for required_path in "$binary_path" "$resource_bundle" "$info_plist" "$app_icon" "$app_license"; do
+for required_path in "$binary_path" "$resource_bundle" "$info_plist" "$app_icon" "$app_license" "$scripting_definition"; do
     if [[ ! -e "$required_path" ]]; then
         echo "Missing packaging input: $required_path" >&2
+        exit 1
+    fi
+done
+
+# Reader's Readability.js ships with its Apache-2.0 LICENSE and NOTICE in the
+# resource bundle (copied whole below); refuse a bundle without them.
+for readability_file in Readability.js Readability-readerable.js LICENSE NOTICE; do
+    if [[ -z "$(find "$resource_bundle" -path "*/Readability/$readability_file" -print -quit)" ]]; then
+        echo "Missing Readability/$readability_file in $resource_bundle" >&2
         exit 1
     fi
 done
@@ -62,6 +72,8 @@ cp "$binary_path" "$staged_app/Contents/MacOS/SopranoWeb"
 cp "$info_plist" "$staged_app/Contents/Info.plist"
 cp "$app_icon" "$staged_app/Contents/Resources/AppIcon.icns"
 cp "$app_license" "$staged_app/Contents/Resources/LICENSE"
+# AppleScript's dictionary: Info.plist's OSAScriptingDefinition names it.
+cp "$scripting_definition" "$staged_app/Contents/Resources/SopranoWeb.sdef"
 cp -R "$resource_bundle" "$staged_app/Contents/Resources/SopranoWeb_SopranoWeb.bundle"
 
 # One Info.plist serves every flavour; the caller picks the identity of this build.

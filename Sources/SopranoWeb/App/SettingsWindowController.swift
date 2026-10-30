@@ -30,6 +30,8 @@ final class SettingsWindowController: NSWindowController, NSTextFieldDelegate {
     var onShowWebsiteData: ((NSWindow) -> Void)?
     /// Presents Settings ▸ Links from other apps as a sheet on the given window.
     var onShowLinkRouting: ((NSWindow) -> Void)?
+    /// Presents Settings ▸ Extensions as a sheet on the given window.
+    var onShowExtensions: ((NSWindow) -> Void)?
     /// Settings ▸ Search engine ▸ Manage…, while shown.
     private var searchEnginesSheet: BrowserSearchEnginesSheet?
     /// Settings ▸ Keyboard shortcuts ▸ Customize…, while shown.
@@ -38,9 +40,35 @@ final class SettingsWindowController: NSWindowController, NSTextFieldDelegate {
         let button = ChromeButton(title: "Customize…", theme: theme, kind: .standard)
         button.target = self
         button.action = #selector(shortcutsPressed)
-        button.widthAnchor.constraint(equalToConstant: 200).isActive = true
+        button.widthAnchor.constraint(equalToConstant: 112).isActive = true
         return button
     }()
+    /// Keyboard shortcuts ▸ "New Little Arc from any app" (off by default)
+    /// and its shortcut; a click on the shortcut records a new one.
+    private lazy var globalLittleArcSwitch: ChromeSwitch = {
+        let control = ChromeSwitch(
+            isOn: settingsStore.settings.globalLittleArcEnabled,
+            theme: theme,
+            target: self,
+            action: #selector(globalLittleArcChanged)
+        )
+        control.toolTip = "New Little Arc from any app"
+        return control
+    }()
+    private lazy var globalLittleArcButton: ChromeButton = {
+        let button = ChromeButton(title: globalLittleArcTitle, theme: theme, kind: .standard)
+        button.target = self
+        button.action = #selector(recordGlobalLittleArc)
+        button.toolTip = "New Little Arc from any app: click, then type the shortcut (Esc cancels)"
+        button.widthAnchor.constraint(equalToConstant: 168).isActive = true
+        return button
+    }()
+    /// The key monitor and window observers while the global shortcut is
+    /// being recorded.
+    private var globalShortcutMonitor: Any?
+    private var globalShortcutObservers: [NSObjectProtocol] = []
+    /// The registered global hotkey (the app's; nil in the harness).
+    var globalHotKey: BrowserGlobalHotKey?
     private lazy var searchEnginesButton: ChromeButton = {
         let button = ChromeButton(title: "Manage…", theme: theme, kind: .standard)
         button.target = self
@@ -103,12 +131,42 @@ final class SettingsWindowController: NSWindowController, NSTextFieldDelegate {
         button.widthAnchor.constraint(equalToConstant: 200).isActive = true
         return button
     }()
+    private lazy var extensionsButton: ChromeButton = {
+        let button = ChromeButton(title: "Manage…", theme: theme, kind: .standard)
+        button.target = self
+        button.action = #selector(extensionsPressed)
+        button.widthAnchor.constraint(equalToConstant: 200).isActive = true
+        return button
+    }()
     private lazy var blockAdsSwitch = ChromeSwitch(
         isOn: settingsStore.settings.blockAdsAndTrackers,
         theme: theme,
         target: self,
         action: #selector(blockAdsChanged)
     )
+    /// "Mini Player": a playing video moves into a floating panel when
+    /// its tab is left.
+    private lazy var miniPlayerSwitch = ChromeSwitch(
+        isOn: settingsStore.settings.miniPlayer,
+        theme: theme,
+        target: self,
+        action: #selector(miniPlayerChanged)
+    )
+    /// AppleScript's `execute javascript` (off by default).
+    private lazy var appleEventsJavaScriptSwitch = ChromeSwitch(
+        isOn: settingsStore.settings.allowsJavaScriptFromAppleEvents,
+        theme: theme,
+        target: self,
+        action: #selector(appleEventsJavaScriptChanged)
+    )
+    /// Translate's "Never Offer" languages; its menu offers one again.
+    private lazy var neverTranslateButton: ChromeButton = {
+        let button = ChromeButton(title: neverTranslateTitle, theme: theme, kind: .standard)
+        button.target = self
+        button.action = #selector(neverTranslatePressed)
+        button.widthAnchor.constraint(equalToConstant: 200).isActive = true
+        return button
+    }()
     private lazy var updateListsButton: ChromeButton = {
         let button = ChromeButton(title: "Update Now", theme: theme, kind: .standard)
         button.target = self
@@ -190,7 +248,7 @@ final class SettingsWindowController: NSWindowController, NSTextFieldDelegate {
         self.websiteDataButton = ChromeButton(title: "Manage…", theme: theme, kind: .standard)
         self.defaultBrowserButton = ChromeButton(title: "Make Default", theme: theme, kind: .standard)
         let window = NSWindow(
-            contentRect: NSRect(x: 0, y: 0, width: 620, height: 846),
+            contentRect: NSRect(x: 0, y: 0, width: 620, height: 882),
             styleMask: [.titled, .closable, .fullSizeContentView],
             backing: .buffered,
             defer: false
@@ -202,7 +260,7 @@ final class SettingsWindowController: NSWindowController, NSTextFieldDelegate {
         window.titlebarAppearsTransparent = true
         window.isReleasedWhenClosed = false
         window.backgroundColor = theme.colors.bgBase
-        window.minSize = NSSize(width: 620, height: 846)
+        window.minSize = NSSize(width: 620, height: 882)
 
         rootView.wantsLayer = true
         window.contentView = rootView
@@ -282,21 +340,36 @@ final class SettingsWindowController: NSWindowController, NSTextFieldDelegate {
             [rowLabel("Downloads"), downloadRow()],
             [rowLabel("Ask where to save"), askDownloadSwitch],
             [rowLabel("Autoplay"), autoplayButton],
+            [rowLabel("Mini Player for videos"), miniPlayerSwitch],
+            [rowLabel("Never offer to translate"), neverTranslateButton],
+            [rowLabel("Allow JavaScript from Apple Events"), appleEventsJavaScriptSwitch],
             [rowLabel("Notifications"), notificationsRow()],
             [rowLabel("Block ads and trackers"), contentBlockingRow()],
-            [rowLabel("Keyboard shortcuts"), shortcutsButton],
+            [rowLabel("Keyboard shortcuts"), shortcutsRow()],
             [rowLabel("Websites"), websitesButton],
             [rowLabel("Website data"), websiteDataButton],
             [rowLabel("Default browser"), defaultBrowserRow()],
             [rowLabel("Links from other apps"), linkRoutingButton],
+            [rowLabel("Extensions"), extensionsButton],
         ]
         let grid = NSGridView(views: rows)
         grid.translatesAutoresizingMaskIntoConstraints = false
-        // 20 rows; the window stays under 900 pt for small displays.
         grid.rowSpacing = 10
         grid.column(at: 0).xPlacement = .trailing
         grid.column(at: 1).xPlacement = .fill
-        rootView.addSubview(grid)
+        // The rows scroll between the header and the footer: the window
+        // stays under 900 pt for small displays.
+        let document = FlippedView()
+        document.translatesAutoresizingMaskIntoConstraints = false
+        document.addSubview(grid)
+        let scroll = NSScrollView()
+        scroll.translatesAutoresizingMaskIntoConstraints = false
+        scroll.drawsBackground = false
+        scroll.borderType = .noBorder
+        scroll.hasVerticalScroller = true
+        scroll.autohidesScrollers = true
+        scroll.documentView = document
+        rootView.addSubview(scroll)
 
         rootView.addSubview(pathLabel)
         rootView.addSubview(doneButton)
@@ -313,9 +386,17 @@ final class SettingsWindowController: NSWindowController, NSTextFieldDelegate {
             subtitle.leadingAnchor.constraint(equalTo: header.leadingAnchor),
             subtitle.topAnchor.constraint(equalTo: header.bottomAnchor, constant: 4),
 
-            grid.topAnchor.constraint(equalTo: subtitle.bottomAnchor, constant: 26),
-            grid.leadingAnchor.constraint(equalTo: rootView.leadingAnchor, constant: 28),
-            grid.trailingAnchor.constraint(lessThanOrEqualTo: rootView.trailingAnchor, constant: -28),
+            scroll.topAnchor.constraint(equalTo: subtitle.bottomAnchor, constant: 18),
+            scroll.leadingAnchor.constraint(equalTo: rootView.leadingAnchor),
+            scroll.trailingAnchor.constraint(equalTo: rootView.trailingAnchor),
+            scroll.bottomAnchor.constraint(equalTo: doneButton.topAnchor, constant: -14),
+            document.topAnchor.constraint(equalTo: scroll.contentView.topAnchor),
+            document.leadingAnchor.constraint(equalTo: scroll.contentView.leadingAnchor),
+            document.widthAnchor.constraint(equalTo: scroll.contentView.widthAnchor),
+            grid.topAnchor.constraint(equalTo: document.topAnchor, constant: 8),
+            grid.leadingAnchor.constraint(equalTo: document.leadingAnchor, constant: 28),
+            grid.trailingAnchor.constraint(lessThanOrEqualTo: document.trailingAnchor, constant: -28),
+            grid.bottomAnchor.constraint(equalTo: document.bottomAnchor, constant: -8),
 
             engineButton.widthAnchor.constraint(equalToConstant: 200),
             themeButton.widthAnchor.constraint(equalToConstant: 200),
@@ -353,6 +434,10 @@ final class SettingsWindowController: NSWindowController, NSTextFieldDelegate {
     @available(*, unavailable)
     required init?(coder: NSCoder) {
         fatalError("init(coder:) is not supported")
+    }
+
+    private final class FlippedView: NSView {
+        override var isFlipped: Bool { true }
     }
 
     private func rowLabel(_ title: String) -> NSTextField {
@@ -416,6 +501,8 @@ final class SettingsWindowController: NSWindowController, NSTextFieldDelegate {
         searchEnginesButton.apply(theme: theme)
         searchEnginesSheet?.apply(theme: theme)
         shortcutsButton.apply(theme: theme)
+        globalLittleArcSwitch.apply(theme: theme)
+        globalLittleArcButton.apply(theme: theme)
         shortcutsSheet?.apply(theme: theme)
         themeButton.apply(theme: theme)
         appearanceButton.apply(theme: theme)
@@ -434,8 +521,12 @@ final class SettingsWindowController: NSWindowController, NSTextFieldDelegate {
         notificationsLabel.textColor = theme.colors.textPrimary
         websitesButton.apply(theme: theme)
         linkRoutingButton.apply(theme: theme)
+        extensionsButton.apply(theme: theme)
         askDownloadSwitch.apply(theme: theme)
         blockAdsSwitch.apply(theme: theme)
+        miniPlayerSwitch.apply(theme: theme)
+        appleEventsJavaScriptSwitch.apply(theme: theme)
+        neverTranslateButton.apply(theme: theme)
         updateListsButton.apply(theme: theme)
         blockerStatusLabel.textColor = theme.colors.textMuted
         websiteDataButton.apply(theme: theme)
@@ -469,6 +560,11 @@ final class SettingsWindowController: NSWindowController, NSTextFieldDelegate {
         notificationsSwitch.isOn = settingsStore.settings.allowsNotificationRequests
         askDownloadSwitch.isOn = settingsStore.settings.askDownloadLocation
         blockAdsSwitch.isOn = settingsStore.settings.blockAdsAndTrackers
+        miniPlayerSwitch.isOn = settingsStore.settings.miniPlayer
+        appleEventsJavaScriptSwitch.isOn = settingsStore.settings.allowsJavaScriptFromAppleEvents
+        neverTranslateButton.title = neverTranslateTitle
+        globalLittleArcSwitch.isOn = settingsStore.settings.globalLittleArcEnabled
+        globalLittleArcButton.title = globalLittleArcTitle
         refreshContentBlocking()
         refreshDefaultBrowser()
         refreshDownloadLabel()
@@ -513,6 +609,87 @@ final class SettingsWindowController: NSWindowController, NSTextFieldDelegate {
         }
     }
 
+    /// Customize…, then "New Little Arc from any app": its switch and
+    /// shortcut.
+    private func shortcutsRow() -> NSView {
+        let stack = NSStackView(views: [shortcutsButton, globalLittleArcSwitch, globalLittleArcButton])
+        stack.orientation = .horizontal
+        stack.spacing = 10
+        stack.alignment = .centerY
+        return stack
+    }
+
+    /// "(unavailable)" when the switch is on but the system refused the
+    /// shortcut (another app holds it, or no key types it).
+    private var globalLittleArcTitle: String {
+        let settings = settingsStore.settings
+        let shortcut = BrowserShortcut(settings.globalLittleArcShortcut)?.display ?? "⌥⌘N"
+        let unavailable = settings.globalLittleArcEnabled && globalShortcutMonitor == nil
+            && globalHotKey.map { !$0.isRegistered } == true
+        return "Little Arc anywhere: \(shortcut)" + (unavailable ? " (unavailable)" : "")
+    }
+
+    @objc private func globalLittleArcChanged() {
+        let value = globalLittleArcSwitch.isOn
+        settingsStore.update { $0.globalLittleArcEnabled = value }
+        globalLittleArcButton.title = globalLittleArcTitle
+    }
+
+    /// The next acceptable shortcut typed in Settings (with ⌘ or ⌃, or ⌥
+    /// on a named key; nothing the system, text editing or another command
+    /// uses: `BrowserGlobalShortcut`) becomes the global one and turns it
+    /// on; anything else beeps. Esc, leaving the window or closing it
+    /// cancels. Keys typed in other windows pass by, and the registered
+    /// hotkey lets go meanwhile so its own combination can be typed.
+    @objc private func recordGlobalLittleArc() {
+        guard globalShortcutMonitor == nil else { return }
+        globalHotKey?.suspend()
+        globalLittleArcButton.title = "Type a shortcut…"
+        globalShortcutMonitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { [weak self] event in
+            guard let self else { return event }
+            switch BrowserGlobalShortcut.recorderAnswer(
+                keyCode: event.keyCode,
+                shortcut: BrowserShortcut(event: event),
+                inRecorderWindow: event.window != nil && event.window === self.window,
+                keymap: self.settingsStore.settings.keymap
+            ) {
+            case .pass:
+                return event
+            case .cancel:
+                self.finishRecordingGlobalShortcut(nil)
+            case .refuse:
+                NSSound.beep()
+            case let .accept(shortcut):
+                self.finishRecordingGlobalShortcut(shortcut)
+            }
+            return nil
+        }
+        if let window {
+            globalShortcutObservers = [NSWindow.didResignKeyNotification, NSWindow.willCloseNotification].map { name in
+                NotificationCenter.default.addObserver(forName: name, object: window, queue: .main) { [weak self] _ in
+                    MainActor.assumeIsolated { self?.finishRecordingGlobalShortcut(nil) }
+                }
+            }
+        }
+    }
+
+    private func finishRecordingGlobalShortcut(_ shortcut: BrowserShortcut?) {
+        guard let monitor = globalShortcutMonitor else { return }
+        NSEvent.removeMonitor(monitor)
+        globalShortcutMonitor = nil
+        globalShortcutObservers.forEach(NotificationCenter.default.removeObserver)
+        globalShortcutObservers = []
+        // The old shortcut comes back first; a new one replaces it.
+        globalHotKey?.resume()
+        if let shortcut {
+            settingsStore.update {
+                $0.globalLittleArcShortcut = shortcut.storageText
+                $0.globalLittleArcEnabled = true
+            }
+        }
+        refresh()
+    }
+
     /// Shows `page`: the sheet it names on Settings (none for General).
     func show(_ page: BrowserSettingsPage) {
         guard let window, window.attachedSheet == nil else { return }
@@ -522,6 +699,7 @@ final class SettingsWindowController: NSWindowController, NSTextFieldDelegate {
         case .shortcuts: shortcutsPressed()
         case .websites: onShowWebsites?(window)
         case .websiteData: onShowWebsiteData?(window)
+        case .extensions: onShowExtensions?(window)
         }
     }
 
@@ -705,6 +883,16 @@ extension SettingsWindowController {
         settingsStore.update { $0.blockAdsAndTrackers = value }
     }
 
+    @objc private func miniPlayerChanged() {
+        let value = miniPlayerSwitch.isOn
+        settingsStore.update { $0.miniPlayer = value }
+    }
+
+    @objc private func appleEventsJavaScriptChanged() {
+        let value = appleEventsJavaScriptSwitch.isOn
+        settingsStore.update { $0.allowsJavaScriptFromAppleEvents = value }
+    }
+
     /// Downloads both lists now (conditionally) and recompiles what changed.
     @objc func updateListsPressed() {
         let blocker = contentBlocker
@@ -718,6 +906,32 @@ extension SettingsWindowController {
             items: AutoplayPolicy.allCases.map { policy in
                 (policy.name, policy == current, { [weak self] in
                     self?.settingsStore.update { $0.autoplay = policy }
+                    self?.refresh()
+                })
+            }
+        )
+    }
+
+    /// "None", or the languages: "German, French".
+    private var neverTranslateTitle: String {
+        let names = settingsStore.settings.neverTranslateLanguages.map(BrowserTranslationOffer.displayName)
+        return names.isEmpty ? "None" : names.joined(separator: ", ")
+    }
+
+    /// Each Never Offer language, checked; choosing one offers it again.
+    @objc private func neverTranslatePressed() {
+        let codes = settingsStore.settings.neverTranslateLanguages
+        guard !codes.isEmpty else {
+            showMenu(from: neverTranslateButton, items: [
+                ("Add languages with the Translate chip's “Never Offer”", false, {}),
+            ])
+            return
+        }
+        showMenu(
+            from: neverTranslateButton,
+            items: codes.map { code in
+                (BrowserTranslationOffer.displayName(code), true, { [weak self] in
+                    self?.settingsStore.update { $0.neverTranslateLanguages.removeAll { $0 == code } }
                     self?.refresh()
                 })
             }
@@ -776,6 +990,11 @@ extension SettingsWindowController {
     @objc private func linkRoutingPressed() {
         guard let window else { return }
         onShowLinkRouting?(window)
+    }
+
+    @objc func extensionsPressed() {
+        guard let window else { return }
+        onShowExtensions?(window)
     }
 }
 

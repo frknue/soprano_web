@@ -33,10 +33,7 @@ extension BrowserWindowController {
             showSelectedTab(leaving: leaving, focus: focus)
         } else {
             if let leaving {
-                previousSelectedTabID = leaving.id
-                leaving.lifecycle.lastActiveAt = manager.tabSleeper.now()
-                leaving.webView.isHidden = true
-                removeWakeSnapshot(leaving)
+                leavePage(of: leaving)
             }
             if focus {
                 newTab(focusAddress: true)
@@ -66,6 +63,28 @@ extension BrowserWindowController {
         switchToSpace(id)
     }
 
+    /// Shows Space `id` for a tab about to come in (a Little Arc's): a
+    /// Space with tabs here switches as usual; an empty one is shown
+    /// without the start tab `switchToSpace` would add. Returns true when
+    /// the caller must select the tab it adds.
+    @discardableResult
+    func showSpaceForIncomingTab(_ id: UUID) -> Bool {
+        guard hasSpaces, let space = spaces.space(id: id) else { return false }
+        if id == currentSpaceID {
+            return visibleTabs.isEmpty
+        }
+        if tabs.contains(where: { $0.spaceID == id }) {
+            switchToSpace(id, focus: false)
+            return false
+        }
+        let leaving = selectedTab
+        setCurrentSpace(space)
+        if let leaving {
+            leavePage(of: leaving)
+        }
+        return true
+    }
+
     // MARK: - Spaces changing under the window
 
     /// The Spaces changed (created, renamed, reordered, deleted, pins or
@@ -90,11 +109,26 @@ extension BrowserWindowController {
         for tab in tabs where tab.spaceID.flatMap(spaces.space(id:)) == nil {
             closeTab(id: tab.id)
         }
+        // Reopening replaces each pane with a copy, which ends its split;
+        // the splits come back over the copies.
+        let splitsBefore = splits
+        var copies: [UUID: UUID] = [:]
         for tab in tabs {
             guard let space = tab.spaceID.flatMap(spaces.space(id:)),
                   manager.context(for: space.profileID) !== tab.dataContext
             else { continue }
-            reopenInItsSpace(tab)
+            copies[tab.id] = reopenInItsSpace(tab).id
+        }
+        if !copies.isEmpty {
+            adoptSplits(splitsBefore.compactMap { split in
+                guard split.tabIDs.contains(where: { copies[$0] != nil }) else { return nil }
+                return BrowserSplit(
+                    id: split.id,
+                    tabIDs: split.tabIDs.map { copies[$0] ?? $0 },
+                    ratios: split.ratios,
+                    focusedTabID: copies[split.focusedTabID] ?? split.focusedTabID
+                )
+            })
         }
         if let current = currentSpaceID.flatMap(spaces.space(id:)),
            manager.context(for: current.profileID) !== dataContext
@@ -110,7 +144,8 @@ extension BrowserWindowController {
 
     /// Replaces `tab` with a not yet loaded copy made in its Space's
     /// context, at the same place; a selected tab stays selected.
-    private func reopenInItsSpace(_ tab: BrowserTab) {
+    @discardableResult
+    private func reopenInItsSpace(_ tab: BrowserTab) -> BrowserTab {
         let index = tabs.filter { $0.spaceID == tab.spaceID }.firstIndex { $0 === tab }
         let wasSelected = tab.id == selectedTab?.id
         var state = tab.state
@@ -131,6 +166,7 @@ extension BrowserWindowController {
         detachTab(tab)
         discardTab(tab)
         saveSession()
+        return copy
     }
 
     /// Profile `profileID` (a Space's data) is being deleted: a window on

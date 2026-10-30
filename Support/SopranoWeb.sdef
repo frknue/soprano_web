@@ -1,0 +1,184 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE dictionary SYSTEM "file://localhost/System/Library/DTDs/sdef.dtd">
+
+<dictionary title="Soprano Web Terminology">
+  <suite name="Standard Suite" code="????" description="Common classes and commands for all applications.">
+    <command name="get" code="coregetd" description="Get the data for an object.">
+      <cocoa class="NSGetCommand"/>
+      <access-group identifier="*"/>
+      <direct-parameter type="specifier" requires-access="r" description="The object for the command."/>
+      <result type="any" description="The reply for the command."/>
+    </command>
+
+    <command name="set" code="coresetd" description="Set an object's data.">
+      <cocoa class="NSSetCommand"/>
+      <access-group identifier="*"/>
+      <direct-parameter type="specifier" requires-access="w" description="The object for the command."/>
+      <parameter name="to" code="data" type="any" description="The new value.">
+        <cocoa key="Value"/>
+      </parameter>
+    </command>
+
+    <command name="count" code="corecnte" description="Return the number of elements of a particular class within an object.">
+      <cocoa class="NSCountCommand"/>
+      <access-group identifier="*"/>
+      <direct-parameter type="specifier" requires-access="r" description="The objects to be counted."/>
+      <parameter name="each" code="kocl" type="type" optional="yes" description="The class of objects to be counted." hidden="yes">
+        <cocoa key="ObjectClass"/>
+      </parameter>
+      <result type="integer" description="The count."/>
+    </command>
+
+    <command name="exists" code="coredoex" description="Verify that an object exists.">
+      <cocoa class="NSExistsCommand"/>
+      <access-group identifier="*"/>
+      <direct-parameter type="any" requires-access="r" description="The object(s) to check."/>
+      <result type="boolean" description="Did the object(s) exist?"/>
+    </command>
+
+    <command name="quit" code="aevtquit" description="Quit the application.">
+      <cocoa class="NSQuitCommand"/>
+    </command>
+  </suite>
+
+  <suite name="Soprano Web Suite" code="SWeb" description="Windows, tabs and Spaces of Soprano Web. Private windows are never listed.">
+    <class name="application" code="capp" description="Soprano Web.">
+      <cocoa class="NSApplication"/>
+      <property name="name" code="pnam" type="text" access="r" description="The name of the application."/>
+      <property name="frontmost" code="pisf" type="boolean" access="r" description="Is this the active application?">
+        <cocoa key="isActive"/>
+      </property>
+      <property name="version" code="vers" type="text" access="r" description="The version of the application.">
+        <cocoa key="scriptVersion"/>
+      </property>
+      <element type="window" access="r" description="Normal windows, Little Arcs and pop-ups, the most recently active first.">
+        <cocoa key="scriptWindows"/>
+      </element>
+      <element type="space" access="r" description="Every Space, in the switcher's order.">
+        <cocoa key="scriptSpaces"/>
+      </element>
+      <responds-to command="new window">
+        <cocoa method="handleNewWindowScriptCommand:"/>
+      </responds-to>
+      <responds-to command="new tab">
+        <cocoa method="handleNewTabScriptCommand:"/>
+      </responds-to>
+    </class>
+
+    <class name="window" code="SWwn" plural="windows" description="A Soprano Web window.">
+      <cocoa class="SopranoWebScriptWindow"/>
+      <property name="id" code="ID  " type="text" access="r" description="The window's stable identifier.">
+        <cocoa key="uniqueID"/>
+      </property>
+      <property name="name" code="pnam" type="text" access="r" description="The window's title.">
+        <cocoa key="scriptName"/>
+      </property>
+      <property name="index" code="pidx" type="integer" access="r" description="1 for the most recently active window.">
+        <cocoa key="scriptIndex"/>
+      </property>
+      <property name="kind" code="SWkn" type="text" access="r" description="normal, little (a Little Arc) or popup.">
+        <cocoa key="kind"/>
+      </property>
+      <property name="current space" code="SWcs" type="space" access="r" description="The Space the window shows (a Little Arc's own; missing value in a pop-up).">
+        <cocoa key="currentSpace"/>
+      </property>
+      <property name="active tab" code="SWat" type="tab" access="r" description="The selected tab.">
+        <cocoa key="activeTab"/>
+      </property>
+      <element type="tab" access="r" description="The tabs of the window's current Space, in rail order.">
+        <cocoa key="tabs"/>
+      </element>
+      <responds-to command="close">
+        <cocoa method="handleCloseScriptCommand:"/>
+      </responds-to>
+    </class>
+
+    <class name="tab" code="SWtb" plural="tabs" description="A tab of a window's current Space.">
+      <cocoa class="SopranoWebScriptTab"/>
+      <property name="id" code="ID  " type="text" access="r" description="The tab's stable identifier.">
+        <cocoa key="uniqueID"/>
+      </property>
+      <property name="name" code="pnam" type="text" access="r" description="The page title.">
+        <cocoa key="scriptName"/>
+      </property>
+      <property name="URL" code="pURL" type="text" description="The page address; setting it loads the address (or searches for the text).">
+        <cocoa key="scriptURL"/>
+      </property>
+      <property name="loading" code="SWld" type="boolean" access="r" description="Is the page loading?">
+        <cocoa key="loading"/>
+      </property>
+      <property name="index" code="pidx" type="integer" access="r" description="The tab's place among its window's tabs, from 1.">
+        <cocoa key="scriptIndex"/>
+      </property>
+      <property name="selected" code="SWsl" type="boolean" access="r" description="Is this the window's selected tab?">
+        <cocoa key="selected"/>
+      </property>
+      <responds-to command="select">
+        <cocoa method="handleSelectScriptCommand:"/>
+      </responds-to>
+      <responds-to command="close">
+        <cocoa method="handleCloseScriptCommand:"/>
+      </responds-to>
+      <responds-to command="reload">
+        <cocoa method="handleReloadScriptCommand:"/>
+      </responds-to>
+    </class>
+
+    <class name="space" code="SWsp" plural="spaces" description="A Space: its own pinned tabs, History and website data.">
+      <cocoa class="SopranoWebScriptSpace"/>
+      <property name="id" code="ID  " type="text" access="r" description="The Space's stable identifier.">
+        <cocoa key="uniqueID"/>
+      </property>
+      <property name="name" code="pnam" type="text" access="r" description="The Space's name.">
+        <cocoa key="scriptName"/>
+      </property>
+      <property name="index" code="pidx" type="integer" access="r" description="The Space's place in the switcher, from 1.">
+        <cocoa key="scriptIndex"/>
+      </property>
+      <responds-to command="select">
+        <cocoa method="handleSelectScriptCommand:"/>
+      </responds-to>
+    </class>
+
+    <command name="new window" code="SWebNWin" description="Open a new window.">
+      <parameter name="URL" code="SWur" type="text" optional="yes" description="The address to open (the start page without one).">
+        <cocoa key="url"/>
+      </parameter>
+      <parameter name="in" code="SWin" type="space" optional="yes" description="The Space the window shows (the active window's without one).">
+        <cocoa key="space"/>
+      </parameter>
+      <result type="window" description="The new window."/>
+    </command>
+
+    <command name="new tab" code="SWebNTab" description="Open a new tab, selected.">
+      <parameter name="URL" code="SWur" type="text" optional="yes" description="The address to open (the start page without one).">
+        <cocoa key="url"/>
+      </parameter>
+      <parameter name="in" code="SWin" type="window" optional="yes" description="The window (the most recently active one without one).">
+        <cocoa key="window"/>
+      </parameter>
+      <result type="tab" description="The new tab."/>
+    </command>
+
+    <command name="select" code="SWebSelc" description="Select a tab in its window, or show a Space in the most recently active window.">
+      <direct-parameter type="specifier" description="The tab or Space."/>
+    </command>
+
+    <command name="close" code="SWebClos" description="Close a tab (it goes to the Archive like ⌘W) or a window.">
+      <direct-parameter type="specifier" description="The tab or window."/>
+    </command>
+
+    <command name="reload" code="SWebRlod" description="Reload a tab.">
+      <direct-parameter type="specifier" description="The tab."/>
+    </command>
+
+    <command name="execute javascript" code="SWebExJS" description="Run JavaScript in a tab's page and return its result as JSON text. Works only with Settings ▸ “Allow JavaScript from Apple Events” on. The script may await promises.">
+      <cocoa class="SopranoWebExecuteJavaScriptCommand"/>
+      <direct-parameter type="text" description="The JavaScript: an expression, or a function body that returns a value."/>
+      <parameter name="in" code="SWtt" type="tab" optional="yes" description="The tab (the most recently active window's selected tab without one).">
+        <cocoa key="tab"/>
+      </parameter>
+      <result type="text" description="The result as JSON text."/>
+    </command>
+  </suite>
+</dictionary>

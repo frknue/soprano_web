@@ -17,7 +17,7 @@ struct BrowserSessionRestoreTests {
         try Data(json.utf8).write(to: store.url)
     }
 
-    @Test func versionThreeRoundTripsWindowsSpacesSelectionsAndClosedEntries() {
+    @Test func currentVersionRoundTripsWindowsSpacesSelectionsAndClosedEntries() {
         let (store, directory) = temporaryStore()
         defer { try? FileManager.default.removeItem(at: directory) }
         let home = UUID()
@@ -71,7 +71,7 @@ struct BrowserSessionRestoreTests {
 
         let loaded = store.load()
         #expect(loaded == session)
-        #expect(loaded?.version == 3)
+        #expect(loaded?.version == BrowserSession.currentVersion)
         #expect(loaded?.windows.map(\.frame?.rect) == [
             NSRect(x: 40, y: 60, width: 1280, height: 800),
             NSRect(x: 900, y: 20, width: 900, height: 700),
@@ -144,12 +144,93 @@ struct BrowserSessionRestoreTests {
         #expect(state.spaceID == nil)
         #expect(loaded.recentlyClosed.first?.profileID == work.id)
 
-        // The next save is version 3 with every tab in its Space.
+        // The next save is the current version with every tab in its Space.
         store.save(BrowserSession(windows: placed, savedAt: Date()))
         let resaved = try #require(store.load())
-        #expect(resaved.version == 3)
+        #expect(resaved.version == BrowserSession.currentVersion)
         #expect(resaved.windows == placed)
         #expect(try Data(contentsOf: store.migratedURL) == Data(original.utf8))
+    }
+
+    @Test func versionThreeMigratesToVersionFourWithNormalWindows() throws {
+        let (store, directory) = temporaryStore()
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let space = UUID()
+        let original = """
+        {"version": 3, "activeWindowIndex": 0, "savedAt": "2026-10-01T10:00:00Z", "windows": [
+          {"tabs": [{"url": "https://example.com", "title": "E", "spaceID": "\(space.uuidString)"}],
+           "currentSpaceID": "\(space.uuidString)"}
+        ]}
+        """
+        try write(original, to: store, in: directory)
+
+        let loaded = try #require(store.load())
+        #expect(loaded.version == 3)
+        // A window without a role is a normal window.
+        #expect(loaded.windows.map(\.role) == [.normal])
+        #expect(try Data(contentsOf: store.migratedURL) == Data(original.utf8))
+
+        store.save(BrowserSession(windows: loaded.windows, savedAt: Date()))
+        let resaved = try #require(store.load())
+        #expect(resaved.version == BrowserSession.currentVersion)
+        #expect(resaved.windows == loaded.windows)
+        let object = try JSONSerialization.jsonObject(with: Data(contentsOf: store.url)) as? [String: Any]
+        let window = (object?["windows"] as? [[String: Any]])?.first
+        #expect(window?["role"] as? String == "normal")
+        // The kept file stays the version 3 original.
+        #expect(try Data(contentsOf: store.migratedURL) == Data(original.utf8))
+    }
+
+    @Test func aLittleArcRoundTripsWithItsRoleAndSpace() throws {
+        let (store, directory) = temporaryStore()
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let work = BrowserProfile(name: "Work", color: .green)
+        var list = BrowserSpaceList()
+        _ = list.ensureSpace(for: .defaultProfile)
+        let workSpace = list.ensureSpace(for: work)
+        let little = BrowserWindowState(
+            frame: BrowserWindowFrame(NSRect(x: 700, y: 300, width: 640, height: 720)),
+            tabs: [BrowserTabState(url: "https://example.com/little", title: "Little")],
+            profileID: work.id,
+            currentSpaceID: workSpace.id,
+            role: .little
+        )
+        store.save(BrowserSession(windows: [little], activeWindowIndex: 0, savedAt: Date()))
+        let loaded = try #require(store.load())
+        #expect(loaded.windows == [little])
+        #expect(loaded.windows.first?.role == .little)
+
+        // Placed: its Space and profile stay, its one tab belongs to no
+        // Space (the window does), as a Today tab.
+        let placed = try #require(loaded.windows.first).placedInSpaces(list)
+        #expect(placed.role == .little)
+        #expect(placed.currentSpaceID == workSpace.id)
+        #expect(placed.profileID == work.id)
+        #expect(placed.tabs.map(\.spaceID) == [nil])
+        #expect(placed.tabs.map(\.origin) == [.today])
+    }
+
+    @Test func aLittleArcWhoseSpaceIsGoneJoinsItsProfilesSpaceWithOneTab() {
+        let work = BrowserProfile(name: "Work", color: .green)
+        var list = BrowserSpaceList()
+        _ = list.ensureSpace(for: .defaultProfile)
+        let workSpace = list.ensureSpace(for: work)
+        let state = BrowserWindowState(
+            tabs: [
+                BrowserTabState(url: "https://a.example", title: "A", spaceID: UUID(), origin: .pinned(UUID())),
+                BrowserTabState(url: "https://b.example", title: "B"),
+            ],
+            selectedIndex: 1,
+            profileID: work.id,
+            currentSpaceID: UUID(),
+            spaceSelections: [BrowserSpaceSelection(spaceID: UUID(), index: 0)],
+            role: .little
+        )
+        let placed = state.placedInSpaces(list)
+        #expect(placed.currentSpaceID == workSpace.id)
+        #expect(placed.tabs.map(\.url) == ["https://b.example"])
+        #expect(placed.selectedIndex == 0)
+        #expect(placed.spaceSelections.isEmpty)
     }
 
     @Test func placingAWindowKeepsLiveSpacesAndRepairsTheRest() throws {

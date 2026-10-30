@@ -10,6 +10,131 @@ app.
 ## [Unreleased]
 
 ### Added
+- AppleScript: Soprano Web has a scripting dictionary (open it in Script Editor). Scripts
+  see the windows (the most recently active first; private windows never), the tabs of
+  each window's current Space (name, URL — set it to load an address or search —,
+  loading, index, selected) and the Spaces, and can `new window` (with a URL, in a
+  Space), `new tab`, `select` a tab or a Space, `close` a tab (to the Archive, like ⌘W)
+  or a window, and `reload`. `execute javascript "…" in tab 1 of window 1` returns the
+  result as JSON and may await promises; it runs only with Settings ▸ "Allow JavaScript
+  from Apple Events" on (off by default).
+- Dock menu: New Little Arc and every Space (the one the most recent window with Spaces
+  shows is checked; choosing one shows it there) next to New Window and New Private Window.
+- Live folders for GitHub pull requests: right-click the rail's pinned tabs ▸ New Live
+  Folder…, give it `owner/repo` (or a github.com repository link) for that repository's
+  open pull requests, or any GitHub search such as `review-requested:@me is:open`. The
+  folder lists the pull requests through the GitHub CLI (`gh`, signed in with `gh auth
+  login`), refreshes every 5 minutes and when you open it, and a click opens the pull
+  request in a Today tab. The folder is read-only (nothing can be dropped into it); its
+  menu has Refresh, Open All in Tabs and Edit Live Folder…, and its tooltip says when
+  `gh` is missing or signed out. CLI `browser live-folders`, `browser live-folder add
+  <owner/repo|query>` and `browser live-folder refresh`.
+- Reader (⇧⌘R, View ▸ Show Reader): pages with an article get a Reader chip in the address
+  field; Reader shows the article in a clean Folio page in the same tab, and toggling back
+  restores the page as it was (no reload, no new history entry). Its colors follow the theme.
+- Translate Page: a page in a language you don't use gets a Translate chip in the address
+  field (Translate to …, Show Original, Never Offer for …), translated on this Mac by
+  macOS's Translation; for a language pair not yet downloaded it asks to open System
+  Settings ▸ General ▸ Language & Region (Translation Languages). A translated page stays
+  translated in Reader. Settings ▸ "Never offer to translate" lists the languages you
+  turned off (choose one to get the offer back);
+  private windows translate too and remember nothing. CLI `browser reader [on|off]` and
+  `browser translate [to <lang>|off]`; harness `--reader`, `--translate <lang>`.
+- Mini Player: leave a tab whose video plays and is in view (another tab, another Space)
+  and the video keeps playing in a small floating panel above every window and Space;
+  hover it for Back to Tab, play/pause and Close (which pauses). Selecting the tab again
+  puts the page back as it was (same page, same history). The panel remembers where you
+  put it (never from a private window). Split panes on screen and Peeks never move.
+  Settings ▸ "Mini Player for videos" turns it off. The playing tab (audio too) shows at
+  the bottom of the rail — or in the toolbar without a rail — with its artwork, title,
+  play/pause, next track (sites with Media Session) and mute; a click goes to the tab.
+  CLI `browser media [info|play|pause|next|previous|mute]`.
+- Capture (⇧⌘2, remappable; File ▸ Capture…, `/capture`): an overlay over the page you
+  look at (a Peek's, the focused pane's) — drag an area, click for the visible page, or
+  "Full Page" for the whole document (taller than 16,384 px it renders at a lower scale,
+  then is cut there); Esc cancels. The PNG goes on the clipboard and into the download
+  folder as `Soprano Capture <date> at <time>.png` (never overwriting), and a toast with
+  its thumbnail shows it; click the toast to reveal the file in Finder. Private windows
+  capture the same way. CLI `browser screenshot --full <path>`; harness
+  `--capture-area x,y,w,h`, `--capture-visible`, `--capture-full`, `--capture-drag`,
+  `--capture-overlay`.
+- Boosts: your own CSS, JavaScript and hidden elements per site (the host and its
+  `www.` form; other subdomains have their own), app-wide in `boosts.json`, running in
+  every tab — normal, private, Peek, split panes, Little Arc. CSS goes into the page as a
+  constructed stylesheet at document start (it wins ties with the page's own CSS and
+  works under a strict `style-src` Content Security Policy; `@import` isn't supported)
+  and JavaScript runs in a content world of its own (no Soprano Web message handler).
+  CSS and hidden elements change open pages at once; a selector that isn't valid hides
+  nothing and leaves the others working; JavaScript runs from the next load. The editor
+  sheet (monospace CSS / JavaScript / zapped selectors, enabled switch, name; ⌘↩ saves,
+  ↩ is a new line) opens from the Site Control Center's new Boost row and the Command Bar
+  (`/boost`, "Boost This Site…"); "Zap Elements" outlines what the pointer is over, a
+  click hides it and records a stable selector, Esc, a new page or another tab ends it.
+  CLI `browser boost list|show|css|js|zap|enable|disable|remove` (`css`/`js` read a file
+  or `-` for stdin in the CLI, up to 16 MB; hosts in punycode); harness `--boost-css`,
+  `--boost-js`, `--boost-zap`, `--boost-editor`.
+- Site Control Center: the lock / site chip opens a Folio popover for the page you look at
+  (a Peek's, the focused pane's) in its Space's profile: the connection (the details
+  sheet with Show Certificate behind its row), camera, microphone, notifications and
+  pop-ups as Ask / Allow / Block (a private window keeps its answers in its own layer;
+  notifications stay blocked there), zoom −/+/Reset, "Block ads on this site", each
+  extension's site access (its mode and "Allow on <host>") and "Clear site data…", which
+  asks, removes the website data WebKit keeps for the site's domain and the cookies of
+  that exact host, then reloads. Replaces the lock's sheet. Autoplay stays a global
+  setting (WebKit fixes it per web view). CLI `browser site [info|clear|permission <name>
+  allow|deny|ask]`; harness `--site-control` captures the popover, `--security-info` and
+  `--site-blocking` go through it.
+- Split View: 2–4 tabs of one Space side by side with resizable dividers (ratios saved),
+  one rail row (every pane's favicon) and one strip item. ⌃⇧= adds a pane (a new tab with
+  the Command Bar), ⌃⇧- closes the focused pane, ⌃⇧1…4 focus a pane, ⌥-click on a web link
+  opens it in a new pane, a tab dragged onto a pane's left or right edge joins there, and a
+  tab's menu has "Open in Split View"; a split row's menu separates or closes it. The
+  focused pane (accent ring) is the selected tab for every command, Vimium and the CLI;
+  clicking a pane focuses it. Panes keep their origin; visible panes never sleep or
+  archive (`visiblePane`), Today panes archive like any Today tab. A Peek covers the whole
+  page area and belongs to the focused pane. Session version 5 saves splits (older files
+  migrate with none); Arc's Today split views import as splits (pinned ones stay pins).
+  CLI `browser split [url]|close|focus <n>`, `tabs` marks panes; harness `--split`,
+  `--split-command`, `--split-focus`, `--split-resize`, `--split-drop`,
+  `--split-separate`, `--print-splits`.
+- Peek: a link from a pinned or favorite tab to another site (host with `www.` dropped;
+  equal or a subdomain is the same site, ports never count) and any ⇧-click open over the
+  page in a rounded panel with its own web view in the tab's data context (History,
+  downloads, sign-in, permissions, content blocking, extensions and Vimium work in it;
+  private windows keep nothing). Title bar with back/forward, "Open as Tab" (⌘O: a Today
+  tab after the opener, history kept) and close (Esc, ⌘W, a click on the dimmed page).
+  One per window; a second replaces it. CLI `browser peek <url>|close|open-as-tab`;
+  harness `--peek`, `--peek-open-as-tab`, `--peek-close`, `--print-peek`, and `shift-`
+  and `opt-` clicks.
+- Peek (P4 review): menu titles return to "Close Tab" / "Open in Space Window" after a
+  Peek closes; ⌘[ / ⌘] / ⌘. state, the zoom chip, the capture indicator and extension
+  actions (`activeTab`, toolbar buttons) follow the Peek's page; Esc in a Peek ends the
+  find bar or element fullscreen first and closing a Peek closes its find bar; a scripted
+  `window.open` with ⇧ held never becomes a Peek; the extension navigation gate uses the
+  link disposition WebKit's click really gets. The global Little Arc chord is reserved in
+  Keyboard Shortcuts while on, and a stored chord that is taken falls back to ⌥⌘N or turns
+  the hotkey off.
+- Little Arc review fixes: Settings' global-shortcut recorder handles only its own
+  window's keys, refuses system, text-editing and in-app chords (also when decoding
+  settings), lets the registered hotkey go while recording and stops when Settings
+  resigns or closes; a refused hotkey shows "(unavailable)" and is retried; the hotkey
+  finds its key on the ASCII-capable layout when the current one (Russian, Greek) has
+  none; duplicating in a Little Arc copies into its Space's window; Command Bar rows fit
+  a narrow bar and a long ⌘L address no longer widens it; a link rule whose Space is gone
+  no longer overrides "Open links from other apps in"; `windows` help names `popup`.
+- Little Arc: a small one-tab window of one Space (compact toolbar with editable address,
+  Space mark, "Open in" Space menu, ⌘O "Open in Space Window"), cascaded from the screen's
+  top right. Links from other apps open in it unless a link rule matches (Settings ▸ Links
+  from other apps ▸ "Open links from other apps in": Little Arc or the most recent window;
+  an Arc import takes Arc's `defaultDestination`). ⌥⌘N opens one with the Command Bar;
+  Settings ▸ Keyboard shortcuts has an optional global shortcut (off by default). Its new
+  tabs go to its Space's window; 6 h idle closes it with its tab in the Archive; session
+  version 4 saves it. CLI `browser little [url]`, `browser little to-window`; `browser
+  windows` gains a kind column.
+- Extension review fixes: an update sheet decides only what it showed; every worker whose
+  policy could permit a socket gets the WebSocket stand-in; an update re-reads the record
+  after its sheet; notifications ask once per extension (no window is no refusal); a
+  download whose Space is deleted while its save panel is open is dropped.
 - A native Vimium keyboard layer for pages: counts, scrolling, link hints
   (open, new tab, copy, queue), find, omnibar, bookmarks, tab search, history,
   tab manipulation, marks, visual mode, zoom, mute, source view and a full
@@ -307,8 +432,33 @@ app.
   apps open (imported from Arc's Air Traffic Control: an address that
   contains, is or starts with some text opens in a chosen Space or the most
   recent window's Space), with Delete.
+- Chrome extensions: Settings ▸ Extensions installs one from its Chrome Web
+  Store link or id (the package's signatures are checked as Chrome checks a
+  store install, including the Web Store's own) or loads an unpacked folder,
+  and lists them with an on/off switch, "Allow in private windows", site
+  access (on all sites, on specific sites, when you click it) and Remove.
+  Store extensions update daily. Extensions run in every Space and see the
+  real tabs and windows; their toolbar buttons show badges and open their
+  popups, their context-menu items appear in the page menu, their keyboard
+  shortcuts work (never over the app's own), and the Extensions menu and
+  the Command Bar list their commands. When an extension asks for more
+  access, a sheet asks once and remembers the answer. uBlock Origin Lite,
+  Wappalyzer and 1Password run.
+- 1Password: install it from the Chrome Web Store (Settings ▸ Extensions)
+  and sign in from its toolbar button. Soprano Web fills in the Chrome
+  features WebKit lacks for it and other extensions: notifications (in
+  Notification Center, with their buttons, attributed to the extension;
+  the first time an extension posts one, Soprano Web asks whether to
+  show its notifications before macOS asks for permission), new-tab
+  tracking, managed storage, Chrome's user agent for extensions that
+  require a Chrome version, and WebSockets in extension workers whose
+  security policy names a WebSocket server.
+- `browser extensions` and `browser extension install|enable|disable|remove|errors|update`
+  let scripts and agents manage extensions; `browser extension action <id> [png]`
+  clicks an extension's toolbar button and prints (and captures) its popup.
 
 ### Changed
+- Soprano Web requires macOS 26 or later.
 - Every Space keeps its own cookies and website data, History, site
   decisions, Archive and Favorites; Spaces never share them. New Space
   makes a Space that starts signed out everywhere, and Delete Space… (right-click
@@ -400,6 +550,40 @@ app.
   `bookmarks.json.migrated`.
 
 ### Fixed
+- Block ads and trackers: EasyList's few filters with `:has()` inside `:has()` (which
+  WebKit rejects) are skipped, so the other hiding rules for those sites, compiled with
+  them, work again. Lists compiled before are rebuilt from the saved copy at the next
+  launch, without a download.
+- Settings: the list scrolls between the header and the footer instead of running under
+  the settings path and Done (Links from other apps and Extensions were hidden).
+- Capture (P8 review): Full Page no longer includes what a page hides sideways (an
+  off-canvas menu) and stays within ~42 million pixels; the file appears whole and never
+  replaces one; the overlay closes when another field takes the keyboard, and the page
+  shown gets the keyboard back.
+- Boosts (P8 review): a page that replaces its adopted stylesheets no longer drops the
+  Boost's CSS.
+- Site Control Center (P6 review): the open popover closes when its tab stops being the
+  page you look at and follows the tab's navigations; its zoom acts on its own tab, and
+  "Block ads on this site" and extension access write the tab's current site, not the
+  one it opened for; on a certificate interstitial a permission choice is stored for the
+  interstitial's host instead of being dropped; unchecking "Allow on <host>" also removes
+  a parent site that granted it; the harness's `--security-info` and `--site-blocking`
+  keep the popover alive while pressing its controls.
+- Split View (P5 review): dragging a divider resized only by the first step (the layout
+  rebuilt the dividers mid-drag; now only the widths change); a favorite's live tab
+  brought into the current Space leaves its split; Recently Closed windows keep their
+  splits aligned when tabs of a deleted Space are dropped; ⌥⌘↓/↑ moves on from a split
+  whose focused pane is pinned or a favorite; Vimium `<<`/`>>` on a pane moves the
+  split's row; Merge All Windows and a Space's profile change keep splits.
+- Resuming or retrying a download uses the cookies and website data of the
+  Space it started in, not the Space the window shows now.
+- A page that sets its title after it finished loading shows that title in
+  History (private windows still write nothing).
+- Resume and Retry on a download row of a deleted Space do nothing
+  (they used to continue in the Default Space's cookies and data).
+  Deleting a Space stops the downloads running in it; their rows stay.
+- A page that sets its title after loading never renames the History row
+  of an error page.
 - Reopening a closed tab (`⇧⌘T`) takes it out of the Archive again.
 - A private window's sidebar no longer shows the profile's Archive, and
   Clear Browsing Data ▸ History there also clears its Command Bar pages.
@@ -425,3 +609,36 @@ app.
 - Muting a tab also mutes media that starts later and stays muted after
   navigating.
 - Typing in the sidebar's search field filters the list as you type.
+
+### Security
+- A web page can no longer open an extension's own pages (options,
+  popup, dashboard) by navigating to their `chrome-extension://` address;
+  only the extension's own pages can. An extension not allowed in
+  private windows doesn't open its pages there either.
+- Extensions can't open local files (`file:`) with `tabs.update`, their
+  popup's links or their pages in tabs, can't open other extensions'
+  pages, and a link of theirs to another app (`zoommtg:`, `smb:`, …)
+  asks first, naming the extension. Extensions are never granted local
+  file access; WebKit doesn't run content scripts on `file:` pages.
+- Settings ▸ Extensions shows what an extension can do before it is
+  added; `browser extension install` prints the list. An update never
+  grants anything new: what it newly asks for waits until you allow it
+  in the permission sheet.
+- An unpacked folder carrying an installed extension's id (its `key`)
+  no longer takes it over: Settings asks before replacing it (its
+  settings, permissions and stored data reset); `browser extension
+  install` refuses.
+- Extension packages unpack in the app from the checked archive
+  directory (no `ditto`): mismatched or overlapping entries, decoy
+  directories, symlinks from any system, a file and a folder of the same
+  name, and packages that unpack past 256 MB are refused. Web Store
+  downloads stop as soon as they pass 256 MB.
+- Native messaging hosts answer only the extensions on their allowlist.
+- WebSockets of extension workers follow the extension's
+  `connect-src`, reach local, private-network and `.local` hosts only
+  with host access to them, refuse redirects and sign-in challenges,
+  and are capped at 64 per extension and 16 MB per message.
+- Extension notifications show the extension's name, at most 100 per
+  extension; an extension that asks for notifications only as optional
+  doesn't get them. `clients.matchAll` no longer lists an extension's
+  pages in private windows it isn't allowed in.

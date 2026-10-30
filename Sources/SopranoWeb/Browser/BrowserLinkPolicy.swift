@@ -5,18 +5,71 @@ enum BrowserLinkDisposition: Equatable, Sendable {
     case currentTab
     case backgroundTab
     case foregroundTab
+    /// A Peek over the page (`BrowserWindowController.openPeek`).
+    case peek
+    /// A new pane of the page's split (`BrowserWindowController
+    /// .openLinkPane`).
+    case splitPane
 
     /// `WKNavigationAction.buttonNumber` is a bitmask (left 1, right 2,
     /// middle 4). ⌘-click and middle-click open a background tab; adding ⇧
-    /// brings it to the front. Every other click stays in the tab.
+    /// brings it to the front. ⇧ alone opens a Peek, ⌥ alone a split pane.
+    /// Every other click stays in the tab. WebKit doesn't treat ⌥-click
+    /// as a download (`shouldPerformDownload` is only the `download`
+    /// attribute), so it reaches the link handling.
     static func disposition(
         modifierFlags: NSEvent.ModifierFlags,
         buttonNumber: Int
     ) -> BrowserLinkDisposition {
         let flags = modifierFlags.intersection(.deviceIndependentFlagsMask)
         let isMiddle = buttonNumber & 4 != 0
-        guard flags.contains(.command) || isMiddle else { return .currentTab }
+        guard flags.contains(.command) || isMiddle else {
+            if flags.contains(.shift) { return .peek }
+            return flags.contains(.option) ? .splitPane : .currentTab
+        }
         return flags.contains(.shift) ? .foregroundTab : .backgroundTab
+    }
+
+    /// A link activated in a tab of `origin` showing `pageURL`: the click's
+    /// own disposition, and a plain click from a pinned or favorite tab to
+    /// another site (`BrowserPeekRule.isOtherSite`) that would load in the
+    /// main frame opens a Peek too. Only web links (http, https) open a
+    /// Peek or a split pane; ⇧ or ⌥ on anything else stays in the tab.
+    static func disposition(
+        modifierFlags: NSEvent.ModifierFlags,
+        buttonNumber: Int,
+        origin: BrowserTabOrigin,
+        pageURL: URL?,
+        linkURL: URL?,
+        targetsMainFrame: Bool
+    ) -> BrowserLinkDisposition {
+        let base = disposition(modifierFlags: modifierFlags, buttonNumber: buttonNumber)
+        let isWeb = ["http", "https"].contains(linkURL?.scheme?.lowercased() ?? "")
+        switch base {
+        case .peek, .splitPane:
+            return isWeb ? base : .currentTab
+        case .currentTab:
+            guard isWeb, targetsMainFrame, origin != .today,
+                  BrowserPeekRule.isOtherSite(from: pageURL, to: linkURL)
+            else { return .currentTab }
+            return .peek
+        case .backgroundTab, .foregroundTab:
+            return base
+        }
+    }
+
+    /// A `window.open` or a link's new window that is not a link click
+    /// (scripted): ⌘ or middle still open a background tab and ⇧⌘ a
+    /// foreground one; ⇧ or ⌥ held by chance change nothing (no Peek or
+    /// split pane, so a sized pop-up stays a pop-up).
+    static func scriptedDisposition(
+        modifierFlags: NSEvent.ModifierFlags,
+        buttonNumber: Int
+    ) -> BrowserLinkDisposition {
+        switch disposition(modifierFlags: modifierFlags, buttonNumber: buttonNumber) {
+        case .peek, .splitPane, .currentTab: .currentTab
+        case let other: other
+        }
     }
 
     /// The index a link-opened tab is inserted at: after its opener and after
@@ -31,11 +84,54 @@ enum BrowserLinkDisposition: Equatable, Sendable {
     }
 }
 
+/// Peek's "other site": a host comparison, no public-suffix list. Hosts
+/// are lowercased with a trailing dot and a leading `www.` dropped; two
+/// are the same site when equal or when one is a subdomain of the other
+/// (`docs.example.com` and `example.com`). Ports never matter; an IP
+/// address is the same site only as itself.
+enum BrowserPeekRule {
+    /// Whether a link from `pageURL` to `linkURL` leaves the site. A page
+    /// without a host (a file, `about:blank`) leaves it for any web host;
+    /// a link without a host never does.
+    static func isOtherSite(from pageURL: URL?, to linkURL: URL?) -> Bool {
+        guard let link = siteHost(linkURL?.host) else { return false }
+        guard let page = siteHost(pageURL?.host) else { return true }
+        return !isSameSite(page, link)
+    }
+
+    /// `a` and `b` as `siteHost` gives them.
+    static func isSameSite(_ a: String, _ b: String) -> Bool {
+        if a == b { return true }
+        guard !isIPAddress(a), !isIPAddress(b) else { return false }
+        return a.hasSuffix("." + b) || b.hasSuffix("." + a)
+    }
+
+    /// The host the comparison uses; nil for none.
+    static func siteHost(_ host: String?) -> String? {
+        guard var host = host?.lowercased().trimmingCharacters(in: CharacterSet(charactersIn: "[]")) else { return nil }
+        while host.hasSuffix(".") {
+            host.removeLast()
+        }
+        if host.hasPrefix("www."), host.count > 4 {
+            host.removeFirst(4)
+        }
+        return host.isEmpty ? nil : host
+    }
+
+    /// IPv6 (has a colon) or a dotted IPv4 address.
+    static func isIPAddress(_ host: String) -> Bool {
+        if host.contains(":") { return true }
+        let labels = host.split(separator: ".", omittingEmptySubsequences: false)
+        return labels.count == 4 && labels.allSatisfy { !$0.isEmpty && $0.allSatisfy(\.isASCII) && $0.allSatisfy(\.isNumber) }
+    }
+}
+
 /// Schemes that load inside a tab. Anything else is handed to another app.
 @MainActor
 enum BrowserWebSchemes {
     static let all: Set<String> = [
         "http", "https", "file", "about", "blob", "data", BrowserStartPageSchemeHandler.scheme,
+        BrowserExtensions.scheme,
     ]
 
     static func isWeb(_ url: URL) -> Bool {

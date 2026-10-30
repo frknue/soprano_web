@@ -6,10 +6,17 @@ struct BrowserLinkDispositionTests {
     @Test func plainClicksStayInTheTab() {
         #expect(BrowserLinkDisposition.disposition(modifierFlags: [], buttonNumber: 1) == .currentTab)
         #expect(BrowserLinkDisposition.disposition(modifierFlags: [], buttonNumber: 0) == .currentTab)
-        #expect(BrowserLinkDisposition.disposition(modifierFlags: .shift, buttonNumber: 1) == .currentTab)
-        #expect(BrowserLinkDisposition.disposition(modifierFlags: .option, buttonNumber: 1) == .currentTab)
+        #expect(BrowserLinkDisposition.disposition(modifierFlags: .option, buttonNumber: 1) == .splitPane)
         // Right button (2) is not a middle click.
         #expect(BrowserLinkDisposition.disposition(modifierFlags: [], buttonNumber: 2) == .currentTab)
+    }
+
+    @Test func shiftAloneOpensAPeek() {
+        #expect(BrowserLinkDisposition.disposition(modifierFlags: .shift, buttonNumber: 1) == .peek)
+        #expect(BrowserLinkDisposition.disposition(modifierFlags: [.shift, .capsLock], buttonNumber: 1) == .peek)
+        // ⇧ with ⌘ or the middle button still brings a tab to the front.
+        #expect(BrowserLinkDisposition.disposition(modifierFlags: [.shift, .command], buttonNumber: 1) == .foregroundTab)
+        #expect(BrowserLinkDisposition.disposition(modifierFlags: .shift, buttonNumber: 4) == .foregroundTab)
     }
 
     @Test func commandAndMiddleClicksOpenBackgroundTabs() {

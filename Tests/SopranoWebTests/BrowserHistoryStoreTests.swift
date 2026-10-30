@@ -36,6 +36,34 @@ struct BrowserHistoryStoreTests {
         #expect(reloaded.recentPages(limit: 5).map(\.url) == ["https://example.com/", "https://example.com/a"])
     }
 
+    @Test func aTitleSetAfterTheLoadRenamesTheRecentRow() {
+        let directory = temporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let store = BrowserHistoryStore(directory: directory)
+        let now = Date()
+        // Recorded at the load's end, before the page set `document.title`.
+        store.record(url: "https://late.example/", title: "late.example", at: now.addingTimeInterval(-1))
+        store.record(url: "https://old.example/", title: "Old", at: now.addingTimeInterval(-600))
+        var changes = 0
+        let observation = store.changes.observe { changes += 1 }
+        defer { observation.cancel() }
+
+        store.updateTitle(url: "https://late.example/", title: "Late Title", at: now)
+        store.updateTitle(url: "https://late.example/", title: "Late Title", at: now)
+        store.updateTitle(url: "https://late.example/", title: "", at: now)
+        // A visit older than the merge window keeps its title.
+        store.updateTitle(url: "https://old.example/", title: "Changed", at: now)
+
+        let reloaded = BrowserHistoryStore(directory: directory)
+        let visits = reloaded.visits(limit: 10)
+        #expect(visits.map(\.title) == ["Late Title", "Old"])
+        #expect(reloaded.visitCount() == 2)
+        #expect(changes == 1)
+        // The search index follows the new title.
+        #expect(reloaded.visits(matching: "Late Title", limit: 10).map(\.url) == ["https://late.example/"])
+        #expect(reloaded.visits(matching: "Changed", limit: 10).isEmpty)
+    }
+
     @Test func onlyWebAndFileAddressesAreRecorded() {
         let directory = temporaryDirectory()
         defer { try? FileManager.default.removeItem(at: directory) }

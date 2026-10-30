@@ -9,6 +9,8 @@ extension BrowserWindowController {
         let webView = tab.webView
         return BrowserTabSleepCandidate(
             isSelected: tab.id == selectedTab?.id,
+            isVisiblePane: isVisiblePane(tab),
+            isInMiniPlayer: manager.miniPlayer.hosts(tab),
             isLoaded: !tab.isRestorePending && webView.url != nil,
             isPlayingAudio: tab.isPlayingAudio,
             isCapturing: webView.cameraCaptureState != .none
@@ -17,7 +19,7 @@ extension BrowserWindowController {
             isLoading: webView.isLoading,
             hasOpenPrompt: hasOpenPrompt(tab),
             hasUnsavedInput: !tab.lifecycle.unsavedFrames.isEmpty,
-            isPopup: isPopup || manager.hasPopupWindow(openedBy: tab),
+            isPopup: role == .popup || manager.hasPopupWindow(openedBy: tab),
             isKeptAwake: keepAwakeKey(for: tab).map(tab.dataContext.sitePermissions.keepsAwake(host:)) ?? false,
             lastActive: tab.lifecycle.lastActiveAt
         )

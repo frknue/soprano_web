@@ -10,9 +10,13 @@ final class BrowserWindowController: NSWindowController {
     unowned let manager: BrowserWindowManager
     /// Stable for the window's life and across relaunches (session `id`).
     let id: UUID
-    /// A page's `window.open` with a size: one tab, compact chrome (no tab
-    /// list, read-only address), never saved in the session.
-    let isPopup: Bool
+    /// Normal, a pop-up (a page's `window.open` with a size: one tab,
+    /// read-only address, never saved) or a Little Arc (one tab of
+    /// `littleSpaceID`, editable address, saved in the session).
+    let role: BrowserWindowRole
+    /// A Little Arc's Space (its tab carries no Space of its own, since the
+    /// window shows none); nil in every other window.
+    let littleSpaceID: UUID?
     /// What the window-level chrome reads (sidebar History, address
     /// suggestions, Clear Browsing Data, the mark) and what new tabs use:
     /// the current Space's profile context. A private or pop-up window's
@@ -65,7 +69,7 @@ final class BrowserWindowController: NSWindowController {
     let tabStrip: BrowserTabStripView
     let findBar: BrowserFindBar
     let sidebar: BrowserSidebarView
-    let webArea = NSView()
+    let webArea = BrowserPageAreaView()
     let linkStatus = BrowserLinkStatusView()
     private let hairline: ChromeRuleView
     let sidebarDivider: ChromeRuleView
@@ -111,15 +115,39 @@ final class BrowserWindowController: NSWindowController {
     lazy var vimiumTextPanel = VimiumTextPanel(theme: theme)
     /// ⌘D's popover and the rail's pin editor.
     lazy var bookmarkEditorPanel = BrowserPinEditorPanel()
+    /// The lock's Site Control Center.
+    lazy var siteControlPanel = BrowserSiteControlPanel()
+    /// The Boost editor sheet, while shown.
+    var boostEditor: BrowserBoostEditor?
+    /// The tab in Zap mode and its Boost's host.
+    var zapSession: (tabID: UUID, host: String)?
     /// The open folder preview beside the rail, and its pending close.
     var folderPreview: BrowserPinFolderPreview?
     var folderPreviewHideTimer: Timer?
     /// The New Space / Edit Space sheet while it is open.
     var spaceSheet: BrowserSpaceSheet?
     var vimiumToastView: NSView?
+    /// ⇧⌘2's overlay while it is open, and the last capture's toast.
+    var captureOverlay: BrowserCaptureOverlay?
+    var captureToast: BrowserCaptureToast?
     var popupBlockedControl: ChromeButton?
     /// The address field's zoom percentage (`updateZoomChip`).
     var zoomChip: ChromeButton?
+    /// The address field's Reader and Translate chips (`updateReaderChip`,
+    /// `updateTranslateChip`).
+    var readerChip: ChromeButton?
+    var translateChip: ChromeButton?
+    /// A private window's "Never Offer" languages, never saved.
+    var sessionNeverTranslate: Set<String> = []
+    /// Language availability and the translator (`BrowserTranslation`);
+    /// tests put a stand-in here.
+    var translationService: any BrowserTranslationService = BrowserSystemTranslationService()
+    /// The Peek over the page, at most one per window (`openPeek`).
+    var peek: BrowserPeek?
+    /// The window's split views (`BrowserSplit`); a tab is in at most one.
+    var splits: [BrowserSplit] = []
+    /// The page area's panes, dividers, focus ring and drop marker.
+    lazy var splitPage = BrowserSplitPage(theme: theme)
 
     static let verticalSidebarCollapsedKey = "verticalSidebarCollapsed"
     static let toolbarHiddenKey = "toolbarHidden"
@@ -133,15 +161,16 @@ final class BrowserWindowController: NSWindowController {
         manager: BrowserWindowManager,
         id: UUID = UUID(),
         frame: NSRect,
-        isPopup: Bool = false,
+        role: BrowserWindowRole = .normal,
         dataContext: BrowserDataContext,
         spaceID: UUID?
     ) {
         self.manager = manager
         self.id = id
-        self.isPopup = isPopup
+        self.role = role
         self.dataContext = dataContext
-        self.currentSpaceID = isPopup || dataContext.kind.isPrivate ? nil : spaceID
+        self.currentSpaceID = role != .normal || dataContext.kind.isPrivate ? nil : spaceID
+        self.littleSpaceID = role == .little ? spaceID : nil
         let themeManager = manager.themeManager
         let settings = manager.settingsStore.settings
         let theme = Self.theme(for: dataContext.kind, appTheme: themeManager.currentTheme)
@@ -179,7 +208,7 @@ final class BrowserWindowController: NSWindowController {
         window.isMovableByWindowBackground = false
         window.isReleasedWhenClosed = false
         window.tabbingMode = .disallowed
-        window.minSize = NSSize(width: 760, height: 520)
+        window.minSize = role == .little ? BrowserLittleArcFrame.minimumSize : NSSize(width: 760, height: 520)
         window.backgroundColor = theme.colors.bgBase
         window.title = kind.windowTitle("New Tab")
         if kind.isPrivate {
@@ -223,8 +252,8 @@ final class BrowserWindowController: NSWindowController {
     /// opened over).
     var profileID: UUID { dataContext.profileID }
 
-    /// Whether the window shows Spaces (a normal window that is not a
-    /// pop-up).
+    /// Whether the window shows Spaces (a normal window that is not
+    /// private).
     var hasSpaces: Bool { currentSpaceID != nil }
 
     /// The Space whose pins the window's pin surfaces (⌘D, the sidebar's
@@ -232,7 +261,7 @@ final class BrowserWindowController: NSWindowController {
     /// write: the current Space; a private or pop-up window's profile's
     /// first Space.
     var pinSpaceID: UUID? {
-        currentSpaceID ?? spaces.space(ofProfile: profileID)?.id
+        currentSpaceID ?? littleSpaceID ?? spaces.space(ofProfile: profileID)?.id
     }
 
     /// The pin Space's pinned tree; empty without one.
@@ -242,7 +271,7 @@ final class BrowserWindowController: NSWindowController {
 
     /// This window as `BrowserTabMoveRule` sees it.
     var moveRuleWindow: BrowserTabMoveRule.Window {
-        BrowserTabMoveRule.Window(id: id, context: dataContext.id, isPopup: isPopup, hasSpaces: hasSpaces)
+        BrowserTabMoveRule.Window(id: id, context: dataContext.id, role: role, hasSpaces: hasSpaces)
     }
 
     /// A private window always uses Folio Ink; a normal window the app's
@@ -285,6 +314,7 @@ final class BrowserWindowController: NSWindowController {
         guard hasSpaces else { return }
         let context = manager.context(for: space.profileID)
         let contextChanged = context !== dataContext
+        closePeek()
         currentSpaceID = space.id
         dataContext = context
         refreshVisibleTabs()
@@ -433,12 +463,12 @@ final class BrowserWindowController: NSWindowController {
     }
 
     func applyTabsLayout() {
-        let compact = isPopup
+        let compact = role.isCompact
         let vertical = usesVerticalTabs && !compact
         let collapsed = vertical && isVerticalSidebarCollapsed
         let railShown = vertical && !collapsed
         let stripShown = !vertical && !compact
-        // ⇧⌘D hides the toolbar (never a pop-up's, its only chrome).
+        // ⇧⌘D hides the toolbar (never a compact window's, its only chrome).
         let toolbarShown = compact || !isToolbarHidden
         verticalTabsView.isHidden = !railShown
         tabStrip.isHidden = !stripShown
@@ -461,18 +491,23 @@ final class BrowserWindowController: NSWindowController {
         toolbarLeading.constant = collapsed || compact ? 76 : 0
 
         toolbar.setVerticalTabsToggle(railShown)
-        toolbar.setCompact(compact)
+        toolbar.setCompact(compact, editable: role == .little)
         // The window's mark ("Private", its profile, or both) sits in the
         // rail header, or next to the address field when there is no rail.
         toolbar.setWindowMarkShown(!railShown)
         updateTabStrip()
+        updateMediaControls()
         syncFolderPreview()
         updateWindowMinSize()
         viewNeedsLayout()
     }
 
     func updateWindowMinSize() {
-        if isPopup {
+        if role == .little {
+            window?.minSize = BrowserLittleArcFrame.minimumSize
+            return
+        }
+        if role == .popup {
             window?.minSize = BrowserPopupWindowFrame.minimumWindowSize(chromeHeight: BrowserToolbarView.preferredHeight)
             return
         }
@@ -497,16 +532,20 @@ final class BrowserWindowController: NSWindowController {
         verticalTabsView.onClose = { [weak self] id in self?.closeTab(id: id, archive: true) }
         verticalTabsView.onNewTab = { [weak self] in self?.newTab(focusAddress: true) }
         verticalTabsView.onSwipeSpace = { [weak self] step in self?.switchToNeighborSpace(step: step) }
+        toolbar.onOpenIn = { [weak self] anchor in self?.showOpenInMenu(from: anchor) }
+        toolbar.onMoveToSpaceWindow = { [weak self] in self?.moveLittleArcToSpaceWindow() }
         toolbar.onToggleVerticalSidebar = { [weak self] in self?.toggleVerticalSidebar() }
 
         toolbar.onSubmit = { [weak self] value in self?.submitAddress(value) }
         toolbar.onBookmark = { [weak self] in self?.starPressed() }
         toolbar.onDownloads = { [weak self] in self?.toggleSidebar(section: .downloads) }
-        toolbar.onSecurityInfo = { [weak self] in self?.showConnectionInfo() }
+        toolbar.onSecurityInfo = { [weak self] in self?.toggleSiteControl() }
         toolbar.onSidebar = { [weak self] in
             guard let self else { return }
             self.toggleSidebar(section: self.sidebarSection)
         }
+        toolbar.onExtensionButton = { [weak self] id, _ in self?.performExtensionAction(id) }
+        toolbar.extensionMenuProvider = { [weak self] id in self?.extensionMenu(id) }
 
         findBar.onQueryChanged = { [weak self] query in
             self?.findQuery = query
@@ -525,6 +564,7 @@ final class BrowserWindowController: NSWindowController {
         sidebar.onDeleteArchived = { [weak self] id in self?.manager.archive.remove(id: id) }
         sidebar.spaceMarkProvider = { [weak self] spaceID in self?.archiveSpaceMark(spaceID) }
         wireRail()
+        wireMediaControls()
         sidebar.onRemoveDownload = { [weak self] id in self?.downloads.remove(id: id) }
         sidebar.onCancelDownload = { [weak self] id in self?.cancelDownload(id: id) }
         sidebar.onResumeDownload = { [weak self] id in self?.resumeDownload(id: id) }
@@ -561,6 +601,9 @@ final class BrowserWindowController: NSWindowController {
             manager.contentBlocker.changes.observe { [weak self] in
                 self?.applyContentBlockingToTabs(reloadingChanged: false)
             },
+            // Installed, removed, enabled, loaded; an action's icon or badge.
+            manager.extensions.changes.observe { [weak self] in self?.updateExtensionButtons() },
+            manager.extensions.actionChanges.observe { [weak self] in self?.updateExtensionButtons() },
         ]
         setUpPermissions()
     }
@@ -664,10 +707,13 @@ final class BrowserWindowController: NSWindowController {
         findBar.apply(theme: theme)
         sidebar.apply(theme: theme)
         linkStatus.apply(theme: theme)
+        peek?.view.apply(theme: theme)
+        splitPage.apply(theme: theme)
         // A sleeping start page builds with the new theme when it wakes.
         for tab in tabs where tab.isStartPage && !tab.isRestorePending {
             loadStartPage(tab)
         }
+        applyReaderTheme()
         updateChrome()
     }
 }

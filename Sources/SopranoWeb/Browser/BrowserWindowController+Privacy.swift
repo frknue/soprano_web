@@ -59,8 +59,9 @@ extension BrowserWindowController {
             completion?()
             return
         }
+        // WebKit calls back on the main thread.
         websiteDataStore.removeData(ofTypes: types, modifiedSince: since) {
-            completion?()
+            MainActor.assumeIsolated { completion?() }
         }
     }
 }

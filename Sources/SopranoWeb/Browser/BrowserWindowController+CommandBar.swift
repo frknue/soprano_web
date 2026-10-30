@@ -24,17 +24,25 @@ extension BrowserWindowController {
 
     /// ⌘T (empty; Return opens a new Today tab), ⌘L (the selected tab's
     /// address; Return navigates it) and ⇧⌘P (`/` actions). The same mode
-    /// again closes it (`toggles`).
+    /// again closes it (`toggles`). A pop-up's ⌘L edits its own address and
+    /// its ⌘T and ⇧⌘P open in a window with tabs; a Little Arc's ⌘T opens
+    /// in its Space's window, its ⌘L (and ⌥⌘N's bar) edits its one tab.
     func showCommandBar(_ mode: BrowserCommandBarMode, toggles: Bool = true) {
-        if isPopup {
-            guard mode != .editCurrent else {
+        if role == .popup || (role == .little && mode == .newTab) {
+            if role == .popup, mode == .editCurrent {
                 // ⌘L edits the pop-up's own address.
                 toolbar.focusAddress(selectAll: true)
                 return
             }
-            // A pop-up window has no tabs to open into.
+            // No tab list to open into. A window just made (or just
+            // switched to an empty Space) gets a start tab the bar edits.
             let target = manager.windowForNewTabs(from: self).window
             manager.present(target)
+            if target.visibleTabs.isEmpty, mode == .newTab {
+                target.newTab(select: true)
+                target.showCommandBar(.editCurrent, toggles: toggles)
+                return
+            }
             target.showCommandBar(mode, toggles: toggles)
             return
         }
@@ -93,13 +101,13 @@ extension BrowserWindowController {
             let state = command.state(context)
             guard state.isEnabled else { return nil }
             return BrowserCommandBarInput.Action(
-                id: command.id,
+                target: .command(command.id),
                 title: state.title ?? command.title,
                 synonyms: command.synonyms,
                 shortcut: keymap.shortcut(for: command.id)?.display ?? "",
                 symbol: command.symbol
             )
-        }
+        } + extensionCommandBarActions()
         return BrowserCommandBarInput(
             query: text,
             mode: mode,
@@ -142,6 +150,12 @@ extension BrowserWindowController {
         case let .command(id):
             id.command.perform(in: BrowserCommandContext(manager: manager, controller: self))
             focusPageIfUnfocused()
+        case let .extensionCommand(extensionID, commandID):
+            focusPageIfUnfocused()
+            extensions.performCommand(extensionID: extensionID, commandID: commandID)
+        case let .extensionAction(id):
+            focusPageIfUnfocused()
+            performExtensionAction(id)
         case let .settings(page):
             manager.showSettings(page: page)
             focusPageIfUnfocused()

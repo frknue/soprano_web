@@ -300,6 +300,36 @@ final class BrowserSpaceStore {
         return applied ? folder : nil
     }
 
+    /// Adds a live folder in `parentID` at `index` (nil appends; the root
+    /// when the parent is gone or live).
+    @discardableResult
+    func addLiveFolder(
+        name: String,
+        source: BrowserLiveFolderSource,
+        in parentID: UUID = BrowserPinTree.rootID,
+        at index: Int? = nil,
+        inSpace spaceID: UUID
+    ) -> BrowserPinFolder? {
+        let folder = BrowserPinFolder(name: name, source: source)
+        let applied = update { list in
+            list.updatePins(in: spaceID) { tree in
+                let parent = tree.folder(id: parentID).map { $0.isLive ? BrowserPinTree.rootID : parentID } ?? BrowserPinTree.rootID
+                return tree.insert(.folder(folder), into: parent, at: index)
+            }
+        }
+        return applied ? folder : nil
+    }
+
+    /// Changes a live folder's name and source.
+    func editLiveFolder(_ id: UUID, name: String, source: BrowserLiveFolderSource, inSpace spaceID: UUID) {
+        update { list in
+            list.updatePins(in: spaceID) { tree in
+                guard tree.folder(id: id)?.isLive == true else { return false }
+                return tree.rename(folder: id, to: name) && tree.setSource(folder: id, to: source)
+            }
+        }
+    }
+
     @discardableResult
     func movePin(_ id: UUID, to folderID: UUID, at index: Int, inSpace spaceID: UUID) -> Bool {
         update { $0.updatePins(in: spaceID) { $0.move(id, to: folderID, at: index) } }

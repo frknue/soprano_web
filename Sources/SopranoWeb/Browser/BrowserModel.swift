@@ -158,6 +158,21 @@ struct BrowserSettings: Codable, Equatable, Sendable {
     /// Settings ▸ Keyboard shortcuts: remapped shortcuts and their
     /// priority, by command id.
     var shortcuts = BrowserShortcutSettings()
+    /// Settings ▸ Keyboard shortcuts ▸ "New Little Arc from any app": off
+    /// by default; while on, `globalLittleArcShortcut` opens a Little Arc
+    /// with the Command Bar whichever app is in front.
+    var globalLittleArcEnabled: Bool = false
+    /// That shortcut, as `"opt+cmd+n"`.
+    var globalLittleArcShortcut: String = BrowserGlobalShortcut.fallback
+    /// Settings ▸ "Mini Player": leaving a tab with a playing, visible
+    /// video moves it into a floating panel.
+    var miniPlayer: Bool = true
+    /// Translate's "Never Offer for <language>": language codes ("de")
+    /// the address field doesn't offer to translate.
+    var neverTranslateLanguages: [String] = []
+    /// Settings ▸ "Allow JavaScript from Apple Events": AppleScript's
+    /// `execute javascript` runs only while this is on.
+    var allowsJavaScriptFromAppleEvents: Bool = false
 
     static let `default` = BrowserSettings()
 
@@ -241,6 +256,28 @@ extension BrowserSettings {
             .map(BrowserZoom.nearestStep) ?? defaultZoom
         blockAdsAndTrackers = (try? c.decodeIfPresent(Bool.self, forKey: .blockAdsAndTrackers)) ?? blockAdsAndTrackers
         shortcuts = (try? c.decodeIfPresent(BrowserShortcutSettings.self, forKey: .shortcuts)) ?? shortcuts
+        globalLittleArcEnabled = (try? c.decodeIfPresent(Bool.self, forKey: .globalLittleArcEnabled))
+            ?? globalLittleArcEnabled
+        miniPlayer = (try? c.decodeIfPresent(Bool.self, forKey: .miniPlayer)) ?? miniPlayer
+        neverTranslateLanguages = ((try? c.decodeIfPresent([String].self, forKey: .neverTranslateLanguages)) ?? nil)
+            .map { codes in codes.map(BrowserTranslationOffer.languageCode).reduce(into: [String]()) { if !$0.contains($1) { $0.append($1) } } }
+            ?? neverTranslateLanguages
+        allowsJavaScriptFromAppleEvents = (try? c.decodeIfPresent(Bool.self, forKey: .allowsJavaScriptFromAppleEvents))
+            ?? allowsJavaScriptFromAppleEvents
+        // A chord the system, text editing or another command uses never
+        // becomes a global hotkey (a hand-edited file included): a taken
+        // chord falls back to the default, and when that one is taken too
+        // the hotkey stays off rather than steal a command's chord.
+        let keymap = self.keymap
+        let stored = (try? c.decodeIfPresent(String.self, forKey: .globalLittleArcShortcut)).flatMap { BrowserShortcut($0) }
+        let fallback = BrowserShortcut(BrowserGlobalShortcut.fallback)
+        if let stored, BrowserGlobalShortcut.isAcceptable(stored, keymap: keymap) {
+            globalLittleArcShortcut = stored.storageText
+        } else if let fallback, BrowserGlobalShortcut.isAcceptable(fallback, keymap: keymap) {
+            globalLittleArcShortcut = fallback.storageText
+        } else {
+            globalLittleArcEnabled = false
+        }
     }
 }
 
@@ -482,11 +519,17 @@ struct BrowserWindowState: Codable, Equatable, Sendable {
     /// Missing in files written before profiles: Default. A profile that no
     /// longer exists opens in Default too.
     var profileID = BrowserProfile.defaultID
-    /// The Space the window shows; nil in a private window and in version 2
-    /// files (`placedInSpaces` picks the profile's first Space).
+    /// The Space the window shows (a Little Arc's: its Space); nil in a
+    /// private window and in version 2 files (`placedInSpaces` picks the
+    /// profile's first Space).
     var currentSpaceID: UUID?
     /// The tab each Space selects when the window switches to it.
     var spaceSelections: [BrowserSpaceSelection] = []
+    /// Normal or Little Arc (pop-ups are never saved); missing before
+    /// version 4: normal.
+    var role: BrowserWindowRole = .normal
+    /// The window's split views (version 5); none before.
+    var splits: [BrowserSplitState] = []
 }
 
 /// A Space's remembered tab in a saved window: its index in the window's
@@ -507,6 +550,8 @@ extension BrowserWindowState {
         currentSpaceID = (try? c.decodeIfPresent(UUID.self, forKey: .currentSpaceID)) ?? nil
         spaceSelections = (try? c.decodeIfPresent(LossyArray<BrowserSpaceSelection>.self, forKey: .spaceSelections))?
             .elements ?? []
+        role = (try? c.decodeIfPresent(BrowserWindowRole.self, forKey: .role)) ?? .normal
+        splits = (try? c.decodeIfPresent(LossyArray<BrowserSplitState>.self, forKey: .splits))?.elements ?? []
     }
 
     /// The selected tab's title, as the Window menu showed it.
@@ -533,9 +578,11 @@ extension BrowserTabState {
 /// Version 2 windows have no Spaces; their tabs open in the first Space of
 /// the window's profile (`BrowserWindowState.placedInSpaces`). Version 3
 /// adds each window's `currentSpaceID` and `spaceSelections` and each
-/// tab's `spaceID` and pin or favorite link.
+/// tab's `spaceID` and pin or favorite link. Version 4 adds each window's
+/// `role` (`normal` or `little`); older windows are normal. Version 5 adds
+/// each window's `splits` (`BrowserSplitState`); older windows have none.
 struct BrowserSession: Codable, Equatable, Sendable {
-    static let currentVersion = 3
+    static let currentVersion = 5
 
     /// The version of the file this was read from; new sessions are current.
     var version = Self.currentVersion

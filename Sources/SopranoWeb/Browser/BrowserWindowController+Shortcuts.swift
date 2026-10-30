@@ -75,13 +75,18 @@ extension BrowserWindowController {
     // MARK: - Rail walk
 
     /// ⌥⌘↓ / ⌥⌘↑: the next or previous rail item (favorites, the pinned
-    /// outline's shown pins, Today tabs), selecting its tab or opening it.
+    /// outline's shown pins, Today rows: a split is one, its focused pane),
+    /// selecting its tab or opening it.
     func walkRail(step: Int) {
+        // A pane (pinned or favorite ones too) is its split's Today row.
         let current: BrowserRailWalk.Item? = selectedTab.map { tab in
+            if let split = split(containing: tab.id) {
+                return .tab(split.id)
+            }
             switch tab.origin {
-            case let .favorite(id) where hasSpaces: .favorite(id)
-            case let .pinned(id) where hasSpaces: .pin(id)
-            default: .tab(tab.id)
+            case let .favorite(id) where hasSpaces: return .favorite(id)
+            case let .pinned(id) where hasSpaces: return .pin(id)
+            default: return .tab(tab.id)
             }
         }
         let items: [BrowserRailWalk.Item]
@@ -94,15 +99,24 @@ extension BrowserWindowController {
                 .filter { shown.contains($0.id) || current == .pin($0.id) }
             items = spaces.favorites(ofProfile: profileID).map { .favorite($0.id) }
                 + pins.map { .pin($0.id) }
-                + todayTabs.map { .tab($0.id) }
+                + todayRows.map(walkItem)
         } else {
-            items = visibleTabs.map { .tab($0.id) }
+            items = todayRows.map(walkItem)
         }
         switch BrowserRailWalk.step(items, from: current, by: step) {
         case let .favorite(id)?: openFavorite(id)
         case let .pin(id)?: openPin(id)
         case let .tab(id)?: selectTab(id: id, focus: true)
         case nil: break
+        }
+    }
+
+    /// A Today row as the rail walk sees it: a split is its row (selecting
+    /// it selects the focused pane).
+    private func walkItem(_ row: BrowserTabRow) -> BrowserRailWalk.Item {
+        switch row {
+        case let .tab(id): .tab(id)
+        case let .split(id): .tab(id)
         }
     }
 
@@ -236,7 +250,7 @@ extension BrowserWindowController {
     /// The page's `keydown` report (`BrowserShortcutScripts.keyReport`):
     /// a Site wins shortcut the page did not `preventDefault` runs.
     func receiveKeyReport(_ body: [String: Any], tab: BrowserTab) {
-        guard tab.id == selectedTab?.id,
+        guard tab === pageTab,
               let code = body["code"] as? String,
               let shortcut = BrowserShortcut(
                   domCode: code,

@@ -7,8 +7,12 @@ extension BrowserWindowController {
     /// Unpin Tab and Add to / Remove from Favorites (with Spaces), Move Tab
     /// to New Window, the close actions and Reopen Closed Tab for one tab
     /// of the current Space. `closeAfterTitle` names the run after it:
-    /// "Close Tabs Below" in the rail, "… to the Right" in the strip.
+    /// "Close Tabs Below" in the rail, "… to the Right" in the strip. A
+    /// split's row gets the split's menu (`splitContextMenu`).
     func tabContextMenu(for id: UUID, closeAfterTitle: String) -> NSMenu? {
+        if split(id: id) != nil {
+            return splitContextMenu(for: id)
+        }
         guard let index = visibleTabs.firstIndex(where: { $0.id == id }) else { return nil }
         let tab = visibleTabs[index]
         let menu = NSMenu(title: "Tab")
@@ -36,6 +40,9 @@ extension BrowserWindowController {
             menu.addItem(.separator())
         }
         add("Move Tab to New Window", #selector(moveTabToNewWindowFromMenu(_:)))
+        if allowsSplits, !isShown(tab) {
+            add("Open in Split View", #selector(openInSplitFromMenu(_:)), enabled: !(shownSplit?.isFull ?? false))
+        }
         menu.addItem(.separator())
         add("Close Tab", #selector(closeTabFromMenu(_:)))
         add("Close Other Tabs", #selector(closeOtherTabsFromMenu(_:)), enabled: !otherClosable(keeping: id).isEmpty)
@@ -45,7 +52,17 @@ extension BrowserWindowController {
         return menu
     }
 
+    /// A tab's mute button; a split's mutes every pane, or unmutes them all
+    /// when every pane is muted.
     func toggleMute(id: UUID) {
+        if let split = split(id: id) {
+            let panes = split.tabIDs.compactMap { tabID in tabs.first { $0.id == tabID } }
+            let mute = !panes.allSatisfy(\.isMuted)
+            for pane in panes where pane.isMuted != mute {
+                toggleMute(pane)
+            }
+            return
+        }
         guard let tab = tabs.first(where: { $0.id == id }) else { return }
         toggleMute(tab)
     }

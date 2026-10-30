@@ -127,11 +127,11 @@ extension SnapshotCommand {
     /// then print.
     static func runPinScenario(_ options: PinOptions, controller: BrowserWindowController) {
         for name in options.expand {
-            let folders = controller.currentPinTree.folderEntries().filter {
-                $0.id != BrowserPinTree.rootID && (name == "all" || $0.name == name)
-            }
-            for folder in folders {
-                controller.setPinFolderExpanded(folder.id, true)
+            let tree = controller.currentPinTree
+            let folders = tree.folderEntries().map { ($0.id, $0.name) }
+                + tree.liveFolders().compactMap { live in tree.folder(id: live.id).map { (live.id, $0.displayName) } }
+            for (id, folderName) in folders where id != BrowserPinTree.rootID && (name == "all" || folderName == name) {
+                controller.setPinFolderExpanded(id, true)
             }
         }
         if let name = options.lastFolder, let spaceID = controller.pinSpaceID {

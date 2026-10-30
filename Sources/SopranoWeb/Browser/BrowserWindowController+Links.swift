@@ -76,11 +76,12 @@ extension BrowserWindowController {
     /// Attaches a freshly made tab (of the opener's data context) after its
     /// opener in the opener's Space and records the opener. From a pop-up
     /// window the tab opens at the end of the current Space of a window
-    /// whose current Space uses the pop-up's data context instead. A tab
-    /// opened from a hidden Space never takes the selection.
+    /// whose current Space uses the pop-up's data context instead; from a
+    /// Little Arc, in a window showing its Space (`windowForNewTabs`). A
+    /// tab opened from a hidden Space never takes the selection.
     @discardableResult
     func insertLinkTab(_ tab: BrowserTab, opener: BrowserTab, select: Bool) -> BrowserTab {
-        if isPopup {
+        if role.isCompact {
             let (target, isNewWindow) = manager.windowForNewTabs(from: self)
             tab.spaceID = target.currentSpaceID
             target.insertLinkTab(tab, opener: opener, select: select || isNewWindow)
@@ -111,8 +112,11 @@ extension BrowserWindowController {
 
     /// `WKUIDelegate` body for `createWebViewWith`: a link with a target or a
     /// `window.open` call becomes a tab after its opener. ⌘ or middle opens
-    /// it in the background. A plain `window.open` that asks for a width or
-    /// height opens a pop-up window of that size instead.
+    /// it in the background; ⇧, or a pinned or favorite tab's link to
+    /// another site, opens it in a Peek, ⌥ in a new split pane (WebKit's
+    /// configuration, so the page keeps its opener). A plain `window.open`
+    /// that asks for a width or height opens a pop-up window of that size
+    /// instead; a scripted one never opens a Peek or a pane.
     func createLinkWebView(
         from webView: WKWebView,
         configuration: WKWebViewConfiguration,
@@ -124,22 +128,36 @@ extension BrowserWindowController {
         configuration.preferences = Self.makePreferences()
         let opener = self.tab(for: webView)
         let tab = makeTab(context: opener?.dataContext ?? dataContext, configuration: configuration)
-        let disposition = BrowserLinkDisposition.disposition(
-            modifierFlags: navigationAction.modifierFlags,
-            buttonNumber: navigationAction.buttonNumber
-        )
+        let disposition = navigationAction.navigationType == .linkActivated
+            ? BrowserLinkDisposition.disposition(
+                modifierFlags: navigationAction.modifierFlags,
+                buttonNumber: navigationAction.buttonNumber,
+                origin: opener?.origin ?? .today,
+                pageURL: webView.url,
+                linkURL: navigationAction.request.url,
+                targetsMainFrame: true
+            )
+            : BrowserLinkDisposition.scriptedDisposition(
+                modifierFlags: navigationAction.modifierFlags,
+                buttonNumber: navigationAction.buttonNumber
+            )
         if let opener {
             if let url = navigationAction.request.url {
                 let now = Date()
                 opener.links.recentlyOpened = opener.links.recentlyOpened
                     .filter { now.timeIntervalSince($0.date) < 5 } + [(url, now)]
             }
-            if disposition == .currentTab, windowFeatures.opensWindow {
+            // A Peek would show over the window's page, not the Mini Player's.
+            if disposition == .peek, !manager.miniPlayer.hosts(opener) {
+                showPeek(tab, from: opener)
+            } else if disposition == .splitPane {
+                insertLinkPane(tab, opener: linkOpener(opener))
+            } else if disposition == .currentTab, windowFeatures.opensWindow {
                 tab.isStartPage = false
                 tab.links.openerID = opener.id
                 manager.openPopupWindow(with: tab, features: windowFeatures, opener: self)
             } else {
-                insertLinkTab(tab, opener: opener, select: disposition != .backgroundTab)
+                insertLinkTab(tab, opener: linkOpener(opener), select: disposition != .backgroundTab)
             }
         } else {
             tab.isStartPage = false
@@ -158,21 +176,36 @@ extension BrowserWindowController {
 
     /// Link work in `decidePolicyFor navigationAction`, after the scheme and
     /// download checks. A ⌘/⇧⌘/middle click on a link that targets a frame in
-    /// this tab opens a new tab instead (returns true: cancel). A main-frame
-    /// load gets the pop-up permission of the page it is about to show.
+    /// this tab opens a new tab instead, ⇧ or a pinned or favorite tab's
+    /// link to another site a Peek, ⌥ a split pane (returns true: cancel).
+    /// A main-frame load gets the pop-up permission of the page it is
+    /// about to show.
     func handleLinkNavigation(_ navigationAction: WKNavigationAction, in webView: WKWebView) -> Bool {
         guard let url = navigationAction.request.url, let tab = tab(for: webView) else { return false }
         if navigationAction.navigationType == .linkActivated,
-           navigationAction.targetFrame != nil,
+           let targetFrame = navigationAction.targetFrame,
            navigationAction.sourceFrame.webView === webView
         {
             let disposition = BrowserLinkDisposition.disposition(
                 modifierFlags: navigationAction.modifierFlags,
-                buttonNumber: navigationAction.buttonNumber
+                buttonNumber: navigationAction.buttonNumber,
+                origin: tab.origin,
+                pageURL: webView.url,
+                linkURL: url,
+                targetsMainFrame: targetFrame.isMainFrame
             )
-            if disposition != .currentTab {
-                openLinkTab(url, opener: tab, select: disposition == .foregroundTab)
+            switch disposition {
+            case .peek:
+                openPeek(url, from: tab)
                 return true
+            case .splitPane:
+                openLinkPane(url, from: linkOpener(tab))
+                return true
+            case .backgroundTab, .foregroundTab:
+                openLinkTab(url, opener: linkOpener(tab), select: disposition == .foregroundTab)
+                return true
+            case .currentTab:
+                break
             }
         }
         if navigationAction.targetFrame?.isMainFrame == true {
@@ -181,11 +214,40 @@ extension BrowserWindowController {
         return false
     }
 
+    /// ⌥-click: `url` in a new Today tab beside `opener` that joins its
+    /// split right of it (a split of the two when it has none), focused.
+    /// When the split is full, or the window has no splits (a pop-up, a
+    /// Little Arc), it opens as a foreground tab instead.
+    @discardableResult
+    func openLinkPane(_ url: URL, from opener: BrowserTab) -> BrowserTab {
+        let tab = insertLinkPane(makeTab(context: opener.dataContext), opener: opener)
+        navigate(tab, to: url)
+        return tab
+    }
+
+    /// `insertLinkTab` for a tab made for a split pane, which then joins
+    /// `opener`'s split (`openLinkPane`).
+    @discardableResult
+    func insertLinkPane(_ tab: BrowserTab, opener: BrowserTab) -> BrowserTab {
+        let joins = allowsSplits && tabs.contains { $0 === opener }
+            && opener.spaceID == currentSpaceID
+            && !(split(containing: opener.id)?.isFull ?? false)
+        insertLinkTab(tab, opener: opener, select: !joins)
+        if joins {
+            addPane(tab, to: opener, at: nil, focus: true)
+        }
+        return tab
+    }
+
     // MARK: - window.close()
 
     /// `window.close()`: closes the tab; a selected tab returns to the tab
     /// that opened it when that tab is still open.
     func webViewDidClose(_ webView: WKWebView) {
+        if let peekTab = peek?.tab, peekTab.webView === webView {
+            closePeek()
+            return
+        }
         guard let tab = tab(for: webView) else { return }
         let wasSelected = tab.id == selectedTab?.id
         let previousID = selectedTab?.id
@@ -218,7 +280,7 @@ extension BrowserWindowController {
     /// Re-applies the stored pop-up decisions to every open page, e.g. after
     /// a decision changed in Settings.
     func refreshPopupPermissions() {
-        for tab in tabs {
+        for tab in tabsWithPeek {
             applyPopupPermission(tab, pageURL: tab.webView.url)
         }
     }
@@ -359,7 +421,14 @@ extension BrowserWindowController {
         }
     }
 
-    private func promptExternalApp(_ url: URL, tab: BrowserTab, host: String?) {
+    /// An extension's link to another app (`tabs.update`, its popup's
+    /// link): always asks, naming the extension; never remembered for the
+    /// tab's site.
+    func openExternalLink(_ url: URL, fromExtension name: String, in tab: BrowserTab) {
+        promptExternalApp(url, tab: tab, host: nil, requester: "“\(name)”")
+    }
+
+    private func promptExternalApp(_ url: URL, tab: BrowserTab, host: String?, requester: String? = nil) {
         guard !tab.links.isPromptingExternalApp else { return }
         guard let appURL = NSWorkspace.shared.urlForApplication(toOpen: url) else {
             showNoAppToast(url)
@@ -369,7 +438,7 @@ extension BrowserWindowController {
         let scheme = url.scheme?.lowercased() ?? ""
         let appName = FileManager.default.displayName(atPath: appURL.path)
             .replacingOccurrences(of: ".app", with: "", options: [.anchored, .backwards])
-        let site = host ?? "This page"
+        let site = requester ?? host ?? "This page"
         let alert = NSAlert()
         alert.messageText = "Open “\(appName)”?"
         alert.informativeText = "\(site) wants to open this link in \(appName)."

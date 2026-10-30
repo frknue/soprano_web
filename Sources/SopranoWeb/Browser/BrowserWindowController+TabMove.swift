@@ -19,9 +19,9 @@ extension BrowserWindowController {
     /// Whether this window's tab list takes a dragged tab: its own (a
     /// reorder within the current Space) or one from a window it can move
     /// from (`BrowserTabMoveRule`: the tab's context is the current
-    /// Space's).
+    /// Space's). A split's row only reorders in its own window.
     func canAcceptDroppedTab(id: UUID) -> Bool {
-        if visibleTabs.contains(where: { $0.id == id }) { return !isPopup }
+        if visibleTabs.contains(where: { $0.id == id }) || split(id: id) != nil { return role == .normal }
         guard let (source, tab) = manager.tab(id: id), source !== self else { return false }
         return manager.canMoveTab(tab, from: source, to: self)
     }

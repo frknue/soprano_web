@@ -16,6 +16,7 @@ enum BrowserSettingsPage: String, CaseIterable, Sendable {
     case shortcuts
     case websites
     case websiteData = "website-data"
+    case extensions
 
     var title: String {
         switch self {
@@ -24,6 +25,7 @@ enum BrowserSettingsPage: String, CaseIterable, Sendable {
         case .shortcuts: "Keyboard Shortcuts"
         case .websites: "Websites"
         case .websiteData: "Website Data"
+        case .extensions: "Extensions"
         }
     }
 
@@ -34,6 +36,7 @@ enum BrowserSettingsPage: String, CaseIterable, Sendable {
         case .shortcuts: ["keys", "remap", "hotkeys"]
         case .websites: ["permissions", "camera", "microphone", "notifications"]
         case .websiteData: ["cookies", "storage"]
+        case .extensions: ["add-ons", "plugins", "chrome web store", "install extension"]
         }
     }
 }
@@ -62,6 +65,10 @@ struct BrowserCommandBarRow: Equatable, Sendable {
         case favorite(UUID)
         case space(UUID)
         case command(BrowserCommandID)
+        /// An installed extension's command (`commands` in its manifest).
+        case extensionCommand(extensionID: String, commandID: String)
+        /// An installed extension's toolbar action (its button's click).
+        case extensionAction(String)
         case settings(BrowserSettingsPage)
         /// ⌘T's Return on an empty query: a start-page Today tab.
         case startPage
@@ -101,7 +108,8 @@ struct BrowserCommandBarInput: Sendable {
     }
 
     struct Action: Equatable, Sendable {
-        var id: BrowserCommandID
+        /// A registry command or an extension's command or action.
+        var target: BrowserCommandBarRow.Target
         var title: String
         var synonyms: [String]
         var shortcut: String
@@ -123,7 +131,8 @@ struct BrowserCommandBarInput: Sendable {
     /// visits).
     var history: [BrowserHistoryPage] = []
     var spaces: [Space] = []
-    /// The registry's enabled commands that have a Command Bar row.
+    /// The registry's enabled commands that have a Command Bar row, then
+    /// the extensions' commands and actions.
     var actions: [Action] = []
     var settingsPages: [BrowserSettingsPage] = BrowserSettingsPage.allCases
     var searchEngines: BrowserSearchEngines = .default
@@ -374,7 +383,7 @@ enum BrowserCommandBarEngine {
                     title: action.title,
                     shortcut: action.shortcut,
                     symbol: action.symbol,
-                    target: .command(action.id)
+                    target: action.target
                 )
             }
     }

@@ -34,26 +34,27 @@ extension BrowserWindowController {
         let webView = tab.webView
         tab.observations.append(webView.observe(\.cameraCaptureState, options: [.new]) { [weak self, weak tab] _, _ in
             MainActor.assumeIsolated {
-                guard let self, let tab, tab.id == self.selectedTab?.id else { return }
+                guard let self, let tab, tab === self.pageTab else { return }
                 self.updateCaptureIndicator()
             }
         })
         tab.observations.append(webView.observe(\.microphoneCaptureState, options: [.new]) { [weak self, weak tab] _, _ in
             MainActor.assumeIsolated {
-                guard let self, let tab, tab.id == self.selectedTab?.id else { return }
+                guard let self, let tab, tab === self.pageTab else { return }
                 self.updateCaptureIndicator()
             }
         })
     }
 
     /// Replaces the tab's state scripts (mute flag, its profile's
-    /// remembered notification decisions) so the next document starts with
-    /// the current state. Every other user script stays, in order, in its
-    /// own world.
+    /// remembered notification decisions) and Boost scripts so the next
+    /// document starts with the current state. Every other user script
+    /// stays, in order, in its own world.
     func refreshStateScripts(_ tab: BrowserTab) {
         let contentController = tab.webView.configuration.userContentController
         let kept = contentController.userScripts.filter {
             !$0.source.hasPrefix(BrowserPermissionScripts.stateMarker)
+                && !$0.source.hasPrefix(BrowserBoostScripts.marker)
         }
         contentController.removeAllUserScripts()
         kept.forEach(contentController.addUserScript)
@@ -64,6 +65,7 @@ extension BrowserWindowController {
             notificationStates: notifications ? NotificationPermissionState.states(in: context.sitePermissions) : [:],
             askingAllowed: notifications && settingsStore.settings.allowsNotificationRequests
         ).forEach(contentController.addUserScript)
+        BrowserBoostScripts.userScripts(manager.boosts.boosts).forEach(contentController.addUserScript)
     }
 
     /// The shim's `Notification.permission` for `host` in data context
@@ -91,7 +93,7 @@ extension BrowserWindowController {
     /// Re-applies remembered decisions and the notification setting to every
     /// tab; also called when settings change.
     func refreshPermissionStates() {
-        for tab in tabs {
+        for tab in tabsWithPeek {
             refreshStateScripts(tab)
             guard !tab.isStartPage,
                   let host = BrowserSitePermissionStore.key(for: tab.webView.url)
@@ -132,7 +134,7 @@ extension BrowserWindowController {
     }
 
     func updateCaptureIndicator() {
-        let webView = selectedTab?.webView
+        let webView = pageTab?.webView
         toolbar.captureIndicator.update(BrowserCaptureStatus(
             camera: .init(webView?.cameraCaptureState ?? .none),
             microphone: .init(webView?.microphoneCaptureState ?? .none)
@@ -140,7 +142,7 @@ extension BrowserWindowController {
     }
 
     func performCaptureAction(_ action: BrowserCaptureStatus.Action) {
-        guard let webView = selectedTab?.webView else { return }
+        guard let webView = pageTab?.webView else { return }
         switch action {
         case .stopCamera:
             webView.setCameraCaptureState(.none)
@@ -193,6 +195,7 @@ extension BrowserWindowController {
         if frame.isMainFrame {
             tab.media.frames.removeAll()
             tab.media.audio.reset()
+            resetMediaInfo(tab)
         }
         tab.media.frames[token] = frame
         if tab.isMuted {
@@ -295,7 +298,7 @@ extension BrowserWindowController {
     ) {
         for waiter in waiters {
             // The tab may have moved to another window since it asked.
-            guard let tab = manager.tab(id: waiter.tabID)?.tab else { continue }
+            guard let tab = manager.tabOrPeek(id: waiter.tabID)?.tab else { continue }
             tab.webView.evaluateJavaScript(
                 BrowserPermissionScripts.notificationCall("resolve", [waiter.id, state.rawValue]),
                 in: waiter.frame,
@@ -318,7 +321,7 @@ extension BrowserWindowController {
         let silent = body["silent"] as? Bool ?? false
         let tabID = tab.id
         let acknowledge = { [weak self] (ok: Bool) in
-            guard let tab = self?.manager.tab(id: tabID)?.tab else { return }
+            guard let tab = self?.manager.tabOrPeek(id: tabID)?.tab else { return }
             tab.webView.evaluateJavaScript(
                 BrowserPermissionScripts.notificationCall("shown", [document, id, ok]),
                 in: frame,

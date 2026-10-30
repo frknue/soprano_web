@@ -4,13 +4,15 @@ import WebKit
 /// Snapshot harness steps for link behavior: real mouse clicks into the
 /// selected page (WebKit treats them as user gestures) and a tab listing.
 extension SnapshotCommand {
-    /// `--click [cmd-|shift-cmd-|middle-]X,Y`: X,Y in page points from the
-    /// web view's top-left corner.
+    /// `--click [cmd-|shift-cmd-|shift-|opt-|middle-]X,Y`: X,Y in page
+    /// points from the web view's top-left corner.
     struct Click: Equatable {
         enum Kind: String {
             case plain
             case cmd
             case shiftCmd = "shift-cmd"
+            case shift
+            case opt
             case middle
         }
 
@@ -20,7 +22,7 @@ extension SnapshotCommand {
         nonisolated static func parse(_ value: String) -> Click? {
             var kind = Kind.plain
             var rest = Substring(value)
-            for candidate in [Kind.shiftCmd, .cmd, .middle] where rest.hasPrefix(candidate.rawValue + "-") {
+            for candidate in [Kind.shiftCmd, .cmd, .shift, .opt, .middle] where rest.hasPrefix(candidate.rawValue + "-") {
                 kind = candidate
                 rest = rest.dropFirst(candidate.rawValue.count + 1)
                 break
@@ -42,6 +44,8 @@ extension SnapshotCommand {
         case .plain, .middle: []
         case .cmd: .command
         case .shiftCmd: [.shift, .command]
+        case .shift: .shift
+        case .opt: .option
         }
         let isMiddle = click.kind == .middle
         func event(_ type: NSEvent.EventType) -> NSEvent? {

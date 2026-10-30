@@ -31,6 +31,13 @@ enum SnapshotCommand {
         var sheetButton: String?
         var elementClicks: [String] = []
         var showSecurityInfo = false
+        var showSiteControl = false
+        var boosts = SnapshotBoostOptions()
+        var capture = SnapshotCaptureOptions()
+        var media = SnapshotMediaOptions()
+        var reader = SnapshotReaderOptions()
+        var liveFolders = SnapshotLiveFolderOptions()
+        var appleScript = SnapshotAppleScriptOptions()
         var session = SnapshotSessionOptions()
         var tabAudio = false
         var hoverSelector: String?
@@ -55,6 +62,7 @@ enum SnapshotCommand {
         /// `--shortcuts-sheet`: capture Settings ▸ Keyboard shortcuts.
         var showsShortcutsSheet = false
         var imports = SnapshotImportOptions()
+        var extensions = SnapshotExtensionOptions()
     }
 
     enum OptionError: Error, CustomStringConvertible {
@@ -79,10 +87,16 @@ enum SnapshotCommand {
                                [--sidebar history|archive|downloads] [--find] [--settings]
                                [--vertical-tabs] [--collapsed] [--hints] [--help] [--prompt]
                                [--allow-popups <host>] [--tab <url>]... [--sheet] [--print-tabs]
-                               [--click [cmd-|shift-cmd-|middle-]X,Y]...
+                               [--click [cmd-|shift-cmd-|shift-|opt-|middle-]X,Y]...
                                [--sign-in <user:password>] [--sheet-button <title>]
-                               [--click-element <css selector>]... [--security-info]
+                               [--click-element <css selector>]... [--security-info] [--site-control]
     \(SnapshotSessionOptions.usage)
+    \(SnapshotBoostOptions.usage)
+    \(SnapshotCaptureOptions.usage)
+    \(SnapshotMediaOptions.usage)
+    \(SnapshotReaderOptions.usage)
+    \(SnapshotLiveFolderOptions.usage)
+    \(SnapshotAppleScriptOptions.usage)
                                [--tabs <url>,<url>…] [--tab-audio] [--hover <css selector>]
                                [--back-url <url>]
                                [--address <text>] [--focus-address]
@@ -96,6 +110,7 @@ enum SnapshotCommand {
     \(SnapshotBlockerOptions.usage)
     \(SnapshotSearchEngineOptions.usage)
     \(SnapshotImportOptions.usage)
+    \(SnapshotExtensionOptions.usage)
     """
 
     nonisolated static func parse(_ arguments: [String]) throws -> Options {
@@ -175,6 +190,29 @@ enum SnapshotCommand {
                 options.elementClicks.append(try value(option))
             case "--security-info":
                 options.showSecurityInfo = true
+            case "--site-control":
+                options.showSiteControl = true
+            case let flag where SnapshotCaptureOptions.flags.contains(flag):
+                try options.capture.parse(
+                    flag,
+                    value: { try value(flag) },
+                    peek: { index + 1 < arguments.count ? arguments[index + 1] : nil },
+                    skip: { index += 1 }
+                )
+            case let flag where SnapshotMediaOptions.flags.contains(flag):
+                try options.media.parse(
+                    flag,
+                    peek: { index + 1 < arguments.count ? arguments[index + 1] : nil },
+                    skip: { index += 1 }
+                )
+            case let flag where SnapshotBoostOptions.flags.contains(flag):
+                try options.boosts.parse(flag) { try value(flag) }
+            case let flag where SnapshotReaderOptions.flags.contains(flag):
+                try options.reader.parse(flag) { try value(flag) }
+            case let flag where SnapshotLiveFolderOptions.flags.contains(flag):
+                try options.liveFolders.parse(flag) { try value(flag) }
+            case let flag where SnapshotAppleScriptOptions.flags.contains(flag):
+                try options.appleScript.parse(flag) { try value(flag) }
             case let flag where SnapshotSessionOptions.flags.contains(flag):
                 try options.session.parse(flag) { try value(flag) }
             case let flag where SnapshotCommandBarAction.flags.contains(flag):
@@ -255,6 +293,7 @@ enum SnapshotCommand {
                     || SnapshotSleepOptions.parse(option, value: { try value(option) }, into: &options.sleep)
                     || SnapshotBlockerOptions.parse(option, value: { try value(option) }, into: &options.blocker)
                     || SnapshotSearchEngineOptions.parse(option, value: { try value(option) }, into: &options.searchEngines)
+                    || SnapshotExtensionOptions.parse(option, value: { try value(option) }, into: &options.extensions)
                 else {
                     throw OptionError.unknownOption(option)
                 }
@@ -365,7 +404,9 @@ enum SnapshotCommand {
             persistsSession: false,
             placement: .offscreen(size: options.size),
             defaults: defaults,
-            filterLists: options.blocker.sources
+            filterLists: options.blocker.sources,
+            extensionStorage: .volatile,
+            checksExtensionUpdates: false
         )
         options.sleep.apply(to: manager)
         // ⇧⌘C and ⌥⇧⌘C copy to a pasteboard of the harness's own, never
@@ -380,12 +421,15 @@ enum SnapshotCommand {
         for seed in options.sitePermissions {
             sitePermissions.set(seed.permission, seed.decision, host: seed.host)
         }
+        options.boosts.seed(manager.boosts, url: options.url)
+        options.liveFolders.prepare(manager)
         manager.restoreSession()
         guard var controller = manager.controllers.first, var window = controller.window else {
             FileHandle.standardError.write(Data("Snapshot could not create the window.\n".utf8))
             exit(1)
         }
         window.displayIfNeeded()
+        options.extensions.prepare(manager, wait: wait)
 
         if options.focusAddress {
             // Focused but not edited: the field must follow the navigation.
@@ -413,6 +457,8 @@ enum SnapshotCommand {
         for value in options.extraTabs {
             controller.newTab(url: value, select: false)
         }
+        // `--media-seed`: the playing page, before the window flags leave it.
+        options.media.runSeed(controller: controller, directory: temp) { wait($0) }
         if options.tabAudio {
             // The second tab plays audio, the third is muted (or the
             // selected tab plays when there is only one).
@@ -511,9 +557,12 @@ enum SnapshotCommand {
             wait(options.wait)
         }
         if options.showSecurityInfo {
-            controller.showConnectionInfo()
+            openConnectionDetails(controller: controller)
             wait(0.35)
         }
+        options.boosts.run(controller: controller) { wait($0) }
+        options.liveFolders.run(controller: controller) { wait($0) }
+        options.appleScript.run(manager: manager) { wait($0) }
         if let title = options.sheetButton {
             pressSheetButton(title, window: window)
             wait(options.wait)
@@ -556,12 +605,17 @@ enum SnapshotCommand {
             theme: themeManager.currentTheme
         )
         let shortcutsSheet = options.showsShortcutsSheet ? SnapshotCommandBarAction.sheet(for: manager) : nil
+        let extensionsSheet = options.extensions.showsSheet ? manager.makeExtensionsSheet() : nil
+        if let extensionsSheet {
+            extensionsSheet.apply(theme: themeManager.currentTheme)
+            extensionsSheet.dump.forEach { print("extensions-sheet: \($0)") }
+        }
         if let shortcutsSheet {
             shortcutsSheet.apply(theme: themeManager.currentTheme)
             shortcutsSheet.dump.forEach { print("shortcuts: \($0)") }
         }
         if settingsPreview != nil || websitesSheet != nil || searchEnginesSheet != nil
-            || shortcutsSheet != nil
+            || shortcutsSheet != nil || extensionsSheet != nil
         {
             wait(0.3)
         }
@@ -579,6 +633,9 @@ enum SnapshotCommand {
             wait(0.3)
         }
         SnapshotPageTools.run(options.pageTools, controller: controller)
+        options.reader.run(controller: controller) { wait($0) }
+        options.capture.run(controller: controller) { wait($0) }
+        options.media.run(controller: controller) { wait($0) }
 
         if options.showHints {
             controller.selectedTab?.vimium?.startHintsForSnapshot()
@@ -621,7 +678,11 @@ enum SnapshotCommand {
         if options.printTabs {
             printTabs(controller)
         }
+        let extensionPopup = options.extensions.performActions(in: controller, wait: wait)
+        options.extensions.report(manager, controller: controller)
         let bookmarkPopover = makePinPopover(options.pins, controller: controller)
+        let liveFolderEditor = options.liveFolders.makeEditor(controller: controller)
+        let siteControl = options.showSiteControl ? makeSiteControlPopover(controller: controller) : nil
         let pinPreview = makePinPreview(options.pins, controller: controller)
         let spaceSheet = makeSpaceSheet(options.pins, controller: controller)
 
@@ -654,7 +715,7 @@ enum SnapshotCommand {
             }
             print("sheet: " + texts.joined(separator: " | "))
         }
-        let settingsSheetWindow: NSWindow? = websitesSheet?.window ?? searchEnginesSheet?.window
+        let settingsSheetWindow: NSWindow? = websitesSheet?.window ?? searchEnginesSheet?.window ?? extensionsSheet?.window
         let otherSheetWindow: NSWindow? = shortcutsSheet?.window ?? spaceSheet?.window ?? importOutcome.window
         let captured: NSWindow = settingsSheetWindow ?? otherSheetWindow ?? captureWindow
         guard let captureContent = captured.contentView else {
@@ -672,36 +733,88 @@ enum SnapshotCommand {
         let base = NSImage(size: captureContent.bounds.size)
         base.addRepresentation(baseRep)
 
-        var pageImage: NSImage?
+        // Every page on screen: the selected tab, or each pane of its split.
+        var pageImages: [(webView: BrowserWebView, image: NSImage)] = []
         if privacySheet == nil, !options.showSettings, !options.showHelp, !options.showPrompt,
            websitesSheet == nil, searchEnginesSheet == nil, shortcutsSheet == nil, spaceSheet == nil,
+           extensionsSheet == nil,
            importOutcome.window == nil,
            !options.showFind,
-           captureWindow === window,
-           controller.selectedTab?.lifecycle.crashView == nil,
-           let webView = controller.selectedTab?.webView {
+           captureWindow === window
+        {
+            for tab in controller.shownTabs where tab.lifecycle.crashView == nil {
+                let webView = tab.webView
+                var finished = false
+                webView.takeSnapshot(with: nil) { image, _ in
+                    if let image { pageImages.append((webView, image)) }
+                    finished = true
+                }
+                let pageDeadline = Date().addingTimeInterval(5)
+                while !finished, Date() < pageDeadline {
+                    _ = RunLoop.current.run(
+                        mode: .default,
+                        before: min(pageDeadline, Date().addingTimeInterval(0.05))
+                    )
+                }
+            }
+        }
+        // A Peek's page is a second web view over the page.
+        var peekImage: NSImage?
+        if !pageImages.isEmpty, let peekWebView = controller.peek?.tab.webView {
             var finished = false
-            webView.takeSnapshot(with: nil) { image, _ in
-                pageImage = image
+            peekWebView.takeSnapshot(with: nil) { image, _ in
+                peekImage = image
                 finished = true
             }
-            let pageDeadline = Date().addingTimeInterval(5)
-            while !finished, Date() < pageDeadline {
+            let peekDeadline = Date().addingTimeInterval(5)
+            while !finished, Date() < peekDeadline {
                 _ = RunLoop.current.run(
                     mode: .default,
-                    before: min(pageDeadline, Date().addingTimeInterval(0.05))
+                    before: min(peekDeadline, Date().addingTimeInterval(0.05))
                 )
             }
         }
+        // An open Mini Player floats over the window (its own panel).
+        let miniPlayerImage = captureWindow === window
+            ? SnapshotMediaOptions.miniPlayerImage(controller, window: window, in: captureContent) { wait($0) }
+            : nil
 
         let output = NSImage(size: captureContent.bounds.size)
         output.lockFocus()
         NSColor.clear.setFill()
         captureContent.bounds.fill()
         base.draw(in: captureContent.bounds)
-        if let pageImage, let webView = controller.selectedTab?.webView {
-            let frame = webView.convert(webView.bounds, to: captureContent)
-            pageImage.draw(in: frame)
+        for (webView, image) in pageImages {
+            image.draw(in: webView.convert(webView.bounds, to: captureContent))
+        }
+        // A split's focus ring sits over the focused pane's page.
+        let ring = controller.splitPage.focusRing
+        if pageImages.count > 1, !ring.isHidden, ring.window === captureWindow,
+           let rep = ring.bitmapImageRepForCachingDisplay(in: ring.bounds)
+        {
+            ring.cacheDisplay(in: ring.bounds, to: rep)
+            let image = NSImage(size: ring.bounds.size)
+            image.addRepresentation(rep)
+            image.draw(in: ring.convert(ring.bounds, to: captureContent))
+        }
+        if let peekImage, let peek = controller.peek,
+           let rep = peek.view.bitmapImageRepForCachingDisplay(in: peek.view.bounds)
+        {
+            // The backdrop and panel chrome, then the Peek's page in it.
+            peek.view.cacheDisplay(in: peek.view.bounds, to: rep)
+            let chrome = NSImage(size: peek.view.bounds.size)
+            chrome.addRepresentation(rep)
+            chrome.draw(in: peek.view.convert(peek.view.bounds, to: captureContent))
+            let webView = peek.tab.webView
+            // The panel's rounded clip, as the layer mask draws it.
+            NSGraphicsContext.saveGraphicsState()
+            NSBezierPath(
+                roundedRect: peek.view.panel.convert(peek.view.panel.bounds, to: captureContent),
+                xRadius: Chrome.Radius.panel,
+                yRadius: Chrome.Radius.panel
+            ).addClip()
+            peekImage.draw(in: webView.convert(webView.bounds, to: captureContent))
+            NSGraphicsContext.restoreGraphicsState()
         }
         // The page snapshot covers the web area; draw the link bubble over it.
         let status = controller.linkStatus
@@ -721,10 +834,15 @@ enum SnapshotCommand {
             image.addRepresentation(rep)
             image.draw(in: dropdown.convert(dropdown.bounds, to: captureContent))
         }
-        // The Command Bar and ⌃Tab's switcher float over the page too.
+        // The Command Bar and ⌃Tab's switcher float over the page too, as
+        // do Capture's overlay and toast.
         let commandBarSurface = controller.commandBar.isOpen ? controller.commandBar.view.surface : nil
         let recentTabs = controller.recentTabsOverlay?.superview == nil ? nil : controller.recentTabsOverlay
-        for overlay in [bookmarkPopover, pinPreview, commandBarSurface, recentTabs].compactMap({ $0 })
+        let captureToast = controller.captureToast?.superview == nil ? nil : controller.captureToast
+        let floating: [NSView?] = [
+            bookmarkPopover, liveFolderEditor, siteControl, pinPreview, commandBarSurface, recentTabs, controller.captureOverlay, captureToast,
+        ]
+        for overlay in floating.compactMap({ $0 })
             where overlay.window === captureWindow && spaceSheet == nil && shortcutsSheet == nil
         {
             // Popovers hang over the page, which is drawn after the chrome.
@@ -733,6 +851,15 @@ enum SnapshotCommand {
             let image = NSImage(size: overlay.bounds.size)
             image.addRepresentation(rep)
             image.draw(in: overlay.convert(overlay.bounds, to: captureContent))
+        }
+        if let miniPlayerImage {
+            SnapshotMediaOptions.draw(miniPlayerImage)
+        }
+        // An extension's popup hangs under its toolbar button.
+        if let popup = extensionPopup, let anchor = controller.toolbar.extensionButton(id: popup.extensionID),
+           anchor.window === captureWindow
+        {
+            drawPopup(popup, under: anchor, in: captureContent)
         }
         if options.showSheet {
             drawAttachedSheet(of: window, in: captureContent)
@@ -795,6 +922,16 @@ enum SnapshotCommand {
             while !finished, Date() < removalDeadline {
                 _ = RunLoop.current.run(mode: .default, before: Date().addingTimeInterval(0.05))
             }
+        }
+        // The run's extension controller leaves nothing stored behind.
+        var extensionDataRemoved = false
+        Task { @MainActor in
+            await manager.extensions.removeAllData()
+            extensionDataRemoved = true
+        }
+        let extensionDeadline = Date().addingTimeInterval(10)
+        while !extensionDataRemoved, Date() < extensionDeadline {
+            _ = RunLoop.current.run(mode: .default, before: Date().addingTimeInterval(0.05))
         }
         manager.isTerminating = true
         for open in manager.controllers {

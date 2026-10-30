@@ -9,7 +9,7 @@
 Tabs, history, bookmarks, downloads and find, in Folio chrome — plus a CLI that
 lets an agent navigate, inspect and click a page from any shell.
 
-<img alt="macOS 14+" src="https://img.shields.io/badge/macOS-14%2B-111111?logo=apple&logoColor=white">
+<img alt="macOS 26+" src="https://img.shields.io/badge/macOS-26%2B-111111?logo=apple&logoColor=white">
 <img alt="Swift 6" src="https://img.shields.io/badge/Swift-6-F05138?logo=swift&logoColor=white">
 <img alt="AppKit, programmatic" src="https://img.shields.io/badge/AppKit-programmatic-2b6cb0">
 <img alt="WebKit" src="https://img.shields.io/badge/engine-WebKit-2f5f8a">
@@ -41,7 +41,7 @@ the next launch. `./scripts/dev.sh --build-only` packages an isolated
 `.build/debug/Soprano Web Dev.app` (`com.soprano.web.dev`) without launching it.
 `./scripts/dev.sh` launches that dev build.
 
-macOS 14 Sonoma or newer. The app is ad-hoc/local signed like the rest of the
+macOS 26 Tahoe or newer. The app is ad-hoc/local signed like the rest of the
 family, not notarized.
 
 ## The first five minutes
@@ -247,7 +247,7 @@ call `browser wait-for-load` before `snapshot`, `title` or `get` when the page
 must be loaded. `wait-for selector|url|text` waits for a CSS match, a URL
 substring or visible text, surviving navigations. Waits default to 10 seconds;
 `--timeout` takes up to 120. `--window n` picks a window by its 1-based number
-(`windows` lists them with their tab count, profile and title, `*` marking the
+(`windows` lists them with their kind — `normal`, `little` or `popup` — Space, tab count and title, `*` marking the
 default: the key window, else the most recently active one) and `--tab n` a tab
 of that window, without switching to either; otherwise the default window's
 selected tab is used. `new-window --profile <name>` opens the window in that

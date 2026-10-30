@@ -37,9 +37,9 @@ struct SnapshotBlockerOptions {
 ///   are downloaded and compiled (launch already starts one for lists never
 ///   downloaded; this waits for it).
 /// - `--blocking on|off`: the Settings ▸ Block ads and trackers switch.
-/// - `--site-blocking on|off`: opens the connection popover on the selected
-///   tab and flips its "Block ads on this site" switch (the control's own
-///   press), then closes the popover.
+/// - `--site-blocking on|off`: builds the Site Control Center for the
+///   selected page and flips its "Block ads on this site" switch (the
+///   control's own press).
 /// - `--print-blocker`: one JSON line: the setting, status line, every
 ///   list (validators, check and update times, rule and filter counts,
 ///   skipped filters by reason, compile time, compiled list identifiers),
@@ -89,7 +89,7 @@ enum SnapshotBlockerAction {
             manager.settingsStore.update { $0.blockAdsAndTrackers = on }
             print("blocking: \(on ? "on" : "off") (\(blocker.activeLists.count) list(s) active)")
         case .siteBlocking(let on):
-            siteBlocking(on, in: manager)
+            Self.pressSiteBlocking(on, in: manager)
         case .report:
             var finished = false
             Task {
@@ -99,33 +99,6 @@ enum SnapshotBlockerAction {
             Self.spin(1_800) { finished }
             Self.printBlocker(manager)
         }
-    }
-
-    @MainActor
-    private func siteBlocking(_ on: Bool, in manager: BrowserWindowManager) {
-        guard let controller = manager.activeController, let window = controller.window else { return }
-        controller.showConnectionInfo()
-        Self.spin(0.3)
-        guard let sheet = window.attachedSheet else {
-            print("site-blocking: no connection popover")
-            return
-        }
-        var queue = sheet.contentView.map { [$0] } ?? []
-        var accessory: BrowserSiteBlockingAccessory?
-        while !queue.isEmpty, accessory == nil {
-            let view = queue.removeFirst()
-            accessory = view as? BrowserSiteBlockingAccessory
-            queue += view.subviews
-        }
-        if let accessory {
-            if accessory.toggle.isOn != on {
-                _ = accessory.toggle.accessibilityPerformPress()
-            }
-            print("site-blocking: \(accessory.host) switch \(accessory.toggle.isOn ? "on" : "off")")
-        } else {
-            print("site-blocking: the popover has no switch")
-        }
-        window.endSheet(sheet)
     }
 
     // MARK: - Reporting
@@ -164,7 +137,8 @@ enum SnapshotBlockerAction {
                 tabs.append([
                     "window": windowIndex + 1,
                     "kind": controller.kind.isPrivate ? "private" : "normal",
-                    "popup": controller.isPopup,
+                    "popup": controller.role == .popup,
+                    "role": controller.role.rawValue,
                     "url": tab.webView.url?.absoluteString ?? NSNull(),
                     "lists": tab.webView.contentRuleListIDs.count,
                 ])

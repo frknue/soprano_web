@@ -2,8 +2,11 @@ import AppKit
 import UserNotifications
 
 /// Posts web notifications to Notification Center and routes clicks back to
-/// the tab that posted them. `UNUserNotificationCenter` needs an app bundle;
-/// outside one (the snapshot harness, tests) posting fails with `unavailable`.
+/// the tab that posted them, and extensions' notifications
+/// (`chrome.notifications`, `BrowserExtensionNativeHost`) with their clicks,
+/// buttons and dismissals back to the extension. `UNUserNotificationCenter`
+/// needs an app bundle; outside one (the snapshot harness, tests) posting
+/// fails with `unavailable`.
 @MainActor
 final class BrowserNotificationCenter: NSObject {
     struct Click: Sendable {
@@ -12,18 +15,37 @@ final class BrowserNotificationCenter: NSObject {
         let notificationID: Int
     }
 
-    enum PostError: Error {
+    enum PostError: Error, CustomStringConvertible {
         case unavailable
         case notAuthorized
+
+        var description: String {
+            switch self {
+            case .unavailable: "Notifications are unavailable."
+            case .notAuthorized: "Notifications are turned off for this app in System Settings."
+            }
+        }
     }
 
     static let shared = BrowserNotificationCenter()
 
     var onClick: ((Click) -> Void)?
+    /// An extension's notification was clicked, a button pressed, or it
+    /// was dismissed: extension id, notification id, what happened.
+    var onExtensionResponse: ((String, String, BrowserExtensionNativeHost.Response) -> Void)?
+    /// Extension notification categories kept registered.
+    nonisolated static let maximumExtensionCategories = 32
+    /// The button sets of extension notifications registered as categories.
+    private var extensionCategories = BrowserExtensionNotificationCategories<UNNotificationCategory>(
+        capacity: BrowserNotificationCenter.maximumExtensionCategories
+    )
 
     nonisolated private static let tabKey = "tabID"
     nonisolated private static let documentKey = "document"
     nonisolated private static let notificationKey = "notificationID"
+    nonisolated private static let extensionKey = "extensionID"
+    nonisolated private static let extensionNotificationKey = "extensionNotificationID"
+    nonisolated private static let buttonPrefix = "button"
 
     nonisolated static var isAvailable: Bool {
         Bundle.main.bundleIdentifier != nil && Bundle.main.bundleURL.pathExtension == "app"
@@ -39,7 +61,8 @@ final class BrowserNotificationCenter: NSObject {
     }
 
     /// Asks macOS for permission to show notifications; called the first
-    /// time a site is allowed. Later calls return the stored answer.
+    /// time a site is allowed, or an extension once the user allowed it in
+    /// the app. Later calls return the stored answer.
     func requestAuthorization() async -> Bool {
         guard let center else { return false }
         return (try? await center.requestAuthorization(options: [.alert, .sound])) ?? false
@@ -55,16 +78,7 @@ final class BrowserNotificationCenter: NSObject {
         tag: String,
         silent: Bool
     ) async throws {
-        guard let center else { throw PostError.unavailable }
-        let settings = await center.notificationSettings()
-        switch settings.authorizationStatus {
-        case .notDetermined:
-            guard await requestAuthorization() else { throw PostError.notAuthorized }
-        case .denied:
-            throw PostError.notAuthorized
-        default:
-            break
-        }
+        let center = try await authorizedCenter()
         let content = UNMutableNotificationContent()
         content.title = title
         content.subtitle = host
@@ -100,6 +114,115 @@ final class BrowserNotificationCenter: NSObject {
     fileprivate func handleClick(_ click: Click) {
         onClick?(click)
     }
+
+    fileprivate func handleExtensionResponse(_ extensionID: String, _ notificationID: String, _ response: BrowserExtensionNativeHost.Response) {
+        onExtensionResponse?(extensionID, notificationID, response)
+    }
+
+    /// The center once macOS allows notifications, refusing when turned
+    /// off. `asking`: asks macOS the first time (only when something is
+    /// posted); otherwise an undetermined permission refuses too.
+    private func authorizedCenter(asking: Bool = true) async throws -> UNUserNotificationCenter {
+        guard let center else { throw PostError.unavailable }
+        let settings = await center.notificationSettings()
+        switch settings.authorizationStatus {
+        case .notDetermined:
+            guard asking, await requestAuthorization() else { throw PostError.notAuthorized }
+        case .denied:
+            throw PostError.notAuthorized
+        default:
+            break
+        }
+        return center
+    }
+
+    /// The category of an extension notification with `buttons`: its
+    /// buttons as actions, and a dismissal reported (`onClosed`). The
+    /// categories registered are capped (`extensionCategories`).
+    private func extensionCategory(buttons: [String], in center: UNUserNotificationCenter) -> String {
+        let identifier = (["extension"] + buttons).joined(separator: "\u{1F}")
+        let changed = extensionCategories.use(identifier) {
+            UNNotificationCategory(
+                identifier: identifier,
+                actions: buttons.enumerated().map { index, title in
+                    UNNotificationAction(identifier: "\(Self.buttonPrefix)\(index)", title: title, options: [.foreground])
+                },
+                intentIdentifiers: [],
+                options: [.customDismissAction]
+            )
+        }
+        if changed {
+            center.setNotificationCategories(Set(extensionCategories.categories))
+        }
+        return identifier
+    }
+}
+
+/// The button sets of extension notifications, registered with
+/// Notification Center as categories: extensions choose the button titles,
+/// so at most `capacity` are kept, the least recently used dropped first.
+/// A delivered notification whose category was dropped still shows, without
+/// its buttons and without reporting a dismissal.
+struct BrowserExtensionNotificationCategories<Category> {
+    let capacity: Int
+    /// The least recently used first.
+    private var entries: [(identifier: String, category: Category)] = []
+
+    init(capacity: Int) {
+        self.capacity = capacity
+    }
+
+    var identifiers: [String] { entries.map(\.identifier) }
+    var categories: [Category] { entries.map(\.category) }
+
+    /// Marks the category `identifier` as just used, made by `make` when it
+    /// isn't kept. True when the kept set changed (to be registered again).
+    mutating func use(_ identifier: String, make: () -> Category) -> Bool {
+        if let index = entries.firstIndex(where: { $0.identifier == identifier }) {
+            entries.append(entries.remove(at: index))
+            return false
+        }
+        entries.append((identifier, make()))
+        if entries.count > capacity {
+            entries.removeFirst(entries.count - capacity)
+        }
+        return true
+    }
+}
+
+extension BrowserNotificationCenter: BrowserExtensionNotificationPosting {
+    func authorizationIsUndetermined() async -> Bool {
+        guard let center else { return false }
+        return await center.notificationSettings().authorizationStatus == .notDetermined
+    }
+
+    /// Never brings up macOS's prompt: the host asks the user first and
+    /// then `requestAuthorization()`.
+    func post(_ notification: BrowserExtensionNotification) async throws {
+        let center = try await authorizedCenter(asking: false)
+        let content = UNMutableNotificationContent()
+        content.title = notification.title
+        content.subtitle = notification.subtitle
+        content.body = notification.body
+        content.sound = notification.silent ? nil : .default
+        content.threadIdentifier = notification.extensionID
+        content.categoryIdentifier = extensionCategory(buttons: notification.buttons, in: center)
+        content.userInfo = [
+            Self.extensionKey: notification.extensionID,
+            Self.extensionNotificationKey: notification.notificationID,
+        ]
+        try await center.add(UNNotificationRequest(identifier: notification.identifier, content: content, trigger: nil))
+    }
+
+    func remove(identifiers: [String]) {
+        center?.removeDeliveredNotifications(withIdentifiers: identifiers)
+        center?.removePendingNotificationRequests(withIdentifiers: identifiers)
+    }
+
+    func permissionLevel() async -> String {
+        guard let center else { return "granted" }
+        return await center.notificationSettings().authorizationStatus == .denied ? "denied" : "granted"
+    }
 }
 
 extension BrowserNotificationCenter: UNUserNotificationCenterDelegate {
@@ -117,6 +240,25 @@ extension BrowserNotificationCenter: UNUserNotificationCenterDelegate {
         withCompletionHandler completionHandler: @escaping () -> Void
     ) {
         let info = response.notification.request.content.userInfo
+        let action = response.actionIdentifier
+        if let extensionID = info[Self.extensionKey] as? String,
+           let notificationID = info[Self.extensionNotificationKey] as? String
+        {
+            let reply: BrowserExtensionNativeHost.Response? = switch action {
+            case UNNotificationDefaultActionIdentifier: .clicked
+            case UNNotificationDismissActionIdentifier: .closed(byUser: true)
+            default: Int(action.dropFirst(Self.buttonPrefix.count)).map { .button($0) }
+            }
+            DispatchQueue.main.async {
+                MainActor.assumeIsolated {
+                    if let reply {
+                        BrowserNotificationCenter.shared.handleExtensionResponse(extensionID, notificationID, reply)
+                    }
+                }
+            }
+            completionHandler()
+            return
+        }
         let click = (info[Self.tabKey] as? String).flatMap(UUID.init(uuidString:)).map { tabID in
             Click(
                 tabID: tabID,

@@ -36,11 +36,13 @@ enum BrowserPageScripts {
         BrowserTabChromeScripts.linkHover,
         BrowserPermissionScripts.mediaReporter,
         BrowserPermissionScripts.mediaMute,
+        BrowserMediaScripts.reporter,
         BrowserPermissionScripts.notifications,
         BrowserPageToolsScripts.printOverride,
         BrowserPageToolsScripts.contextMenuCapture,
         BrowserTabSleepScripts.sleepGuard,
         BrowserShortcutScripts.keyReport,
+        BrowserReaderScripts.pageInfo,
     ]
 
     /// The message handler name, registered once per world.

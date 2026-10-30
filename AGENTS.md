@@ -1,7 +1,7 @@
 # Soprano Web
 
 A native WebKit browser for macOS in the Soprano family: Swift 6 + programmatic
-AppKit (no storyboards/xibs/SwiftUI), SPM, macOS 14+, `WKWebView`, shipped as a
+AppKit (no storyboards/xibs/SwiftUI), SPM, macOS 26+, `WKWebView`, shipped as a
 hand-packaged `.app` via `scripts/package-app.sh`. Folio chrome is vendored from
 Soprano.
 
@@ -23,8 +23,11 @@ swift test --filter BrowserDelegateSelectorTests
 ./scripts/install.sh                 # release build → /Applications/Soprano Web.app
 ```
 
-The `ld: warning: building for macOS-14.0 …` link warnings are expected. There is
-no linter or formatter; match surrounding style.
+SwiftPM may print one `warning: 'soprano-web': ld: warning: building for
+macOS-13.0 …` line before "Planning build": it links the `Package.swift`
+manifest for macOS 13, and the line is expected. The app and the tests build
+for macOS 26 without link warnings. There is no linter or formatter; match
+surrounding style.
 
 ## Verification
 
@@ -36,7 +39,8 @@ no linter or formatter; match surrounding style.
 - The user works on this Mac while agents run: prefix every build, test,
   harness and local test server with `taskpolicy -b`, pass `-j 2` (or `-j 1`) to
   Swift, run one heavy process at a time, and run at most one agent that builds.
-  Nothing an agent runs may take focus, show a window or trigger a system prompt.
+  Nothing an agent runs may take focus or trigger a system prompt; the dev app
+  (below) is the one window an agent shows.
 - Verify UI with the offscreen snapshot command and read the PNG:
 
   ```bash
@@ -57,7 +61,7 @@ no linter or formatter; match surrounding style.
   sheets, session restore and crashes, address-bar typing, tab audio and hover,
   site permissions, print/PDF/save and context menus, Clear Browsing Data and
   downloads. Window flags run in order on the active window:
-  `--session <file>` restores a version 1, 2 or 3 session (every window),
+  `--session <file>` restores a version 1–5 session (every window),
   `--new-window <url|start>` (repeatable) opens another window,
   cascaded, in the active window's Space (switch it first with `--space`
   for another one), `--new-private-window <url|start>` (repeatable) a
@@ -73,8 +77,9 @@ no linter or formatter; match surrounding style.
   w:t:w2:gap` (the tab list's drop handler; gap 0 is before the first tab),
   `--drop-outside w:t:x,y` (the drag source's handler for a drop no window
   takes, x,y on the harness screen as printed frames), `--merge-windows`,
-  `--click-page [cmd-|shift-cmd-|middle-]X,Y` (a real click into the active
-  window's page, e.g. to open a pop-up window or a background tab),
+  `--click-page [cmd-|shift-cmd-|shift-|opt-|middle-]X,Y` (a real click into the active
+  window's page, the Peek's when one is open, e.g. to open a pop-up window, a
+  background tab or a Peek; `--click` takes the same kinds),
   `--find-text <text>`, `--cli "<browser arguments>"` (one CLI request
   through the router), `--start-download <url>` / `--wait-downloads`,
   `--create-space <name>` (repeatable; a Space with its own profile, made
@@ -97,7 +102,7 @@ no linter or formatter; match surrounding style.
   how many data stores and web views of closed private windows are still
   alive,
   the recently-closed stack (with each entry's Space) and the
-  downloads (with a `private` flag) as one JSON line with a `printedAt` time
+  downloads (with a `private` flag and the `profile` they started in) as one JSON line with a `printedAt` time
   to match a test server's log;
   `--capture-window n` picks the window for the PNG (default: the active
   one; numbers count private windows, unlike the CLI's). The harness's
@@ -182,8 +187,8 @@ no linter or formatter; match surrounding style.
   it the harness has no lists and never reaches the network), and the
   actions `--blocker-update` (Update Now, waiting for the download and
   compile; launch already starts one for lists never downloaded),
-  `--blocking on|off` (the Settings switch), `--site-blocking on|off` (opens
-  the lock's connection sheet on the selected tab and presses its "Block
+  `--blocking on|off` (the Settings switch), `--site-blocking on|off` (builds
+  the Site Control Center for the selected page and presses its "Block
   ads on this site" switch) and `--print-blocker` (one JSON line: setting,
   status, each list's validators, check/update times, filter and rule
   counts, skipped filters by reason, compile seconds and list names, the
@@ -220,8 +225,55 @@ no linter or formatter; match surrounding style.
   30% of History or finished; `--export-pins <file>` /
   `--export-all-pins <file>` run File ▸ Export Pinned Tabs… and print what
   the file reads back as; `--open-link <url>` (repeatable) is a link from
-  another app through the routing rules; `--link-routing-sheet` captures
-  Settings ▸ Links from other apps. With `--support-dir` an import keeps
+  another app (a matching rule, else "Open links from other apps in"; prints
+  the window, its role and the route); `--outside-links little|recent` sets
+  that choice first; `--link-routing-sheet` captures
+  Settings ▸ Links from other apps. Little Arc (`BrowserWindowRole.little`,
+  `BrowserLittleArc.swift`, `BrowserWindowManager+LittleArc.swift`,
+  `SnapshotCommand+LittleArc.swift`): `--little-arc <url|start>` opens one
+  (`start`: ⌥⌘N with the Command Bar) and makes it the captured window,
+  `--little-to-window` runs ⌘O, `--little-open-in <n|name>` its "Open in"
+  menu; `--print-windows` shows `role` and `littleSpace`. CLI: `browser
+  little [url] [--space]`, `browser little to-window`; `browser windows`
+  lines are `* n<TAB>kind<TAB>Space<TAB>tabs<TAB>title<TAB>per-Space` (kind
+  `normal`, `little` or `popup`).
+  Peek (`BrowserPeek.swift`, `BrowserWindowController+Peek.swift`,
+  `SnapshotCommand+Peek.swift`; rule and trigger in `BrowserLinkPolicy.swift`):
+  a link from a pinned or favorite tab to another site (host with `www.`
+  dropped, equal or a subdomain is the same site; ports never count) or
+  any ⇧-click opens it; its tab is bound to the window but in no tab list,
+  and `tab(for:)` finds it, so every WebKit callback resolves it. Harness:
+  `--click-page shift-X,Y` (or a plain click after `--pin-tab` on a page
+  whose link leaves the site; serve one page on `127.0.0.1` linking to
+  `localhost`, which count as two sites) opens one through WebKit,
+  `--peek <url>` opens one over the selected tab, `--peek-open-as-tab` runs
+  ⌘O (prints the new tab's place and back list), `--peek-close
+  esc|cmd-w|backdrop|button` closes it that way, `--print-peek` prints one
+  JSON line (address, title bar, back/forward, opener, data Space, private,
+  panel frame, focus, the profile's newest visits, the window's tabs); the
+  capture draws the Peek over the page. CLI: `browser peek <url>`, `browser
+  peek` (status: address, title, back/forward counts, the tab it is over),
+  `browser peek close`, `browser peek open-as-tab`; page commands (`eval`,
+  `click`, `back`) keep acting on the selected tab, so `browser eval` can
+  click a pinned page's link and `browser back` checks the history Open as
+  Tab kept.
+  Split View (`BrowserSplit`, `BrowserWindowController+Split.swift`): 2–4
+  tabs of one Space side by side; the focused pane is `selectedTab`, the
+  other panes are `isVisiblePane` (never sleep or archive). Harness:
+  `--split <url|start>` (repeatable) adds a pane right of the focused one,
+  `--split-command add|close|1…4` runs ⌃⇧= (with the Command Bar), ⌃⇧- or
+  ⌃⇧n through the registry, `--split-focus n`, `--split-resize d:x` drags
+  divider d to x points of the page area (its drag handler),
+  `--split-drop [w:]t:<x|left|right>` runs the page area's drop handler
+  for tab t (of window w) at x (prints the pane the edge math gave),
+  `--split-separate`, `--print-splits` (per window: splits with panes, tab
+  numbers, origins, ratios, frames, dividers, sleep exemptions, the rail's
+  Today rows, the strip's items, `tabs` lines and the session's split
+  state); `--click-page opt-X,Y` ⌥-clicks a link into a new pane; the
+  capture draws every pane and the focus ring. CLI: `browser split [url]`,
+  `browser split close`, `browser split focus n`; `browser tabs` marks
+  panes `split s, pane p of k`, and `eval` & co. act on the focused pane.
+  With `--support-dir` an import keeps
   its Spaces for the next run (only their WebKit data stores are
   removed), so a second run shows what a re-import skips.
   `--import-from-private` runs the import from a new private window;
@@ -251,10 +303,32 @@ no linter or formatter; match surrounding style.
   (⇧⌘D), `--copy-url` / `--copy-markdown` (print the pasteboard: the
   harness's own named one, never the general pasteboard). The Command Bar
   and the ⌃Tab overlay are drawn over the page in the capture.
-- Verify real navigation and the agent surface against a running dev app:
+  Extension flags (the harness's controller is its own, emptied at exit,
+  and never checks for updates; `--support-dir` loads the extensions
+  installed there — copy the dev app's `extensions.json` and `Extensions/`
+  into a temporary folder rather than pointing at its folder):
+  `--extension <folder|id|store link>` (repeatable; installs through
+  Settings' path after the first window opens and waits until it runs),
+  `--extension-private <id>`, `--extension-site-access
+  <id>=all|click|<host>`, `--extension-action <id>` (clicks its toolbar
+  button in the captured window; prints `extension-popup:` with address
+  and size and draws the popup under the button), `--extensions-sheet`
+  (captures Settings ▸ Extensions, prints `extensions-sheet:` rows) and
+  `--print-extensions` (one `extensions:` JSON line: each extension's
+  state, version, private access, site access, errors, stand-ins, what an
+  update newly asked for and waits for the user (`pending`), commands,
+  granted match patterns, the windows and tabs WebKit tracks for it, and
+  the captured window's toolbar buttons with label and badge).
+- Verify real navigation, Spaces and the agent surface in the dev app. Agents
+  launch it on their own, in the background (`open -g` leaves focus with the
+  user). It has its own support folder (`Soprano Web Dev`), settings
+  (`~/.config/soprano-web-dev`) and WebKit container, so the installed app's
+  data stays untouched. The CLI has no Space create/delete: make Spaces first
+  with the harness on the dev app's folder while it isn't running (`snapshot --support-dir
+  "$HOME/Library/Application Support/Soprano Web Dev" --new-space "Work||"`).
 
   ```bash
-  open -n ".build/debug/Soprano Web Dev.app"
+  open -g -n ".build/debug/Soprano Web Dev.app"
   APP=".build/debug/Soprano Web Dev.app/Contents/MacOS/SopranoWeb"
   "$APP" browser goto https://example.com
   "$APP" browser wait-for-load
@@ -262,8 +336,10 @@ no linter or formatter; match surrounding style.
   "$APP" browser vimium "gg"       # drive normal-mode keys without the keyboard
   ```
 
-- Do not launch the GUI or run `./scripts/dev.sh` without `--build-only` unless
-  the user asks. After a verified change to the app or packaging, run
+- Launch only the dev app, only with `open -g -n` (`./scripts/dev.sh` without
+  `--build-only` activates it), and quit it when done with `pkill -f
+  'Soprano Web Dev.app/Contents/MacOS/SopranoWeb'` (the installed app's
+  executable has the same name). After a verified change to the app or packaging, run
   `./scripts/install.sh` as the last step: it replaces
   `/Applications/Soprano Web.app` without restarting a running instance, and the
   update lands on next launch. Report the result.
@@ -640,9 +716,316 @@ no linter or formatter; match surrounding style.
   — `applyContentBlocking(to:pageURL:)` (every new web view, then each
   main-frame navigation, redirect and commit), `applyContentBlockingToTabs`
   (setting and list changes: no reload; the site switch: reloads the
-  site's tabs) and the lock sheet's "Block ads on this site" accessory.
+  site's tabs) and the Site Control Center's "Block ads on this site" row
+  (`BrowserSiteBlockingAccessory`).
   `BrowserContentBlockingPolicy` documents why a switched-off site loses
   the lists per tab instead of getting a compiled exceptions list.
+- Site Control Center (stage 4 P6): `BrowserSiteControl.swift` (pure:
+  `BrowserSiteDataTarget` — "Clear site data" removes WebKit's records whose
+  name is the host or a domain above it, minus cookies, plus the cookies of
+  exactly that host; IPs and `localhost` match only themselves —,
+  `BrowserSiteChoice` Ask/Allow/Block, `BrowserSiteControlState` and its
+  `lines`), `BrowserSiteControlView.swift` (the Folio popover body and its
+  borderless child panel), `BrowserWindowController+SiteControl.swift`
+  (`siteControlTab` = `pageTab`: the Peek's, else the focused pane;
+  `siteControlState(for:)`, the lock's `toggleSiteControl`,
+  `setSitePermission` into the tab profile's `sitePermissions` — a private
+  window's overlay —, zoom through `zoomIn/zoomOut/resetZoom`, extension
+  site access through `BrowserExtensions.setSiteAccess/setSite`,
+  `clearSiteData(of:)`, and `browser site`). The Connection row opens
+  `showConnectionDetails(for:)` (`+SignIn`: the old lock sheet). No per-site
+  autoplay: WebKit fixes it per web view. Harness: `--site-control` puts the
+  popover under the lock offscreen, captures it and prints `site-control:`
+  lines; `--security-info` presses its Connection row (`--sheet` prints
+  the sheet). CLI: `browser [--tab n] site [info|clear|permission
+  <camera|microphone|notifications|popups> allow|deny|ask]` (`clear` asks
+  nothing). Actions resolve the host at action time
+  (`siteControlHost(of:)`, which also covers a certificate interstitial),
+  zoom acts on the popover's own tab, and `updateChrome` closes the popover
+  when its tab stops being `pageTab` (`updateSiteControlPanel`). Harness
+  helpers that press a popover control keep the view alive
+  (`withExtendedLifetime`): the controls' targets are weak.
+- Boosts (stage 4 P7): `BrowserBoosts.swift` (`BrowserBoost`: host, name,
+  enabled, css, js, zaps; `key(_:)` lowercases, drops trailing dots and one
+  leading `www.` — a host matches itself and its `www.` form, never other
+  subdomains; `BrowserBoostStore`, manager-owned `manager.boosts`,
+  app-wide `<support>/boosts.json` as a `JSONList`, a bad entry skipped,
+  an unreadable file kept as `.corrupt`, `changes` →
+  `BrowserWindowController.boostsChanged()` in every window).
+  `BrowserBoostScripts.swift`: user scripts marked `/* soprano-web:boost */`
+  in the `SopranoWebBoost` content world — deliberately not a
+  `BrowserPageScript.World`, so it has no `sopranoWeb` handler and user
+  code can't post as ours. Every script starts with `hostGuard` (user
+  scripts can't be host-scoped; it declares no name, so Boost code may use
+  any). CSS and zaps go into one constructed `CSSStyleSheet` (the Boost
+  world's `window.__sopranoWebBoostSheet`) in `document.adoptedStyleSheets`
+  at document start: a page's CSP `style-src` blocks an added `<style>`
+  even from an isolated world, not a constructed sheet; adopted sheets
+  cascade after the page's own; `replaceSync` drops `@import`; each zap is
+  its own `insertRule` (`hidingRule`), so a bad selector drops only
+  itself; a page that assigns `document.adoptedStyleSheets` without
+  keeping the old ones gets the sheet back at DOMContentLoaded, load and
+  pageshow (`__sopranoWebBoostSheetEnsure`).
+  JS runs at document end, main frame only.
+  `refreshStateScripts` swaps state and Boost scripts together (both
+  `removeAllUserScripts`), so every tab — private, Peek, panes, Little Arc —
+  gets them; `applyBoostStyle(to:)` re-runs the style script on open pages
+  (CSS/zaps live; JS waits for the next load, the editor says so). Zap mode
+  (`startZap`, `zapStart` in the trusted isolated world, listeners on
+  `window` in the capture phase) posts `zapPick` with the element's
+  ancestor path and `zapEnd` on Esc; a commit in its tab
+  (`zapPageCommitted`) or another page tab (`updateZapSession`) ends the
+  session, and `recordZap` only records for the session's host.
+  `BrowserZapSelector` builds the selector (nearest stable id, else
+  `body >`; tag, up to two stable classes, `:nth-of-type` when needed;
+  `escape` follows `CSS.escape`).
+  `BrowserBoostEditor.swift`: the sheet (`showBoostEditor`, from the Site
+  Control Center's Boost row and `/boost` = `edit-boost`; `zap-elements`
+  too; Save is ⌘↩ so ↩ stays a newline). CLI `browser boost list|show
+  <host>|css <host> <file|->|js <host> <file|->|zap <host>
+  <selector>|enable|disable|remove <host>`, routed at manager level
+  (`BrowserBoostCommands`); `parseBoost` reads the file (relative to `PWD`)
+  or the CLI's own stdin for `-` and sends the text (refused client-side
+  above the socket's 16 MB; hosts ASCII/punycode only).
+  Harness: `--boost-css`, `--boost-js`, `--boost-zap` (repeatable) seed a
+  Boost for the `--url` host before it loads and print `boost:` lines
+  (the sheet's rule bytes and whether the document adopted it, title, body
+  background); `--boost-editor` opens the editor (`--sheet` draws it).
+- Capture (stage 4 P8): `BrowserCapture.swift` (pure:
+  `BrowserCaptureGeometry.areaRect` — the drag in the web view's own
+  points, normalized, clipped, snapped outward, nil for a click; `fullPage`
+  — the PDF rect is the document from its top in CSS px × `pageZoom`, the
+  scroll offset plays no part, a page over `maxPixelLength` (16,384 px)
+  drops toward 1× and is then cut; `BrowserCaptureFile` — `Soprano Capture
+  <yyyy-MM-dd> at <HH.mm.ss>.png`, ` (2)`… when taken).
+  `BrowserCaptureRenderer`: an area or the viewport through `takeSnapshot`
+  (its rect must stay inside the view) drawn into a bitmap at the window's
+  backing scale; the full page through `createPDF` with the rect set to the
+  document size (read in `.defaultClient`), rasterized off the main actor
+  (`rasterize`, pages stacked) and encoded with ImageIO.
+  `BrowserCaptureOverlay` (flipped, pinned to `pageTab`'s web view, so its
+  points are the web view's): scrim, the drag undimmed with a size badge,
+  a Folio hint bar with Full Page and Cancel; Esc / right click cancel.
+  `BrowserWindowController+Capture.swift`: `toggleCaptureOverlay` (⇧⌘2 =
+  `capture`, File ▸ Capture…, `/capture`), `updateCaptureOverlay` from
+  `updateChrome` and the Peek's page-tab refresh (another tab, pane, Space
+  or Peek closes it), `capture(_:of:)` → `deliverCapture` (the manager's
+  pasteboard as PNG, then a unique file in `downloadDirectoryURL`) →
+  `BrowserCaptureToast` (ImageIO thumbnail; click → Finder). Private
+  windows capture too. CLI `browser screenshot [--full] [--] <path>`
+  (`parseScreenshot` pulls options out before resolving the path; `--full`
+  gets a 60 s timeout). Harness (`SnapshotCommand+Capture.swift`, after the
+  other flags, on the captured window's page tab): `--capture-area
+  x,y,w,h`, `--capture-visible`, `--capture-full` capture as the overlay
+  would and print one `capture:` JSON line (file and its pixel size read
+  back, pasteboard PNG bytes, toast text, scale); `--capture-drag x,y,w,h`
+  drags into the overlay with mouse events; `--capture-overlay [x,y,w,h]`
+  leaves the overlay open (that selection drawn) for the PNG. Files land in
+  the harness's download folder (its temporary support folder; use
+  `--support-dir` to keep them).
+- Mini Player and media controls (stage 4 P9): `BrowserMedia.swift` (pure:
+  `BrowserMediaReport` — one frame's `mediaInfo`, capped text, artwork only
+  http(s) or `data:image/` —, `BrowserTabMediaInfo` — the main frame's report
+  wins, else the latest playing frame; only a main-frame video counts as
+  visible —, `BrowserMiniPlayerRule` — open only for a playing visible video
+  leaving the screen, never a Peek's, a pane still shown, a pop-up window or
+  with Settings ▸ "Mini Player for videos" (`miniPlayer`) off; private
+  windows may —, `BrowserMiniPlayerFrame`, `BrowserMediaTabChoice`,
+  `BrowserMediaAction`). `BrowserMediaScripts.reporter` (isolated world,
+  every frame) posts `mediaInfo` debounced on media events, scroll and resize
+  and each second while playing (Media Session metadata has no event); it
+  reads `navigator.mediaSession` and calls the page's handlers with WebKit's
+  `callActionHandler` from the isolated world (verified: the harness's
+  `next` reaches the page's handler) and defines `__sopranoMediaControl`
+  and `__sopranoMiniPlayer` (the fill style: a constructed sheet + an
+  attribute on the video). `BrowserMiniPlayer.swift` (manager-owned
+  `manager.miniPlayer`, one app-wide; `BrowserMiniPlayerPanel`: titled,
+  hidden-titlebar, non-activating floating panel on every Space;
+  `miniPlayerFrame` in the manager's defaults, saved on user moves only and
+  never for a private tab), `BrowserMiniPlayerView.swift` (hover controls:
+  Back to Tab, title, Close = pause + return, play/pause),
+  `BrowserMediaControlsView.swift` (`.rail` bar above the switcher in the
+  rail's footer stack, `.toolbar` chip before the capture mark when there is
+  no rail). `BrowserWindowController+Media`: `handleMediaInfo`,
+  `mediaControlTab` (an off-screen or Mini Player tab with media, playing
+  first), `performMediaAction` (every media frame), `miniPlayerLeaving`
+  (from `showSelectedTab` and `leavePage`), `openMiniPlayer` /
+  `returnMiniPlayer` (back into the page area via `installWebView`) /
+  `releaseMiniPlayer` (from `unbindTab`: close, move, replace, window
+  close). Only the `NSView` moves; the tab stays bound. `applyPaneLayout`
+  touches only web views in `webArea`, `leavePage` skips the panel's,
+  sleep and archive exempt it (`.miniPlayer`). CLI `browser [--tab n] media
+  [info|play|pause|next|previous|mute]` (the controls' tab, else a selected
+  tab with media). Harness (`SnapshotCommand+Media.swift`): `--media-seed
+  [file|url]` (before the window flags; without a value a built-in page with
+  ffmpeg's test pattern MP4 when ffmpeg is installed — WebKit draws no
+  canvas `captureStream` frames off screen — Media Session metadata,
+  artwork and next/previous counters `window.__next`/`__previous`), then
+  e.g. `--cli "select-tab 1"`; `--mini-player [return|close]` presses the
+  panel's buttons and prints `mini-player:`; `--print-media` prints one
+  `media:` JSON line (each tab's state, exemptions, back list, fill size,
+  page counters, rail/toolbar items, the panel's delegates); the capture
+  draws an open panel with its controls where it sits over the window.
+- Reader and Translate (stage 4 P10): `Resources/Readability/` vendors
+  Readability.js and Readability-readerable.js 0.6.0 unmodified with their
+  Apache-2.0 `LICENSE`, `NOTICE` (from upstream main; added after 0.6.0),
+  `LICENSE-2.0.txt` and `VERSION`; `Package.swift` copies the folder into
+  the resource bundle (`AppResources.bundle`, subdirectory `Readability`)
+  and `scripts/package-app.sh` refuses a bundle without the two scripts,
+  `LICENSE` and `NOTICE`. `BrowserReader.swift`: `BrowserTabReader`
+  (`isReaderable`, the shown article), `BrowserReaderScripts.pageInfo`
+  (isolated world, main frame, document end + `load`: posts `pageInfo
+  {readerable, lang, sample}` with `isProbablyReaderable` and 3,000
+  characters of text), `enterSource` (Readability on
+  `document.cloneNode(true)` with an element serializer; the article,
+  cleaned of scripts, `on*` attributes and `javascript:` links, goes into
+  a new `<html class="soprano-reader">` swapped in for the page's root,
+  styled by a constructed sheet in Folio tokens — `css(theme:)` — that
+  replaces `adoptedStyleSheets`), `leaveSource` (puts the page's own
+  root, sheets and scroll back: no reload, no history entry),
+  `themeSource`, `commitSource` (every main-frame commit: a page from the
+  back-forward cache comes back as itself and reports again).
+  `BrowserTranslation.swift`: `BrowserTabTranslation` (language, phase,
+  generation), `BrowserLanguageDetector` (`NLLanguageRecognizer`,
+  confidence ≥ 0.5 and ≥ 40 letters, else `<html lang>`),
+  `BrowserTranslationOffer` (offered when the language code isn't one of
+  `Locale.preferredLanguages` nor on Never Offer; target = the first
+  preferred language), `BrowserTranslationBatches` (≤ 40 strings, ≤ 4,000
+  characters), `BrowserTranslationService` (`BrowserSystemTranslationService`:
+  `LanguageAvailability` and `TranslationSession(installedSource:target:)`
+  only — a pair not downloaded opens System Settings ▸ General ▸ Language &
+  Region, whose Translation Languages… downloads it; tests set
+  `controller.translationService`). `BrowserTranslationScripts`: collect
+  rendered text nodes (no code, form fields, editable, `translate="no"`,
+  `.notranslate`, hidden), apply (keeps edge white space, skips nodes the
+  page changed), restore. `+Reader` / `+Translate`: commands `reader`
+  (⇧⌘R, View, "Show/Hide Reader", enabled only with an article) and
+  `translate-page` ("Translate Page"/"Show Original"), the address field's
+  Reader and Translate chips (Translate's menu: Translate to …, Show
+  Original, Never Offer for …), `neverTranslateLanguages` in Settings
+  ("Never offer to translate"; a private window keeps its own in memory,
+  `savesTranslationChoices`). A translated page shown in Reader is
+  translated again there. CLI `browser [--tab n] reader [on|off]` and
+  `translate [to <lang>|off]` (the page tab, a Peek's too; `to` may take
+  120 s). Harness (`SnapshotCommand+Reader.swift`, after the wait):
+  `--reader` shows Reader before the capture and prints `reader:` lines
+  and its DOM; `--translate <lang>` prints `translate: before/after` text
+  and the result (a missing pair names System Settings).
+- Live folders (stage 4 P11): `BrowserLiveFolders.swift` —
+  `BrowserLiveFolderSource` (`githubPullRequests(repo:)` → `gh pr list
+  --repo … --state open`, `githubSearch(query:)` → `gh search prs`, the
+  query split into words with `--` before them when one starts with "-";
+  `parse` reads `owner/repo`, a github.com link or a search),
+  `BrowserPullRequest.decode` (`gh`'s JSON, https URLs only),
+  `BrowserLiveFolderError` (missing `gh`, signed out, timeout, `gh`'s
+  first stderr line), `BrowserGitHubCLI` (finds `gh` in the Homebrew and
+  user tool folders a GUI app's PATH lacks, runs it off the main thread
+  with a 30 s limit, after Soprano Git's `GitRunner`) and
+  `BrowserLiveFolders` (manager-owned, `manager.liveFolders`: a state per
+  live folder of every Space, reconciled on `spaces.changes`; fetched
+  every 5 minutes and when a folder opens or its preview shows, unless
+  the last fetch is under 30 s old; a failure keeps what was shown;
+  memory only; `display(_:)` puts the pull requests, with ids derived
+  from folder and address, before the folder's own children). A live
+  folder is a `BrowserPinFolder` with `source` (saved as `"type":
+  "folder"` plus `source`, so older builds read a plain folder); nothing
+  moves into it (`canMove`, `folderEntries`, `folderForNewPin`).
+  `BrowserWindowController+LiveFolders`: `displayPinTree` (the rail, its
+  folder preview, Open All in Tabs; edits use `currentPinTree`),
+  `openLiveItem` (a Today tab, the one already on it if any, via
+  `openPin`), New / Edit Live Folder… in the pin editor. The Spaces menu
+  and the start page show `display(_:)` too. The harness and tests never
+  run `gh` unless asked: the harness puts its own fetch in (`--live-fetch
+  gh` uses the real one), the tests inject one, and only an on-screen
+  manager starts the 5-minute timer. CLI `browser
+  live-folders` (every Space's live folders with state and pull
+  requests), `browser [--window n] live-folder add <owner/repo|link|query>`
+  (in the window's Space, answers after the fetch) and `live-folder
+  refresh`. Harness (`SnapshotCommand+LiveFolders.swift`): `--live-folder
+  "<name>|<source>"` (repeatable, Default's Space, before the first
+  window), `--live-fetch <file|gh|signed-out|no-gh>` (what a fetch
+  answers: `gh`'s JSON from a file, the real `gh`, or a failure; without
+  it nothing is fetched), `--live-refresh`, `--live-open <title>`,
+  `--live-folder-editor new|<name>` (drawn) and `--print-live-folders`
+  (`live-folders:` and `live-row:` lines); `--expand-folder` opens live
+  folders too.
+- `Browser/Extensions/` — Chrome extensions on `WKWebExtension`.
+  `BrowserExtensions.swift` (manager-owned, `manager.extensions`): the one
+  app-wide `WKWebExtensionController` (fixed storage identifier; the
+  harness's is a throwaway one emptied at exit — on macOS 26 a
+  `.nonPersistent()` controller's extensions get no events),
+  `makeTabConfiguration` puts it on every tab, private ones too (WebKit
+  runs an extension in a private tab only with `hasAccessToPrivateData`);
+  contexts load with `chrome-extension://<id>/` and `uniqueIdentifier` =
+  id, saved grants restored first, background started at once; install
+  (Web Store id or link, or an unpacked folder, copied first, its id read
+  from the copy), enable, private access, site access, remove (with its
+  data), the hourly-timer daily update check, extension commands. Grants:
+  a new extension gets what it asks for (Settings shows the list first
+  through an `InstallConfirmation`; the CLI prints it), an update nothing
+  new (`applyUpdate`; what it newly asks for is `pendingAdditions`, asked
+  in the permission sheet once it loads), `file:` patterns never
+  (`isFilePattern`; WebKit on macOS 26 runs no content script on `file:`
+  pages even with `file:///*` granted). The same id from another source
+  (a folder with a store extension's `key`) is refused without
+  confirmation and otherwise starts over with its data deleted.
+  `BrowserExtensionStore.swift` — the
+  only way in or out of `extensions.json` (tolerant, atomic, `.corrupt`)
+  and `<support>/Extensions/<id>/`. `BrowserCRX.swift` — extension ids,
+  CRX3 parsing and Chrome's store-install verification (every RSA/ECDSA
+  proof over the signed message, a key hashing to the id, the Web Store
+  publisher key). `BrowserExtensionArchive.swift` — the ZIP read once
+  (one end record at the very end, local headers matching the central
+  directory, no overlaps, symlinks, escapes, duplicates, file/folder
+  clashes, encryption, ZIP64) and unpacked in process from that reading
+  (`openat`/`mkdirat` without following links, deflate through the
+  Compression framework under a running 256 MB cap, CRC checked), the
+  result walked again, manifest checks. `BrowserWebStore.swift` — inputs,
+  download/update-check URLs, allowed hosts, downloads streamed under the
+  size cap, the `gupdate` answer. `BrowserExtensionAdapters.swift` —
+  `WKWebExtensionTab`/`WKWebExtensionWindow` over real tabs and windows
+  (a window's tabs of every Space) and the lifecycle calls the windows
+  make (`tabAttached`/`tabDetached`/`tabClosed`, activation, properties,
+  `windowOpened`/`windowClosing`/`windowFocused`).
+  `BrowserExtensions+Delegate.swift` — the controller delegate (new tabs and
+  windows, options page, permission prompts, action, native messaging
+  hosts: each `NativeHost` has an allowlist of extension ids checked before
+  its handler; anything else answers as Chrome does, "host not found"),
+  and the gates: `pageLoad` decides every load an extension starts
+  (`tabs.create`/`update`, `windows.create`, its popup's links, its page in
+  a tab navigating away: web, `about:`, `data:` and its own pages load,
+  another app's link asks through `openExternalLink(_:fromExtension:in:)`,
+  `file:`, scripts and other extensions' pages never), `mayShowPage` which
+  page navigations may swap a tab into an extension's web view (only that
+  extension's own frames; `allowsExtensionNavigation` in
+  `+Extensions` applies both in `decidePolicyFor`). `BrowserExtensionShims.swift` — the stand-ins for Chrome APIs
+  WebKit lacks or gets wrong: a data-driven table (stand-in name → the
+  manifest permission or key that asks for it) decides which extensions get
+  `soprano-shim.js` (`BrowserExtensionShimScript.swift`), put first in the
+  installed copy's worker (`import` for a module, `importScripts` after "use
+  strict" for a classic one), background scripts and every HTML page,
+  after the CRX3 check, at install, update and (when the stamp
+  `.soprano-shim` differs) load; `nativeMessaging` is added when missing
+  (`.soprano-added`). The record's `standIns` lists what the copy carries:
+  `BrowserExtensionNativeHost.swift` answers the shim's
+  `sendNativeMessage("soprano", { api, args })` only for those (notifications
+  through `BrowserNotificationCenter`, `clients.pages`) and sends events over
+  the background's `soprano.events` port (held, and the worker woken, while
+  it is closed); `BrowserExtensionSocket.swift` runs a worker's WebSocket
+  (`soprano.socket` port; WebKit's never returns in an extension worker)
+  under `BrowserExtensionSocketPolicy`: the manifest's `connect-src`,
+  local and private hosts only with host access, 64 per extension.
+  Add a stand-in only for a failure `browser extension errors` names, with
+  its trigger in the table. `BrowserExtensionPopup.swift` (popups in our own
+  popover, sized to the page's max-content), `BrowserExtensionPermissionSheet.swift`,
+  `BrowserExtensionActionButton.swift` (toolbar button with badge),
+  `BrowserExtensionCommands.swift` (the CLI). `BrowserWindowController+Extensions`
+  — toolbar buttons for the selected tab, clicks and button menus, the
+  Command Bar's extension rows and which web view an extension page needs
+  (`webViewFits`: a tab swaps its web view going to or from one). WebKit
+  puts extensions' context-menu items into the page menu itself.
+  `App/BrowserExtensionsSheet.swift` is Settings ▸ Extensions; the
+  Extensions menu is built in `MainMenu.swift`.
 - `Browser/BrowserPageScripts.swift` — every injected page script and the
   `sopranoWeb` message channel; messages are accepted only from the world (page or
   isolated) their type was written for.
@@ -662,12 +1045,46 @@ no linter or formatter; match surrounding style.
 - `Browser/BrowserAutomationCommand.swift`, `BrowserAutomationSocket.swift`,
   `BrowserAutomation.swift` — the `browser` CLI over a user-only Unix socket and
   the `@e1` snapshot/action scripts. `browser vimium <keys>` feeds the selected
-  tab's Vimium controller for verification.
+  tab's Vimium controller for verification. `browser extensions` lists the
+  installed extensions (state, private, site access, source, error count);
+  `browser extension install <store link|id|folder>` (waits until it runs,
+  up to 120 s; prints a `can:` line with what the extension may do and,
+  for an update that asks for more, what waits for the user's answer in
+  the app; refuses an id installed from another source),
+  `enable|disable|remove|errors <id>`, `update` (check the
+  Web Store now) and `action <id> [png]` (clicks the toolbar button in the
+  default window; prints the popup's address, size and text and saves its
+  capture, or "no popup") drive them. `errors` includes the background's
+  uncaught exceptions and the console errors WebKit records.
 - `Browser/VimiumController.swift`, `VimiumKeyMap.swift`, `VimiumPageScripts.swift`,
   `VimiumPanels.swift`, `BrowserWebView.swift` — the native Vimium mode layer.
 - `Browser/SnapshotCommand*.swift`, `SnapshotPageTools.swift` — offscreen UI harness.
-- `App/` — app delegate, menu, settings window (`BrowserSearchEnginesSheet`
-  is Settings ▸ Search engine ▸ Manage…), resources.
+- `App/` — app delegate (the Dock menu: New Window, New Private Window, New
+  Little Arc, the Spaces), menu, settings window (`BrowserSearchEnginesSheet`
+  is Settings ▸ Search engine ▸ Manage…; its rows scroll), resources.
+  `App/BrowserScripting.swift` with `Support/SopranoWeb.sdef` (copied into
+  `Contents/Resources` by `scripts/package-app.sh`, named by `Info.plist`'s
+  `OSAScriptingDefinition`) — AppleScript (stage 4 P12): `BrowserScripting`
+  (`manager`, set by the app delegate; the windows a script sees =
+  `mostRecentlyActiveFirst` of the CLI's windows, private ones never),
+  `@objc` classes `SopranoWebScriptWindow` / `Tab` / `Space` holding ids
+  only (a closed one reads as gone, `errAENoSuchObject`; specifiers are
+  `NSUniqueIDSpecifier`s), the application's `new window` / `new tab`
+  handlers, `select` / `close` / `reload` on tabs (close archives like
+  ⌘W), windows and Spaces, and `execute javascript`
+  (`BrowserScripting.executeJavaScript`: the CLI's `eval`, only with
+  `allowsJavaScriptFromAppleEvents` — Settings ▸ "Allow JavaScript from
+  Apple Events", off by default —, `errAEEventNotPermitted` otherwise; the
+  command suspends until the page answers). The dictionary loads only in a
+  bundle: the harness's `--applescript <file|text>` (repeatable, in its
+  own process, `tell current application`, no Automation prompt),
+  `--allow-applescript-javascript` and `--print-dock-menu` work when the
+  harness runs as `"Soprano Web Dev.app/Contents/MacOS/SopranoWeb"
+  snapshot …` (`SnapshotCommand+AppleScript.swift`). `execute javascript`
+  can't answer there (an event to the own process waits on the main
+  thread): check it with `osascript` against the dev app. A harness run
+  from the dev app's binary uses its WebKit container: a `--create-space`
+  there can leave a data store in `~/Library/WebKit/com.soprano.web.dev/`.
 - `Vendored/` — Folio design system from Soprano. Never edit these files here.
 
 `SOPRANO_COMMIT` records the Soprano commit the vendored files came from. Refresh
@@ -695,12 +1112,15 @@ site or a CDP flow that cannot use the CLI).
 
 ## Conventions
 
-- Swift 6, macOS 14+, programmatic AppKit, Folio tokens and components only.
+- Swift 6, macOS 26+, programmatic AppKit, Folio tokens and components only.
   Fonts by role through `ChromeFont`, radii from `Chrome.Radius`, accent only for
   keyboard focus, one hairline between regions.
 - Tests use swift-testing (`import Testing`, `@Test`, `#expect`), one
   `struct …Tests` per file. Never `import Foundation` next to `import Testing` in
   a test file; import `AppKit` instead and get Foundation types through it.
+  Never call `performClick` (or anything that spins a nested run loop) in a
+  test: the runner can see the nested loop and end the process silently with
+  exit 0 and no summary; send the action (`NSApp.sendAction`) instead.
 - Settings are plain JSON at `~/.config/soprano-web/settings.json`; session and
   list data live in `~/Library/Application Support/Soprano Web/`. The
   vertical-vs-horizontal choice is configuration (`verticalTabs`); whether the
@@ -749,4 +1169,10 @@ WebKit's subset; `content-blocking.json` counts them by reason) and shows no
 blocked-request count: WebKit has no public callback for blocked loads. A
 generic selector WebKit's CSS parser rejects drops its whole
 `css-display-none` batch silently (no compile error), so the converter
-refuses unknown pseudo-classes up front.
+refuses unknown pseudo-classes and `:has()` inside `:has()` up front.
+Checked against the real EasyList (2026-10-30): every one of its 5,746
+`css-display-none` batches parses in WebKit, and a probe element for each of
+the 301 generic batches with a plain class or id selector is hidden. EasyList
+turns generic hiding off on `127.0.0.1`, `192.168.*` and `localhost`
+(`$generichide`): probe such rules on another host name, e.g.
+`probe.localhost`.

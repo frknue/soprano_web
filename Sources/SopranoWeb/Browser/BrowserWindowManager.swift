@@ -93,6 +93,16 @@ final class BrowserWindowManager {
     /// Settings ▸ Links from other apps: rules an import brought in
     /// (`link-routing.json`), applied in `open(_:)`.
     let linkRouting: BrowserLinkRoutingStore
+    /// Boosts (`boosts.json`): every tab of every window runs them.
+    let boosts: BrowserBoostStore
+    /// Chrome extensions: the one `WKWebExtensionController` every tab
+    /// carries, the installed extensions in `<support>/Extensions/`.
+    let extensions: BrowserExtensions
+    /// Live folders: pinned folders that show GitHub pull requests through
+    /// `gh`, fetched every 5 minutes and when opened, kept in memory.
+    let liveFolders: BrowserLiveFolders
+    /// The one Mini Player (a tab's video in a floating panel).
+    private(set) lazy var miniPlayer = BrowserMiniPlayer(defaults: defaults, isOffscreen: placement.isOffscreen)
 
     /// Open windows in the order they opened; the CLI numbers them 1…n.
     private(set) var controllers: [BrowserWindowController] = []
@@ -116,8 +126,14 @@ final class BrowserWindowManager {
     var linkRoutingSheet: BrowserLinkRoutingSheet?
     /// File ▸ Import Browser Data…, while shown.
     var importSheet: BrowserImportSheet?
+    /// Settings ▸ Extensions, while shown.
+    var extensionsSheet: BrowserExtensionsSheet?
 
     private var settingsWindowController: SettingsWindowController?
+    /// The app's global New Little Arc hotkey (set by the app delegate;
+    /// nil in the harness and tests): Settings shows whether it registered
+    /// and suspends it while recording a new one.
+    var globalHotKey: BrowserGlobalHotKey?
     private var saveTimer: Timer?
     private var observations: [BrowserObservation] = []
     private var historyMaintenanceTimer: Timer?
@@ -136,7 +152,9 @@ final class BrowserWindowManager {
         persistsSession: Bool = true,
         placement: BrowserWindowPlacement = .screen,
         defaults: UserDefaults = .standard,
-        filterLists: [BrowserFilterListSource] = BrowserFilterListSource.defaults
+        filterLists: [BrowserFilterListSource] = BrowserFilterListSource.defaults,
+        extensionStorage: BrowserExtensions.Storage = .persistent,
+        checksExtensionUpdates: Bool = true
     ) {
         self.themeManager = themeManager
         self.settingsStore = settingsStore
@@ -170,12 +188,20 @@ final class BrowserWindowManager {
             isEnabled: settingsStore.settings.blockAdsAndTrackers
         )
         self.linkRouting = BrowserLinkRoutingStore(url: supportDirectory.appendingPathComponent("link-routing.json"))
+        self.boosts = BrowserBoostStore(url: supportDirectory.appendingPathComponent("boosts.json"))
+        self.extensions = BrowserExtensions(
+            supportDirectory: supportDirectory,
+            storage: extensionStorage,
+            checksForUpdates: checksExtensionUpdates
+        )
+        self.liveFolders = BrowserLiveFolders(spaces: spaces)
         historyStores[BrowserProfile.defaultID] = defaultHistory
         themeManager.onThemeChanged = { [weak self] theme in
             self?.websitesSheet?.apply(theme: theme)
             self?.websiteDataSheet?.apply(theme: theme)
             self?.linkRoutingSheet?.apply(theme: theme)
             self?.importSheet?.apply(theme: theme)
+            self?.extensionsSheet?.apply(theme: theme)
             self?.themeChanges.notify(theme)
         }
         // Every Space has a profile of its own: Spaces the Space store
@@ -206,12 +232,27 @@ final class BrowserWindowManager {
                 guard let self else { return }
                 self.profiles.follow(self.spaces.spaces)
             },
+            boosts.changes.observe { [weak self] in
+                self?.controllers.forEach { $0.boostsChanged() }
+            },
+            liveFolders.changes.observe { [weak self] in
+                self?.controllers.forEach { $0.liveFoldersChanged() }
+            },
         ]
         downloadManager.fallbackWindow = { [weak self] in self?.activeController?.window }
+        downloadManager.profileContext = { [weak self] id in
+            guard let self else { return nil }
+            return Self.existingProfileContext(id, profiles: self.profiles, context: self.context(for:))
+        }
         BrowserNotificationCenter.shared.onClick = { [weak self] click in self?.openNotification(click) }
         startHistoryMaintenance()
         tabSleeper.start(manager: self)
         contentBlocker.start()
+        extensions.start(manager: self)
+        // The harness and tests never run `gh` unless a run asks for it.
+        if !placement.isOffscreen {
+            liveFolders.start()
+        }
     }
 
     // MARK: - History retention
@@ -258,16 +299,16 @@ final class BrowserWindowManager {
     }
 
     /// The window new tabs from menu commands go to: the active window
-    /// unless it is a pop-up, else the most recently active window with
-    /// tabs.
+    /// unless it is a pop-up or Little Arc, else the most recently active
+    /// window with tabs.
     var tabbedController: BrowserWindowController? {
-        mostRecentlyActive { !$0.isPopup }
+        mostRecentlyActive { $0.role == .normal }
     }
 
     /// Where links from other apps and the CLI's new tabs go: the most
     /// recently active normal window with tabs (never a private window).
     var outsideTabbedController: BrowserWindowController? {
-        mostRecentlyActive { !$0.isPopup && $0.kind.acceptsOutsideRequests }
+        mostRecentlyActive { $0.role == .normal && $0.kind.acceptsOutsideRequests }
     }
 
     /// The key window, else the most recently active one, that `matches`.
@@ -281,13 +322,18 @@ final class BrowserWindowManager {
         return controllers.last(where: matches)
     }
 
-    /// Where a pop-up window's new tabs and links go: the most recently
-    /// active window with tabs whose current Space uses the pop-up's data
-    /// context, else a new empty window of that context (on its profile's
-    /// first Space; `isNew`: the caller adds the tab and presents it).
+    /// Where a pop-up or Little Arc window's new tabs and links go. A
+    /// pop-up's: the most recently active window with tabs whose current
+    /// Space uses the pop-up's data context, else a new empty window of that
+    /// context (on its profile's first Space). A Little Arc's: a window on
+    /// its Space (`littleArcLanding`). `isNew`: the caller adds the tab and
+    /// presents it.
     func windowForNewTabs(from popup: BrowserWindowController) -> (window: BrowserWindowController, isNew: Bool) {
+        if popup.role == .little, let spaceID = popup.littleSpaceID {
+            return littleArcLanding(space: spaceID)
+        }
         let context = popup.dataContext
-        if let window = mostRecentlyActive(where: { !$0.isPopup && $0.dataContext === context }) {
+        if let window = mostRecentlyActive(where: { $0.role == .normal && $0.dataContext === context }) {
             return (window, false)
         }
         return (makeWindow(frame: frameForNewWindow(), context: context), true)
@@ -318,9 +364,28 @@ final class BrowserWindowManager {
         return nil
     }
 
+    /// A tab in any window, or a window's Peek: what a page's own callbacks
+    /// (notification answers, extensions' tab objects) look up. Moving and
+    /// selecting use `tab(id:)`, which a Peek is not part of.
+    func tabOrPeek(id: UUID) -> (window: BrowserWindowController, tab: BrowserTab)? {
+        if let found = tab(id: id) {
+            return found
+        }
+        for controller in controllers {
+            if let tab = controller.peek?.tab, tab.id == id {
+                return (controller, tab)
+            }
+        }
+        return nil
+    }
+
     func windowBecameActive(_ controller: BrowserWindowController) {
+        let changed = activationOrder.last != controller.id
         activationOrder.removeAll { $0 == controller.id }
         activationOrder.append(controller.id)
+        if changed {
+            extensions.windowFocused(controller)
+        }
     }
 
     /// Brings a window forward. In the harness it is only ordered in,
@@ -390,8 +455,20 @@ final class BrowserWindowManager {
     /// of a private data context takes the context's download rows with it.
     func windowClosing(_ controller: BrowserWindowController, remember: Bool = true) {
         guard !isTerminating, let index = controllers.firstIndex(where: { $0 === controller }) else { return }
-        if remember, !controller.isPopup, controller.kind.usesAppRecentlyClosed, !controller.tabs.isEmpty {
-            recentlyClosed.push(BrowserClosedEntry(.window(controller.windowState)))
+        if remember, controller.kind.usesAppRecentlyClosed, !controller.tabs.isEmpty {
+            switch controller.role {
+            case .normal:
+                recentlyClosed.push(BrowserClosedEntry(.window(controller.windowState)))
+            case .little:
+                // Its one tab, back into its Space on ⇧⌘T.
+                if let tab = controller.selectedTab {
+                    var state = tab.state
+                    state.spaceID = controller.littleSpaceID
+                    recentlyClosed.push(BrowserClosedEntry(.tab(state, windowID: nil, index: nil), profileID: controller.profileID))
+                }
+            case .popup:
+                break
+            }
         }
         controllers.remove(at: index)
         activationOrder.removeAll { $0 == controller.id }
@@ -418,19 +495,19 @@ final class BrowserWindowManager {
     /// `context` or a pop-up gets a window of that context without Spaces;
     /// otherwise the window shows Space `spaceID` (when it exists), else
     /// the Space of `context`'s profile (nil: Default), and uses that
-    /// Space's context. `activate` makes it the window commands go to by
-    /// default.
+    /// Space's context; a Little Arc belongs to that Space without showing
+    /// Spaces. `activate` makes it the window commands go to by default.
     func makeWindow(
         id: UUID = UUID(),
         frame: NSRect,
-        isPopup: Bool = false,
+        role: BrowserWindowRole = .normal,
         context: BrowserDataContext? = nil,
         spaceID: UUID? = nil,
         activate: Bool = true
     ) -> BrowserWindowController {
         var windowContext = context ?? defaultContext
         var space: BrowserSpace?
-        if !isPopup, !windowContext.kind.isPrivate {
+        if role != .popup, !windowContext.kind.isPrivate {
             space = spaceID.flatMap(spaces.space(id:))
                 ?? spaces.space(ofProfile: windowContext.profileID)
                 ?? spaces.ensureSpace(forProfile: profiles.profile(id: windowContext.profileID) ?? .defaultProfile)
@@ -442,11 +519,12 @@ final class BrowserWindowManager {
             manager: self,
             id: id,
             frame: frame.offsetBy(dx: placement.offset.x, dy: placement.offset.y),
-            isPopup: isPopup,
+            role: role,
             dataContext: windowContext,
             spaceID: space?.id
         )
         controllers.append(controller)
+        extensions.windowOpened(controller)
         if activate {
             windowBecameActive(controller)
         }
@@ -457,7 +535,7 @@ final class BrowserWindowManager {
     /// key or most recently active window with tabs), or the default frame.
     func frameForNewWindow(cascadingFrom source: BrowserWindowController? = nil) -> NSRect {
         let screens = placement.screens()
-        let base = source.flatMap { $0.isPopup ? nil : $0 } ?? tabbedController
+        let base = source.flatMap { $0.role == .normal ? $0 : nil } ?? tabbedController
         if let base, let frame = sessionFrame(of: base) {
             return BrowserWindowFrames.cascaded(from: frame, screens: screens)
         }
@@ -467,16 +545,24 @@ final class BrowserWindowManager {
     /// Opens a saved window (restore or reopen) with its tabs, lazily, on
     /// its Space with each tab in its own (`placedInSpaces`; a version 2
     /// window's tabs join its profile's Space, a profile that is gone
-    /// counts as Default).
+    /// counts as Default). A saved Little Arc opens as one again.
     @discardableResult
     private func openWindow(_ state: BrowserWindowState, fallbackFrame: NSRect? = nil) -> BrowserWindowController {
         var state = state
         state.profileID = profiles.resolvedID(state.profileID)
         state = state.placedInSpaces(spaces.list)
-        let frame = state.frame?.rect ?? fallbackFrame ?? frameForNewWindow()
+        let role: BrowserWindowRole = state.role == .little ? .little : .normal
+        let frame = state.frame?.rect
+            ?? fallbackFrame
+            ?? (role == .little ? littleArcFrame() : frameForNewWindow())
         let controller = makeWindow(
             id: state.id,
-            frame: BrowserWindowFrames.clamped(frame, to: placement.screens(), minSize: Self.windowMinSize),
+            frame: BrowserWindowFrames.clamped(
+                frame,
+                to: placement.screens(),
+                minSize: role == .little ? BrowserLittleArcFrame.minimumSize : Self.windowMinSize
+            ),
+            role: role,
             context: context(for: state.profileID),
             spaceID: state.currentSpaceID
         )
@@ -516,10 +602,10 @@ final class BrowserWindowManager {
         }
     }
 
-    /// Every normal window with tabs (pop-up and private windows are never
-    /// saved) and the recently-closed stack.
+    /// Every normal window and Little Arc with tabs (pop-up and private
+    /// windows are never saved) and the recently-closed stack.
     var currentSession: BrowserSession {
-        let open = controllers.filter { !$0.tabs.isEmpty && !$0.isPopup && $0.kind.savesSession }
+        let open = controllers.filter { !$0.tabs.isEmpty && $0.role != .popup && $0.kind.savesSession }
         let active = activeController
         return BrowserSession(
             windows: open.map(\.windowState),
@@ -568,7 +654,7 @@ final class BrowserWindowManager {
     private func reopen(_ entry: BrowserClosedEntry) {
         var entry = entry
         entry.profileID = profiles.resolvedID(entry.profileID)
-        let candidates = mostRecentlyActiveFirst { !$0.isPopup && $0.kind.usesAppRecentlyClosed }
+        let candidates = mostRecentlyActiveFirst { $0.role == .normal && $0.kind.usesAppRecentlyClosed }
         let target = entry.reopenTarget(openWindows: candidates.map(\.id))
         switch (target, entry.content) {
         case let (.window(id, index), .tab(state, _, _)):
@@ -633,6 +719,9 @@ final class BrowserWindowManager {
         configuration.defaultWebpagePreferences.allowsContentJavaScript = true
         configuration.preferences = BrowserWindowController.makePreferences()
         configuration.applicationNameForUserAgent = BrowserUserAgent.applicationName
+        // Every tab, private ones too: WebKit runs an extension in a private
+        // tab only when it has `hasAccessToPrivateData`.
+        configuration.webExtensionController = extensions.controller
         configuration.setURLSchemeHandler(
             makeStartPageSchemeHandler(),
             forURLScheme: BrowserStartPageSchemeHandler.scheme
@@ -668,7 +757,7 @@ final class BrowserWindowManager {
         return BrowserStartPage.html(
             theme: kind.isPrivate ? .folioInk : themeManager.currentTheme,
             settings: settingsStore.settings,
-            pins: space?.pinned ?? BrowserPinTree(),
+            pins: liveFolders.display(space?.pinned ?? BrowserPinTree()),
             history: kind.suggestsHistory ? context.history.recentPages(limit: BrowserStartPage.recentLimit) : [],
             kind: kind
         )
@@ -690,6 +779,8 @@ final class BrowserWindowManager {
             controller.onShowWebsites = { [weak self] parent in self?.showWebsites(on: parent) }
             controller.onShowWebsiteData = { [weak self] parent in self?.showWebsiteData(on: parent) }
             controller.onShowLinkRouting = { [weak self] parent in self?.showLinkRouting(on: parent) }
+            controller.onShowExtensions = { [weak self] parent in self?.showExtensions(on: parent) }
+            controller.globalHotKey = globalHotKey
             settingsWindowController = controller
             return controller
         }()
@@ -751,11 +842,12 @@ final class BrowserWindowManager {
         }
     }
 
-    /// Links from other apps: the first Settings ▸ Links from other apps
-    /// rule that matches picks the Space (`windowForOutsideLink`);
-    /// otherwise the most recently active normal window, in its current
-    /// Space, or a new one when none is open. A lone start tab takes a
-    /// window's first link.
+    /// Links from other apps (`outsideLinkRoute`): the first Settings ▸
+    /// Links from other apps rule that matches picks the Space
+    /// (`windowForOutsideLink`); otherwise "Open links from other apps in"
+    /// decides: a Little Arc each, or the most recently active normal
+    /// window, in its current Space, or a new one when none is open. A lone
+    /// start tab takes a window's first link.
     func open(_ urls: [URL]) {
         let files = urls.filter { url in
             guard url.isFileURL else { return true }
@@ -766,6 +858,10 @@ final class BrowserWindowManager {
         var used: [BrowserWindowController] = []
         var last: BrowserWindowController?
         for url in files {
+            if outsideLinkRoute(for: url) == .littleArc {
+                last = newLittleArc(url: url.absoluteString)
+                continue
+            }
             let controller = windowForOutsideLink(url)
             let isFirst = !used.contains { $0 === controller }
             if isFirst, controller.visibleTabs.count == 1, let tab = controller.selectedTab, tab.isStartPage {
@@ -781,14 +877,26 @@ final class BrowserWindowManager {
         last.focusPage()
     }
 
+    /// Where a link from another app goes: a matching rule (of a Space that
+    /// still exists), else Settings ▸ Links from other apps ▸ "Open links
+    /// from other apps in".
+    func outsideLinkRoute(for url: URL) -> BrowserOutsideLinkRoute {
+        BrowserLinkRouting.route(
+            for: url.absoluteString,
+            rules: linkRouting.rules,
+            otherLinks: linkRouting.otherLinks,
+            spaceExists: { [spaces] in spaces.space(id: $0) != nil }
+        )
+    }
+
     /// Where a link from another app opens: a rule's Space in a window
     /// showing it, else the most recent normal window switched to it, else
-    /// a new window on it; without a rule for a Space (or when its Space is
-    /// gone), the most recent normal window as it is.
+    /// a new window on it; without a rule for a Space, the most recent
+    /// normal window as it is.
     func windowForOutsideLink(_ url: URL) -> BrowserWindowController {
-        if case let .space(id)? = linkRouting.rule(for: url.absoluteString)?.destination, spaces.space(id: id) != nil {
+        if case let .rule(rule) = outsideLinkRoute(for: url), case let .space(id) = rule.destination {
             if let showing = mostRecentlyActive(where: {
-                !$0.isPopup && $0.kind.acceptsOutsideRequests && $0.currentSpaceID == id
+                $0.role == .normal && $0.kind.acceptsOutsideRequests && $0.currentSpaceID == id
             }) {
                 return showing
             }

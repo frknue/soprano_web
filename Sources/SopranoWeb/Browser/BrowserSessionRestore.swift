@@ -179,9 +179,10 @@ struct BrowserRecentlyClosedStack: Equatable, Sendable {
 }
 
 extension BrowserWindowState {
-    /// The window with only the tabs `keep` accepts; the selection and each
-    /// Space's selection follow their tabs (a removed one is dropped, the
-    /// window's falls back to the first tab).
+    /// The window with only the tabs `keep` accepts; the selection, each
+    /// Space's selection and the splits follow their tabs (a removed one is
+    /// dropped, the window's falls back to the first tab; a split left
+    /// with fewer than two panes ends, the others share its width).
     func keepingTabs(where keep: (BrowserTabState) -> Bool) -> BrowserWindowState {
         var state = self
         var newIndex: [Int: Int] = [:]
@@ -194,6 +195,7 @@ extension BrowserWindowState {
         state.spaceSelections = spaceSelections.compactMap { selection in
             newIndex[selection.index].map { BrowserSpaceSelection(spaceID: selection.spaceID, index: $0) }
         }
+        state.splits = splits.compactMap { $0.keeping(newIndex) }
         return state
     }
 
@@ -203,7 +205,9 @@ extension BrowserWindowState {
     /// Space is gone (or that has none: version 2) joins the window's
     /// Space; a pin or favorite link that no longer resolves in the tab's
     /// Space becomes a Today tab. Selections of other Spaces keep only
-    /// tabs still in that Space. Unchanged when there are no Spaces.
+    /// tabs still in that Space. A Little Arc keeps its one Today tab out
+    /// of every Space (the window belongs to one). Unchanged when there are
+    /// no Spaces.
     func placedInSpaces(_ list: BrowserSpaceList) -> BrowserWindowState {
         guard let home = currentSpaceID.flatMap(list.space(id:))
             ?? list.space(ofProfile: profileID)
@@ -212,6 +216,18 @@ extension BrowserWindowState {
         var state = self
         state.currentSpaceID = home.id
         state.profileID = home.profileID
+        if role == .little {
+            let selected = tabs.indices.contains(selectedIndex) ? tabs[selectedIndex] : tabs.first
+            state.tabs = selected.map { [$0] } ?? []
+            state.selectedIndex = 0
+            state.spaceSelections = []
+            state.splits = []
+            for index in state.tabs.indices {
+                state.tabs[index].spaceID = nil
+                state.tabs[index].origin = .today
+            }
+            return state
+        }
         for index in state.tabs.indices {
             let space = state.tabs[index].spaceID.flatMap(list.space(id:)) ?? home
             state.tabs[index].spaceID = space.id

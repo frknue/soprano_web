@@ -10,6 +10,7 @@ final class MainMenuController: NSObject, NSMenuItemValidation {
     private let windowManager: () -> BrowserWindowManager?
     private var shareUpdater: ShareMenuUpdater?
     private var recentlyClosedUpdater: RecentlyClosedMenuUpdater?
+    private var extensionsUpdater: ExtensionsMenuUpdater?
     private(set) var spacesMenu: BrowserSpacesMenu?
     private var observations: [BrowserObservation] = []
     private var shownKeymap: BrowserKeymap?
@@ -73,7 +74,7 @@ final class MainMenuController: NSObject, NSMenuItemValidation {
         add(editMenu, to: main)
 
         let viewMenu = NSMenu(title: BrowserAppCommand.Menu.view.rawValue)
-        addSections([0, 1, 2, 3, 4, 5], of: .view, to: viewMenu, keymap: keymap)
+        addSections([0, 1, 2, 3, 4, 5, 6, 7, 8], of: .view, to: viewMenu, keymap: keymap)
         add(viewMenu, to: main)
 
         let historyMenu = NSMenu(title: BrowserAppCommand.Menu.history.rawValue)
@@ -98,6 +99,12 @@ final class MainMenuController: NSObject, NSMenuItemValidation {
             windowManager: windowManager
         )
         add(spacesMenu, to: main)
+
+        let extensionsMenu = NSMenu(title: "Extensions")
+        let extensionsUpdater = ExtensionsMenuUpdater(windowManager: windowManager)
+        extensionsMenu.delegate = extensionsUpdater
+        self.extensionsUpdater = extensionsUpdater
+        add(extensionsMenu, to: main)
 
         let windowMenu = NSMenu(title: BrowserAppCommand.Menu.window.rawValue)
         addSections([0, 1, 2, 3], of: .window, to: windowMenu, keymap: keymap)
@@ -181,9 +188,9 @@ final class MainMenuController: NSObject, NSMenuItemValidation {
         guard let command = command(of: menuItem) else { return true }
         guard let manager = windowManager() else { return false }
         let state = command.state(BrowserCommandContext(manager: manager))
-        if let title = state.title {
-            menuItem.title = title
-        }
+        // A title for one moment ("Close Peek") goes back to the
+        // command's own once the moment passes.
+        menuItem.title = command.menuTitle(for: state)
         return state.isEnabled
     }
 
@@ -227,5 +234,48 @@ private final class RecentlyClosedMenuUpdater: NSObject, NSMenuDelegate {
     @objc private func reopen(_ sender: NSMenuItem) {
         guard let id = sender.representedObject as? UUID else { return }
         windowManager()?.reopen(entryID: id)
+    }
+}
+
+/// The Extensions menu, rebuilt each time it opens: Manage Extensions…,
+/// then each loaded extension's commands (`commands` in its manifest,
+/// with their shortcuts) and its options page — the dynamic rows next to
+/// the fixed command registry.
+@MainActor
+private final class ExtensionsMenuUpdater: NSObject, NSMenuDelegate {
+    private let windowManager: () -> BrowserWindowManager?
+
+    init(windowManager: @escaping () -> BrowserWindowManager?) {
+        self.windowManager = windowManager
+    }
+
+    func menuNeedsUpdate(_ menu: NSMenu) {
+        menu.removeAllItems()
+        guard let manager = windowManager() else { return }
+        menu.addItem(BrowserClosureMenuItem(title: "Manage Extensions…") { [weak manager] in
+            manager?.showSettings(page: .extensions)
+        })
+        let window = manager.activeController
+        let loaded = manager.extensions.loadedContexts(for: window)
+        guard !loaded.isEmpty else { return }
+        for (id, context) in loaded {
+            menu.addItem(.separator())
+            let title = NSMenuItem(title: context.webExtension.displayName ?? id, action: nil, keyEquivalent: "")
+            title.isEnabled = false
+            menu.addItem(title)
+            if let window {
+                menu.addItem(BrowserClosureMenuItem(title: "Open") { [weak window] in
+                    window?.performExtensionAction(id)
+                })
+            }
+            for command in context.commands where command.id != "_execute_action" && !command.title.isEmpty {
+                menu.addItem(command.menuItem)
+            }
+            if let options = context.optionsPageURL {
+                menu.addItem(BrowserClosureMenuItem(title: "Options") { [weak manager] in
+                    manager?.extensions.openExtensionPage(options, for: context)
+                })
+            }
+        }
     }
 }

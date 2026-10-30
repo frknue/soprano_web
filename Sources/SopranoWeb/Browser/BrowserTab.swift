@@ -19,6 +19,9 @@ struct BrowserTabItem: Equatable {
     var isLinked = false
     /// A linked tab whose page left its pin's address: the "/" mark.
     var isAway = false
+    /// A split's row (`id` is the split's): every pane, left to right;
+    /// empty for a tab.
+    var panes: [BrowserTabPaneItem] = []
 
     static func == (lhs: BrowserTabItem, rhs: BrowserTabItem) -> Bool {
         lhs.id == rhs.id
@@ -31,6 +34,19 @@ struct BrowserTabItem: Equatable {
             && lhs.isAsleep == rhs.isAsleep
             && lhs.isLinked == rhs.isLinked
             && lhs.isAway == rhs.isAway
+            && lhs.panes == rhs.panes
+    }
+}
+
+/// One pane of a split's row: its favicon beside the others; the focused
+/// pane's title is the row's.
+struct BrowserTabPaneItem: Equatable {
+    var title: String
+    var favicon: NSImage?
+    var isFocused: Bool
+
+    static func == (lhs: BrowserTabPaneItem, rhs: BrowserTabPaneItem) -> Bool {
+        lhs.title == rhs.title && lhs.favicon === rhs.favicon && lhs.isFocused == rhs.isFocused
     }
 }
 
@@ -99,6 +115,10 @@ final class BrowserTab {
     var lifecycle = BrowserTabLifecycle()
     var observations: [NSKeyValueObservation] = []
     var links = BrowserTabLinks()
+    /// Whether the page has an article and the Reader shows it.
+    var reader = BrowserTabReader()
+    /// The page's language and its translation.
+    var translation = BrowserTabTranslation()
     /// The next load to finish started from the address bar (a typed visit).
     var typedNavigationPending = false
     /// How the main-frame load in flight was started (its policy decision).
@@ -222,11 +242,15 @@ final class BrowserWindow: NSWindow {
 
     /// A key WebKit hands back after a Site wins or Press twice forward is
     /// answered here, before any view or the menu, wherever focus went.
+    /// Then an extension's shortcut (one the app doesn't use) runs.
     override func performKeyEquivalent(with event: NSEvent) -> Bool {
-        if let controller = windowController as? BrowserWindowController,
-           let consumed = controller.consumeHandedBackKey(event), consumed
-        {
-            return true
+        if let controller = windowController as? BrowserWindowController {
+            if let consumed = controller.consumeHandedBackKey(event), consumed {
+                return true
+            }
+            if controller.extensions.performCommand(for: event, in: controller) {
+                return true
+            }
         }
         return super.performKeyEquivalent(with: event)
     }

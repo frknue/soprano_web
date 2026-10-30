@@ -207,6 +207,28 @@ struct BrowserImportPlanTests {
         #expect(routing.unsupported == 1)
     }
 
+    @Test func arcsDefaultDestinationSetsWhereOtherLinksOpen() throws {
+        var data = arc()
+        data.defaultLinkDestination = .littleArc
+        let plan = BrowserImportPlanner.arc(data, historyCounts: [:], context: context())
+        #expect(plan.routing?.otherLinks == .littleArc)
+        let row = try #require(BrowserImportChecklist.rows(for: plan).first { $0.item == .routing })
+        #expect(row.detail.hasSuffix("· other links open in Little Arc"))
+        #expect(BrowserImportChecklist.summary(of: plan).hasSuffix("links to Little Arc"))
+
+        // A Space destination means the most recent window; without rules
+        // the row is still there, for the choice alone.
+        data.routingRules = []
+        data.defaultLinkDestination = .space(sourceID: nil)
+        let alone = BrowserImportPlanner.arc(data, historyCounts: [:], context: context())
+        #expect(alone.routing?.otherLinks == .mostRecentWindow)
+        #expect(alone.routing?.isIncluded == true)
+        #expect(BrowserImportChecklist.rows(for: alone).first { $0.item == .routing }?.isEnabled == true)
+
+        data.defaultLinkDestination = nil
+        #expect(BrowserImportPlanner.arc(data, historyCounts: [:], context: context()).routing == nil)
+    }
+
     @Test func checklistTogglesItems() {
         var plan = BrowserImportPlanner.arc(arc(), historyCounts: counts(["Default": 10, "Profile 2": 3]), context: context())
         let rows = BrowserImportChecklist.rows(for: plan)

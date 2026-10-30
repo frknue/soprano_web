@@ -36,6 +36,8 @@ extension BrowserWindowController {
             handleMediaFrame(body: body, tab: tab, frame: frame)
         case ("mediaState", .isolated):
             handleMediaState(body: body, tab: tab, frame: frame)
+        case ("mediaInfo", .isolated):
+            handleMediaInfo(body: body, tab: tab, frame: frame)
         case ("notificationRequest", .page):
             handleNotificationRequest(body: body, tab: tab, frame: frame)
         case ("notificationShow", .page):
@@ -50,6 +52,12 @@ extension BrowserWindowController {
             receiveSleepGuard(body, tab: tab)
         case ("keyReport", .isolated):
             receiveKeyReport(body, tab: tab)
+        case ("zapPick", .isolated):
+            receiveZapPick(body, tab: tab, frame: frame)
+        case ("zapEnd", .isolated):
+            receiveZapEnd(tab: tab)
+        case ("pageInfo", .isolated):
+            receivePageInfo(body, tab: tab, frame: frame)
         default:
             return
         }

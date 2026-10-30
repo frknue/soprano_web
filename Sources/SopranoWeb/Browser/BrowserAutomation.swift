@@ -8,7 +8,7 @@ extension BrowserWindowController {
     /// lazily restored tab unloaded.
     static let commandsWithoutPage: Set<String> = [
         "goto", "navigate", "url", "get-url", "title", "tabs", "new-tab",
-        "select-tab", "close-tab", "focus-address",
+        "select-tab", "close-tab", "focus-address", "media",
     ]
 
     /// Runs one CLI request. `--tab n` targets tab n of the current Space
@@ -40,6 +40,27 @@ extension BrowserWindowController {
         let noTab = BrowserAutomationError.unavailable("No tab is open.")
 
         switch command {
+        case "site":
+            // Without `--tab`, the page the user looks at (a Peek's).
+            guard let tab = request.tabIndex == nil ? pageTab : target else {
+                completion(.failure(noTab))
+                return
+            }
+            performSiteCommand(arguments, tab: tab, completion: completion)
+        case "reader", "translate":
+            // Without `--tab`, the page the user looks at (a Peek's).
+            guard let tab = request.tabIndex == nil ? pageTab : target else {
+                completion(.failure(noTab))
+                return
+            }
+            if command == "reader" {
+                performReaderCommand(arguments, tab: tab, completion: completion)
+            } else {
+                performTranslateCommand(arguments, tab: tab, completion: completion)
+            }
+        case "media":
+            // Without `--tab`, the tab the media controls show.
+            performMediaCommand(arguments, tab: request.tabIndex == nil ? nil : target, completion: completion)
         case "goto", "navigate":
             guard let input = arguments.first else {
                 completion(.failure(BrowserAutomationError.invalidArguments(
@@ -94,11 +115,7 @@ extension BrowserWindowController {
             }
 
         case "tabs":
-            let lines = visibleTabs.enumerated().map { index, tab in
-                let selected = tab.id == selectedTab?.id ? "*" : " "
-                return "\(selected) \(index + 1)\t\(tab.displayTitle)\t\(tab.state.url ?? "about:start")"
-            }
-            completion(.success(lines.joined(separator: "\n")))
+            completion(.success(automationTabLines().joined(separator: "\n")))
 
         case "new-tab":
             let url = arguments.first
@@ -278,17 +295,19 @@ extension BrowserWindowController {
             )
 
         case "screenshot":
-            guard let path = arguments.first else {
-                completion(.failure(BrowserAutomationError.invalidArguments(
-                    "Usage: soprano-web browser screenshot <path.png>"
-                )))
+            guard let path = arguments.last else {
+                completion(.failure(BrowserAutomationError.invalidArguments(BrowserCommandRequest.screenshotUsage)))
                 return
             }
             guard let tab = target else {
                 completion(.failure(noTab))
                 return
             }
-            takeScreenshot(of: tab, path: path, completion: completion)
+            if arguments.first == "--full" {
+                takeFullPageScreenshot(of: tab, path: path, completion: completion)
+            } else {
+                takeScreenshot(of: tab, path: path, completion: completion)
+            }
 
         default:
             completion(.failure(BrowserAutomationError.invalidArguments(
@@ -297,10 +316,11 @@ extension BrowserWindowController {
         }
     }
 
-    /// `eval`: the source runs as an expression when it parses as one, else
-    /// as an async function body. The result is awaited and returned as JSON
-    /// text; a throw or rejection fails with the JavaScript message.
-    private func evaluateAsync(
+    /// `eval` and AppleScript's `execute javascript`: the source runs as an
+    /// expression when it parses as one, else as an async function body. The
+    /// result is awaited and returned as JSON text; a throw or rejection
+    /// fails with the JavaScript message.
+    func evaluateAsync(
         _ source: String,
         in webView: WKWebView,
         completion: @escaping (Result<String, Error>) -> Void
@@ -411,6 +431,33 @@ extension BrowserWindowController {
                 )
                 try png.write(to: url, options: .atomic)
                 completion(.success(url.path))
+            } catch {
+                completion(.failure(BrowserAutomationError.screenshot(error.localizedDescription)))
+            }
+        }
+    }
+
+    /// `screenshot --full`: the whole document (`BrowserCaptureRenderer`),
+    /// at the window's scale; a page cut at the height cap says so.
+    private func takeFullPageScreenshot(
+        of tab: BrowserTab,
+        path: String,
+        completion: @escaping (Result<String, Error>) -> Void
+    ) {
+        Task { @MainActor in
+            do {
+                let image = try await BrowserCaptureRenderer.fullPage(
+                    of: tab.webView,
+                    scale: BrowserCaptureRenderer.scale(of: tab.webView)
+                )
+                let url = URL(fileURLWithPath: path)
+                try FileManager.default.createDirectory(
+                    at: url.deletingLastPathComponent(),
+                    withIntermediateDirectories: true
+                )
+                try image.png.write(to: url, options: .atomic)
+                let cut = image.isCut ? "\ncut at \(BrowserCaptureGeometry.maxPixelLength) px" : ""
+                completion(.success(url.path + cut))
             } catch {
                 completion(.failure(BrowserAutomationError.screenshot(error.localizedDescription)))
             }
