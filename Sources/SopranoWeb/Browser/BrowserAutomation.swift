@@ -316,10 +316,11 @@ extension BrowserWindowController {
         }
     }
 
-    /// `eval`: the source runs as an expression when it parses as one, else
-    /// as an async function body. The result is awaited and returned as JSON
-    /// text; a throw or rejection fails with the JavaScript message.
-    private func evaluateAsync(
+    /// `eval` and AppleScript's `execute javascript`: the source runs as an
+    /// expression when it parses as one, else as an async function body. The
+    /// result is awaited and returned as JSON text; a throw or rejection
+    /// fails with the JavaScript message.
+    func evaluateAsync(
         _ source: String,
         in webView: WKWebView,
         completion: @escaping (Result<String, Error>) -> Void

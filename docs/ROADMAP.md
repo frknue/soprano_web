@@ -137,7 +137,10 @@ and bookmarks HTML files, and File ▸ Export Pinned Tabs… as bookmarks HTML.
   repository or a `gh search prs` query, refreshed every 5 minutes and when opened;
   CLI `browser live-folders`). Not built: Arc's other live folder sources (RSS, GitHub
   issues, Linear).
-- AppleScript (windows, tabs, Spaces, URL, JavaScript behind an opt-in) and a Dock menu.
+- AppleScript and the Dock menu: built in Stage 4 P12 (windows, tabs, Spaces; `new
+  window`, `new tab`, `select`, `close`, `reload`; `execute javascript` only with
+  Settings ▸ "Allow JavaScript from Apple Events"; Dock: New Window, New Private Window,
+  New Little Arc, the Spaces).
 
 ## Needs a decision
 

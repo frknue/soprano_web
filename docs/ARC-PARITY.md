@@ -148,7 +148,7 @@ Status of Soprano Web: **done**, **partial**, **missing**, **broken**. `BWC` =
 | Feature | Arc | Soprano Web | WebKit path | Roadmap |
 |---|---|---|---|---|
 | Default browser | menu item | partial: registered in `Info.plist`, no in-app action | `NSWorkspace.setDefaultApplication(at:toOpenURLsWithScheme:)` (12.0; system confirms) | 1 |
-| AppleScript | windows, tabs, spaces; `execute javascript` behind an opt-in | missing (the `browser` CLI instead) | Cocoa scripting | 4 |
+| AppleScript | windows, tabs, spaces; `execute javascript` behind an opt-in | built (stage 4 P12): `Support/SopranoWeb.sdef` — windows (most recent first, never private), their current Space's tabs (name, URL settable, loading, index, selected), Spaces; `new window`, `new tab`, `select`, `close`, `reload`, `execute javascript` (Settings ▸ "Allow JavaScript from Apple Events", off by default; the CLI's `eval` JSON); Dock menu with New Little Arc and the Spaces | Cocoa scripting | 4 |
 | Handoff | `NSUserActivityTypeBrowsingWeb` | missing | needs a team ID | ✗ |
 | Agent automation | AppleScript only | done: `browser` CLI; IPC unauthenticated, replies broadcast to every observer (`BrowserAutomationCommand.swift:136-170,259-321`), `--tab` changes the visible tab (`BrowserAutomation.swift:157`) | Unix socket, `callAsyncJavaScript` | 1 |
 | Arc Max (AI) | ChatGPT in Command Bar, Tidy titles, 5-Second Previews; Ask on Page removed 2025-08-28 [A4] | — | — | ✗ (agents instead) |

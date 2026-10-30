@@ -11,6 +11,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private var appliedGlobalHotKey: BrowserShortcut?
     private var settingsObservation: BrowserObservation?
 
+    /// The harness's window manager, for its Dock menu check.
+    func adopt(_ manager: BrowserWindowManager) {
+        windowManager = manager
+    }
+
     func applicationWillFinishLaunching(_ notification: Notification) {
         Self.installApplicationIcon()
     }
@@ -41,6 +46,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             sessionStore: BrowserSessionStore(url: support.appendingPathComponent("session.json"))
         )
         windowManager = manager
+        BrowserScripting.manager = manager
 
         let menu = MainMenuController { [weak self] in self?.windowManager }
         menu.install()
@@ -121,19 +127,35 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         return true
     }
 
-    /// New Window (in the active window's Space) and New Private Window.
+    /// New Window (in the active window's Space), New Private Window, New
+    /// Little Arc, then every Space (the active window's checked): choosing
+    /// one shows it in the most recent window with Spaces. The Dock lists
+    /// the open windows above these on its own.
     func applicationDockMenu(_ sender: NSApplication) -> NSMenu? {
         let menu = NSMenu()
-        let item = NSMenuItem(title: "New Window", action: #selector(newWindowFromDock), keyEquivalent: "")
-        item.target = self
-        menu.addItem(item)
-        let privateItem = NSMenuItem(
-            title: "New Private Window",
-            action: #selector(newPrivateWindowFromDock),
-            keyEquivalent: ""
-        )
-        privateItem.target = self
-        menu.addItem(privateItem)
+        for (title, action) in [
+            ("New Window", #selector(newWindowFromDock)),
+            ("New Private Window", #selector(newPrivateWindowFromDock)),
+            ("New Little Arc", #selector(newLittleArcFromDock)),
+        ] {
+            let item = NSMenuItem(title: title, action: action, keyEquivalent: "")
+            item.target = self
+            menu.addItem(item)
+        }
+        guard let manager = windowManager, !manager.spaces.spaces.isEmpty else { return menu }
+        menu.addItem(.separator())
+        let current = manager.mostRecentlyActive { $0.hasSpaces }?.currentSpaceID
+        for space in manager.spaces.spaces {
+            let item = NSMenuItem(
+                title: BrowserSpacesMenu.menuTitle(BrowserSpacesMenu.spaceTitle(space)),
+                action: #selector(spaceFromDock(_:)),
+                keyEquivalent: ""
+            )
+            item.target = self
+            item.representedObject = space.id
+            item.state = space.id == current ? .on : .off
+            menu.addItem(item)
+        }
         return menu
     }
 
@@ -144,6 +166,24 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     @objc private func newPrivateWindowFromDock() {
         windowManager?.newPrivateWindow()
+        NSApp.activate(ignoringOtherApps: true)
+    }
+
+    @objc private func newLittleArcFromDock() {
+        windowManager?.newLittleArc(commandBar: true)
+        NSApp.activate(ignoringOtherApps: true)
+    }
+
+    /// A Space from the Dock menu: the most recent window with Spaces shows
+    /// it (a new window on it when there is none) and comes forward.
+    @objc private func spaceFromDock(_ sender: NSMenuItem) {
+        guard let manager = windowManager, let id = sender.representedObject as? UUID else { return }
+        if let controller = manager.mostRecentlyActive(where: { $0.hasSpaces }) {
+            controller.switchToSpace(id)
+            manager.present(controller)
+        } else {
+            manager.newWindow(spaceID: id)
+        }
         NSApp.activate(ignoringOtherApps: true)
     }
 

@@ -170,6 +170,9 @@ struct BrowserSettings: Codable, Equatable, Sendable {
     /// Translate's "Never Offer for <language>": language codes ("de")
     /// the address field doesn't offer to translate.
     var neverTranslateLanguages: [String] = []
+    /// Settings ▸ "Allow JavaScript from Apple Events": AppleScript's
+    /// `execute javascript` runs only while this is on.
+    var allowsJavaScriptFromAppleEvents: Bool = false
 
     static let `default` = BrowserSettings()
 
@@ -259,6 +262,8 @@ extension BrowserSettings {
         neverTranslateLanguages = ((try? c.decodeIfPresent([String].self, forKey: .neverTranslateLanguages)) ?? nil)
             .map { codes in codes.map(BrowserTranslationOffer.languageCode).reduce(into: [String]()) { if !$0.contains($1) { $0.append($1) } } }
             ?? neverTranslateLanguages
+        allowsJavaScriptFromAppleEvents = (try? c.decodeIfPresent(Bool.self, forKey: .allowsJavaScriptFromAppleEvents))
+            ?? allowsJavaScriptFromAppleEvents
         // A chord the system, text editing or another command uses never
         // becomes a global hotkey (a hand-edited file included): a taken
         // chord falls back to the default, and when that one is taken too

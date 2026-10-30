@@ -37,6 +37,7 @@ enum SnapshotCommand {
         var media = SnapshotMediaOptions()
         var reader = SnapshotReaderOptions()
         var liveFolders = SnapshotLiveFolderOptions()
+        var appleScript = SnapshotAppleScriptOptions()
         var session = SnapshotSessionOptions()
         var tabAudio = false
         var hoverSelector: String?
@@ -95,6 +96,7 @@ enum SnapshotCommand {
     \(SnapshotMediaOptions.usage)
     \(SnapshotReaderOptions.usage)
     \(SnapshotLiveFolderOptions.usage)
+    \(SnapshotAppleScriptOptions.usage)
                                [--tabs <url>,<url>…] [--tab-audio] [--hover <css selector>]
                                [--back-url <url>]
                                [--address <text>] [--focus-address]
@@ -209,6 +211,8 @@ enum SnapshotCommand {
                 try options.reader.parse(flag) { try value(flag) }
             case let flag where SnapshotLiveFolderOptions.flags.contains(flag):
                 try options.liveFolders.parse(flag) { try value(flag) }
+            case let flag where SnapshotAppleScriptOptions.flags.contains(flag):
+                try options.appleScript.parse(flag) { try value(flag) }
             case let flag where SnapshotSessionOptions.flags.contains(flag):
                 try options.session.parse(flag) { try value(flag) }
             case let flag where SnapshotCommandBarAction.flags.contains(flag):
@@ -558,6 +562,7 @@ enum SnapshotCommand {
         }
         options.boosts.run(controller: controller) { wait($0) }
         options.liveFolders.run(controller: controller) { wait($0) }
+        options.appleScript.run(manager: manager) { wait($0) }
         if let title = options.sheetButton {
             pressSheetButton(title, window: window)
             wait(options.wait)

@@ -152,6 +152,13 @@ final class SettingsWindowController: NSWindowController, NSTextFieldDelegate {
         target: self,
         action: #selector(miniPlayerChanged)
     )
+    /// AppleScript's `execute javascript` (off by default).
+    private lazy var appleEventsJavaScriptSwitch = ChromeSwitch(
+        isOn: settingsStore.settings.allowsJavaScriptFromAppleEvents,
+        theme: theme,
+        target: self,
+        action: #selector(appleEventsJavaScriptChanged)
+    )
     /// Translate's "Never Offer" languages; its menu offers one again.
     private lazy var neverTranslateButton: ChromeButton = {
         let button = ChromeButton(title: neverTranslateTitle, theme: theme, kind: .standard)
@@ -335,6 +342,7 @@ final class SettingsWindowController: NSWindowController, NSTextFieldDelegate {
             [rowLabel("Autoplay"), autoplayButton],
             [rowLabel("Mini Player for videos"), miniPlayerSwitch],
             [rowLabel("Never offer to translate"), neverTranslateButton],
+            [rowLabel("Allow JavaScript from Apple Events"), appleEventsJavaScriptSwitch],
             [rowLabel("Notifications"), notificationsRow()],
             [rowLabel("Block ads and trackers"), contentBlockingRow()],
             [rowLabel("Keyboard shortcuts"), shortcutsRow()],
@@ -346,11 +354,22 @@ final class SettingsWindowController: NSWindowController, NSTextFieldDelegate {
         ]
         let grid = NSGridView(views: rows)
         grid.translatesAutoresizingMaskIntoConstraints = false
-        // 23 rows; the window stays under 900 pt for small displays.
         grid.rowSpacing = 10
         grid.column(at: 0).xPlacement = .trailing
         grid.column(at: 1).xPlacement = .fill
-        rootView.addSubview(grid)
+        // The rows scroll between the header and the footer: the window
+        // stays under 900 pt for small displays.
+        let document = FlippedView()
+        document.translatesAutoresizingMaskIntoConstraints = false
+        document.addSubview(grid)
+        let scroll = NSScrollView()
+        scroll.translatesAutoresizingMaskIntoConstraints = false
+        scroll.drawsBackground = false
+        scroll.borderType = .noBorder
+        scroll.hasVerticalScroller = true
+        scroll.autohidesScrollers = true
+        scroll.documentView = document
+        rootView.addSubview(scroll)
 
         rootView.addSubview(pathLabel)
         rootView.addSubview(doneButton)
@@ -367,9 +386,17 @@ final class SettingsWindowController: NSWindowController, NSTextFieldDelegate {
             subtitle.leadingAnchor.constraint(equalTo: header.leadingAnchor),
             subtitle.topAnchor.constraint(equalTo: header.bottomAnchor, constant: 4),
 
-            grid.topAnchor.constraint(equalTo: subtitle.bottomAnchor, constant: 26),
-            grid.leadingAnchor.constraint(equalTo: rootView.leadingAnchor, constant: 28),
-            grid.trailingAnchor.constraint(lessThanOrEqualTo: rootView.trailingAnchor, constant: -28),
+            scroll.topAnchor.constraint(equalTo: subtitle.bottomAnchor, constant: 18),
+            scroll.leadingAnchor.constraint(equalTo: rootView.leadingAnchor),
+            scroll.trailingAnchor.constraint(equalTo: rootView.trailingAnchor),
+            scroll.bottomAnchor.constraint(equalTo: doneButton.topAnchor, constant: -14),
+            document.topAnchor.constraint(equalTo: scroll.contentView.topAnchor),
+            document.leadingAnchor.constraint(equalTo: scroll.contentView.leadingAnchor),
+            document.widthAnchor.constraint(equalTo: scroll.contentView.widthAnchor),
+            grid.topAnchor.constraint(equalTo: document.topAnchor, constant: 8),
+            grid.leadingAnchor.constraint(equalTo: document.leadingAnchor, constant: 28),
+            grid.trailingAnchor.constraint(lessThanOrEqualTo: document.trailingAnchor, constant: -28),
+            grid.bottomAnchor.constraint(equalTo: document.bottomAnchor, constant: -8),
 
             engineButton.widthAnchor.constraint(equalToConstant: 200),
             themeButton.widthAnchor.constraint(equalToConstant: 200),
@@ -407,6 +434,10 @@ final class SettingsWindowController: NSWindowController, NSTextFieldDelegate {
     @available(*, unavailable)
     required init?(coder: NSCoder) {
         fatalError("init(coder:) is not supported")
+    }
+
+    private final class FlippedView: NSView {
+        override var isFlipped: Bool { true }
     }
 
     private func rowLabel(_ title: String) -> NSTextField {
@@ -494,6 +525,7 @@ final class SettingsWindowController: NSWindowController, NSTextFieldDelegate {
         askDownloadSwitch.apply(theme: theme)
         blockAdsSwitch.apply(theme: theme)
         miniPlayerSwitch.apply(theme: theme)
+        appleEventsJavaScriptSwitch.apply(theme: theme)
         neverTranslateButton.apply(theme: theme)
         updateListsButton.apply(theme: theme)
         blockerStatusLabel.textColor = theme.colors.textMuted
@@ -529,6 +561,7 @@ final class SettingsWindowController: NSWindowController, NSTextFieldDelegate {
         askDownloadSwitch.isOn = settingsStore.settings.askDownloadLocation
         blockAdsSwitch.isOn = settingsStore.settings.blockAdsAndTrackers
         miniPlayerSwitch.isOn = settingsStore.settings.miniPlayer
+        appleEventsJavaScriptSwitch.isOn = settingsStore.settings.allowsJavaScriptFromAppleEvents
         neverTranslateButton.title = neverTranslateTitle
         globalLittleArcSwitch.isOn = settingsStore.settings.globalLittleArcEnabled
         globalLittleArcButton.title = globalLittleArcTitle
@@ -853,6 +886,11 @@ extension SettingsWindowController {
     @objc private func miniPlayerChanged() {
         let value = miniPlayerSwitch.isOn
         settingsStore.update { $0.miniPlayer = value }
+    }
+
+    @objc private func appleEventsJavaScriptChanged() {
+        let value = appleEventsJavaScriptSwitch.isOn
+        settingsStore.update { $0.allowsJavaScriptFromAppleEvents = value }
     }
 
     /// Downloads both lists now (conditionally) and recompiles what changed.

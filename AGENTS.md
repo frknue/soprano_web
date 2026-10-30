@@ -1059,8 +1059,32 @@ surrounding style.
 - `Browser/VimiumController.swift`, `VimiumKeyMap.swift`, `VimiumPageScripts.swift`,
   `VimiumPanels.swift`, `BrowserWebView.swift` — the native Vimium mode layer.
 - `Browser/SnapshotCommand*.swift`, `SnapshotPageTools.swift` — offscreen UI harness.
-- `App/` — app delegate, menu, settings window (`BrowserSearchEnginesSheet`
-  is Settings ▸ Search engine ▸ Manage…), resources.
+- `App/` — app delegate (the Dock menu: New Window, New Private Window, New
+  Little Arc, the Spaces), menu, settings window (`BrowserSearchEnginesSheet`
+  is Settings ▸ Search engine ▸ Manage…; its rows scroll), resources.
+  `App/BrowserScripting.swift` with `Support/SopranoWeb.sdef` (copied into
+  `Contents/Resources` by `scripts/package-app.sh`, named by `Info.plist`'s
+  `OSAScriptingDefinition`) — AppleScript (stage 4 P12): `BrowserScripting`
+  (`manager`, set by the app delegate; the windows a script sees =
+  `mostRecentlyActiveFirst` of the CLI's windows, private ones never),
+  `@objc` classes `SopranoWebScriptWindow` / `Tab` / `Space` holding ids
+  only (a closed one reads as gone, `errAENoSuchObject`; specifiers are
+  `NSUniqueIDSpecifier`s), the application's `new window` / `new tab`
+  handlers, `select` / `close` / `reload` on tabs (close archives like
+  ⌘W), windows and Spaces, and `execute javascript`
+  (`BrowserScripting.executeJavaScript`: the CLI's `eval`, only with
+  `allowsJavaScriptFromAppleEvents` — Settings ▸ "Allow JavaScript from
+  Apple Events", off by default —, `errAEEventNotPermitted` otherwise; the
+  command suspends until the page answers). The dictionary loads only in a
+  bundle: the harness's `--applescript <file|text>` (repeatable, in its
+  own process, `tell current application`, no Automation prompt),
+  `--allow-applescript-javascript` and `--print-dock-menu` work when the
+  harness runs as `"Soprano Web Dev.app/Contents/MacOS/SopranoWeb"
+  snapshot …` (`SnapshotCommand+AppleScript.swift`). `execute javascript`
+  can't answer there (an event to the own process waits on the main
+  thread): check it with `osascript` against the dev app. A harness run
+  from the dev app's binary uses its WebKit container: a `--create-space`
+  there can leave a data store in `~/Library/WebKit/com.soprano.web.dev/`.
 - `Vendored/` — Folio design system from Soprano. Never edit these files here.
 
 `SOPRANO_COMMIT` records the Soprano commit the vendored files came from. Refresh
