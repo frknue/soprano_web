@@ -457,9 +457,9 @@ enum BrowserImportPlanner {
         ))
     }
 
-    // MARK: Chrome, Safari, bookmarks files
+    // MARK: Chromium browsers, Safari, bookmarks files
 
-    /// Points a Chrome, Safari or bookmarks-file plan at Space `spaceID`
+    /// Points a non-Arc plan at Space `spaceID`
     /// (the sheet's Space menu): its folders go there (one the Space has
     /// a top-level folder of that name for is skipped) and its History
     /// joins that Space's.

@@ -16,7 +16,7 @@ import AppKit
 ///   the plan as the sheet checks it by default and prints
 ///   `import-result:` (what was made, History added/skipped and seconds
 ///   per Space).
-/// - `--import-space <name>`: a Chrome, Safari or bookmarks-file import
+/// - `--import-space <name>`: any import but Arc's
 ///   goes into that Space (the sheet's Space menu) instead of the
 ///   window's.
 /// - `--import-plan`: plans only, applies nothing.

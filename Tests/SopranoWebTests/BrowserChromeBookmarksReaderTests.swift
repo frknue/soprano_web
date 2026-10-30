@@ -169,6 +169,12 @@ struct BrowserChromeBookmarksReaderTests {
         }
         #expect(BrowserChromeBookmarksReader.isUnreadable(vivaldi))
         #expect(BrowserImportLoader.detected(home: home) == [.chromium(.vivaldi, vivaldi)])
+        // A readable browser comes first (Chromium lists after Vivaldi), so
+        // the sheet opens on it rather than on an error.
+        let chromium = home.appendingPathComponent("Library/Application Support/Chromium", isDirectory: true)
+        try FileManager.default.createDirectory(at: chromium.appendingPathComponent("Default"), withIntermediateDirectories: true)
+        try write(#"{ "profile": { "info_cache": { "Default": { "name": "Me" } } } }"#, to: chromium.appendingPathComponent("Local State"))
+        #expect(BrowserImportLoader.detected(home: home) == [.chromium(.chromium, chromium), .chromium(.vivaldi, vivaldi)])
         #expect {
             try BrowserImportLoader.read(.chromium(.vivaldi, vivaldi), historyCutoff: nil)
         } throws: { error in

@@ -211,15 +211,16 @@ surrounding style.
   Import flags (run after the first window opens, before every other
   action; sources are only read, Chromium History opens `immutable`):
   `--import-arc [dir]` (default `~/Library/Application Support/Arc`),
-  `--import-chrome <dir>`, `--import-safari <zip>`, `--import-html <file>`
+  `--import-chrome|brave|edge|vivaldi|chromium <dir>` (a Chromium browser's
+  user-data folder), `--import-safari <zip>`, `--import-html <file>`
   (repeatable) print `import-plan:` (one JSON line: each Arc profile's home
   Space, Spaces with counts and create/skip/take-over, favorites, Archive,
   History per home with
   `sourceVisits`, `visits` imported and `olderThanRetention`, rules,
   totals), apply the plan as checked by default and print
   `import-result:` and one `import-history:` line per Space (added,
-  skipped, seconds); `--import-space <name>` points a Chrome, Safari or
-  bookmarks-file import at that Space (the sheet's Space menu); `--import-plan` plans only; `--import-sheet
+  skipped, seconds); `--import-space <name>` points any import but Arc's
+  at that Space (the sheet's Space menu); `--import-plan` plans only; `--import-sheet
   [checklist|progress|result]` captures File ▸ Import Browser Data… (on the
   first source flag, else the first source found) with its checklist, at
   30% of History or finished; `--export-pins <file>` /
@@ -594,7 +595,12 @@ surrounding style.
   `BrowserArcImportReader` (Arc's support folder; profiles a Space or
   favorites use, then History-only ones, never `__ARC_SYSTEM_PROFILE`),
   `BrowserChromiumHistoryReader` (`read`, `counts`),
-  `BrowserChromeBookmarksReader`, `BrowserSafariExportReader`,
+  `BrowserChromeBookmarksReader` (every Chromium browser:
+  `BrowserImportSourceKind.chromiumFolder` names Chrome's, Brave's, Edge's,
+  Vivaldi's and Chromium's folder under `~/Library/Application Support`; the
+  sheet lists Brave, Edge, Vivaldi and Chromium only when found, and a
+  folder macOS won't let the app list is found after the readable ones and
+  says why when chosen), `BrowserSafariExportReader`,
   `BrowserNetscapeBookmarks` (parse and write), the neutral model in
   `BrowserImportModel.swift`. `BrowserImportLoader` reads a source off the
   main thread; `BrowserImportPlan.swift` is the pure plan step

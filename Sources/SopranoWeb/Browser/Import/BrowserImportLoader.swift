@@ -32,23 +32,25 @@ enum BrowserImportLoader {
 
     /// The sources found on this Mac without asking for a file: Arc's
     /// folder and each Chromium browser's (Chrome, Brave, Edge, Vivaldi,
-    /// Chromium) when it holds profiles, or exists but macOS won't let the
-    /// app read it (reading then says so).
+    /// Chromium) when it holds profiles; then the Chromium folders that
+    /// exist but macOS won't let the app read (reading says so), last so
+    /// the sheet opens on a source it can read.
     static func detected(home: URL = FileManager.default.homeDirectoryForCurrentUser) -> [Request] {
         var found: [Request] = []
+        var unreadable: [Request] = []
         let arc = home.appendingPathComponent("Library/Application Support/Arc", isDirectory: true)
         if BrowserArcImportReader(supportDirectory: arc).isAvailable {
             found.append(.arc(arc))
         }
         for browser in BrowserImportSourceKind.chromiumBrowsers {
             guard let folder = BrowserChromeBookmarksReader.userDataDirectory(of: browser, home: home) else { continue }
-            if !BrowserChromeBookmarksReader.profiles(userDataDirectory: folder).isEmpty
-                || BrowserChromeBookmarksReader.isUnreadable(folder)
-            {
+            if BrowserChromeBookmarksReader.isUnreadable(folder) {
+                unreadable.append(.chromium(browser, folder))
+            } else if !BrowserChromeBookmarksReader.profiles(userDataDirectory: folder).isEmpty {
                 found.append(.chromium(browser, folder))
             }
         }
-        return found
+        return found + unreadable
     }
 
     /// `historyCutoff`: the visits History keeps start there (what the

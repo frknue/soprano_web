@@ -1,10 +1,10 @@
 import AppKit
 
-/// File ▸ Import Browser Data…: pick a source on the left (Arc and Chrome
-/// when found on this Mac, a Safari export ZIP or a bookmarks file chosen
-/// with an open panel), check what to bring in on the right, Import. Arc's
-/// Spaces each become a Space of their own; a Chrome, Safari or bookmarks
-/// file import goes into the Space chosen at the top of the checklist
+/// File ▸ Import Browser Data…: pick a source on the left (Arc, Chrome
+/// and the other Chromium browsers when found on this Mac, a Safari export
+/// ZIP or a bookmarks file chosen with an open panel), check what to bring
+/// in on the right, Import. Arc's Spaces each become a Space of their own;
+/// every other import goes into the Space chosen at the top of the checklist
 /// (the importing window's at first). The footer shows progress
 /// (History, the long part, can be cancelled) and then what the import
 /// did. A sheet on the importing window; its Today tabs open there and it
@@ -250,8 +250,8 @@ final class BrowserImportSheet: NSWindowController {
         refresh()
     }
 
-    /// The Space menu at the top of a Chrome, Safari or bookmarks-file
-    /// checklist: points the plan at Space `id`.
+    /// The Space menu at the top of every checklist but Arc's: points the
+    /// plan at Space `id`.
     func chooseTarget(_ id: UUID) {
         guard state == .ready, var plan, let manager else { return }
         BrowserImportPlanner.retarget(&plan, to: id, spaces: manager.spaces.list)
@@ -259,7 +259,7 @@ final class BrowserImportSheet: NSWindowController {
         refresh()
     }
 
-    /// The Space a Chrome, Safari or bookmarks-file import goes into.
+    /// The Space a non-Arc import goes into.
     var targetSpaceName: String? {
         guard let plan, plan.source != .arc else { return nil }
         return plan.targetSpaceID.flatMap { manager?.spaces.space(id: $0) }?.displayName
@@ -588,7 +588,7 @@ final class BrowserImportSheet: NSWindowController {
         }
     }
 
-    /// "Into Space": the Space a Chrome, Safari or bookmarks-file import
+    /// "Into Space": the Space a non-Arc import
     /// goes into, a menu of every Space.
     private final class TargetRow: NSView {
         var onChoose: ((UUID) -> Void)?
