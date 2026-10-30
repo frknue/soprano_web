@@ -328,6 +328,21 @@ struct BrowserFilterConverterTests {
         #expect(conversion.lists == [[block("\(anchor)ok\\.example\(separator)"), letPagesThrough]])
     }
 
+    /// WebKit's parser rejects `:has()` inside `:has()` (four such filters in
+    /// EasyList, 2026-10-30) and would drop their whole batch with them.
+    @Test func aHasInsideAHasIsRefusedButSiblingHasStays() {
+        #expect(BrowserFilterConverter.selectorProblem("article:has(header:has(.ct-sponsored))") == .unsupportedSelector)
+        #expect(BrowserFilterConverter.selectorProblem("div > [style]:has([style]:has([href*=\"&utm\"]))") == .unsupportedSelector)
+        #expect(BrowserFilterConverter.selectorProblem("li:has(> .a):has(.b)") == nil)
+        #expect(BrowserFilterConverter.selectorProblem("div:has(:is(.a, .b))") == nil)
+        #expect(BrowserFilterConverter.selectorProblem("a[title=\":has(:has(\"]") == nil)
+        let conversion = BrowserFilterConverter.convert("""
+        example.com##article:has(header:has(.ct-sponsored))
+        example.com##.kept
+        """)
+        #expect(conversion.skipped == [.unsupportedSelector: 1])
+    }
+
     // MARK: - Lists
 
     @Test func listsAreChunkedWithTheirExceptionsInEach() {

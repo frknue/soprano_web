@@ -61,12 +61,13 @@ filters → 66,956 rules) and EasyPrivacy (56,408 → 56,330) download, convert 
 Left:
 - Try a real-mouse drag between two on-screen windows (the harness drives the same drop
   handlers, not a system drag session).
-- Prove generic element hiding with the real EasyList: a selector WebKit rejects drops its
-  whole batch of 250 without a compile error.
+- Generic element hiding with the real EasyList: proven 2026-10-30 (every batch parses in
+  WebKit after refusing `:has()` inside `:has()`; every probed generic batch hides).
 - A blocked-request count (WebKit has no public callback) and the filter types WebKit
   can't express (`$csp`, `$redirect`, `$removeparam`, `$rewrite`, scriptlets, procedural
   CSS) — uBlock Origin Lite in stage 4.
-- Arc's Space→profile mapping (stage 3) and per-profile extensions (stage 4).
+- Arc's Space→profile mapping: done in stage 3 (every Space has its own profile).
+  Extensions are app-wide (stage 4 decision), not per profile.
 
 ## 3. Arc's organization model and import
 
@@ -108,8 +109,8 @@ and bookmarks HTML files, and File ▸ Export Pinned Tabs… as bookmarks HTML.
 - Site Control Center: built in Stage 4 P6 (the lock's popover for the page in its
   Space's profile: connection, camera/microphone/notifications/pop-ups, zoom, "Block ads
   on this site", extensions' site access, "Clear site data"; autoplay stays global).
-- Air Traffic Control: "URL contains / equals" → Space, plus the default for links from
-  other apps.
+- Air Traffic Control: built (stage 3 P7 rules "URL contains / equals / prefix" → Space,
+  stage 4 P3 the default for links from other apps: Little Arc or the most recent window).
 - Mini Player: built in Stage 4 P9 (leaving a tab with a playing, visible video moves its
   web view into a floating non-activating panel filled by the video; Back to Tab, Close
   pauses; position remembered; rail bottom / toolbar media controls from Media Session

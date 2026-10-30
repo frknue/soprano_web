@@ -1169,4 +1169,10 @@ WebKit's subset; `content-blocking.json` counts them by reason) and shows no
 blocked-request count: WebKit has no public callback for blocked loads. A
 generic selector WebKit's CSS parser rejects drops its whole
 `css-display-none` batch silently (no compile error), so the converter
-refuses unknown pseudo-classes up front.
+refuses unknown pseudo-classes and `:has()` inside `:has()` up front.
+Checked against the real EasyList (2026-10-30): every one of its 5,746
+`css-display-none` batches parses in WebKit, and a probe element for each of
+the 301 generic batches with a plain class or id selector is hidden. EasyList
+turns generic hiding off on `127.0.0.1`, `192.168.*` and `localhost`
+(`$generichide`): probe such rules on another host name, e.g.
+`probe.localhost`.

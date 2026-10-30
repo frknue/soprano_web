@@ -550,6 +550,9 @@ app.
   `bookmarks.json.migrated`.
 
 ### Fixed
+- Block ads and trackers: EasyList's few filters with `:has()` inside `:has()` (which
+  WebKit rejects) are skipped, so the other hiding rules for those sites, compiled with
+  them, work again.
 - Settings: the list scrolls between the header and the footer instead of running under
   the settings path and Done (Links from other apps and Extensions were hidden).
 - Capture (P8 review): Full Page no longer includes what a page hides sideways (an
