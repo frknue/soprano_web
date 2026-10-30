@@ -1,11 +1,31 @@
 import Foundation
 
-/// Reads Chrome's `Bookmarks` JSON and finds Chromium profiles.
+/// Reads Chromium's `Bookmarks` JSON (Chrome, Brave, Edge, Vivaldi,
+/// Chromium) and finds Chromium profiles.
 enum BrowserChromeBookmarksReader {
-    /// `~/Library/Application Support/Google/Chrome`.
-    static var chromeUserDataDirectory: URL {
-        FileManager.default.homeDirectoryForCurrentUser
-            .appendingPathComponent("Library/Application Support/Google/Chrome", isDirectory: true)
+    /// `browser`'s user-data folder under `home`, when it exists.
+    static func userDataDirectory(of browser: BrowserImportSourceKind, home: URL) -> URL? {
+        guard let path = browser.chromiumFolder else { return nil }
+        let url = home.appendingPathComponent("Library/Application Support", isDirectory: true)
+            .appendingPathComponent(path, isDirectory: true)
+        var isDirectory: ObjCBool = false
+        guard FileManager.default.fileExists(atPath: url.path, isDirectory: &isDirectory), isDirectory.boolValue else {
+            return nil
+        }
+        return url
+    }
+
+    /// The folder exists but listing it is refused (macOS privacy
+    /// protection for another app's data).
+    static func isUnreadable(_ folder: URL) -> Bool {
+        do {
+            _ = try FileManager.default.contentsOfDirectory(atPath: folder.path)
+            return false
+        } catch let error as CocoaError {
+            return error.code == .fileReadNoPermission
+        } catch {
+            return false
+        }
     }
 
     /// The roots that hold bookmarks, in Chrome's order, with the name

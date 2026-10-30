@@ -278,7 +278,7 @@ struct BrowserImportPlanTests {
         list.reconcile(with: [.defaultProfile])
         let spaceID = list.spaces[0].id
         list.updatePins(in: spaceID) { $0.insert(.folder(BrowserPinFolder(name: "Chrome Bookmarks (Work)")), into: BrowserPinTree.rootID, at: nil) }
-        let plan = BrowserImportPlanner.chrome(profiles, context: context(spaces: list))
+        let plan = BrowserImportPlanner.chromium(.chrome, profiles, context: context(spaces: list))
         #expect(plan.folders.map(\.name) == ["Chrome Bookmarks (Me)", "Chrome Bookmarks (Work)"])
         #expect(plan.folders.map(\.isIncluded) == [true, false])
         #expect(plan.folders.map(\.pinCount) == [1, 1])

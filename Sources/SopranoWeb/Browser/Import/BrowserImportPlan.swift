@@ -10,6 +10,10 @@ import Foundation
 enum BrowserImportSourceKind: String, CaseIterable, Sendable {
     case arc
     case chrome
+    case brave
+    case edge
+    case vivaldi
+    case chromium
     case safari
     case html
 
@@ -17,9 +21,32 @@ enum BrowserImportSourceKind: String, CaseIterable, Sendable {
         switch self {
         case .arc: "Arc"
         case .chrome: "Chrome"
+        case .brave: "Brave"
+        case .edge: "Edge"
+        case .vivaldi: "Vivaldi"
+        case .chromium: "Chromium"
         case .safari: "Safari Export"
         case .html: "Bookmarks File"
         }
+    }
+
+    /// A Chromium browser's user-data folder under `~/Library/Application
+    /// Support`; nil for the other sources.
+    var chromiumFolder: String? {
+        switch self {
+        case .chrome: "Google/Chrome"
+        case .brave: "BraveSoftware/Brave-Browser"
+        case .edge: "Microsoft Edge"
+        case .vivaldi: "Vivaldi"
+        case .chromium: "Chromium"
+        case .arc, .safari, .html: nil
+        }
+    }
+
+    var isChromium: Bool { chromiumFolder != nil }
+
+    static var chromiumBrowsers: [BrowserImportSourceKind] {
+        allCases.filter(\.isChromium)
     }
 }
 
@@ -29,7 +56,7 @@ enum BrowserImportSourceKind: String, CaseIterable, Sendable {
 enum BrowserImportSourceData: Sendable {
     typealias HistoryCounts = BrowserChromiumHistoryReader.Counts
 
-    /// One Chrome profile: its bookmarks and History.
+    /// One Chromium profile: its bookmarks and History.
     struct ChromeProfile: Sendable, Equatable {
         var profile: BrowserImportedProfile
         var bookmarks: [BrowserImportedNode]
@@ -39,7 +66,9 @@ enum BrowserImportSourceData: Sendable {
 
     /// Arc's support folder; `historyCounts` by Arc profile key.
     case arc(BrowserArcImport, historyCounts: [String: HistoryCounts])
-    case chrome([ChromeProfile])
+    /// A Chromium browser (Chrome, Brave, Edge, Vivaldi, Chromium) and its
+    /// profiles.
+    case chromium(BrowserImportSourceKind, [ChromeProfile])
     /// A Safari export ZIP and its file name.
     case safari(BrowserSafariExport, name: String)
     /// A Netscape bookmarks file and its file name.
@@ -265,7 +294,7 @@ enum BrowserImportPlanner {
     static func plan(for data: BrowserImportSourceData, context: Context) -> BrowserImportPlan {
         var plan: BrowserImportPlan = switch data {
         case let .arc(arc, counts): self.arc(arc, historyCounts: counts, context: context)
-        case let .chrome(profiles): chrome(profiles, context: context)
+        case let .chromium(browser, profiles): chromium(browser, profiles, context: context)
         case let .safari(export, name): safari(export, name: name, context: context)
         case let .html(nodes, name): bookmarksFile(nodes, name: name, context: context)
         }
@@ -450,25 +479,31 @@ enum BrowserImportPlanner {
         }
     }
 
-    /// Each Chrome profile's bookmarks become one pinned folder ("Chrome
+    /// Each profile's bookmarks become one pinned folder ("Chrome
     /// Bookmarks", with the profile's name when several have bookmarks)
     /// in the target Space; each profile's History goes to the target
-    /// Space.
-    static func chrome(_ profiles: [BrowserImportSourceData.ChromeProfile], context: Context) -> BrowserImportPlan {
-        var plan = BrowserImportPlan(source: .chrome, sourceName: BrowserImportSourceKind.chrome.title)
+    /// Space. Names and ids carry the browser's (`Brave Bookmarks`,
+    /// `brave:Default`), so a re-import skips its own folder.
+    static func chromium(
+        _ browser: BrowserImportSourceKind,
+        _ profiles: [BrowserImportSourceData.ChromeProfile],
+        context: Context
+    ) -> BrowserImportPlan {
+        let name = browser.title
+        var plan = BrowserImportPlan(source: browser, sourceName: name)
         plan.targetSpaceID = context.targetSpaceID
         let withBookmarks = profiles.filter { !$0.bookmarks.isEmpty }
         for profile in withBookmarks {
-            let name = withBookmarks.count == 1
-                ? "Chrome Bookmarks"
-                : "Chrome Bookmarks (\(profile.profile.displayName))"
-            plan.folders.append(folder(id: "chrome:\(profile.profile.key)", name: name, nodes: profile.bookmarks, context: context))
+            let folderName = withBookmarks.count == 1
+                ? "\(name) Bookmarks"
+                : "\(name) Bookmarks (\(profile.profile.displayName))"
+            plan.folders.append(folder(id: "\(browser.rawValue):\(profile.profile.key)", name: folderName, nodes: profile.bookmarks, context: context))
         }
         for profile in profiles {
             guard let file = profile.historyFile else { continue }
             plan.history.append(BrowserImportPlan.History(
-                id: "chrome:\(profile.profile.key)",
-                title: profiles.count == 1 ? "Chrome History" : "Chrome History (\(profile.profile.displayName))",
+                id: "\(browser.rawValue):\(profile.profile.key)",
+                title: profiles.count == 1 ? "\(name) History" : "\(name) History (\(profile.profile.displayName))",
                 profileKey: nil,
                 source: .chromium(file, since: context.historyCutoff),
                 visitCount: profile.historyCounts.kept,

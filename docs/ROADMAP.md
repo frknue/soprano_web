@@ -94,9 +94,9 @@ read in place, SQLite with `immutable=1`; a re-import skips what an earlier one 
 Chrome (`Bookmarks` as a pinned folder, `History`), Safari's Export Browsing Data ZIP
 and bookmarks HTML files, and File ▸ Export Pinned Tabs… as bookmarks HTML.
 
-- Not built: Arc's `Arc Data Export.md` as a lossy fallback; Firefox, Brave, Edge and
-  Vivaldi as sources; Arc's `defaultDestination` rule (Little Arc, §4). Cookies and
-  passwords don't transfer; Easels, Notes and Boosts aren't on disk.
+- Brave, Edge, Vivaldi and Chromium import like Chrome (after stage 4). Not built: Arc's
+  `Arc Data Export.md` as a lossy fallback; Firefox as a source. Cookies and passwords
+  don't transfer; Easels, Notes and Boosts aren't on disk.
 
 ## 4. Arc extras
 

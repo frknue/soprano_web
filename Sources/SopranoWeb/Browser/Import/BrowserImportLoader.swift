@@ -7,8 +7,8 @@ enum BrowserImportLoader {
     enum Request: Sendable, Equatable {
         /// Arc's support folder.
         case arc(URL)
-        /// A Chromium user-data folder (Chrome's).
-        case chrome(URL)
+        /// A Chromium browser's user-data folder (`kind.isChromium`).
+        case chromium(BrowserImportSourceKind, URL)
         /// Safari's File ▸ Export Browsing Data ZIP.
         case safari(URL)
         /// A Netscape bookmarks HTML file.
@@ -17,7 +17,7 @@ enum BrowserImportLoader {
         var kind: BrowserImportSourceKind {
             switch self {
             case .arc: .arc
-            case .chrome: .chrome
+            case let .chromium(kind, _): kind
             case .safari: .safari
             case .html: .html
             }
@@ -25,21 +25,27 @@ enum BrowserImportLoader {
 
         var url: URL {
             switch self {
-            case let .arc(url), let .chrome(url), let .safari(url), let .html(url): url
+            case let .arc(url), let .chromium(_, url), let .safari(url), let .html(url): url
             }
         }
     }
 
-    /// The sources found on this Mac without asking for a file: Arc's and
-    /// Chrome's folders when they hold data.
-    static func detected() -> [Request] {
+    /// The sources found on this Mac without asking for a file: Arc's
+    /// folder and each Chromium browser's (Chrome, Brave, Edge, Vivaldi,
+    /// Chromium) when it holds profiles, or exists but macOS won't let the
+    /// app read it (reading then says so).
+    static func detected(home: URL = FileManager.default.homeDirectoryForCurrentUser) -> [Request] {
         var found: [Request] = []
         if BrowserArcImportReader().isAvailable {
             found.append(.arc(BrowserArcImportReader.defaultSupportDirectory))
         }
-        let chrome = BrowserChromeBookmarksReader.chromeUserDataDirectory
-        if !BrowserChromeBookmarksReader.profiles(userDataDirectory: chrome).isEmpty {
-            found.append(.chrome(chrome))
+        for browser in BrowserImportSourceKind.chromiumBrowsers {
+            guard let folder = BrowserChromeBookmarksReader.userDataDirectory(of: browser, home: home) else { continue }
+            if !BrowserChromeBookmarksReader.profiles(userDataDirectory: folder).isEmpty
+                || BrowserChromeBookmarksReader.isUnreadable(folder)
+            {
+                found.append(.chromium(browser, folder))
+            }
         }
         return found
     }
@@ -57,12 +63,18 @@ enum BrowserImportLoader {
             let arc = try reader.read()
             return .arc(arc, historyCounts: arc.historyFiles.mapValues(counts))
 
-        case let .chrome(folder):
+        case let .chromium(browser, folder):
+            if BrowserChromeBookmarksReader.isUnreadable(folder) {
+                throw BrowserImportError.unreadable(
+                    folder,
+                    "macOS didn't let Soprano Web read \(browser.title)'s data. Allow it in System Settings ▸ Privacy & Security, then try again."
+                )
+            }
             let profiles = BrowserChromeBookmarksReader.profiles(userDataDirectory: folder)
             guard !profiles.isEmpty else {
                 throw BrowserImportError.missingFile(folder.appendingPathComponent("Local State"))
             }
-            return .chrome(profiles.map { profile in
+            return .chromium(browser, profiles.map { profile in
                 let directory = profile.directory
                 let bookmarks = directory
                     .flatMap { try? BrowserChromeBookmarksReader.read(fileURL: $0.appendingPathComponent("Bookmarks")) } ?? []

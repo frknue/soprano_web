@@ -88,12 +88,17 @@ final class BrowserImportSheet: NSWindowController {
         sourceStack.orientation = .vertical
         sourceStack.alignment = .leading
         sourceStack.spacing = 2
-        for kind in BrowserImportSourceKind.allCases {
+        // Arc, Chrome, Safari and a bookmarks file always show; the other
+        // Chromium browsers only when this Mac has their data.
+        let shown = BrowserImportSourceKind.allCases.filter { kind in
+            !kind.isChromium || kind == .chrome || self.detected.contains { $0.kind == kind }
+        }
+        for kind in shown {
             let found = self.detected.first { $0.kind == kind }
             let detail: String = switch kind {
-            case .arc, .chrome: found == nil ? "Not found on this Mac" : "Found on this Mac"
             case .safari: "File ▸ Export Browsing Data ZIP"
             case .html: "A bookmarks .html file"
+            default: found == nil ? "Not found on this Mac" : "Found on this Mac"
             }
             let row = SourceRow(kind: kind, detail: detail, theme: theme)
             row.isEnabled = found != nil || kind == .safari || kind == .html

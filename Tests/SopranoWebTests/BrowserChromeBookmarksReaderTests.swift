@@ -117,4 +117,59 @@ struct BrowserChromeBookmarksReaderTests {
         #expect(profiles.map(\.key) == ["Default", "Profile 2", "Profile 10"])
         #expect(BrowserChromeBookmarksReader.profiles(userDataDirectory: directory.appendingPathComponent("nope")).isEmpty)
     }
+
+    /// Brave, Edge, Vivaldi and Chromium keep Chrome's layout under their
+    /// own folders: found by kind, read into plans named after them.
+    @Test func otherChromiumBrowsersAreFoundAndReadAsThemselves() throws {
+        let home = temporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: home) }
+        let support = home.appendingPathComponent("Library/Application Support", isDirectory: true)
+        let brave = support.appendingPathComponent("BraveSoftware/Brave-Browser", isDirectory: true)
+        try FileManager.default.createDirectory(at: brave.appendingPathComponent("Default"), withIntermediateDirectories: true)
+        try write(#"{ "profile": { "info_cache": { "Default": { "name": "Me" } } } }"#, to: brave.appendingPathComponent("Local State"))
+        try write("""
+            { "roots": { "bookmark_bar": { "type": "folder", "name": "Bookmarks bar", "children": [
+                { "type": "url", "name": "Brave Search", "url": "https://search.brave.com/" }
+            ] } } }
+            """, to: brave.appendingPathComponent("Default/Bookmarks"))
+        // Edge's folder without profiles (an uninstalled browser's leftovers).
+        try FileManager.default.createDirectory(at: support.appendingPathComponent("Microsoft Edge"), withIntermediateDirectories: true)
+
+        let detected = BrowserImportLoader.detected(home: home).filter { $0.kind.isChromium }
+        #expect(detected == [.chromium(.brave, brave)])
+        let data = try BrowserImportLoader.read(.chromium(.brave, brave), historyCutoff: nil)
+        guard case let .chromium(browser, profiles) = data else {
+            Issue.record("a Brave folder should read as Chromium data")
+            return
+        }
+        #expect(browser == .brave)
+        #expect(profiles.map(\.profile.displayName) == ["Me"])
+        #expect(profiles.first?.historyFile == nil)
+        var list = BrowserSpaceList()
+        list.reconcile(with: [.defaultProfile])
+        let plan = BrowserImportPlanner.plan(for: data, context: BrowserImportPlanner.Context(
+            profiles: [.defaultProfile], spaces: list, archiveIDs: [], routingRules: [], targetSpaceID: list.spaces[0].id, historyCutoff: nil
+        ))
+        #expect(plan.source == .brave)
+        #expect(plan.sourceName == "Brave")
+        #expect(plan.folders.map(\.name) == ["Brave Bookmarks"])
+    }
+
+    @Test func aFolderMacOSWontLetTheAppReadIsFoundAndSaysWhy() throws {
+        let home = temporaryDirectory()
+        let vivaldi = home.appendingPathComponent("Library/Application Support/Vivaldi", isDirectory: true)
+        try FileManager.default.createDirectory(at: vivaldi.appendingPathComponent("Default"), withIntermediateDirectories: true)
+        try FileManager.default.setAttributes([.posixPermissions: 0o000], ofItemAtPath: vivaldi.path)
+        defer {
+            try? FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: vivaldi.path)
+            try? FileManager.default.removeItem(at: home)
+        }
+        #expect(BrowserChromeBookmarksReader.isUnreadable(vivaldi))
+        #expect(BrowserImportLoader.detected(home: home).contains(.chromium(.vivaldi, vivaldi)))
+        #expect {
+            try BrowserImportLoader.read(.chromium(.vivaldi, vivaldi), historyCutoff: nil)
+        } throws: { error in
+            "\(error)".contains("System Settings ▸ Privacy & Security")
+        }
+    }
 }
