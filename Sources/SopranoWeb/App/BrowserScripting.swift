@@ -94,11 +94,21 @@ extension NSApplication {
         return BrowserScriptWindow(id: controller.id)
     }
 
-    /// `new tab [URL text] [in window]`.
+    /// `new tab [URL text] [in window]`. Without a window that takes tabs,
+    /// a new window opens on the address (its first tab, like the CLI's
+    /// `new-tab`).
     @objc(handleNewTabScriptCommand:)
     func handleNewTabScriptCommand(_ command: NSScriptCommand) -> BrowserScriptTab? {
         guard let manager = BrowserScripting.manager else { return nil }
         let arguments = command.evaluatedArguments ?? [:]
+        var address: String?
+        if let text = arguments["url"] as? String {
+            guard let url = BrowserScripting.resolve(text, in: manager) else {
+                BrowserScripting.fail(command, errAEParamMissed, "“\(text)” is not an address.")
+                return nil
+            }
+            address = url.absoluteString
+        }
         let controller: BrowserWindowController
         if let target = arguments["window"] as? BrowserScriptWindow {
             guard let found = target.controller else {
@@ -110,16 +120,11 @@ extension NSApplication {
                 return nil
             }
             controller = found
+        } else if let found = BrowserScripting.tabWindow {
+            controller = found
         } else {
-            controller = BrowserScripting.tabWindow ?? manager.newWindow()
-        }
-        var address: String?
-        if let text = arguments["url"] as? String {
-            guard let url = BrowserScripting.resolve(text, in: manager) else {
-                BrowserScripting.fail(command, errAEParamMissed, "“\(text)” is not an address.")
-                return nil
-            }
-            address = url.absoluteString
+            let window = manager.newWindow(url: address)
+            return window.selectedTab.map { BrowserScriptTab(windowID: window.id, tabID: $0.id) }
         }
         let tab = controller.newTab(url: address)
         return BrowserScriptTab(windowID: controller.id, tabID: tab.id)

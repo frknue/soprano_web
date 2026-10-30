@@ -18,8 +18,8 @@ app.
   or a window, and `reload`. `execute javascript "…" in tab 1 of window 1` returns the
   result as JSON and may await promises; it runs only with Settings ▸ "Allow JavaScript
   from Apple Events" on (off by default).
-- Dock menu: New Little Arc and every Space (the active window's checked; choosing one
-  shows it) next to New Window and New Private Window.
+- Dock menu: New Little Arc and every Space (the one the most recent window with Spaces
+  shows is checked; choosing one shows it there) next to New Window and New Private Window.
 - Live folders for GitHub pull requests: right-click the rail's pinned tabs ▸ New Live
   Folder…, give it `owner/repo` (or a github.com repository link) for that repository's
   open pull requests, or any GitHub search such as `review-requested:@me is:open`. The

@@ -128,9 +128,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     /// New Window (in the active window's Space), New Private Window, New
-    /// Little Arc, then every Space (the active window's checked): choosing
-    /// one shows it in the most recent window with Spaces. The Dock lists
-    /// the open windows above these on its own.
+    /// Little Arc, then every Space (the one the most recent window with
+    /// Spaces shows checked): choosing one shows it in that window. The Dock
+    /// lists the open windows above these on its own.
     func applicationDockMenu(_ sender: NSApplication) -> NSMenu? {
         let menu = NSMenu()
         for (title, action) in [
