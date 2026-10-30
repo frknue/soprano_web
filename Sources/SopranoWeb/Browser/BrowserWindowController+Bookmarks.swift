@@ -123,8 +123,8 @@ extension BrowserWindowController {
 
     /// Opens every pin in the folder (subfolders included) and selects the
     /// first: each pin's live tab, opened where it has none (plain tabs in
-    /// a window without Spaces); a live folder's pull requests as Today
-    /// tabs.
+    /// a window without Spaces); the pull requests of live folders in it as
+    /// Today tabs, in their order.
     func openBookmarkFolderInTabs(_ id: UUID) {
         guard let folder = displayPinTree.folder(id: id), let first = folder.allPins.first else { return }
         guard hasSpaces else {
@@ -137,19 +137,19 @@ extension BrowserWindowController {
             }
             return
         }
-        // New tabs of a live folder go to the end of Today: in its order,
-        // the first one selected.
-        if folder.isLive {
-            let opened = folder.allPins.compactMap { pin in
-                manager.liveFolders.item(id: pin.id).map { openLiveItem($0.item, select: false) }
+        // Pull requests go to the end of Today in folder order, unselected;
+        // pins open last to first, so the first pin ends selected.
+        var liveTabs: [UUID: BrowserTab] = [:]
+        for pin in folder.allPins {
+            if let entry = manager.liveFolders.item(id: pin.id) {
+                liveTabs[pin.id] = openLiveItem(entry.item, select: false)
             }
-            if let first = opened.first {
-                selectTab(id: first.id, focus: true)
-            }
-            return
         }
-        for pin in folder.allPins.reversed() {
+        for pin in folder.allPins.reversed() where liveTabs[pin.id] == nil {
             openPin(pin.id)
+        }
+        if let tab = liveTabs[first.id] {
+            selectTab(id: tab.id, focus: true)
         }
     }
 

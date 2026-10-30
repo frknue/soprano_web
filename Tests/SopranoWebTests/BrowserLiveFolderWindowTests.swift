@@ -107,6 +107,24 @@ struct BrowserLiveFolderWindowTests {
         #expect(window.selectedTab === window.todayTabs[before])
     }
 
+    @Test func openAllOnAPlainParentOpensItsLiveFoldersPullRequestsInOrder() async throws {
+        let fixture = makeFixture()
+        defer { fixture.tearDown() }
+        let (window, folder) = try await liveWindow(fixture)
+        let spaceID = try #require(window.pinSpaceID)
+        let parent = try #require(fixture.manager.spaces.addPinFolder(name: "Work", inSpace: spaceID))
+        #expect(fixture.manager.spaces.movePin(folder.id, to: parent.id, at: 0, inSpace: spaceID))
+        let pin = try #require(fixture.manager.spaces.addPin(url: "https://example.com/", title: "Example", to: parent.id, inSpace: spaceID))
+        let before = window.todayTabs.count
+
+        // Work holds the pin (added first), then the live folder (PR 1, PR 2).
+        window.openBookmarkFolderInTabs(parent.id)
+        let opened = window.todayTabs.dropFirst(before).map { $0.state.url ?? $0.item.url?.absoluteString ?? "" }
+        #expect(opened == ["https://github.com/o/r/pull/1", "https://github.com/o/r/pull/2"])
+        let pinTab = try #require(window.liveTab(for: .pinned(pin.id)))
+        #expect(window.selectedTab === pinTab)
+    }
+
     @Test func aFetchAfterThePointerLeftDoesntBringThePreviewBack() async throws {
         let fixture = makeFixture()
         defer { fixture.tearDown() }
