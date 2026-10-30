@@ -135,8 +135,11 @@ struct BrowserChromeBookmarksReaderTests {
         // Edge's folder without profiles (an uninstalled browser's leftovers).
         try FileManager.default.createDirectory(at: support.appendingPathComponent("Microsoft Edge"), withIntermediateDirectories: true)
 
-        let detected = BrowserImportLoader.detected(home: home).filter { $0.kind.isChromium }
-        #expect(detected == [.chromium(.brave, brave)])
+        let arc = support.appendingPathComponent("Arc", isDirectory: true)
+        try FileManager.default.createDirectory(at: arc, withIntermediateDirectories: true)
+        try write("{}", to: arc.appendingPathComponent("StorableSidebar.json"))
+        // Everything found under this home: Arc, then the Chromium browsers.
+        #expect(BrowserImportLoader.detected(home: home) == [.arc(arc), .chromium(.brave, brave)])
         let data = try BrowserImportLoader.read(.chromium(.brave, brave), historyCutoff: nil)
         guard case let .chromium(browser, profiles) = data else {
             Issue.record("a Brave folder should read as Chromium data")
@@ -165,7 +168,7 @@ struct BrowserChromeBookmarksReaderTests {
             try? FileManager.default.removeItem(at: home)
         }
         #expect(BrowserChromeBookmarksReader.isUnreadable(vivaldi))
-        #expect(BrowserImportLoader.detected(home: home).contains(.chromium(.vivaldi, vivaldi)))
+        #expect(BrowserImportLoader.detected(home: home) == [.chromium(.vivaldi, vivaldi)])
         #expect {
             try BrowserImportLoader.read(.chromium(.vivaldi, vivaldi), historyCutoff: nil)
         } throws: { error in

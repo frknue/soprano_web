@@ -36,8 +36,9 @@ enum BrowserImportLoader {
     /// app read it (reading then says so).
     static func detected(home: URL = FileManager.default.homeDirectoryForCurrentUser) -> [Request] {
         var found: [Request] = []
-        if BrowserArcImportReader().isAvailable {
-            found.append(.arc(BrowserArcImportReader.defaultSupportDirectory))
+        let arc = home.appendingPathComponent("Library/Application Support/Arc", isDirectory: true)
+        if BrowserArcImportReader(supportDirectory: arc).isAvailable {
+            found.append(.arc(arc))
         }
         for browser in BrowserImportSourceKind.chromiumBrowsers {
             guard let folder = BrowserChromeBookmarksReader.userDataDirectory(of: browser, home: home) else { continue }
