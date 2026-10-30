@@ -80,8 +80,9 @@ struct BrowserFilterConversion: Sendable {
 ///
 /// Everything WebKit can't express is skipped and counted by reason.
 enum BrowserFilterConverter {
-    /// Bumped when the output changes, so cached lists are rebuilt.
-    static let version = 1
+    /// Bumped when the output changes, so cached lists are rebuilt at the
+    /// next launch from the cached text (2: `:has()` inside `:has()` skipped).
+    static let version = 2
     /// WebKit compiles at most this many rules into one list.
     static let maxRulesPerList = 150_000
     static let selectorsPerRule = 250

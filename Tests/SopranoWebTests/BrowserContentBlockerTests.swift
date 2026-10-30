@@ -264,6 +264,36 @@ struct BrowserContentBlockerTests {
         #expect(Set(relaunched.activeIdentifiers) == identifiers)
     }
 
+    /// A converter fix (`BrowserFilterConverter.version` bumped) reaches
+    /// lists compiled before it at the next launch, from the cached text,
+    /// whether or not the list changed since.
+    @Test func listsAnOlderConverterBuiltAreRebuiltAtLaunchFromTheCachedText() async throws {
+        let directory = try folder()
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let server = Server()
+        await server.set(list, for: source.url, etag: "\"v1\"")
+        let store = Store()
+        await blocker(directory, server: server, store: store).update()
+        let stateURL = directory.appendingPathComponent(BrowserContentBlocker.stateFileName)
+        var object = try #require(JSONSerialization.jsonObject(with: Data(contentsOf: stateURL)) as? [String: Any])
+        var sources = try #require(object["sources"] as? [String: Any])
+        var entry = try #require(sources["easylist"] as? [String: Any])
+        entry["converterVersion"] = BrowserFilterConverter.version - 1
+        sources["easylist"] = entry
+        object["sources"] = sources
+        try JSONSerialization.data(withJSONObject: object).write(to: stateURL)
+        let compiled = store.compiles.count
+
+        let relaunched = blocker(directory, server: server, store: store)
+        relaunched.start()
+        await relaunched.waitUntilIdle()
+        relaunched.stop()
+        #expect(await server.requests.count == 1)
+        #expect(store.compiles.count == compiled + 2)
+        #expect(relaunched.state.sources["easylist"]?.converterVersion == BrowserFilterConverter.version)
+        #expect(relaunched.activeIdentifiers.allSatisfy { $0.contains("-v\(BrowserFilterConverter.version)-") })
+    }
+
     @Test func aDamagedStateFileStartsOver() throws {
         let directory = try folder()
         defer { try? FileManager.default.removeItem(at: directory) }
