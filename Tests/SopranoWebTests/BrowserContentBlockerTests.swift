@@ -274,10 +274,19 @@ struct BrowserContentBlockerTests {
         await server.set(list, for: source.url, etag: "\"v1\"")
         let store = Store()
         await blocker(directory, server: server, store: store).update()
+        // What the previous converter left: its version and list names.
+        let current = "-v\(BrowserFilterConverter.version)-"
+        let previous = "-v\(BrowserFilterConverter.version - 1)-"
         let stateURL = directory.appendingPathComponent(BrowserContentBlocker.stateFileName)
         var object = try #require(JSONSerialization.jsonObject(with: Data(contentsOf: stateURL)) as? [String: Any])
         var sources = try #require(object["sources"] as? [String: Any])
         var entry = try #require(sources["easylist"] as? [String: Any])
+        let oldLists = try #require(entry["lists"] as? [String]).map { $0.replacingOccurrences(of: current, with: previous) }
+        for (name, rules) in store.stored {
+            store.stored[name] = nil
+            store.stored[name.replacingOccurrences(of: current, with: previous)] = rules
+        }
+        entry["lists"] = oldLists
         entry["converterVersion"] = BrowserFilterConverter.version - 1
         sources["easylist"] = entry
         object["sources"] = sources
@@ -291,7 +300,11 @@ struct BrowserContentBlockerTests {
         #expect(await server.requests.count == 1)
         #expect(store.compiles.count == compiled + 2)
         #expect(relaunched.state.sources["easylist"]?.converterVersion == BrowserFilterConverter.version)
-        #expect(relaunched.activeIdentifiers.allSatisfy { $0.contains("-v\(BrowserFilterConverter.version)-") })
+        #expect(relaunched.activeIdentifiers.count == 2)
+        #expect(relaunched.activeIdentifiers.allSatisfy { $0.contains(current) })
+        // The previous converter's lists are gone from the store.
+        #expect(oldLists.allSatisfy { store.stored[$0] == nil })
+        #expect(Set(store.stored.keys) == Set(relaunched.activeIdentifiers))
     }
 
     @Test func aDamagedStateFileStartsOver() throws {

@@ -341,6 +341,11 @@ struct BrowserFilterConverterTests {
         example.com##.kept
         """)
         #expect(conversion.skipped == [.unsupportedSelector: 1])
+        let hidden = conversion.lists.joined().compactMap { rule -> [String]? in
+            if case let .cssDisplayNone(selectors) = rule.action { return selectors }
+            return nil
+        }
+        #expect(hidden == [[".kept"]])
     }
 
     // MARK: - Lists
