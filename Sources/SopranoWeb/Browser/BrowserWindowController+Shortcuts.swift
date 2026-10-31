@@ -195,6 +195,8 @@ extension BrowserWindowController {
     func cancelRecentTabs() {
         recentTabSwitcher = nil
         recentTabsOverlay?.removeFromSuperview()
+        // Its cards hold page pictures; the next ⌃Tab builds new ones.
+        recentTabsOverlay?.clear()
         if let monitor = recentTabsMonitor {
             NSEvent.removeMonitor(monitor)
             recentTabsMonitor = nil
@@ -207,15 +209,6 @@ extension BrowserWindowController {
     /// loaded in the background and never shown has only that).
     func previewImage(of tab: BrowserTab) -> NSImage? {
         tab.preview?.image ?? tab.lifecycle.sleep?.snapshot.flatMap(NSImage.init(data:))
-    }
-
-    /// The pages of `tab` are about to leave the screen: their previews,
-    /// while WebKit still draws them.
-    func capturePreviews(leaving tab: BrowserTab?) {
-        guard let tab else { return }
-        for page in pageTabs(of: tab) {
-            captureTabPreview(page)
-        }
     }
 
     /// Stores a preview of `tab`'s page if it is on screen (a hidden page

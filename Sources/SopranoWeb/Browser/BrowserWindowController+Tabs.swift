@@ -283,6 +283,11 @@ extension BrowserWindowController {
         let selectedID = selectedTab?.id
         // A pane leaves its split; a focused one hands the focus to a pane.
         let paneSuccessor = removeFromSplits([tab.id])
+        // ⌃Tab's picture of a page leaving the screen with its tab (Merge
+        // All Windows, a move that doesn't select it).
+        if tab.webView.superview === webArea {
+            captureTabPreview(tab)
+        }
         unbindTab(tab)
         if wasSelected, !findBar.isHidden {
             tab.webView.find("", configuration: WKFindConfiguration()) { _ in }
@@ -354,6 +359,10 @@ extension BrowserWindowController {
         for tab in present {
             if let index = tabs.firstIndex(where: { $0 === tab }) {
                 extensions.tabDetached(tab, from: self, index: index)
+            }
+            // ⌃Tab's picture of a page leaving the screen with its tab.
+            if tab.webView.superview === webArea {
+                captureTabPreview(tab)
             }
             unbindTab(tab)
             removeWakeSnapshot(tab)
@@ -579,12 +588,6 @@ extension BrowserWindowController {
         // What comes on screen leaves the Mini Player; a playing video
         // leaving the screen may go into it.
         let comingShown = pageTabs(of: tab)
-        // ⌃Tab's pictures of the pages leaving, while they still draw.
-        if let previous, previous.id != tab.id {
-            for page in leavingPage where !comingShown.contains(where: { $0 === page }) {
-                captureTabPreview(page)
-            }
-        }
         returnMiniPlayerIfShown(comingShown)
         if let previous, previous.id != tab.id {
             miniPlayerLeaving(leavingPage, previous: previous, shown: comingShown)

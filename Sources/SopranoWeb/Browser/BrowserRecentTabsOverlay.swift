@@ -102,6 +102,12 @@ final class BrowserRecentTabsOverlay: NSView {
         }
     }
 
+    /// Drops every card (and the pictures they hold).
+    func clear() {
+        cards.forEach { $0.removeFromSuperview() }
+        cards = []
+    }
+
     /// A preview that arrived after the switcher opened.
     func setPreview(_ image: NSImage?, at index: Int) {
         guard cards.indices.contains(index) else { return }

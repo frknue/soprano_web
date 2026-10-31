@@ -675,11 +675,15 @@ surrounding style.
   choosing a row) and `+Shortcuts` (copy URL / Markdown on
   `manager.pasteboard`, ⇧⌘D's `toolbarHidden` in `UserDefaults`, the rail
   walk, ⌃Tab's switcher with `BrowserRecentTabsOverlay`: cards with
-  `BrowserTab.preview` (`BrowserTabPreview`, a JPEG at the card's width
-  taken by `captureTabPreview` while a page is on screen — as it leaves
-  in `showSelectedTab` and on a Space switch, and for the shown pages when
-  the switcher opens —, dropped on a main-frame commit; a tab never shown
-  falls back to its sleep snapshot, else its favicon), key routing).
+  `BrowserTab.preview` (`BrowserTabPreview`, a JPEG at the widest card's
+  width, 220 pt, taken by `captureTabPreview` while a page is on screen —
+  wherever a page leaves it: `applyPaneLayout` before it hides a web view,
+  `leavePage`, `detachTab`/`detachTabs`, `openMiniPlayer` — and for the
+  shown pages when the switcher opens; a capture answering after the next
+  main-frame commit (`previewDocument`) or after the tab slept is dropped,
+  and a commit drops the preview; a tab never shown falls back to its
+  sleep snapshot, else its favicon; closing the switcher drops its cards),
+  key routing).
   A private context keeps its pages in `BrowserSessionVisits` (memory
   only) for its Command Bar.
 - `Browser/BrowserDataStores.swift` — downloads JSON

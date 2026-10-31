@@ -191,6 +191,8 @@ extension BrowserWindowController {
         if player.isOpen {
             player.controller?.returnMiniPlayer()
         }
+        // ⌃Tab's picture of the page as it was in the window.
+        captureTabPreview(tab)
         player.show(tab, from: self, theme: theme, persistsFrame: !kind.isPrivate)
         tab.media.filledFrame = tab.media.info.mainFrame
         setMiniPlayerFill(true, in: tab)

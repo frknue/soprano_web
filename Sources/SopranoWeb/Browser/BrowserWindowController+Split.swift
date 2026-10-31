@@ -267,6 +267,11 @@ extension BrowserWindowController {
         let leaving = pageTabs(of: tab)
         miniPlayerLeaving(leaving, previous: tab, shown: [])
         for leaving in leaving {
+            // ⌃Tab's picture while the page still draws (one moved into
+            // the Mini Player just now has had its own).
+            if leaving.webView.superview === webArea {
+                captureTabPreview(leaving)
+            }
             leaving.lifecycle.lastActiveAt = now
             // The Mini Player's web view stays shown in its panel.
             if !manager.miniPlayer.hosts(leaving) {
@@ -330,7 +335,13 @@ extension BrowserWindowController {
         // A pane's sides follow the pane constraints; every other web view
         // fills the page area.
         for tab in tabs where tab.webView.superview === webArea {
-            tab.webView.isHidden = !shown.contains { $0 === tab }
+            let willShow = shown.contains { $0 === tab }
+            if !willShow, !tab.webView.isHidden {
+                // ⌃Tab's picture of a page leaving the screen, while it
+                // still draws.
+                captureTabPreview(tab)
+            }
+            tab.webView.isHidden = !willShow
             let isPane = isSplit && shown.contains { $0 === tab }
             if isPane {
                 NSLayoutConstraint.deactivate(tab.webView.pageEdgeConstraints)

@@ -9,13 +9,18 @@ folder), and rebuilt the ad-block lists. Stage 3 is #3 (`2fdbdaa`), Space isolat
 (`727eca4`).
 
 ⌃Tab page previews (2026-10-31, on `main`, not pushed): the switcher's cards show each
-tab's page (`BrowserTabPreview`, taken while the page is on screen: as it leaves, on a
-Space switch, and for the shown page when the switcher opens), else the sleep snapshot,
-else the favicon; card width fits the window, the preview takes the page area's shape.
+tab's page (`BrowserTabPreview`, taken while the page is on screen, wherever it leaves
+the screen — tab and Space switches, split separate, Merge All Windows and moves, the
+Mini Player — and for the shown page when the switcher opens), else the sleep snapshot,
+else the favicon; card width fits the window, the preview takes the page area's shape;
+a capture answering after the next commit (same-address reload too) is dropped.
 Harness: 4 local pages at 1440×900 → every card `[preview]`, 220×190; at 1000×700 in
 Folio Ink 5 cards at 179×175 with a ⌘-clicked background tab on its globe placeholder;
-a tab left by a switch to the Work Space kept its preview. 803 tests green. Not checked
-in the dev app: holding ⌃ needs real keys (background ⌃Tab can't be delivered there).
+a tab left by a switch to the Work Space kept its preview; a hidden tab reloaded before
+⌃Tab shows no preview; after Merge All Windows and after separating a split the moved /
+hidden page has its preview (both were missing before the second pass). 803 tests
+green. Not checked in the dev app: holding ⌃ needs real keys (background ⌃Tab can't be
+delivered there).
 
 Live check of #4 in the running dev app (2026-10-27; Work Space made through the New
 Space path, then driven over the `browser` CLI against a local server): a cookie set in
