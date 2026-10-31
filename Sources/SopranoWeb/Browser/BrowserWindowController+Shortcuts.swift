@@ -220,7 +220,8 @@ extension BrowserWindowController {
 
     /// Stores a preview of `tab`'s page if it is on screen (a hidden page
     /// may never answer, or answer blank). The answer is dropped when the
-    /// tab's page changed since: slept (a new web view) or another address.
+    /// tab's page changed since: slept (a new web view) or committed
+    /// another document (`previewDocument`, a same-address reload too).
     func captureTabPreview(_ tab: BrowserTab) {
         let webView = tab.webView
         guard !tab.isAsleep, !tab.isRestorePending, webView.window != nil, !webView.isHiddenOrHasHiddenAncestor,
@@ -231,11 +232,11 @@ extension BrowserWindowController {
         configuration.snapshotWidth = NSNumber(value: Double(BrowserTabPreview.pointWidth))
         let tabID = tab.id
         let page = ObjectIdentifier(webView)
-        let address = webView.url
+        let document = tab.previewDocument
         webView.takeSnapshot(with: configuration) { [weak manager] image, _ in
             MainActor.assumeIsolated {
                 guard let found = manager?.tab(id: tabID),
-                      ObjectIdentifier(found.tab.webView) == page, found.tab.webView.url == address,
+                      ObjectIdentifier(found.tab.webView) == page, found.tab.previewDocument == document,
                       let image, let jpeg = BrowserTabPreview.jpeg(image)
                 else { return }
                 found.tab.preview = BrowserTabPreview(jpeg: jpeg)
@@ -244,7 +245,8 @@ extension BrowserWindowController {
         }
     }
 
-    /// A new preview reaches the open switcher's card.
+    /// The open switcher's card follows a new preview (or none, after a
+    /// commit).
     func tabPreviewChanged(_ tab: BrowserTab) {
         guard let switcher = recentTabSwitcher, let index = switcher.items.firstIndex(of: tab.id) else { return }
         recentTabsOverlay?.setPreview(previewImage(of: tab), at: index)

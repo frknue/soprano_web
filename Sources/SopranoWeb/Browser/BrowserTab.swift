@@ -109,6 +109,9 @@ final class BrowserTab {
     var favicon: NSImage?
     /// ⌃Tab's picture of the page; see `BrowserTabPreview`.
     var preview: BrowserTabPreview?
+    /// Main-frame commits so far: a preview capture answering after a
+    /// later commit (a reload of the same address too) is dropped.
+    var previewDocument = 0
     var isPlayingAudio = false
     var isMuted = false
     /// Audio reports and media frames; see `BrowserTabMedia`.
