@@ -8,6 +8,15 @@ same window, its 3 tabs in their Spaces, the selection and the 10 recently close
 folder), and rebuilt the ad-block lists. Stage 3 is #3 (`2fdbdaa`), Space isolation #4
 (`727eca4`).
 
+⌃Tab page previews (2026-10-31, on `main`, not pushed): the switcher's cards show each
+tab's page (`BrowserTabPreview`, taken while the page is on screen: as it leaves, on a
+Space switch, and for the shown page when the switcher opens), else the sleep snapshot,
+else the favicon; card width fits the window, the preview takes the page area's shape.
+Harness: 4 local pages at 1440×900 → every card `[preview]`, 220×190; at 1000×700 in
+Folio Ink 5 cards at 179×175 with a ⌘-clicked background tab on its globe placeholder;
+a tab left by a switch to the Work Space kept its preview. 803 tests green. Not checked
+in the dev app: holding ⌃ needs real keys (background ⌃Tab can't be delivered there).
+
 Live check of #4 in the running dev app (2026-10-27; Work Space made through the New
 Space path, then driven over the `browser` CLI against a local server): a cookie set in
 Default is absent from Work's requests and `document.cookie` and the reverse, and each
@@ -139,7 +148,7 @@ its welcome page, no update additions pending; only 1Password keeps `webSocket`.
 2. GUI check. Agents may launch the dev app (`open -g -n ".build/debug/Soprano Web
    Dev.app"`; its own support folder and WebKit container) and drive it over the
    `browser` CLI. What needs a person's hands: Site wins / Press twice with real key
-   presses, ⌃Tab release, shifted-punctuation remaps in the menu bar, a real drag in the
+   presses, ⌃Tab with ⌃ held (the cards show page previews), shifted-punctuation remaps in the menu bar, a real drag in the
    rail outline, the Command Bar's rounded corners in Folio Ink, Delete Space from the
    switcher's menu (the CLI has no Space create/delete).
 3. By hand (Furkan): AppleScript's `execute javascript` from Script Editor or Terminal against the dev app (macOS asks once to let it control "Soprano Web Dev"): turn on Settings ▸ "Allow JavaScript from Apple Events", then `osascript -e 'tell application "Soprano Web Dev" to execute javascript "document.title"'` answers the front tab's title as JSON (`"…"`), and with the setting off it fails with -1743; the Dock menu's New Little Arc and a Space. A live folder from the rail's menu (New Live Folder…, a click on a PR, Refresh, Edit Live Folder…); Translate with a downloaded language pair (System Settings ▸ General ▸ Language & Region ▸ Translation Languages); ⇧⌘2 with a real pointer (drag an area, click for the visible page, Full Page, Esc) and a click on the toast revealing the file in Finder; Zap mode with a real pointer (hover outline, click hides, Esc ends) and typing in the Boost editor (↩ newline, ⌘↩ saves); a real tab drag onto a pane edge and a real divider drag (P5), and the lock's popover menus (Ask/Allow/Block, extension access) with real clicks; the Mini Player's Back to Tab and dragging its panel (P9).

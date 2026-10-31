@@ -107,6 +107,8 @@ final class BrowserTab {
     /// Set while the tab shows the certificate interstitial.
     var certificateInterstitial: BrowserCertificateInterstitial?
     var favicon: NSImage?
+    /// ⌃Tab's picture of the page; see `BrowserTabPreview`.
+    var preview: BrowserTabPreview?
     var isPlayingAudio = false
     var isMuted = false
     /// Audio reports and media frames; see `BrowserTabMedia`.

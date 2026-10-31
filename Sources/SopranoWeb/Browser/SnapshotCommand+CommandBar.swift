@@ -211,7 +211,10 @@ enum SnapshotCommandBarAction {
             for _ in 0..<presses {
                 controller.showRecentTabs(forward: true, commitWhenReleased: false)
             }
-            Swift.print("recent-tabs: \(presses) × ⌃Tab -> \(controller.recentTabsOverlay?.dump ?? [])")
+            // The shown page's preview arrives from WebKit.
+            Self.spin(2) { controller.selectedTab?.preview != nil }
+            let sizes = controller.recentTabsOverlay?.cardSizes.map { "\(Int($0.width))×\(Int($0.height))" } ?? []
+            Swift.print("recent-tabs: \(presses) × ⌃Tab -> \(controller.recentTabsOverlay?.dump ?? []) cards \(Set(sizes).sorted())")
             if commit {
                 controller.commitRecentTabs()
                 let target = manager.activeController ?? controller

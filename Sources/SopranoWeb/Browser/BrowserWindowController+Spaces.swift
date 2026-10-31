@@ -21,6 +21,8 @@ extension BrowserWindowController {
         guard hasSpaces, let space = spaces.space(id: id) else { return }
         let leaving = selectedTab
         if id != currentSpaceID {
+            // ⌃Tab's pictures of the pages leaving, while they still draw.
+            capturePreviews(leaving: leaving)
             setCurrentSpace(space)
         }
         let target = tabID.flatMap { wanted in visibleTabs.contains { $0.id == wanted } ? wanted : nil }
@@ -78,6 +80,7 @@ extension BrowserWindowController {
             return false
         }
         let leaving = selectedTab
+        capturePreviews(leaving: leaving)
         setCurrentSpace(space)
         if let leaving {
             leavePage(of: leaving)

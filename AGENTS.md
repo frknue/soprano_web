@@ -300,7 +300,8 @@ surrounding style.
   the command, its priority, the page's `window.__keyLog` and the
   pasteboard — the proof for Site wins and Press twice), `--recent-tabs <n>`
   (⌃Tab n times, then ⌃ released) and `--recent-tabs-hold <n>` (overlay left
-  open for the capture), `--walk-rail down|up` (⌥⌘↓/↑), `--toggle-toolbar`
+  open for the capture; both print the cards, `[preview]` on those showing
+  a page, and the card size), `--walk-rail down|up` (⌥⌘↓/↑), `--toggle-toolbar`
   (⇧⌘D), `--copy-url` / `--copy-markdown` (print the pasteboard: the
   harness's own named one, never the general pasteboard). The Command Bar
   and the ⌃Tab overlay are drawn over the page in the capture.
@@ -673,7 +674,12 @@ surrounding style.
   window of its own). `BrowserWindowController+CommandBar` (sources,
   choosing a row) and `+Shortcuts` (copy URL / Markdown on
   `manager.pasteboard`, ⇧⌘D's `toolbarHidden` in `UserDefaults`, the rail
-  walk, ⌃Tab's switcher with `BrowserRecentTabsOverlay`, key routing).
+  walk, ⌃Tab's switcher with `BrowserRecentTabsOverlay`: cards with
+  `BrowserTab.preview` (`BrowserTabPreview`, a JPEG at the card's width
+  taken by `captureTabPreview` while a page is on screen — as it leaves
+  in `showSelectedTab` and on a Space switch, and for the shown pages when
+  the switcher opens —, dropped on a main-frame commit; a tab never shown
+  falls back to its sleep snapshot, else its favicon), key routing).
   A private context keeps its pages in `BrowserSessionVisits` (memory
   only) for its Command Bar.
 - `Browser/BrowserDataStores.swift` — downloads JSON

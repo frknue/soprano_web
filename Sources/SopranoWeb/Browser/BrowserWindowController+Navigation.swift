@@ -278,6 +278,9 @@ extension BrowserWindowController: WKNavigationDelegate {
         webView.pageZoom = tab.zoom
         tab.lifecycle.unsavedFrames.removeAll()
         tab.lifecycle.capturingFrames.removeAll()
+        // ⌃Tab's picture showed the old document; a shown page gets a new
+        // one as it leaves the screen.
+        tab.preview = nil
         wakeSnapshotPageCommitted(tab)
         linksDidCommit(tab)
         zapPageCommitted(tab)

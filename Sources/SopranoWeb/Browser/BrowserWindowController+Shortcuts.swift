@@ -139,18 +139,22 @@ extension BrowserWindowController {
         let byID = Dictionary(tabs.map { ($0.id, $0) }, uniquingKeysWith: { first, _ in first })
         let overlay = recentTabsOverlay ?? BrowserRecentTabsOverlay(theme: theme)
         recentTabsOverlay = overlay
+        let switcherTabs = items.compactMap { byID[$0] }
         overlay.show(
-            items.compactMap { byID[$0] }.map { tab in
+            switcherTabs.map { tab in
                 BrowserRecentTabsOverlay.Item(
                     title: tab.displayTitle,
                     detail: tab.isStartPage ? "Start Page" : AddressURLText.display(tab.item.url?.absoluteString ?? ""),
                     favicon: tab.favicon,
+                    preview: previewImage(of: tab),
                     space: tab.spaceID != currentSpaceID
                         ? tab.spaceID.flatMap(spaces.space(id:)).map(BrowserSpacesMenu.spaceTitle)
                         : nil
                 )
             },
-            selected: switcher.index
+            selected: switcher.index,
+            maxWidth: rootView.bounds.width - 48,
+            previewAspect: webArea.bounds.width > 0 ? webArea.bounds.height / webArea.bounds.width : 0.625
         )
         rootView.addSubview(overlay, positioned: .above, relativeTo: nil)
         NSLayoutConstraint.activate([
@@ -158,6 +162,11 @@ extension BrowserWindowController {
             overlay.centerYAnchor.constraint(equalTo: rootView.centerYAnchor),
         ])
         rootView.layoutSubtreeIfNeeded()
+        // The pages on screen now, as they look now (their cards update
+        // when WebKit answers).
+        for tab in shownTabs where switcherTabs.contains(where: { $0 === tab }) {
+            captureTabPreview(tab)
+        }
         guard commitWhenReleased else { return }
         guard NSEvent.modifierFlags.contains(.control) else {
             commitRecentTabs()
@@ -190,6 +199,55 @@ extension BrowserWindowController {
             NSEvent.removeMonitor(monitor)
             recentTabsMonitor = nil
         }
+    }
+
+    // MARK: - Tab previews (⌃Tab)
+
+    /// The page's preview, else the snapshot it fell asleep with (a tab
+    /// loaded in the background and never shown has only that).
+    func previewImage(of tab: BrowserTab) -> NSImage? {
+        tab.preview?.image ?? tab.lifecycle.sleep?.snapshot.flatMap(NSImage.init(data:))
+    }
+
+    /// The pages of `tab` are about to leave the screen: their previews,
+    /// while WebKit still draws them.
+    func capturePreviews(leaving tab: BrowserTab?) {
+        guard let tab else { return }
+        for page in pageTabs(of: tab) {
+            captureTabPreview(page)
+        }
+    }
+
+    /// Stores a preview of `tab`'s page if it is on screen (a hidden page
+    /// may never answer, or answer blank). The answer is dropped when the
+    /// tab's page changed since: slept (a new web view) or another address.
+    func captureTabPreview(_ tab: BrowserTab) {
+        let webView = tab.webView
+        guard !tab.isAsleep, !tab.isRestorePending, webView.window != nil, !webView.isHiddenOrHasHiddenAncestor,
+              webView.bounds.width > 0, webView.bounds.height > 0
+        else { return }
+        let configuration = WKSnapshotConfiguration()
+        configuration.afterScreenUpdates = false
+        configuration.snapshotWidth = NSNumber(value: Double(BrowserTabPreview.pointWidth))
+        let tabID = tab.id
+        let page = ObjectIdentifier(webView)
+        let address = webView.url
+        webView.takeSnapshot(with: configuration) { [weak manager] image, _ in
+            MainActor.assumeIsolated {
+                guard let found = manager?.tab(id: tabID),
+                      ObjectIdentifier(found.tab.webView) == page, found.tab.webView.url == address,
+                      let image, let jpeg = BrowserTabPreview.jpeg(image)
+                else { return }
+                found.tab.preview = BrowserTabPreview(jpeg: jpeg)
+                found.window.tabPreviewChanged(found.tab)
+            }
+        }
+    }
+
+    /// A new preview reaches the open switcher's card.
+    func tabPreviewChanged(_ tab: BrowserTab) {
+        guard let switcher = recentTabSwitcher, let index = switcher.items.firstIndex(of: tab.id) else { return }
+        recentTabsOverlay?.setPreview(previewImage(of: tab), at: index)
     }
 
     // MARK: - Shortcut priority

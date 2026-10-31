@@ -10,6 +10,9 @@ app.
 ## [Unreleased]
 
 ### Added
+- `⌃Tab` shows a preview of each recent tab's page, like the app switcher: the page as
+  it looked when you last left it (the current page as it is now). A tab opened in the
+  background and never shown has its icon instead. The cards fit the window's width.
 - File ▸ Import Browser Data… imports from Brave, Edge, Vivaldi and Chromium like
   Chrome: each profile's bookmarks as a pinned folder named after the browser and its
   History into the chosen Space. The sheet lists them when they're on this Mac; when

@@ -579,6 +579,12 @@ extension BrowserWindowController {
         // What comes on screen leaves the Mini Player; a playing video
         // leaving the screen may go into it.
         let comingShown = pageTabs(of: tab)
+        // ⌃Tab's pictures of the pages leaving, while they still draw.
+        if let previous, previous.id != tab.id {
+            for page in leavingPage where !comingShown.contains(where: { $0 === page }) {
+                captureTabPreview(page)
+            }
+        }
         returnMiniPlayerIfShown(comingShown)
         if let previous, previous.id != tab.id {
             miniPlayerLeaving(leavingPage, previous: previous, shown: comingShown)
