@@ -27,12 +27,12 @@ cleanup() { rm -f "$log"; }
 trap cleanup EXIT
 
 if [[ "$configuration" == "release" ]]; then
-    if ! swift build -c release 2>&1 | tee "$log"; then
+    if ! swift build -c release -j 2 2>&1 | tee "$log"; then
         echo "Release build failed." >&2
         exit 1
     fi
 else
-    if ! swift build 2>&1 | tee "$log"; then
+    if ! swift build -j 2 2>&1 | tee "$log"; then
         echo "Debug build failed." >&2
         exit 1
     fi

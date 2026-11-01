@@ -36,16 +36,15 @@ surrounding style.
   test` once before each commit. Run `swift test -c release`, then
   `./scripts/install.sh`, once per task after its last commit, as one
   background job (`taskpolicy -b swift test -c release -j 2 && taskpolicy -b
-  ./scripts/install.sh`), never after each fix; `install.sh` takes no `-j`,
-  so its release build uses SwiftPM's default job count. The app is one
-  module, so each is a full release compile (about 8 and 4 minutes under
+  ./scripts/install.sh`), never after each fix. The app is one module, so
+  each is a full release compile (about 8 and 4 minutes under
   `taskpolicy -b`), and they can't share a build: `swift test` compiles the
-  module with `-enable-testing`. Subagents never run them; the parent runs them once
-  after integrating. A delegate signature can compile in debug and fail in
-  release, so the release tests still run before every install.
+  module with `-enable-testing`. Subagents never run them; the parent runs
+  them once after integrating. A delegate signature can compile in debug and
+  fail in release, so the release tests still run before every install.
   `scripts/install.sh` and `scripts/dev.sh` build through
-  `scripts/build-with-guard.sh`, which refuses to package a build that
-  printed "nearly matches optional requirement".
+  `scripts/build-with-guard.sh` (`-j 2`), which refuses to package a build
+  that printed "nearly matches optional requirement".
 - The user works on this Mac while agents run: prefix every build, test,
   harness and local test server with `taskpolicy -b`, pass `-j 2` (or `-j 1`) to
   Swift, run one heavy process at a time, and run at most one agent that builds.
