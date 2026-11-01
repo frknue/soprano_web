@@ -544,8 +544,7 @@ final class BrowserWindowController: NSWindowController {
             guard let self else { return }
             self.toggleSidebar(section: self.sidebarSection)
         }
-        toolbar.onExtensionButton = { [weak self] id, _ in self?.performExtensionAction(id) }
-        toolbar.extensionMenuProvider = { [weak self] id in self?.extensionMenu(id) }
+        toolbar.onExtensions = { [weak self] anchor in self?.showExtensionsMenu(from: anchor) }
 
         findBar.onQueryChanged = { [weak self] query in
             self?.findQuery = query
@@ -602,8 +601,8 @@ final class BrowserWindowController: NSWindowController {
                 self?.applyContentBlockingToTabs(reloadingChanged: false)
             },
             // Installed, removed, enabled, loaded; an action's icon or badge.
-            manager.extensions.changes.observe { [weak self] in self?.updateExtensionButtons() },
-            manager.extensions.actionChanges.observe { [weak self] in self?.updateExtensionButtons() },
+            manager.extensions.changes.observe { [weak self] in self?.updateExtensionsButton() },
+            manager.extensions.actionChanges.observe { [weak self] in self?.updateExtensionsButton() },
         ]
         setUpPermissions()
     }

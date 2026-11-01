@@ -17,10 +17,8 @@ final class BrowserToolbarView: NSView, NSTextFieldDelegate {
     /// A key command while the address is edited (↑, ↓, Return, Esc, …);
     /// returns true when handled.
     var onAddressCommand: ((Selector) -> Bool)?
-    /// An extension's toolbar button was clicked (its id and the button).
-    var onExtensionButton: ((String, NSView) -> Void)?
-    /// An extension button's right-click menu.
-    var extensionMenuProvider: ((String) -> NSMenu?)?
+    /// The Extensions button was clicked (its menu hangs from the button).
+    var onExtensions: ((NSView) -> Void)?
     /// A Little Arc's "Open in" button was clicked (the menu hangs from it).
     var onOpenIn: ((NSView) -> Void)?
     /// A Little Arc's ⌘O button: its tab into its Space's window.
@@ -45,10 +43,11 @@ final class BrowserToolbarView: NSView, NSTextFieldDelegate {
         equalTo: captureIndicator.leadingAnchor,
         constant: 0
     )
-    /// Extensions' action buttons, between the capture mark and the
-    /// bookmark star; empty without extensions.
+    /// The Extensions button (one for every extension: its menu lists
+    /// them), between the capture mark and the bookmark star; no width
+    /// while hidden (no extension runs in the window).
     private let extensionStack = NSStackView()
-    private var extensionButtons: [BrowserExtensionActionButton] = []
+    private let extensionsButton: ChromeIconButton
     private let verticalTabsButton: ChromeIconButton
     private let bookmarkButton: ChromeIconButton
     private let downloadsButton: ChromeIconButton
@@ -151,6 +150,13 @@ final class BrowserToolbarView: NSView, NSTextFieldDelegate {
             target: nil,
             action: nil
         )
+        self.extensionsButton = ChromeIconButton(
+            symbolName: "puzzlepiece.extension",
+            accessibilityLabel: "Extensions",
+            pointSize: 12,
+            target: nil,
+            action: nil
+        )
         self.captureIndicator = BrowserCaptureIndicator(theme: theme)
         self.mediaControls = BrowserMediaControlsView(style: .toolbar, theme: theme)
         super.init(frame: .zero)
@@ -176,6 +182,10 @@ final class BrowserToolbarView: NSView, NSTextFieldDelegate {
         spaceWindowButton.target = self
         spaceWindowButton.action = #selector(spaceWindowPressed)
         spaceWindowButton.toolTip = "Open in the Space's window (⌘O)"
+        extensionsButton.target = self
+        extensionsButton.action = #selector(extensionsPressed)
+        extensionsButton.toolTip = "Extensions"
+        extensionsButton.isHidden = true
         littleStack.orientation = .horizontal
         littleStack.spacing = 2
         littleStack.translatesAutoresizingMaskIntoConstraints = false
@@ -235,6 +245,7 @@ final class BrowserToolbarView: NSView, NSTextFieldDelegate {
         extensionStack.translatesAutoresizingMaskIntoConstraints = false
         extensionStack.setHuggingPriority(.required, for: .horizontal)
         extensionStack.setContentCompressionResistancePriority(.required, for: .horizontal)
+        extensionStack.addArrangedSubview(extensionsButton)
         addSubview(extensionStack)
         windowMark.isHidden = true
         windowMark.setContentCompressionResistancePriority(.required, for: .horizontal)
@@ -300,7 +311,7 @@ final class BrowserToolbarView: NSView, NSTextFieldDelegate {
 
     func apply(theme: AppTheme) {
         self.theme = theme
-        for button in [verticalTabsButton, bookmarkButton, downloadsButton, sidebarButton, openInButton, spaceWindowButton] {
+        for button in [verticalTabsButton, bookmarkButton, downloadsButton, sidebarButton, openInButton, spaceWindowButton, extensionsButton] {
             button.apply(theme: theme)
         }
         navigationControls.apply(theme: theme)
@@ -317,7 +328,6 @@ final class BrowserToolbarView: NSView, NSTextFieldDelegate {
         windowMark.apply(theme: theme)
         captureIndicator.apply(theme: theme)
         mediaControls.apply(theme: theme)
-        extensionButtons.forEach { $0.apply(theme: theme) }
         refreshSecurityIcon()
         needsDisplay = true
     }
@@ -358,38 +368,19 @@ final class BrowserToolbarView: NSView, NSTextFieldDelegate {
     /// The lock / site chip: the Site Control Center's anchor.
     var securityAnchor: NSView { securityIcon }
 
-    /// Shows one button per item, in order; buttons of the same extension
-    /// are kept (their hover state and popover anchor stay).
-    func setExtensionButtons(_ items: [BrowserExtensionToolbarItem]) {
-        let existing = Dictionary(extensionButtons.map { ($0.item.id, $0) }, uniquingKeysWith: { first, _ in first })
-        let buttons = items.map { item -> BrowserExtensionActionButton in
-            if let button = existing[item.id] {
-                if button.item != item { button.apply(item) }
-                return button
-            }
-            let button = BrowserExtensionActionButton(item: item, theme: theme)
-            button.target = self
-            button.action = #selector(extensionButtonPressed(_:))
-            button.menuProvider = { [weak self] id in self?.extensionMenuProvider?(id) }
-            return button
-        }
-        guard buttons.map(ObjectIdentifier.init) != extensionButtons.map(ObjectIdentifier.init) else { return }
-        extensionButtons.forEach { $0.removeFromSuperview() }
-        extensionButtons = buttons
-        buttons.forEach { extensionStack.addArrangedSubview($0) }
+    /// Shows the Extensions button while some extension runs in the window.
+    func setShowsExtensions(_ shows: Bool) {
+        if extensionsButton.isHidden == shows { extensionsButton.isHidden = !shows }
     }
 
-    var extensionToolbarItems: [BrowserExtensionToolbarItem] {
-        extensionButtons.map(\.item)
+    /// The Extensions button, which the menu and every extension's popup
+    /// hang from; nil while it isn't shown.
+    var extensionsAnchor: NSView? {
+        extensionsButton.isHiddenOrHasHiddenAncestor ? nil : extensionsButton
     }
 
-    /// The button of extension `id`, which its popup hangs from.
-    func extensionButton(id: String) -> NSView? {
-        extensionButtons.first { $0.item.id == id && !$0.isHiddenOrHasHiddenAncestor }
-    }
-
-    @objc private func extensionButtonPressed(_ sender: BrowserExtensionActionButton) {
-        onExtensionButton?(sender.item.id, sender)
+    @objc private func extensionsPressed() {
+        onExtensions?(extensionsButton)
     }
 
     func setProgress(_ progress: Double, isLoading: Bool) {

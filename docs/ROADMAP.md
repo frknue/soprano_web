@@ -128,7 +128,7 @@ and bookmarks HTML files, and File ▸ Export Pinned Tabs… as bookmarks HTML.
   page; the signed-in popup, inline menu and notifier socket await the user's sign-in,
   see `docs/STATUS.md`). Built in P1/P2: the runtime on `WKWebExtension` (tabs and
   windows, Chrome Web Store install with full CRX3 check, daily updates, unpacked folders,
-  site access, private windows, toolbar buttons and popups, commands, Settings ▸
+  site access, private windows, the Extensions button with its menu and popups, commands, Settings ▸
   Extensions, the `browser extension` CLI) and the native stand-ins for Chrome APIs
   WebKit lacks or gets wrong (`BrowserExtensionShims`).
 - Reader and Translate: built in Stage 4 P10 (⇧⌘R with Readability.js 0.6.0; Translate

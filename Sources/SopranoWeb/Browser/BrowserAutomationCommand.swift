@@ -546,7 +546,7 @@ enum BrowserCommand {
     Chrome checks a store install) or an unpacked folder (copied), and
     waits until it runs; `errors` prints what WebKit reported (the
     background's uncaught errors and console errors included); `action`
-    clicks the extension's toolbar button in the window commands use and,
+    runs the extension's row of the Extensions menu in the window commands use and,
     when its popup opens, prints the popup's address, size and text (and
     saves its capture to the PNG); `update`
     checks the Web Store extensions for updates now.

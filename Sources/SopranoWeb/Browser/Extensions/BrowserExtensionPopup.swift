@@ -1,8 +1,8 @@
 import AppKit
 import WebKit
 
-/// An extension's action popup in a popover of our own, hanging from its
-/// toolbar button. WebKit's `popupPopover` is not used: with it some
+/// An extension's action popup in a popover of our own, hanging from the
+/// toolbar's Extensions button. WebKit's `popupPopover` is not used: with it some
 /// extensions' popup messages never reach their worker (Search's finding),
 /// so the popup's page loads again in a web view made from the
 /// extension's configuration, sized to its content (25…800 × 25…600 pt,
@@ -112,8 +112,8 @@ final class BrowserExtensionPopup: NSObject, NSPopoverDelegate, WKUIDelegate, WK
 }
 
 extension BrowserExtensions {
-    /// Shows `action`'s popup from its button in the window of the action's
-    /// tab (else the key or most recent window). Nil when shown.
+    /// Shows `action`'s popup from the Extensions button in the window of
+    /// the action's tab (else the key or most recent window). Nil when shown.
     func presentPopup(for action: WKWebExtension.Action, context: WKWebExtensionContext) -> Error? {
         guard let id = id(of: context) else { return Self.refusal("The extension isn't loaded.") }
         guard let url = action.popupWebView?.url, let configuration = context.webViewConfiguration else {
@@ -125,9 +125,9 @@ extension BrowserExtensions {
         let window = (action.associatedTab as? BrowserExtensionTab).flatMap { manager?.tab(id: $0.tabID)?.window }
             ?? manager?.keyController
             ?? manager?.activeController
-        guard let window, let anchor = window.toolbar.extensionButton(id: id) ?? Optional(window.toolbar.addressAnchorView),
+        guard let window, let anchor = window.toolbar.extensionsAnchor ?? Optional(window.toolbar.addressAnchorView),
               anchor.window != nil
-        else { return Self.refusal("No window shows the extension's button.") }
+        else { return Self.refusal("No window shows the Extensions button.") }
         let popup = BrowserExtensionPopup(extensionID: id, url: url, configuration: configuration, theme: window.theme)
         popup.onClose = { [weak self, weak popup] in
             guard let self, let popup, self.popup === popup else { return }

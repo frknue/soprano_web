@@ -321,15 +321,16 @@ surrounding style.
   `--extension <folder|id|store link>` (repeatable; installs through
   Settings' path after the first window opens and waits until it runs),
   `--extension-private <id>`, `--extension-site-access
-  <id>=all|click|<host>`, `--extension-action <id>` (clicks its toolbar
-  button in the captured window; prints `extension-popup:` with address
-  and size and draws the popup under the button), `--extensions-sheet`
+  <id>=all|click|<host>`, `--extension-action <id>` (runs its row of the
+  Extensions menu in the captured window; prints `extension-popup:` with address
+  and size and draws the popup under the Extensions button), `--extensions-sheet`
   (captures Settings ▸ Extensions, prints `extensions-sheet:` rows) and
   `--print-extensions` (one `extensions:` JSON line: each extension's
   state, version, private access, site access, errors, stand-ins, what an
   update newly asked for and waits for the user (`pending`), commands,
   granted match patterns, the windows and tabs WebKit tracks for it, and
-  the captured window's toolbar buttons with label and badge).
+  the captured window's Extensions button (`button`), its rows with label
+  and badge (`rows`) and the whole menu as text (`menu`)).
 - Verify real navigation, Spaces and the agent surface in the dev app. Agents
   launch it on their own, in the background (`open -g` leaves focus with the
   user). It has its own support folder (`Soprano Web Dev`), settings
@@ -1044,9 +1045,12 @@ surrounding style.
   Add a stand-in only for a failure `browser extension errors` names, with
   its trigger in the table. `BrowserExtensionPopup.swift` (popups in our own
   popover, sized to the page's max-content), `BrowserExtensionPermissionSheet.swift`,
-  `BrowserExtensionActionButton.swift` (toolbar button with badge),
   `BrowserExtensionCommands.swift` (the CLI). `BrowserWindowController+Extensions`
-  — toolbar buttons for the selected tab, clicks and button menus, the
+  — the toolbar's one Extensions button (`updateExtensionsButton`, shown
+  while an extension runs in the window) and its menu (`extensionsMenu`:
+  a row per extension with icon and badge runs its action, an Options
+  section with each extension's own menu items and options page, Manage
+  Extensions…; every popup hangs from the button, `extensionsAnchor`), the
   Command Bar's extension rows and which web view an extension page needs
   (`webViewFits`: a tab swaps its web view going to or from one). WebKit
   puts extensions' context-menu items into the page menu itself.
@@ -1078,7 +1082,7 @@ surrounding style.
   for an update that asks for more, what waits for the user's answer in
   the app; refuses an id installed from another source),
   `enable|disable|remove|errors <id>`, `update` (check the
-  Web Store now) and `action <id> [png]` (clicks the toolbar button in the
+  Web Store now) and `action <id> [png]` (runs its Extensions-menu row in the
   default window; prints the popup's address, size and text and saves its
   capture, or "no popup") drive them. `errors` includes the background's
   uncaught exceptions and the console errors WebKit records.

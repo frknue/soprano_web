@@ -91,7 +91,7 @@ enum BrowserExtensionCommands {
         }
     }
 
-    /// `extension action <id> [png]`: clicks the extension's toolbar button
+    /// `extension action <id> [png]`: runs the extension's Extensions-menu row
     /// in the window commands use. A popup that opens is waited for (its
     /// page loaded, 2 s to build) and reported with its address, size and
     /// text; the PNG is its capture.

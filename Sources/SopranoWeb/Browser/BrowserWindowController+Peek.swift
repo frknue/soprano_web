@@ -124,14 +124,14 @@ extension BrowserWindowController {
 
     /// What follows the page shown (the Peek's or the selected tab's): the
     /// zoom, Reader and Translate chips, the capture indicator, the
-    /// extensions' toolbar buttons, and Capture's overlay and Zap mode,
+    /// Extensions button, and Capture's overlay and Zap mode,
     /// which end with their page.
     private func refreshChromeForPageTab() {
         updateZoomChip()
         updateReaderChip()
         updateTranslateChip()
         updateCaptureIndicator()
-        updateExtensionButtons()
+        updateExtensionsButton()
         updateCaptureOverlay()
         updateZapSession()
     }

@@ -627,7 +627,7 @@ extension BrowserWindowController {
         if previous !== tab {
             extensions.tabActivated(tab, previous: previous)
         }
-        updateExtensionButtons()
+        updateExtensionsButton()
         if focus {
             window?.makeFirstResponder(peek?.tab.webView ?? tab.webView)
         }

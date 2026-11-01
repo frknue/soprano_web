@@ -1,69 +1,113 @@
 import AppKit
 import WebKit
 
-/// The window's side of extensions: the toolbar's action buttons for the
-/// selected tab, a click (the action, or its popup), each button's menu,
-/// the Command Bar's extension rows and extension pages in tabs (they need
-/// the extension's own web view configuration).
+/// One row of the toolbar's Extensions menu: an extension's action for the
+/// page shown.
+struct BrowserExtensionMenuRow: Equatable {
+    var id: String
+    var icon: NSImage?
+    var label: String
+    /// Empty: no badge.
+    var badge: String
+    var isEnabled: Bool
+}
+
+/// The window's side of extensions: the toolbar's Extensions button and
+/// its menu (each extension's action for the page shown, its own menu
+/// items and options), the Command Bar's extension rows and extension
+/// pages in tabs (they need the extension's own web view configuration).
 extension BrowserWindowController {
     var extensions: BrowserExtensions { manager.extensions }
 
-    /// One button per extension this window runs (a private window: only
-    /// those allowed in private windows), showing its action for the page
-    /// shown (the Peek's while one is open).
-    func updateExtensionButtons() {
+    /// The Extensions button shows while an extension runs in this window
+    /// (a private window: one allowed in private windows).
+    func updateExtensionsButton() {
+        toolbar.setShowsExtensions(!extensions.loadedContexts(for: self).isEmpty)
+    }
+
+    /// Each extension's action for the page shown (the Peek's while one is
+    /// open): icon, label, badge and whether it is enabled there.
+    func extensionMenuRows() -> [BrowserExtensionMenuRow] {
         let tab = pageTab.map { extensions.tabAdapter(for: $0) }
-        let items = extensions.loadedContexts(for: self).map { id, context -> BrowserExtensionToolbarItem in
+        let size = CGSize(width: 16, height: 16)
+        return extensions.loadedContexts(for: self).map { id, context in
             let action = context.action(for: tab)
             let name = context.webExtension.displayName ?? id
             let label = action?.label ?? ""
-            return BrowserExtensionToolbarItem(
+            return BrowserExtensionMenuRow(
                 id: id,
-                icon: action?.icon(for: CGSize(width: 16, height: 16))
-                    ?? context.webExtension.actionIcon(for: CGSize(width: 16, height: 16))
-                    ?? context.webExtension.icon(for: CGSize(width: 16, height: 16)),
+                icon: action?.icon(for: size)
+                    ?? context.webExtension.actionIcon(for: size)
+                    ?? context.webExtension.icon(for: size),
                 label: label.isEmpty ? name : label,
                 badge: action?.badgeText ?? "",
                 isEnabled: action?.isEnabled ?? true
             )
         }
-        toolbar.setExtensionButtons(items)
     }
 
-    /// A click on an extension's button: its action for the page shown
-    /// (the Peek's while one is open; a user gesture, so `activeTab`
-    /// grants that page); WebKit fires `action.onClicked` or asks for the
-    /// popup.
-    func performExtensionAction(_ id: String) {
-        guard let context = extensions.context(id: id) else { return }
-        let tab = pageTab.map { extensions.tabAdapter(for: $0) }
-        context.performAction(for: tab)
-    }
-
-    /// The button's menu: the action's own items, the options page,
-    /// Settings ▸ Extensions and Remove.
-    func extensionMenu(_ id: String) -> NSMenu? {
-        guard let context = extensions.context(id: id) else { return nil }
+    /// The Extensions button's menu: a row per extension (its action),
+    /// then each extension with menu items of its own or an options page
+    /// as a submenu, then Manage Extensions….
+    func extensionsMenu() -> NSMenu {
         let menu = NSMenu()
+        menu.autoenablesItems = false
+        let rows = extensionMenuRows()
+        for row in rows {
+            let item = BrowserClosureMenuItem(title: row.label) { [weak self] in
+                self?.performExtensionAction(row.id)
+            }
+            if let icon = row.icon?.copy() as? NSImage {
+                icon.size = NSSize(width: 16, height: 16)
+                item.image = icon
+            } else {
+                item.image = NSImage(systemSymbolName: "puzzlepiece.extension", accessibilityDescription: nil)
+            }
+            if !row.badge.isEmpty { item.badge = NSMenuItemBadge(string: row.badge) }
+            item.isEnabled = row.isEnabled
+            menu.addItem(item)
+        }
         let tab = pageTab.map { extensions.tabAdapter(for: $0) }
-        let title = NSMenuItem(title: context.webExtension.displayName ?? id, action: nil, keyEquivalent: "")
-        title.isEnabled = false
-        menu.addItem(title)
-        let own = context.action(for: tab)?.menuItems ?? []
-        if !own.isEmpty {
+        let labels = Dictionary(rows.map { ($0.id, $0.label) }, uniquingKeysWith: { first, _ in first })
+        let settings = extensions.loadedContexts(for: self).compactMap { id, context -> NSMenuItem? in
+            let submenu = NSMenu()
+            context.action(for: tab)?.menuItems.forEach(submenu.addItem)
+            if let options = context.optionsPageURL {
+                if !submenu.items.isEmpty { submenu.addItem(.separator()) }
+                submenu.addItem(BrowserClosureMenuItem(title: "Options") { [weak self] in
+                    self?.extensions.openExtensionPage(options, for: context)
+                })
+            }
+            guard !submenu.items.isEmpty else { return nil }
+            let item = NSMenuItem(title: labels[id] ?? context.webExtension.displayName ?? id, action: nil, keyEquivalent: "")
+            item.submenu = submenu
+            return item
+        }
+        if !settings.isEmpty {
             menu.addItem(.separator())
-            own.forEach(menu.addItem)
+            menu.addItem(.sectionHeader(title: "Options"))
+            settings.forEach(menu.addItem)
         }
-        menu.addItem(.separator())
-        if let options = context.optionsPageURL {
-            menu.addItem(BrowserClosureMenuItem(title: "Options") { [weak self] in
-                self?.extensions.openExtensionPage(options, for: context)
-            })
-        }
+        if !menu.items.isEmpty { menu.addItem(.separator()) }
         menu.addItem(BrowserClosureMenuItem(title: "Manage Extensions…") { [weak self] in
             self?.manager.showSettings(page: .extensions)
         })
         return menu
+    }
+
+    func showExtensionsMenu(from anchor: NSView) {
+        let below = anchor.isFlipped ? anchor.bounds.maxY + 4 : -4
+        extensionsMenu().popUp(positioning: nil, at: NSPoint(x: 0, y: below), in: anchor)
+    }
+
+    /// A click on an extension's row: its action for the page shown (the
+    /// Peek's while one is open; a user gesture, so `activeTab` grants that
+    /// page); WebKit fires `action.onClicked` or asks for the popup, which
+    /// hangs from the Extensions button.
+    func performExtensionAction(_ id: String) {
+        guard let context = extensions.context(id: id) else { return }
+        let tab = pageTab.map { extensions.tabAdapter(for: $0) }
+        context.performAction(for: tab)
     }
 
     /// The Command Bar's extension rows: each extension's commands

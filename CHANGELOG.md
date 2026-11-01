@@ -115,7 +115,7 @@ app.
   and `opt-` clicks.
 - Peek (P4 review): menu titles return to "Close Tab" / "Open in Space Window" after a
   Peek closes; ⌘[ / ⌘] / ⌘. state, the zoom chip, the capture indicator and extension
-  actions (`activeTab`, toolbar buttons) follow the Peek's page; Esc in a Peek ends the
+  actions (`activeTab`, the Extensions menu) follow the Peek's page; Esc in a Peek ends the
   find bar or element fullscreen first and closing a Peek closes its find bar; a scripted
   `window.open` with ⇧ held never becomes a Peek; the extension navigation gate uses the
   link disposition WebKit's click really gets. The global Little Arc chord is reserved in
@@ -445,14 +445,17 @@ app.
   and lists them with an on/off switch, "Allow in private windows", site
   access (on all sites, on specific sites, when you click it) and Remove.
   Store extensions update daily. Extensions run in every Space and see the
-  real tabs and windows; their toolbar buttons show badges and open their
-  popups, their context-menu items appear in the page menu, their keyboard
-  shortcuts work (never over the app's own), and the Extensions menu and
-  the Command Bar list their commands. When an extension asks for more
-  access, a sheet asks once and remembers the answer. uBlock Origin Lite,
-  Wappalyzer and 1Password run.
+  real tabs and windows. One Extensions button (the puzzle piece next to
+  the star) lists them: a click on an extension runs it or opens its popup
+  under the button, its badge shows beside its name, and Options holds each
+  extension's own menu items and options page. Their context-menu items
+  appear in the page menu, their keyboard shortcuts work (never over the
+  app's own), and the Extensions menu bar menu and the Command Bar list
+  their commands. When an extension asks for more access, a sheet asks
+  once and remembers the answer. uBlock Origin Lite, Wappalyzer and
+  1Password run.
 - 1Password: install it from the Chrome Web Store (Settings ▸ Extensions)
-  and sign in from its toolbar button. Soprano Web fills in the Chrome
+  and sign in from the Extensions button ▸ 1Password. Soprano Web fills in the Chrome
   features WebKit lacks for it and other extensions: notifications (in
   Notification Center, with their buttons, attributed to the extension;
   the first time an extension posts one, Soprano Web asks whether to
@@ -462,7 +465,7 @@ app.
   security policy names a WebSocket server.
 - `browser extensions` and `browser extension install|enable|disable|remove|errors|update`
   let scripts and agents manage extensions; `browser extension action <id> [png]`
-  clicks an extension's toolbar button and prints (and captures) its popup.
+  runs an extension from the Extensions menu and prints (and captures) its popup.
 
 ### Changed
 - Soprano Web requires macOS 26 or later.

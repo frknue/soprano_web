@@ -855,8 +855,8 @@ enum SnapshotCommand {
         if let miniPlayerImage {
             SnapshotMediaOptions.draw(miniPlayerImage)
         }
-        // An extension's popup hangs under its toolbar button.
-        if let popup = extensionPopup, let anchor = controller.toolbar.extensionButton(id: popup.extensionID),
+        // An extension's popup hangs under the Extensions button.
+        if let popup = extensionPopup, let anchor = controller.toolbar.extensionsAnchor,
            anchor.window === captureWindow
         {
             drawPopup(popup, under: anchor, in: captureContent)

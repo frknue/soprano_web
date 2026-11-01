@@ -12,16 +12,18 @@ import WebKit
 /// - `--extension-private <id>`: "Allow in private windows" on.
 /// - `--extension-site-access <id>=all|click|<host>`: site access ("On all
 ///   sites", "When you click", or "On specific sites" with the host added).
-/// - `--extension-action <id>`: clicks the extension's toolbar button in
-///   the captured window (its action, or its popup: prints
-///   `extension-popup:` with its address and size, and the capture draws
-///   the popup under the button).
+/// - `--extension-action <id>`: runs the extension's row of the toolbar's
+///   Extensions menu in the captured window (its action, or its popup:
+///   prints `extension-popup:` with its address and size, and the capture
+///   draws the popup under the Extensions button).
 /// - `--extensions-sheet`: captures Settings ▸ Extensions and prints each
 ///   row (`extensions-sheet:`).
 /// - `--print-extensions`: one `extensions:` JSON line: each extension's
 ///   record (state, private access, site access, version, source), its
-///   errors, commands and granted match patterns, and the captured
-///   window's toolbar buttons (id, label, badge, icon).
+///   errors, commands and granted match patterns, whether the captured
+///   window shows the Extensions button (`button`), its menu's extension
+///   rows (`rows`: label, badge, icon, enabled) and the whole menu as text
+///   (`menu`: the rows, the Options submenus, Manage Extensions…).
 struct SnapshotExtensionOptions {
     var installs: [String] = []
     var allowPrivate: [String] = []
@@ -108,7 +110,7 @@ struct SnapshotExtensionOptions {
         }
     }
 
-    /// Clicks each `--extension-action` button in `controller`; returns
+    /// Runs each `--extension-action` row in `controller`; returns
     /// the popup still open with a snapshot of its page.
     @MainActor
     func performActions(in controller: BrowserWindowController, wait: (Double) -> Void) -> SnapshotExtensionPopup? {
@@ -175,18 +177,34 @@ struct SnapshotExtensionOptions {
             }
             return row
         }
-        let toolbar: [[String: Any]] = controller.toolbar.extensionToolbarItems.map { item in
-            ["id": item.id, "label": item.label, "badge": item.badge, "icon": item.icon != nil, "enabled": item.isEnabled]
+        let menuRows: [[String: Any]] = controller.extensionMenuRows().map { row in
+            ["id": row.id, "label": row.label, "badge": row.badge, "icon": row.icon != nil, "enabled": row.isEnabled]
         }
         let report: [String: Any] = [
             "extensions": rows,
-            "toolbar": toolbar,
+            "button": controller.toolbar.extensionsAnchor != nil,
+            "rows": menuRows,
+            "menu": Self.describe(controller.extensionsMenu()),
             "windowKind": controller.kind.isPrivate ? "private" : "normal",
         ]
         if let data = try? JSONSerialization.data(withJSONObject: report, options: [.sortedKeys]),
            let line = String(data: data, encoding: .utf8)
         {
             print("extensions: \(line)")
+        }
+    }
+
+    /// A menu as text: a row per item (`—` a separator, `[x]` a section
+    /// header, `(off)` disabled, `· badge`), submenus indented under theirs.
+    @MainActor
+    static func describe(_ menu: NSMenu, indent: String = "") -> [String] {
+        menu.items.flatMap { item -> [String] in
+            if item.isSeparatorItem { return [indent + "—"] }
+            if item.isSectionHeader { return [indent + "[\(item.title)]"] }
+            var line = indent + item.title
+            if let badge = item.badge?.stringValue, !badge.isEmpty { line += " · \(badge)" }
+            if !item.isEnabled { line += " (off)" }
+            return [line] + (item.submenu.map { describe($0, indent: indent + "  ") } ?? [])
         }
     }
 }
