@@ -72,6 +72,14 @@ enum BrowserExtensionShims {
         // `webNavigation.onCreatedNavigationTarget` (and the history-state
         // events) are undefined in WebKit.
         StandIn(name: "webNavigation", triggers: [.permission("webNavigation")]),
+        // WebKit reports a tab URL the extension may not see (the start
+        // page, `about:blank`, another app's scheme) as "" in
+        // `tabs.onUpdated`; Chrome leaves `url` out. 1Password's background
+        // passes every string it gets to `new URL` and throws on "". Only an
+        // extension that can see URLs (`tabs` or host access) reads them.
+        StandIn(name: "tabs.onUpdated", triggers: [
+            .permission("tabs"), .key(["host_permissions"]), .key(["optional_host_permissions"]),
+        ]),
         // WebKit has no `storage.managed`; an extension with a managed
         // schema reads its policies there.
         StandIn(name: "storage.managed", triggers: [.key(["storage", "managed_schema"])]),

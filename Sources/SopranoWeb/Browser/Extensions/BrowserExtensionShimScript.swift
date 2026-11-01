@@ -156,6 +156,41 @@ enum BrowserExtensionShimScript {
         });
       }
 
+      if (standIns.has("tabs.onUpdated")) {
+        // WebKit redacts a URL the extension may not see to "" and reports
+        // it on every navigation; Chrome leaves `url` out of changeInfo
+        // (1Password's background throws on `new URL("")`). A change that
+        // was only that URL is not reported.
+        const wrapped = new WeakSet();
+        for (const ns of namespaces) {
+          if (!has(ns, "tabs") || !has(ns.tabs, "onUpdated")) continue;
+          const tabs = ns.tabs;
+          define(ns, "tabs", tabs);
+          const onUpdated = tabs.onUpdated;
+          define(tabs, "onUpdated", onUpdated);
+          if (wrapped.has(onUpdated)) continue;
+          wrapped.add(onUpdated);
+          const add = onUpdated.addListener, remove = onUpdated.removeListener, hasOne = onUpdated.hasListener;
+          const wrappers = new WeakMap();
+          const wrapperOf = (listener) => (typeof listener === "function" && wrappers.get(listener)) || listener;
+          define(onUpdated, "addListener", (listener, ...rest) => {
+            if (typeof listener === "function" && !wrappers.has(listener)) {
+              wrappers.set(listener, function (tabId, changeInfo, tab) {
+                if (changeInfo && typeof changeInfo === "object" && changeInfo.url === "") {
+                  const { url, ...changes } = changeInfo;
+                  if (Object.keys(changes).length === 0) return;
+                  changeInfo = changes;
+                }
+                return listener.call(this, tabId, changeInfo, tab);
+              });
+            }
+            return add.call(onUpdated, wrapperOf(listener), ...rest);
+          });
+          define(onUpdated, "removeListener", (listener, ...rest) => remove.call(onUpdated, wrapperOf(listener), ...rest));
+          define(onUpdated, "hasListener", (listener, ...rest) => hasOne.call(onUpdated, wrapperOf(listener), ...rest));
+        }
+      }
+
       if (standIns.has("storage.managed") && has(api, "storage")) {
         // No policy sets anything here: an empty, read-only area.
         const readOnly = (...args) => settle(Promise.reject(new Error("storage.managed is read-only.")), lastCallback(args));

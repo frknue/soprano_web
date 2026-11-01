@@ -137,8 +137,9 @@ its welcome page, no update additions pending; only 1Password keeps `webSocket`.
 
 ## Next — start here
 
-1. **1Password sign-in (Furkan).** In the dev app or, after `./scripts/install.sh`, in
-   Soprano Web: Settings ▸ Extensions, paste
+1. **1Password sign-in (Furkan).** Installed in Soprano Web since 2026-11-01 (with uBlock
+   Origin Lite; copied from the dev app's verified packages, update check a minute after
+   launch). Elsewhere: Settings ▸ Extensions, paste
    `https://chromewebstore.google.com/detail/aeblfdkhhhdcdjpifhhbdiojplfjncoa` and
    install (or `browser extension install aeblfdkhhhdcdjpifhhbdiojplfjncoa`). A
    "Welcome to 1Password!" tab opens (else click the 1Password toolbar button): Continue

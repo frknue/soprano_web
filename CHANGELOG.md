@@ -557,6 +557,9 @@ app.
   `bookmarks.json.migrated`.
 
 ### Fixed
+- Extensions: 1Password no longer logs `"" cannot be parsed as a URL` when a tab shows
+  the start page or another page it can't read. Extensions that can read tab addresses
+  get no empty address from `tabs.onUpdated`; the address is left out, as in Chrome.
 - Block ads and trackers: EasyList's few filters with `:has()` inside `:has()` (which
   WebKit rejects) are skipped, so the other hiding rules for those sites, compiled with
   them, work again. Lists compiled before are rebuilt from the saved copy at the next

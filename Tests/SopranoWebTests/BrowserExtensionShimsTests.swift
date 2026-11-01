@@ -42,13 +42,15 @@ struct BrowserExtensionShimsTests {
             "background": ["service_worker": "background.js", "type": "module"],
         ]
         #expect(BrowserExtensionShims.standIns(for: onePassword) == [
-            "notifications", "webNavigation", "storage.managed", "userAgent", "permissions", "wasm", "clients", "webSocket",
+            "notifications", "webNavigation", "tabs.onUpdated", "storage.managed", "userAgent", "permissions", "wasm",
+            "clients", "webSocket",
         ])
         // A storage permission alone is no managed schema; an optional
         // permission is not granted yet and asks for nothing.
         let small: [String: Any] = ["permissions": ["storage"], "optional_permissions": ["notifications"]]
         #expect(BrowserExtensionShims.standIns(for: small).isEmpty)
-        #expect(BrowserExtensionShims.standIns(for: ["permissions": ["tabs"]]).isEmpty)
+        // URLs are only seen with `tabs` or host access.
+        #expect(BrowserExtensionShims.standIns(for: ["permissions": ["tabs"]]) == ["tabs.onUpdated"])
     }
 
     @Test func everyWorkerWhosePolicyCouldPermitASocketGetsTheWebSocket() {
@@ -167,7 +169,7 @@ struct BrowserExtensionShimsTests {
         #expect(try read(updated, "w.js") == "importScripts(\"/soprano-shim.js\");\nself.x = 2;\n")
 
         let plain = try package(
-            #"{"manifest_version":3,"name":"P","version":"1","permissions":["tabs"]}"#,
+            #"{"manifest_version":3,"name":"P","version":"1","permissions":["storage"]}"#,
             files: ["popup.html": "<html><head></head></html>"]
         )
         defer { try? FileManager.default.removeItem(at: plain) }
