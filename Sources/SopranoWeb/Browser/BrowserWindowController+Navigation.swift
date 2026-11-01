@@ -219,6 +219,10 @@ extension BrowserWindowController {
         updateCaptureOverlay()
         updateZapSession()
         updateSiteControlPanel()
+        if manager.shortcutRecorder != nil {
+            // Settings' shortcut recorder ends once its page isn't shown.
+            manager.settingsRecorderTabLeft()
+        }
         guard let tab = selectedTab else { return }
         updateTabChrome(for: tab)
         let url = tab.webView.url

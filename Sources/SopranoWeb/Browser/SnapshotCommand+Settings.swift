@@ -26,8 +26,9 @@ extension SnapshotCommand {
     /// `--print-settings`: one `settings-page:` JSON line read from the
     /// selected tab's page (each switch, menu and fact as rendered, the
     /// rows and sections search leaves, the sidebar's current section),
-    /// one `settings:` line of `settings.json`'s values and one
-    /// `settings-sheets:` line with the sheets the page asked for.
+    /// one `settings:` line of `settings.json`'s values, one
+    /// `settings-sheets:` line with the sheets the page asked for and
+    /// `settings-recorder: on|off` (the New Little Arc shortcut recorder).
     static func printSettings(controller: BrowserWindowController, manager: BrowserWindowManager) {
         if let webView = controller.selectedTab?.webView {
             var finished = false
@@ -69,5 +70,6 @@ extension SnapshotCommand {
             print("settings: \(text)")
         }
         print("settings-sheets: \(manager.settingsSheetRequests.map(\.rawValue).joined(separator: ","))")
+        print("settings-recorder: \(manager.shortcutRecorder == nil ? "off" : "on")")
     }
 }

@@ -1109,13 +1109,16 @@ surrounding style.
   shortcuts, websites, website data, links from other apps, extensions,
   Clear Browsing Data, Import; in the harness only recorded in
   `settingsSheetRequests`), the download folder panel and the New Little
-  Arc shortcut recorder (`shortcutRecorder`, a key monitor on the page's
-  window). Harness: `--settings` opens the tab, `--click-element` clicks
+  Arc shortcut recorder (`shortcutRecorder`, a key monitor bound to its
+  Settings tab: it ends, and the old hotkey comes back, once that page
+  isn't the window's page — another tab, a navigation, the tab or window
+  closing, the window losing focus; `updateChrome` checks it). Harness: `--settings` opens the tab, `--click-element` clicks
   its controls (`'[data-switch=restoreSession]'`, `'[data-open=extensions]'`),
   `--settings-search <text>` types into its search, `--print-settings`
   prints `settings-page:` (what the page renders: switches, menus, facts,
   visible sections and rows, the sidebar's current section),
-  `settings:` (`settings.json`) and `settings-sheets:`; `--url
+  `settings:` (`settings.json`), `settings-sheets:` and `settings-recorder:
+  on|off`; `--url
   'soprano-web://settings#privacy'` opens a section.
 - `Browser/SnapshotCommand*.swift`, `SnapshotPageTools.swift` — offscreen UI harness.
 - `App/` — app delegate (the Dock menu: New Window, New Private Window, New

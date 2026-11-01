@@ -133,8 +133,9 @@ final class BrowserWindowManager {
     var searchEnginesSheet: BrowserSearchEnginesSheet?
     var shortcutsSheet: BrowserShortcutsSheet?
     /// Settings ▸ "New Little Arc from any app" while it records a new
-    /// shortcut: the key monitor and the window observers that cancel it.
-    var shortcutRecorder: (monitor: Any, observers: [NSObjectProtocol])?
+    /// shortcut: the key monitor, the window observers that cancel it and
+    /// the Settings tab it records on.
+    var shortcutRecorder: (monitor: Any, observers: [NSObjectProtocol], tabID: UUID)?
     /// Sheets Settings asked for while the harness keeps windows off
     /// screen (it opens none there).
     var settingsSheetRequests: [BrowserSettingsWebPage.Sheet] = []

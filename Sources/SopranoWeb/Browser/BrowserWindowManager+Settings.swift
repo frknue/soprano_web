@@ -76,7 +76,7 @@ extension BrowserWindowManager {
         case .chooseDownloads:
             chooseDownloadFolder(on: controller)
         case .recordShortcut:
-            recordGlobalShortcut(in: controller)
+            recordGlobalShortcut(in: controller, tab: tab)
         case let .allowTranslation(code):
             settingsStore.update { $0.neverTranslateLanguages.removeAll { $0 == code } }
         case .revealSettingsFile:
@@ -183,18 +183,23 @@ extension BrowserWindowManager {
 
     // MARK: New Little Arc shortcut
 
-    /// The next acceptable shortcut typed in `controller`'s window (with ⌘
-    /// or ⌃, or ⌥ on a named key; nothing the system, text editing or
+    /// The next acceptable shortcut typed on the Settings page `tab` (with
+    /// ⌘ or ⌃, or ⌥ on a named key; nothing the system, text editing or
     /// another command uses: `BrowserGlobalShortcut`) becomes the global
-    /// one and turns it on; anything else beeps. Esc, leaving the window or
-    /// closing it cancels. Keys typed in other windows pass by, and the
-    /// registered hotkey lets go meanwhile so its own combination can be
-    /// typed.
-    private func recordGlobalShortcut(in controller: BrowserWindowController) {
+    /// one and turns it on; anything else beeps. Esc cancels, and so does
+    /// the page leaving the screen: another tab, a navigation, the tab or
+    /// window closing, the window losing focus (`settingsRecorderTabLeft`).
+    /// Keys typed in other windows pass by, and the registered hotkey lets
+    /// go meanwhile so its own combination can be typed.
+    private func recordGlobalShortcut(in controller: BrowserWindowController, tab: BrowserTab) {
         guard shortcutRecorder == nil, let window = controller.window else { return }
         globalHotKey?.suspend()
         let monitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { [weak self, weak window] event in
             guard let self else { return event }
+            if self.isRecorderTabLeft() {
+                self.finishRecordingGlobalShortcut(nil)
+                return event
+            }
             switch BrowserGlobalShortcut.recorderAnswer(
                 keyCode: event.keyCode,
                 shortcut: BrowserShortcut(event: event),
@@ -221,8 +226,25 @@ extension BrowserWindowManager {
                 MainActor.assumeIsolated { self?.finishRecordingGlobalShortcut(nil) }
             }
         }
-        shortcutRecorder = (monitor, observers)
+        shortcutRecorder = (monitor, observers, tab.id)
         refreshSettingsPages()
+    }
+
+    /// The recording page is gone from its window's page area: the tab
+    /// closed or isn't the page shown, or it left Settings.
+    private func isRecorderTabLeft() -> Bool {
+        guard let recorder = shortcutRecorder else { return false }
+        guard let (controller, tab) = tabOrPeek(id: recorder.tabID) else { return true }
+        return controller.pageTab !== tab || !BrowserSettingsWebPage.isSettings(tab.webView.url)
+    }
+
+    /// Called whenever a window's page changes (`updateChrome`: another
+    /// tab, a commit, a closed tab): a recording whose page left ends,
+    /// and the old hotkey comes back.
+    func settingsRecorderTabLeft() {
+        if isRecorderTabLeft() {
+            finishRecordingGlobalShortcut(nil)
+        }
     }
 
     private func finishRecordingGlobalShortcut(_ shortcut: BrowserShortcut?) {
