@@ -31,10 +31,19 @@ surrounding style.
 
 ## Verification
 
-- Verify source changes with `swift build` and `swift test`. Run
-  `swift test -c release` before installing; a delegate signature can compile in
-  debug and fail in release. `scripts/install.sh` and `scripts/dev.sh` build
-  through `scripts/build-with-guard.sh`, which refuses to package a build that
+- While iterating, review-fix rounds included, verify with `swift build` and
+  the affected suites (`swift test --filter <Suite>`); run the full `swift
+  test` once before each commit. Run `swift test -c release`, then
+  `./scripts/install.sh`, once per task after its last commit, as one
+  background job (`taskpolicy -b swift test -c release -j 2 && taskpolicy -b
+  ./scripts/install.sh`), never after each fix. The app is one module, so each
+  is a full release compile (about 8 and 4 minutes under `taskpolicy -b`),
+  and they can't share a build: `swift test` compiles the module with
+  `-enable-testing`. Subagents never run them; the parent runs them once
+  after integrating. A delegate signature can compile in debug and fail in
+  release, so the release tests still run before every install.
+  `scripts/install.sh` and `scripts/dev.sh` build through
+  `scripts/build-with-guard.sh`, which refuses to package a build that
   printed "nearly matches optional requirement".
 - The user works on this Mac while agents run: prefix every build, test,
   harness and local test server with `taskpolicy -b`, pass `-j 2` (or `-j 1`) to
@@ -341,8 +350,9 @@ surrounding style.
 - Launch only the dev app, only with `open -g -n` (`./scripts/dev.sh` without
   `--build-only` activates it), and quit it when done with `pkill -f
   'Soprano Web Dev.app/Contents/MacOS/SopranoWeb'` (the installed app's
-  executable has the same name). After a verified change to the app or packaging, run
-  `./scripts/install.sh` as the last step: it replaces
+  executable has the same name). After the task's last verified change to the
+  app or packaging, run the release tests and `./scripts/install.sh` once (see
+  the first point): it replaces
   `/Applications/Soprano Web.app` without restarting a running instance, and the
   update lands on next launch. Report the result.
 - WebKit delegate conformance is runtime-checked in
