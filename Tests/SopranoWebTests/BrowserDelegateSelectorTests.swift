@@ -84,7 +84,6 @@ struct BrowserDelegateSelectorTests {
             "webExtensionController:promptForPermissions:inTab:forExtensionContext:completionHandler:",
             "webExtensionController:promptForPermissionToAccessURLs:inTab:forExtensionContext:completionHandler:",
             "webExtensionController:promptForPermissionMatchPatterns:inTab:forExtensionContext:completionHandler:",
-            "webExtensionController:didUpdateAction:forExtensionContext:",
             "webExtensionController:presentPopupForAction:forExtensionContext:completionHandler:",
             "webExtensionController:sendMessage:toApplicationWithIdentifier:forExtensionContext:replyHandler:",
             "webExtensionController:connectUsingMessagePort:forExtensionContext:completionHandler:",

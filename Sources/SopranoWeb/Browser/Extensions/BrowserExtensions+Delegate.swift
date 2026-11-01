@@ -220,14 +220,6 @@ extension BrowserExtensions: WKWebExtensionControllerDelegate {
 
     func webExtensionController(
         _ controller: WKWebExtensionController,
-        didUpdate action: WKWebExtension.Action,
-        forExtensionContext context: WKWebExtensionContext
-    ) {
-        actionChanges.notify()
-    }
-
-    func webExtensionController(
-        _ controller: WKWebExtensionController,
         presentActionPopup action: WKWebExtension.Action,
         for context: WKWebExtensionContext,
         completionHandler: @escaping ((any Error)?) -> Void

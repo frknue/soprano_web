@@ -163,8 +163,6 @@ final class BrowserExtensions: NSObject {
     weak var manager: BrowserWindowManager?
     /// Installs, removals, enabling, loading and settings changes.
     let changes = BrowserObservers<Void>()
-    /// An action's icon, badge, title or enabled state changed.
-    let actionChanges = BrowserObservers<Void>()
     /// Loaded contexts by extension id.
     private(set) var contexts: [String: WKWebExtensionContext] = [:]
     /// Why an enabled extension isn't loaded, by id.
@@ -862,8 +860,8 @@ final class BrowserExtensions: NSObject {
 
     /// Settings ▸ Extensions ▸ Site access. "On all sites" grants every
     /// site the extension asks for; "On specific sites" only
-    /// `allowedSites`; "When you click" none (the toolbar button grants the
-    /// page it is clicked on).
+    /// `allowedSites`; "When you click" none (choosing it in the Extensions
+    /// menu grants the page shown).
     func setSiteAccess(_ id: String, _ access: BrowserExtensionRecord.SiteAccess) throws {
         guard store.record(id: id) != nil else { throw InstallError.notInstalled(id) }
         store.update(id: id) { $0.siteAccess = access }

@@ -67,7 +67,7 @@ struct BrowserCommandBarRow: Equatable, Sendable {
         case command(BrowserCommandID)
         /// An installed extension's command (`commands` in its manifest).
         case extensionCommand(extensionID: String, commandID: String)
-        /// An installed extension's toolbar action (its button's click).
+        /// An installed extension's action (its Extensions-menu row).
         case extensionAction(String)
         case settings(BrowserSettingsPage)
         /// ⌘T's Return on an empty query: a start-page Today tab.

@@ -195,8 +195,8 @@ final class BrowserExtensionTab: NSObject, WKWebExtensionTab {
         completionHandler(nil)
     }
 
-    /// `activeTab`: clicking an extension's button or running its command
-    /// grants it the page.
+    /// `activeTab`: choosing an extension in the Extensions menu or running
+    /// its command grants it the page.
     func shouldGrantPermissionsOnUserGesture(for context: WKWebExtensionContext) -> Bool {
         true
     }
@@ -222,7 +222,7 @@ final class BrowserExtensionWindow: NSObject, WKWebExtensionWindow {
     }
 
     /// The page the window shows: the Peek's while one is open (what an
-    /// action button or `activeTab` should reach), else the selected tab.
+    /// extension's action or `activeTab` should reach), else the selected tab.
     func activeTab(for context: WKWebExtensionContext) -> (any WKWebExtensionTab)? {
         controller?.pageTab.map { extensions.tabAdapter(for: $0) }
     }

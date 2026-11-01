@@ -24,7 +24,7 @@ struct BrowserExtensionRecord: Codable, Equatable, Sendable {
         case allSites = "all"
         /// Only `allowedSites`.
         case specificSites = "specific"
-        /// None until the toolbar button is clicked on a page (activeTab).
+        /// None until the extension is chosen in the Extensions menu on a page (activeTab).
         case onClick = "click"
 
         var title: String {

@@ -600,9 +600,10 @@ final class BrowserWindowController: NSWindowController {
             manager.contentBlocker.changes.observe { [weak self] in
                 self?.applyContentBlockingToTabs(reloadingChanged: false)
             },
-            // Installed, removed, enabled, loaded; an action's icon or badge.
+            // Installed, removed, enabled, loaded, allowed in private windows:
+            // whether the Extensions button shows (its menu reads each
+            // action's icon and badge when it opens).
             manager.extensions.changes.observe { [weak self] in self?.updateExtensionsButton() },
-            manager.extensions.actionChanges.observe { [weak self] in self?.updateExtensionsButton() },
         ]
         setUpPermissions()
     }

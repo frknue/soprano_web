@@ -142,10 +142,10 @@ its welcome page, no update additions pending; only 1Password keeps `webSocket`.
    launch). Elsewhere: Settings ▸ Extensions, paste
    `https://chromewebstore.google.com/detail/aeblfdkhhhdcdjpifhhbdiojplfjncoa` and
    install (or `browser extension install aeblfdkhhhdcdjpifhhbdiojplfjncoa`). A
-   "Welcome to 1Password!" tab opens (else click the 1Password toolbar button): Continue
+   "Welcome to 1Password!" tab opens (else Extensions button (puzzle) ▸ 1Password): Continue
    → Sign in → on my.1password.com enter email, Secret Key and password (or "Use QR
-   Code" with the phone app) and finish 2FA. Verify: the toolbar icon turns unlocked;
-   its button now opens a popup with your vault (not "connecting"); on a sign-in page
+   Code" with the phone app) and finish 2FA. Verify: 1Password's icon in the Extensions
+   menu turns unlocked; its row now opens a popup with your vault (not "connecting"); on a sign-in page
    the 1Password icon/menu appears in the username field and fills; ⇧⌘L locks and the
    popup asks for the password; `browser extension errors aeblfdkhhhdcdjpifhhbdiojplfjncoa`
    says "No errors." (a frozen popup or extension after sign-in points at the notifier
