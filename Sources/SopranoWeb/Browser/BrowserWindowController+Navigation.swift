@@ -34,7 +34,10 @@ extension BrowserWindowController {
             return
         }
         let scheme = url.scheme?.lowercased() ?? ""
-        guard ["http", "https", "file", "about", "blob", "data", BrowserExtensions.scheme].contains(scheme) else {
+        // Past the start page, the one `soprano-web:` page is Settings.
+        guard ["http", "https", "file", "about", "blob", "data", BrowserExtensions.scheme, BrowserStartPageSchemeHandler.scheme]
+            .contains(scheme)
+        else {
             NSWorkspace.shared.open(url)
             return
         }
@@ -252,7 +255,7 @@ extension BrowserWindowController: WKNavigationDelegate {
             tab.failedURL = nil
             tab.certificateInterstitial = nil
         }
-        if webView.url?.scheme?.lowercased() == BrowserStartPageSchemeHandler.scheme {
+        if BrowserAddressResolver.isStartPage(webView.url) {
             tab.isStartPage = true
         }
         if tab.id == selectedTab?.id {
@@ -287,7 +290,7 @@ extension BrowserWindowController: WKNavigationDelegate {
         linksDidCommit(tab)
         zapPageCommitted(tab)
         readerPageCommitted(tab)
-        tab.isStartPage = webView.url?.scheme?.lowercased() == BrowserStartPageSchemeHandler.scheme
+        tab.isStartPage = BrowserAddressResolver.isStartPage(webView.url)
         if !tab.isStartPage, tab.errorMessage == nil, tab.certificateInterstitial == nil {
             // A committed page doesn't inherit the previous title ("New Tab"
             // after the start page); the title observer fills in its own.
@@ -300,7 +303,7 @@ extension BrowserWindowController: WKNavigationDelegate {
 
     func webView(_ webView: WKWebView, didFinish navigation: WKNavigation!) {
         guard let tab = tab(for: webView) else { return }
-        tab.isStartPage = webView.url?.scheme?.lowercased() == BrowserStartPageSchemeHandler.scheme
+        tab.isStartPage = BrowserAddressResolver.isStartPage(webView.url)
         if let title = webView.title?.trimmingCharacters(in: .whitespacesAndNewlines),
            !title.isEmpty
         {
@@ -428,6 +431,12 @@ extension BrowserWindowController: WKNavigationDelegate {
         let scheme = url.scheme?.lowercased() ?? ""
         if !BrowserWebSchemes.isWeb(url) {
             openExternalLink(url, from: webView)
+            decisionHandler(.cancel)
+            return
+        }
+        if scheme == BrowserStartPageSchemeHandler.scheme, navigationAction.targetFrame?.isMainFrame != true {
+            // The app's own pages (Settings) only ever fill a tab: never a
+            // frame inside another page, never a window a page opens.
             decisionHandler(.cancel)
             return
         }

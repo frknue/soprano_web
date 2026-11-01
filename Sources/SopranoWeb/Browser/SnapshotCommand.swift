@@ -17,6 +17,11 @@ enum SnapshotCommand {
         var sidebar: BrowserSidebarSection?
         var showFind = false
         var showSettings = false
+        /// `--settings-search <text>`: typed into Settings' search box.
+        var settingsSearch: String?
+        /// `--print-settings`: one `settings-page:` line (what the page
+        /// shows) and `settings.json`'s values.
+        var printSettings = false
         var verticalTabs = false
         var collapsed = false
         var showHints = false
@@ -84,7 +89,8 @@ enum SnapshotCommand {
     static let usage = """
     usage: SopranoWeb snapshot --out <png> [--url <url>] [--size 1500x940]
                                [--theme folio-paper|folio-ink|<id>] [--wait <seconds>]
-                               [--sidebar history|archive|downloads] [--find] [--settings]
+                               [--sidebar history|archive|downloads] [--find]
+                               [--settings] [--settings-search <text>] [--print-settings]
                                [--vertical-tabs] [--collapsed] [--hints] [--help] [--prompt]
                                [--allow-popups <host>] [--tab <url>]... [--sheet] [--print-tabs]
                                [--click [cmd-|shift-cmd-|shift-|opt-|middle-]X,Y]...
@@ -158,6 +164,10 @@ enum SnapshotCommand {
                 options.showFind = true
             case "--settings":
                 options.showSettings = true
+            case "--settings-search":
+                options.settingsSearch = try value(option)
+            case "--print-settings":
+                options.printSettings = true
             case "--vertical-tabs":
                 options.verticalTabs = true
             case "--collapsed":
@@ -539,6 +549,10 @@ enum SnapshotCommand {
         if options.showFind {
             controller.showFindBar()
         }
+        if options.showSettings {
+            // The Settings tab of the window's current Space.
+            manager.showSettings()
+        }
         let deadline = Date().addingTimeInterval(options.wait)
         while Date() < deadline {
             autoreleasepool {
@@ -555,6 +569,10 @@ enum SnapshotCommand {
         for selector in options.elementClicks {
             click(selector, controller: controller)
             wait(options.wait)
+        }
+        if let text = options.settingsSearch {
+            searchSettings(text, controller: controller)
+            wait(0.3)
         }
         if options.showSecurityInfo {
             openConnectionDetails(controller: controller)
@@ -584,16 +602,8 @@ enum SnapshotCommand {
             FileHandle.standardError.write(Data("Snapshot has no window to capture.\n".utf8))
             exit(1)
         }
-        // Settings and its sheets are built but never ordered in, so the
-        // harness puts nothing on screen. Websites shows the captured
-        // window's Space.
-        let settingsPreview = options.showSettings
-            ? SettingsWindowController(
-                settingsStore: settingsStore,
-                themeManager: themeManager,
-                contentBlocker: manager.contentBlocker
-            )
-            : nil
+        // Settings' sheets are built but never ordered in, so the harness
+        // puts nothing on screen. Websites shows the captured window's Space.
         let websitesSheet = options.showWebsites
             ? manager.makeWebsitesSheet(selected: controller.profileID)
             : nil
@@ -614,7 +624,7 @@ enum SnapshotCommand {
             shortcutsSheet.apply(theme: themeManager.currentTheme)
             shortcutsSheet.dump.forEach { print("shortcuts: \($0)") }
         }
-        if settingsPreview != nil || websitesSheet != nil || searchEnginesSheet != nil
+        if websitesSheet != nil || searchEnginesSheet != nil
             || shortcutsSheet != nil || extensionsSheet != nil
         {
             wait(0.3)
@@ -678,6 +688,9 @@ enum SnapshotCommand {
         if options.printTabs {
             printTabs(controller)
         }
+        if options.printSettings {
+            printSettings(controller: controller, manager: manager)
+        }
         let extensionPopup = options.extensions.performActions(in: controller, wait: wait)
         options.extensions.report(manager, controller: controller)
         let bookmarkPopover = makePinPopover(options.pins, controller: controller)
@@ -690,8 +703,6 @@ enum SnapshotCommand {
         let privacySheet = makePrivacySheet(options.privacy, controller: controller)
         if let privacySheet {
             captureWindow = privacySheet
-        } else if options.showSettings {
-            captureWindow = settingsPreview?.window ?? window
         } else if options.showHelp {
             captureWindow = NSApp.windows.first { $0.title == "Vimium Help" } ?? window
         } else if options.showPrompt {
@@ -735,7 +746,7 @@ enum SnapshotCommand {
 
         // Every page on screen: the selected tab, or each pane of its split.
         var pageImages: [(webView: BrowserWebView, image: NSImage)] = []
-        if privacySheet == nil, !options.showSettings, !options.showHelp, !options.showPrompt,
+        if privacySheet == nil, !options.showHelp, !options.showPrompt,
            websitesSheet == nil, searchEnginesSheet == nil, shortcutsSheet == nil, spaceSheet == nil,
            extensionsSheet == nil,
            importOutcome.window == nil,

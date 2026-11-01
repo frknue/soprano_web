@@ -129,7 +129,15 @@ final class BrowserWindowManager {
     /// Settings ▸ Extensions, while shown.
     var extensionsSheet: BrowserExtensionsSheet?
 
-    private var settingsWindowController: SettingsWindowController?
+    /// Settings ▸ Search engines and Keyboard shortcuts, while shown.
+    var searchEnginesSheet: BrowserSearchEnginesSheet?
+    var shortcutsSheet: BrowserShortcutsSheet?
+    /// Settings ▸ "New Little Arc from any app" while it records a new
+    /// shortcut: the key monitor and the window observers that cancel it.
+    var shortcutRecorder: (monitor: Any, observers: [NSObjectProtocol])?
+    /// Sheets Settings asked for while the harness keeps windows off
+    /// screen (it opens none there).
+    var settingsSheetRequests: [BrowserSettingsWebPage.Sheet] = []
     /// The app's global New Little Arc hotkey (set by the app delegate;
     /// nil in the harness and tests): Settings shows whether it registered
     /// and suspends it while recording a new one.
@@ -202,7 +210,10 @@ final class BrowserWindowManager {
             self?.linkRoutingSheet?.apply(theme: theme)
             self?.importSheet?.apply(theme: theme)
             self?.extensionsSheet?.apply(theme: theme)
+            self?.searchEnginesSheet?.apply(theme: theme)
+            self?.shortcutsSheet?.apply(theme: theme)
             self?.themeChanges.notify(theme)
+            self?.refreshSettingsPages()
         }
         // Every Space has a profile of its own: Spaces the Space store
         // separated from a shared profile get theirs (once; a later launch
@@ -222,7 +233,9 @@ final class BrowserWindowManager {
                 self?.applyTheme(of: settings)
                 self?.applyHistoryRetention(settings.historyRetention)
                 self?.contentBlocker.setEnabled(settings.blockAdsAndTrackers)
+                self?.refreshSettingsPages()
             },
+            contentBlocker.changes.observe { [weak self] in self?.refreshSettingsPages() },
             profiles.changes.observe { [weak self] in
                 guard let self else { return }
                 self.spaces.reconcile(with: self.profiles.profiles)
@@ -729,11 +742,16 @@ final class BrowserWindowManager {
         return configuration
     }
 
-    /// Serves each web view the start page of the tab it belongs to.
+    /// Serves each web view the start page of the tab it belongs to, or
+    /// Settings.
     func makeStartPageSchemeHandler() -> BrowserStartPageSchemeHandler {
-        BrowserStartPageSchemeHandler { [weak self] webView in
+        BrowserStartPageSchemeHandler { [weak self] webView, url in
             guard let self else { return "" }
-            return self.startPageHTML(for: self.tab(forWebView: webView))
+            let tab = self.tab(forWebView: webView)
+            if BrowserSettingsWebPage.isSettings(url) {
+                return BrowserSettingsWebPage.html(state: self.settingsPageState(for: tab))
+            }
+            return self.startPageHTML(for: tab)
         }
     }
 
@@ -763,34 +781,7 @@ final class BrowserWindowManager {
         )
     }
 
-    func showSettings() {
-        showSettings(page: .general)
-    }
-
-    /// Settings, and the sheet for `page` on it (Help ▸ Keyboard Shortcuts,
-    /// the Command Bar's settings rows).
-    func showSettings(page: BrowserSettingsPage) {
-        let controller = settingsWindowController ?? {
-            let controller = SettingsWindowController(
-                settingsStore: settingsStore,
-                themeManager: themeManager,
-                contentBlocker: contentBlocker
-            )
-            controller.onShowWebsites = { [weak self] parent in self?.showWebsites(on: parent) }
-            controller.onShowWebsiteData = { [weak self] parent in self?.showWebsiteData(on: parent) }
-            controller.onShowLinkRouting = { [weak self] parent in self?.showLinkRouting(on: parent) }
-            controller.onShowExtensions = { [weak self] parent in self?.showExtensions(on: parent) }
-            controller.globalHotKey = globalHotKey
-            settingsWindowController = controller
-            return controller
-        }()
-        guard !placement.isOffscreen else { return }
-        controller.showWindow(nil)
-        controller.window?.makeKeyAndOrderFront(nil)
-        controller.show(page)
-    }
-
-    /// Settings ▸ Websites, as a sheet on Settings, showing the active
+    /// Settings ▸ Websites, as a sheet on `parent`, showing the active
     /// window's Space (a picker switches when there are several).
     func showWebsites(on parent: NSWindow) {
         let sheet = websitesSheet ?? makeWebsitesSheet()
@@ -817,7 +808,7 @@ final class BrowserWindowManager {
         }
     }
 
-    /// Settings ▸ Website Data, as a sheet on Settings, showing the active
+    /// Settings ▸ Website Data, as a sheet on `parent`, showing the active
     /// window's Space (a picker switches when there are several).
     func showWebsiteData(on parent: NSWindow) {
         guard websiteDataSheet == nil else { return }

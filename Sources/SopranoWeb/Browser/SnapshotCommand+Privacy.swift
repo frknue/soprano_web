@@ -10,9 +10,6 @@ extension SnapshotCommand {
         var showClearData = false
         /// `--website-data`: capture Settings ▸ Website Data.
         var showWebsiteData = false
-        /// `--privacy-settings`: capture Settings (with the Ask where to
-        /// save, Website data and Default browser rows) without showing it.
-        var showSettingsPane = false
         /// `--clear-data-now <range>`: after the page loads, print its
         /// cookies, clear everything for `range`, print them again.
         var clearDataNow: BrowserClearRange?
@@ -30,7 +27,7 @@ extension SnapshotCommand {
     }
 
     static let privacyUsage = """
-                                   [--clear-data] [--website-data] [--privacy-settings] [--clear-data-now lastHour|today|todayAndYesterday|allTime]
+                                   [--clear-data] [--website-data] [--clear-data-now lastHour|today|todayAndYesterday|allTime]
                                    [--download <url>] [--cancel-after <s>] [--quit-after <s>] [--resume]
                                    [--print-downloads]
     """
@@ -51,8 +48,6 @@ extension SnapshotCommand {
             options.showClearData = true
         case "--website-data":
             options.showWebsiteData = true
-        case "--privacy-settings":
-            options.showSettingsPane = true
         case "--clear-data-now":
             let text = try value()
             guard let range = BrowserClearRange(rawValue: text) else {
@@ -109,15 +104,6 @@ extension SnapshotCommand {
             // cacheDisplay draws the accessory (our controls); NSAlert's own
             // title, icon and buttons are system glass and stay blank.
             return alert.window
-        }
-        if options.showSettingsPane {
-            let settings = SettingsWindowController(
-                settingsStore: controller.settingsStore,
-                themeManager: controller.themeManager,
-                contentBlocker: controller.manager.contentBlocker
-            )
-            privacySheetOwner = settings
-            return settings.window
         }
         if options.showWebsiteData {
             let sheet = controller.manager.makeWebsiteDataSheet(selected: controller.profileID)

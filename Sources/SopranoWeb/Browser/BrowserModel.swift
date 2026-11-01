@@ -409,9 +409,11 @@ enum BrowserAddressResolver {
         return nil
     }
 
+    /// The start page: any `soprano-web:` address but Settings', or
+    /// `about:start`.
     static func isStartPage(_ url: URL?) -> Bool {
-        if url?.scheme?.lowercased() == "soprano-web" {
-            return true
+        if url?.scheme?.lowercased() == BrowserStartPageSchemeHandler.scheme {
+            return !BrowserSettingsWebPage.isSettings(url)
         }
         return url?.scheme == "about" && url?.path == "start"
     }

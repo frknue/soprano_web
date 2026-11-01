@@ -1088,10 +1088,40 @@ surrounding style.
   uncaught exceptions and the console errors WebKit records.
 - `Browser/VimiumController.swift`, `VimiumKeyMap.swift`, `VimiumPageScripts.swift`,
   `VimiumPanels.swift`, `BrowserWebView.swift` — the native Vimium mode layer.
+- `Browser/BrowserSettingsWebPage.swift` — Settings as a page in a tab
+  (`soprano-web://settings`, Chrome's model; the window is gone): the HTML
+  (sidebar of sections, Search settings, cards of rows; `data-switch`,
+  `select[data-key]`, `data-open` sheets, `data-command` actions), its
+  state (`state`: values, menus, facts, the theme as CSS variables) and
+  its boundary: `acceptsMessage` (only the page's own main frame),
+  `Message` (the `{type: "settings", action}` messages) and `apply` (every
+  key and value checked; a value a setting doesn't offer changes
+  nothing). `BrowserStartPageSchemeHandler` serves it beside the start
+  page; `BrowserAddressResolver.isStartPage` is false for it, so it is a
+  normal tab (address, title, session, Command Bar; History and the
+  Archive keep only web pages). A web page can't frame it or open it in a
+  window (`decidePolicyFor`). `BrowserWindowManager+Settings.swift` —
+  `showSettings(page:)` (the current Space's Settings tab of the most
+  recently active normal window, else a new one; a page other than General
+  opens its sheet over it), `handleSettingsMessage` (the page gets the
+  whole state back after each message), `refreshSettingsPages` (settings,
+  content blocker and theme changes), `openSettingsSheet` (search engines,
+  shortcuts, websites, website data, links from other apps, extensions,
+  Clear Browsing Data, Import; in the harness only recorded in
+  `settingsSheetRequests`), the download folder panel and the New Little
+  Arc shortcut recorder (`shortcutRecorder`, a key monitor on the page's
+  window). Harness: `--settings` opens the tab, `--click-element` clicks
+  its controls (`'[data-switch=restoreSession]'`, `'[data-open=extensions]'`),
+  `--settings-search <text>` types into its search, `--print-settings`
+  prints `settings-page:` (what the page renders: switches, menus, facts,
+  visible sections and rows, the sidebar's current section),
+  `settings:` (`settings.json`) and `settings-sheets:`; `--url
+  'soprano-web://settings#privacy'` opens a section.
 - `Browser/SnapshotCommand*.swift`, `SnapshotPageTools.swift` — offscreen UI harness.
 - `App/` — app delegate (the Dock menu: New Window, New Private Window, New
-  Little Arc, the Spaces), menu, settings window (`BrowserSearchEnginesSheet`
-  is Settings ▸ Search engine ▸ Manage…; its rows scroll), resources.
+  Little Arc, the Spaces), menu, the sheets Settings opens
+  (`BrowserSearchEnginesSheet` is Settings ▸ Manage search engines; its rows
+  scroll), resources.
   `App/BrowserScripting.swift` with `Support/SopranoWeb.sdef` (copied into
   `Contents/Resources` by `scripts/package-app.sh`, named by `Info.plist`'s
   `OSAScriptingDefinition`) — AppleScript (stage 4 P12): `BrowserScripting`

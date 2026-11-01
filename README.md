@@ -106,7 +106,9 @@ family, not notarized.
    (single-page apps) count as visits once the page stays on them for a second.
 5. `⌘F` finds in the page; `Return` / `⇧Return` move between matches. `⌘P`
    prints, `⇧⌘S` saves the page, File ▸ Export as PDF… writes a PDF.
-6. `⌘,` opens Settings: search engine and suggestions, homepage, theme,
+6. `⌘,` opens Settings in a tab (`soprano-web://settings`, like Chrome's
+   `chrome://settings`; the open one is selected again), with a sidebar of
+   sections and **Search settings**: search engine and suggestions, homepage, theme,
    appearance, session restore, how long History keeps visits (**Remove history
    items**: after one day, one week, two weeks, one month, one year — the
    default — or manually), **Default page zoom** (50–300%), **Put inactive
@@ -350,7 +352,7 @@ engine.
 - `Sources/SopranoWeb/Browser/` — the window manager, tabs, `WKWebView`
   delegates, navigation, history/bookmarks/downloads, sidebar, start page,
   automation, snapshot harness.
-- `Sources/SopranoWeb/App/` — app delegate, menu, settings window.
+- `Sources/SopranoWeb/App/` — app delegate, menu, Settings' sheets.
 - `Sources/SopranoWeb/Vendored/` — Folio chrome copied from Soprano. Never edit
   these here; run `scripts/sync-soprano-chrome.sh` after changing Soprano.
 - `scripts/` — package, sign, install, icon and chrome-sync scripts.

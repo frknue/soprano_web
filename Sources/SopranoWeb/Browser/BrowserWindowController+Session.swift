@@ -99,7 +99,8 @@ extension BrowserWindowController {
         }
         if let value = state.url,
            let url = URL(string: value),
-           ["http", "https", "file", "about", "blob", "data", BrowserExtensions.scheme].contains(url.scheme?.lowercased() ?? "")
+           ["http", "https", "file", "about", "blob", "data", BrowserExtensions.scheme, BrowserStartPageSchemeHandler.scheme]
+               .contains(url.scheme?.lowercased() ?? "")
         {
             navigate(tab, to: url)
         } else {

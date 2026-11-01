@@ -659,10 +659,6 @@ final class BrowserWindowController: NSWindowController {
         }
     }
 
-    func showSettings() {
-        manager.showSettings()
-    }
-
     private func applySettings(_ settings: BrowserSettings) {
         refreshPermissionStates()
         // Settings ▸ Default page zoom: sites without their own zoom follow.

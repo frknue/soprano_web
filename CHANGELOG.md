@@ -468,6 +468,11 @@ app.
   runs an extension from the Extensions menu and prints (and captures) its popup.
 
 ### Changed
+- Settings opens in a tab, like Chrome's (`⌘,`; `soprano-web://settings`), instead of
+  its own window: a sidebar of sections, **Search settings**, and cards with switches
+  and menus in the window's theme. `⌘,` selects the Settings tab when one is open.
+  Search engines, keyboard shortcuts, site settings, website data, links from other
+  apps, extensions, Clear Browsing Data and Import open as sheets over it.
 - Soprano Web requires macOS 26 or later.
 - Every Space keeps its own cookies and website data, History, site
   decisions, Archive and Favorites; Spaces never share them. New Space
