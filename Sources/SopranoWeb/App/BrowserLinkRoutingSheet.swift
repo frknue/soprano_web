@@ -4,7 +4,7 @@ import AppKit
 /// in" (Little Arc or the most recent window) and the rules an import
 /// brought in (Arc's Air Traffic Control), each "address contains … →
 /// Space" with Delete. Rules are read-only otherwise. Presented as a sheet
-/// on the Settings window.
+/// over the Settings tab's window.
 @MainActor
 final class BrowserLinkRoutingSheet: NSWindowController {
     private let store: BrowserLinkRoutingStore

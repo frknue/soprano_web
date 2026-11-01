@@ -259,7 +259,7 @@ extension BrowserWindowController: WKNavigationDelegate {
             tab.failedURL = nil
             tab.certificateInterstitial = nil
         }
-        if BrowserAddressResolver.isStartPage(webView.url) {
+        if Self.showsStartPage(webView.url) {
             tab.isStartPage = true
         }
         if tab.id == selectedTab?.id {
@@ -294,7 +294,7 @@ extension BrowserWindowController: WKNavigationDelegate {
         linksDidCommit(tab)
         zapPageCommitted(tab)
         readerPageCommitted(tab)
-        tab.isStartPage = BrowserAddressResolver.isStartPage(webView.url)
+        tab.isStartPage = Self.showsStartPage(webView.url)
         if !tab.isStartPage, tab.errorMessage == nil, tab.certificateInterstitial == nil {
             // A committed page doesn't inherit the previous title ("New Tab"
             // after the start page); the title observer fills in its own.
@@ -307,7 +307,7 @@ extension BrowserWindowController: WKNavigationDelegate {
 
     func webView(_ webView: WKWebView, didFinish navigation: WKNavigation!) {
         guard let tab = tab(for: webView) else { return }
-        tab.isStartPage = BrowserAddressResolver.isStartPage(webView.url)
+        tab.isStartPage = Self.showsStartPage(webView.url)
         if let title = webView.title?.trimmingCharacters(in: .whitespacesAndNewlines),
            !title.isEmpty
         {
@@ -346,6 +346,12 @@ extension BrowserWindowController: WKNavigationDelegate {
         }
         updateTabStrip()
         saveSession()
+    }
+
+    /// A loaded page is the start page when its scheme is `soprano-web`
+    /// and it isn't Settings (`about:start` only ever asks for it).
+    nonisolated static func showsStartPage(_ url: URL?) -> Bool {
+        url?.scheme?.lowercased() == BrowserStartPageSchemeHandler.scheme && !BrowserSettingsWebPage.isSettings(url)
     }
 
     func webView(

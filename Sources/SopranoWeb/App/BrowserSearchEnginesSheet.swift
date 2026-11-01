@@ -3,7 +3,7 @@ import AppKit
 /// Settings ▸ Search engine ▸ Manage…: every engine with its keyword and
 /// URL; Add, Edit and Delete for custom engines, Edit (the keyword only) for
 /// the built-ins, which have no keyword until the user gives one.
-/// Presented as a sheet on the Settings window; an engine is added or edited
+/// Presented as a sheet over the Settings tab's window; an engine is added or edited
 /// in an alert sheet on it whose Save stays off until the engine is valid.
 /// The default engine is chosen with Settings ▸ Search engine.
 @MainActor

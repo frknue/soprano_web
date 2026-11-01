@@ -11,7 +11,8 @@ extension BrowserWindowController {
         if !tab.reader.isActive {
             tab.reader.isReaderable = body["readerable"] as? Bool ?? false
         }
-        tab.translation.language = BrowserLanguageDetector.detect(
+        // `<html translate="no">`: no language, so no offer or command.
+        tab.translation.language = body["noTranslate"] as? Bool == true ? nil : BrowserLanguageDetector.detect(
             sample: body["sample"] as? String ?? "",
             hint: body["lang"] as? String ?? ""
         )

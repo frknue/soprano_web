@@ -70,11 +70,12 @@ enum BrowserReaderScripts {
     static let readability: String? = resource("Readability")
     static let readerable: String? = resource("Readability-readerable")
 
-    /// Posts `pageInfo {readerable, lang, sample}` once the document is
-    /// parsed and again after `load` when it changed: whether Readability
-    /// would find an article (`isProbablyReaderable`), `<html lang>` and
-    /// up to 3,000 characters of the page's text for the language guess.
-    /// Main frame only; quiet while the Reader shows.
+    /// Posts `pageInfo {readerable, lang, noTranslate, sample}` once the
+    /// document is parsed and again after `load` when it changed: whether
+    /// Readability would find an article (`isProbablyReaderable`), `<html
+    /// lang>`, whether `<html translate="no">` asks not to be translated
+    /// (Settings does) and up to 3,000 characters of the page's text for
+    /// the language guess. Main frame only; quiet while the Reader shows.
     static let pageInfo = BrowserPageScript(
         source: """
         (() => {
@@ -106,7 +107,10 @@ enum BrowserReaderScripts {
             if (reader && reader.active) return;
             let readerable = false;
             try { readerable = isProbablyReaderable(document); } catch (_) {}
-            const message = { type: 'pageInfo', readerable, lang: document.documentElement.lang || '', sample: sample() };
+            const message = {
+              type: 'pageInfo', readerable, lang: document.documentElement.lang || '',
+              noTranslate: document.documentElement.getAttribute('translate') === 'no', sample: sample(),
+            };
             const key = JSON.stringify(message);
             if (!force && key === last) return;
             last = key;

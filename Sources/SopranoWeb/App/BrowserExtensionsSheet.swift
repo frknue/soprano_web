@@ -4,7 +4,7 @@ import WebKit
 /// Settings ▸ Extensions ▸ Manage…: install from a Chrome Web Store link
 /// or id, load an unpacked folder, and for each installed extension its
 /// switch, "Allow in private windows", site access and Remove. Presented
-/// as a sheet on the Settings window.
+/// as a sheet over the Settings tab's window.
 @MainActor
 final class BrowserExtensionsSheet: NSWindowController, NSTextFieldDelegate {
     private let extensions: BrowserExtensions

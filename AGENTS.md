@@ -1099,8 +1099,9 @@ surrounding style.
   nothing). `BrowserStartPageSchemeHandler` serves it beside the start
   page; `BrowserAddressResolver.isStartPage` is false for it, so it is a
   normal tab (address, title, session, Command Bar; History and the
-  Archive keep only web pages). A web page can't frame it or open it in a
-  window (`decidePolicyFor`). `BrowserWindowManager+Settings.swift` —
+  Archive keep only web pages; `<html translate="no">` keeps Translate
+  off). A web page can't frame it (`decidePolicyFor`) or open it in a tab
+  or window (`createLinkWebView` refuses `soprano-web:`). `BrowserWindowManager+Settings.swift` —
   `showSettings(page:)` (the current Space's Settings tab of the most
   recently active normal window, else a new one; a page other than General
   opens its sheet over it), `handleSettingsMessage` (the page gets the

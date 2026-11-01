@@ -123,6 +123,10 @@ extension BrowserWindowController {
         navigationAction: WKNavigationAction,
         windowFeatures: BrowserPopupFeatures
     ) -> WKWebView? {
+        // The app's own pages (Settings) never open from a page.
+        if navigationAction.request.url?.scheme?.lowercased() == BrowserStartPageSchemeHandler.scheme {
+            return nil
+        }
         // WebKit hands over the opener's preferences object; give the new tab
         // its own so per-site pop-up permission stays per tab.
         configuration.preferences = Self.makePreferences()

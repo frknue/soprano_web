@@ -57,7 +57,10 @@ extension BrowserWindowManager {
         frame: WKFrameInfo,
         in controller: BrowserWindowController
     ) {
+        // The frame's document, not only its address, must be Settings'.
         guard BrowserSettingsWebPage.acceptsMessage(frameURL: frame.request.url, isMainFrame: frame.isMainFrame),
+              frame.securityOrigin.protocol.lowercased() == BrowserStartPageSchemeHandler.scheme,
+              frame.securityOrigin.host.lowercased() == BrowserSettingsWebPage.host,
               BrowserSettingsWebPage.isSettings(tab.webView.url),
               let message = BrowserSettingsWebPage.Message(body)
         else { return }
@@ -72,6 +75,8 @@ extension BrowserWindowManager {
             let blocker = contentBlocker
             Task { await blocker.update() }
         case .makeDefault:
+            // The system's prompt; the harness shows nothing.
+            guard !placement.isOffscreen else { break }
             BrowserDefaultBrowser.makeDefault { [weak self] _ in self?.refreshSettingsPages() }
         case .chooseDownloads:
             chooseDownloadFolder(on: controller)
@@ -80,6 +85,7 @@ extension BrowserWindowManager {
         case let .allowTranslation(code):
             settingsStore.update { $0.neverTranslateLanguages.removeAll { $0 == code } }
         case .revealSettingsFile:
+            guard !placement.isOffscreen else { break }
             NSWorkspace.shared.activateFileViewerSelecting([settingsStore.url])
         }
         pushSettingsState(to: tab)

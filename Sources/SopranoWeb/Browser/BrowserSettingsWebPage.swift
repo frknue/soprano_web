@@ -346,13 +346,13 @@ enum BrowserSettingsWebPage {
           <div class="card">
             <div class="row" data-keywords="color palette dark light"><div class="text"><div class="label">Theme</div></div><select data-key="themeID" aria-label="Theme"></select></div>
             <div class="row" data-keywords="dark light mode"><div class="text"><div class="label">Mode</div><div class="desc">Folio follows it; the other themes keep their own colors</div></div><select data-key="appearance" aria-label="Mode"></select></div>
-            <div class="row" data-keywords="zoom size text"><div class="text"><div class="label">Page zoom</div><div class="desc">Sites you zoomed keep their own zoom</div></div><select data-key="defaultZoom" aria-label="Page zoom"></select></div>
+            <div class="row" data-keywords="default page zoom size text"><div class="text"><div class="label">Page zoom</div><div class="desc">Sites you zoomed keep their own zoom</div></div><select data-key="defaultZoom" aria-label="Page zoom"></select></div>
           </div>
         </section>
         <section id="startup">
           <h2>On startup</h2>
           <div class="card">
-            <div class="row" data-keywords="session reopen windows"><div class="text"><div class="label">Continue where you left off</div><div class="desc">Reopen your windows and tabs when Soprano Web starts</div></div><button class="switch" data-switch="restoreSession" role="switch" aria-label="Continue where you left off"></button></div>
+            <div class="row" data-keywords="restore session reopen windows"><div class="text"><div class="label">Continue where you left off</div><div class="desc">Reopen your windows and tabs when Soprano Web starts</div></div><button class="switch" data-switch="restoreSession" role="switch" aria-label="Continue where you left off"></button></div>
             <div class="row" data-keywords="home start page"><div class="text"><div class="label">Homepage</div><div class="desc">Empty uses the start page</div></div><input id="homepage" class="field" type="text" placeholder="Start page" spellcheck="false" autocomplete="off" aria-label="Homepage"></div>
           </div>
         </section>
@@ -369,7 +369,7 @@ enum BrowserSettingsWebPage {
             <div class="row" data-keywords="adblock content blocker easylist easyprivacy"><div class="text"><div class="label">Block ads and trackers</div><div class="desc" data-text="blockerStatus"></div></div><div class="controls"><button class="btn" data-command="updateLists">Update now</button><button class="switch" data-switch="blockAdsAndTrackers" role="switch" aria-label="Block ads and trackers"></button></div></div>
             <button class="row link" data-open="clearData" data-keywords="cookies cache history delete"><div class="text"><div class="label">Clear browsing data</div><div class="desc">History, cookies, cache and more</div></div><span class="chevron">›</span></button>
             <div class="row" data-keywords="history delete keep"><div class="text"><div class="label">Remove history items</div><div class="desc">Older pages leave History on their own</div></div><select data-key="historyRetention" aria-label="Remove history items"></select></div>
-            <button class="row link" data-open="websites" data-keywords="permissions camera microphone location pop-ups popups notifications site settings"><div class="text"><div class="label">Site settings</div><div class="desc">Camera, microphone, notifications and pop-ups for each site</div></div><span class="chevron">›</span></button>
+            <button class="row link" data-open="websites" data-keywords="websites keep awake zoom permissions camera microphone location pop-ups popups notifications site settings"><div class="text"><div class="label">Site settings</div><div class="desc">Camera, microphone, notifications and pop-ups for each site</div></div><span class="chevron">›</span></button>
             <button class="row link" data-open="websiteData" data-keywords="cookies storage data"><div class="text"><div class="label">Website data</div><div class="desc">Cookies and storage sites keep on this Mac</div></div><span class="chevron">›</span></button>
             <div class="row" data-keywords="notifications permission"><div class="text"><div class="label">Sites can ask to send notifications</div><div class="desc">Off answers every new request with “Don’t Allow”</div></div><button class="switch" data-switch="allowsNotificationRequests" role="switch" aria-label="Sites can ask to send notifications"></button></div>
           </div>

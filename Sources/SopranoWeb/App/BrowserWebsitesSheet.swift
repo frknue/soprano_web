@@ -3,7 +3,7 @@ import AppKit
 /// Settings ▸ Websites: every host with remembered decisions (camera,
 /// microphone, notifications, pop-ups, external apps) of one Space, each
 /// removable, and Remove All. A picker switches Spaces when there are
-/// several. Presented as a sheet on the Settings window.
+/// several. Presented as a sheet over the Settings tab's window.
 @MainActor
 final class BrowserWebsitesSheet: NSWindowController {
     private let picker: BrowserSpacePicker
