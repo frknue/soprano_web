@@ -1100,8 +1100,13 @@ surrounding style.
   page; `BrowserAddressResolver.isStartPage` is false for it, so it is a
   normal tab (address, title, session, Command Bar; History and the
   Archive keep only web pages; `<html translate="no">` keeps Translate
-  off). A web page can't frame it (`decidePolicyFor`) or open it in a tab
-  or window (`createLinkWebView` refuses `soprano-web:`). `BrowserWindowManager+Settings.swift` —
+  off). A web page can't reach any `soprano-web:` page: `createLinkWebView`
+  refuses one as a new tab or window, and `decidePolicyFor`
+  (`allowsAppPageNavigation`) lets a main-frame navigation to one through
+  only when the app asked for exactly that address (`BrowserTab.appPageLoad`,
+  set by `navigate`, `loadStartPage` and a history restore), on back,
+  forward or reload, or from such a page itself — never a frame, a page's
+  link or script, or a window a page opened and then navigates. `BrowserWindowManager+Settings.swift` —
   `showSettings(page:)` (the current Space's Settings tab of the most
   recently active normal window, else a new one; a page other than General
   opens its sheet over it), `handleSettingsMessage` (the page gets the

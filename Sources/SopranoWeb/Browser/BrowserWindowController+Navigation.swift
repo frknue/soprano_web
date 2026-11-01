@@ -58,6 +58,7 @@ extension BrowserWindowController {
         tab.failedURL = nil
         tab.pendingURL = url.absoluteString
         tab.isShowingErrorPage = false
+        tab.appPageLoad = scheme == BrowserStartPageSchemeHandler.scheme ? url : nil
         if url.isFileURL {
             tab.webView.loadFileURL(url, allowingReadAccessTo: url.deletingLastPathComponent())
         } else {
@@ -152,6 +153,7 @@ extension BrowserWindowController {
         tab.isShowingErrorPage = false
         tab.zoom = settingsStore.settings.defaultZoom
         tab.webView.pageZoom = tab.zoom
+        tab.appPageLoad = BrowserStartPageSchemeHandler.url
         tab.webView.load(URLRequest(url: BrowserStartPageSchemeHandler.url))
     }
 
@@ -444,9 +446,7 @@ extension BrowserWindowController: WKNavigationDelegate {
             decisionHandler(.cancel)
             return
         }
-        if scheme == BrowserStartPageSchemeHandler.scheme, navigationAction.targetFrame?.isMainFrame != true {
-            // The app's own pages (Settings) only ever fill a tab: never a
-            // frame inside another page, never a window a page opens.
+        if scheme == BrowserStartPageSchemeHandler.scheme, !allowsAppPageNavigation(navigationAction, in: webView) {
             decisionHandler(.cancel)
             return
         }
@@ -486,6 +486,27 @@ extension BrowserWindowController: WKNavigationDelegate {
             applyContentBlocking(to: tab, pageURL: url)
         }
         decisionHandler(.allow)
+    }
+
+    /// The app's own pages (the start page, Settings) only ever fill a tab,
+    /// and only when the app loads them (`appPageLoad`: the address bar,
+    /// ⌘,, a new tab, a restore), the user goes back, forward or reloads,
+    /// or one of those pages navigates itself. Never a frame inside
+    /// another page, a window a page opens, or a page's own link or
+    /// script, also through a window it opened first.
+    private func allowsAppPageNavigation(_ navigationAction: WKNavigationAction, in webView: WKWebView) -> Bool {
+        guard navigationAction.targetFrame?.isMainFrame == true, let tab = tab(for: webView) else { return false }
+        if let allowed = tab.appPageLoad, allowed == navigationAction.request.url {
+            tab.appPageLoad = nil
+            return true
+        }
+        switch navigationAction.navigationType {
+        case .backForward, .reload:
+            return true
+        default:
+            return navigationAction.sourceFrame.securityOrigin.protocol.lowercased() == BrowserStartPageSchemeHandler.scheme
+                && navigationAction.sourceFrame.webView === webView
+        }
     }
 
     func webView(

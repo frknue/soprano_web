@@ -89,6 +89,12 @@ extension BrowserWindowController {
         if let data = state.interactionState, state.url.flatMap(URL.init(string:)).map({ webViewFits(tab, url: $0) }) ?? true {
             // Restoring the archived list also navigates to its current item.
             tab.webView.interactionState = data
+            // Going to the restored item is the app's own load.
+            if let current = tab.webView.backForwardList.currentItem?.url,
+               current.scheme?.lowercased() == BrowserStartPageSchemeHandler.scheme
+            {
+                tab.appPageLoad = current
+            }
             if let current = tab.webView.backForwardList.currentItem?.url,
                Self.restoredItem(current, matches: state.url)
             {

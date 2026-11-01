@@ -126,6 +126,10 @@ final class BrowserTab {
     var translation = BrowserTabTranslation()
     /// The next load to finish started from the address bar (a typed visit).
     var typedNavigationPending = false
+    /// The app's own page (`soprano-web:`) the app itself last asked this
+    /// tab to load: a navigation to exactly this address passes the policy
+    /// check once. A page can't set it.
+    var appPageLoad: URL?
     /// How the main-frame load in flight was started (its policy decision).
     var pendingVisitKind: BrowserVisitKind?
     /// URL changes without a page load that may become History visits.
