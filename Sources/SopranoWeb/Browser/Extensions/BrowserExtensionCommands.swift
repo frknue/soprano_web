@@ -102,7 +102,9 @@ enum BrowserExtensionCommands {
             throw BrowserAutomationError.unavailable("No window is open.")
         }
         extensions.closePopup()
-        window.performExtensionAction(id)
+        guard window.chooseExtensionMenuRow(id) else {
+            throw BrowserAutomationError.unavailable("The Extensions menu has no enabled row for \(id).")
+        }
         try await Task.sleep(for: .seconds(1))
         guard let popup = extensions.popup, popup.extensionID == id else {
             return "action ran (no popup)"

@@ -120,7 +120,10 @@ struct SnapshotExtensionOptions {
                 print("extension-action: \(id) is not running")
                 continue
             }
-            controller.performExtensionAction(id)
+            guard controller.chooseExtensionMenuRow(id) else {
+                print("extension-action: \(id) has no enabled row in the Extensions menu")
+                continue
+            }
             wait(1.5)
             if let popup = extensions.popup, popup.extensionID == id {
                 let size = popup.popover.contentSize

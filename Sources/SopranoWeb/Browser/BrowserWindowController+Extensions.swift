@@ -57,6 +57,7 @@ extension BrowserWindowController {
             let item = BrowserClosureMenuItem(title: row.label) { [weak self] in
                 self?.performExtensionAction(row.id)
             }
+            item.representedObject = row.id
             if let icon = row.icon?.copy() as? NSImage {
                 icon.size = NSSize(width: 16, height: 16)
                 item.image = icon
@@ -93,6 +94,19 @@ extension BrowserWindowController {
             self?.manager.showSettings(page: .extensions)
         })
         return menu
+    }
+
+    /// Chooses extension `id`'s row in a fresh Extensions menu, through the
+    /// item's own target and action as a click sends them (the harness and
+    /// `browser extension action`). False when the menu has no enabled row
+    /// for it.
+    @discardableResult
+    func chooseExtensionMenuRow(_ id: String) -> Bool {
+        let menu = extensionsMenu()
+        guard let item = menu.items.first(where: { $0.representedObject as? String == id }), item.isEnabled,
+              let action = item.action
+        else { return false }
+        return withExtendedLifetime(menu) { NSApp.sendAction(action, to: item.target, from: item) }
     }
 
     func showExtensionsMenu(from anchor: NSView) {
