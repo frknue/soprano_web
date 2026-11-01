@@ -36,10 +36,11 @@ surrounding style.
   test` once before each commit. Run `swift test -c release`, then
   `./scripts/install.sh`, once per task after its last commit, as one
   background job (`taskpolicy -b swift test -c release -j 2 && taskpolicy -b
-  ./scripts/install.sh`), never after each fix. The app is one module, so each
-  is a full release compile (about 8 and 4 minutes under `taskpolicy -b`),
-  and they can't share a build: `swift test` compiles the module with
-  `-enable-testing`. Subagents never run them; the parent runs them once
+  ./scripts/install.sh`), never after each fix; `install.sh` takes no `-j`,
+  so its release build uses SwiftPM's default job count. The app is one
+  module, so each is a full release compile (about 8 and 4 minutes under
+  `taskpolicy -b`), and they can't share a build: `swift test` compiles the
+  module with `-enable-testing`. Subagents never run them; the parent runs them once
   after integrating. A delegate signature can compile in debug and fail in
   release, so the release tests still run before every install.
   `scripts/install.sh` and `scripts/dev.sh` build through
@@ -352,9 +353,9 @@ surrounding style.
   'Soprano Web Dev.app/Contents/MacOS/SopranoWeb'` (the installed app's
   executable has the same name). After the task's last verified change to the
   app or packaging, run the release tests and `./scripts/install.sh` once (see
-  the first point): it replaces
-  `/Applications/Soprano Web.app` without restarting a running instance, and the
-  update lands on next launch. Report the result.
+  the first point): it replaces `/Applications/Soprano Web.app` without
+  restarting a running instance, and the update lands on next launch. Report
+  the result.
 - WebKit delegate conformance is runtime-checked in
   `BrowserDelegateSelectorTests`. Keep that test green: a delegate method with a
   nearly matching Swift signature compiles but WebKit never calls it. Confirmed
@@ -1164,8 +1165,8 @@ site or a CDP flow that cannot use the CLI).
   naming the shortcut or setting.
 - Releases: rename `[Unreleased]` to `## [X.Y.Z] - YYYY-MM-DD`, add a fresh
   `[Unreleased]`, set `CFBundleShortVersionString` and `CFBundleVersion` in
-  `Support/Info.plist` (the only version source), `swift test`, install, commit
-  `release: vX.Y.Z`.
+  `Support/Info.plist` (the only version source), `swift test`, commit
+  `release: vX.Y.Z`, then the release tests and install (see Verification).
 - Push, open PRs, tags and merges only when the user asks for that action.
 
 ## Known gaps
