@@ -277,6 +277,13 @@ automation model, matching Soprano's browser pane.
 
 ## Files
 
+- Backups: every install (`./scripts/install.sh`) first copies your data
+  (this folder, settings, logins and site data, cookies) and the installed
+  app into `~/Library/Application Support/Soprano Web Backups/` (the newest
+  15 are kept) and checks the new build against a copy of it; a build that
+  would lose anything isn't installed. `scripts/data-guard.py list` shows
+  them; `restore <backup> --yes` and `rollback-app <backup> --yes` (with
+  the app quit) bring back the data or the app, keeping what they replace.
 - Settings: `~/.config/soprano-web/settings.json` (written on first change).
 - Session (every window with its frame, tabs and profile, and the
   recently-closed tabs and windows; pop-up and private windows are not saved),

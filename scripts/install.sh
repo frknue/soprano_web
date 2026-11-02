@@ -24,6 +24,17 @@ echo "Building Soprano Web for release..."
 "$script_dir/build-with-guard.sh" release
 
 installed_app="$install_root/Soprano Web.app"
+
+# Soprano Web is the daily driver: back up its data and the installed app,
+# then check the new build against a copy of that data before replacing
+# anything. A failed check stops here; the installed app stays.
+export SOPRANO_WEB_INSTALL_DIR="$install_root"
+label="install-$(git -C "$repo_root" rev-parse --short HEAD 2>/dev/null || echo unknown)"
+python3 "$script_dir/data-guard.py" backup --label "$label" --with-app
+python3 "$script_dir/data-guard.py" check \
+    --binary "$repo_root/.build/release/SopranoWeb" \
+    --baseline-app "$installed_app"
+
 "$script_dir/package-app.sh" \
     release \
     "$installed_app" \

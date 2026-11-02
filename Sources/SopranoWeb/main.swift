@@ -7,6 +7,9 @@ if let exitCode = BrowserCommand.run(arguments: arguments) {
 if arguments.count > 1, arguments[1] == "snapshot" {
     SnapshotCommand.run(arguments: Array(arguments.dropFirst(2)))
 }
+if arguments.count > 1, arguments[1] == "data-check" {
+    exit(BrowserDataCheck.run(arguments: Array(arguments.dropFirst(2))))
+}
 
 let app = NSApplication.shared
 app.setActivationPolicy(.regular)

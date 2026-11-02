@@ -29,6 +29,43 @@ manifest for macOS 13, and the line is expected. The app and the tests build
 for macOS 26 without link warnings. There is no linter or formatter; match
 surrounding style.
 
+## Daily driver: the user's data
+
+Since 2026-11-02 the installed app (`/Applications/Soprano Web.app`) is
+Furkan's everyday browser. Its data is real and must survive every feature
+and fix: `~/Library/Application Support/Soprano Web/` (session, Spaces and
+pins, Archive, History, extensions, site decisions), `~/.config/soprano-web/settings.json`,
+the WebKit container `~/Library/WebKit/com.soprano.web/` (logins, cookies,
+site storage, the extensions' own storage, 1Password's sign-in) and
+`~/Library/HTTPStorages/com.soprano.web*`.
+
+- Agents never write, move or delete those, and never point the dev app,
+  the harness (`--support-dir` refuses the real folder), tests or the
+  installed app's `browser` CLI at them. Reading a copy is fine:
+  `scripts/data-guard.py backup` makes one.
+- Every install goes through `./scripts/install.sh`, which runs
+  `scripts/data-guard.py` before replacing the app: `backup --with-app`
+  (the data and the installed app, into `~/Library/Application
+  Support/Soprano Web Backups/<time>-install-<commit>/`, the newest 15
+  kept; SQLite through its online backup, so it is consistent while the app
+  runs) and `check` on copies of that backup: the new build's `data-check`
+  (`BrowserDataCheck`, one JSON summary of every store as the app reads
+  it) must equal the installed build's and see at least what the raw files
+  hold, no store may move a file aside (`.corrupt`, `.unreadable`,
+  `.migrated`), and the new build's harness must restore every saved tab,
+  run every enabled extension and render Settings. A failure stops the
+  install with the installed app untouched: report it to Furkan with the
+  `check-report.json` it names; never bypass or weaken the check.
+- A change to anything stored (a file format, a migration, a new store)
+  decodes tolerantly, keeps the old file (`.migrated`) and never drops what
+  it can't read. A new store gets a field in `BrowserDataCheck.summary`. A
+  change the check reports on purpose (a migration) needs Furkan's ok
+  before the guard is changed to expect it.
+- `data-guard.py restore <backup> --yes` (data) and `rollback-app <backup>
+  --yes` (the app) run only on Furkan's go, with the app quit; what they
+  replace is moved to `Backups/replaced-<time>/`, never deleted.
+  `data-guard.py list` shows the backups and their check results.
+
 ## Verification
 
 - While iterating, review-fix rounds included, verify with `swift build` and
