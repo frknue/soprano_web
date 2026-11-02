@@ -136,7 +136,14 @@ def copy_tree(source, target, previous):
         copy_file(source, target, previous)
         return 1
     count = 0
-    for root, folders, files in os.walk(source):
+    def unreadable(error):
+        raise BackupError(f"can't read {error.filename}: {error.strerror}")
+
+    for root, folders, files in os.walk(source, onerror=unreadable):
+        # A linked folder is copied as the link, not skipped.
+        for name in [name for name in folders if (Path(root) / name).is_symlink()]:
+            folders.remove(name)
+            files.append(name)
         folders[:] = [name for name in folders if name not in SKIP_NAMES]
         root_path = Path(root)
         relative = root_path.relative_to(source)
@@ -182,9 +189,9 @@ def backup(label, with_app):
     name = f"{stamp}-{label}" if label else stamp
     target = BACKUPS / name
     previous = backups()[-1] if backups() else None
-    partial = BACKUPS / f".{name}.partial"
-    shutil.rmtree(partial, ignore_errors=True)
-    partial.mkdir(parents=True)
+    BACKUPS.mkdir(parents=True, exist_ok=True)
+    # Its own folder, so two backups at once never share one.
+    partial = Path(tempfile.mkdtemp(prefix=f".{name}.", suffix=".partial", dir=BACKUPS))
     try:
         files = {
             "support": copy_tree(SUPPORT, partial / "support", previous / "support" if previous else None),
@@ -251,7 +258,9 @@ def data_check(binary, support, settings):
 
 def differences(before, after, path=""):
     """Every value the installed build reported that the new build reports
-    differently (new keys are fine: new settings and new stores)."""
+    differently. New keys are fine (new settings, new stores), in nested
+    objects too; a list must keep its length and each element compares
+    the same way."""
     found = []
     if isinstance(before, dict) and isinstance(after, dict):
         for key, value in before.items():
@@ -259,6 +268,9 @@ def differences(before, after, path=""):
                 found.append(f"{path}/{key}: gone (was {json.dumps(value)[:120]})")
             else:
                 found += differences(value, after[key], f"{path}/{key}")
+    elif isinstance(before, list) and isinstance(after, list) and len(before) == len(after):
+        for index, (old, new) in enumerate(zip(before, after)):
+            found += differences(old, new, f"{path}[{index}]")
     elif before != after:
         found.append(f"{path}: {json.dumps(before)[:160]} -> {json.dumps(after)[:160]}")
     return found
@@ -299,7 +311,36 @@ def raw_counts(source):
         with closing(sqlite3.connect(read_only_uri(database), uri=True)) as reader:
             visits += reader.execute("select count(*) from visits").fetchone()[0]
     counts["visits"] = visits
+    profiles = load("profiles.json")
+    if profiles is not None:
+        counts["profiles"] = len(profiles.get("profiles", []))
+    sites = 0
+    for path in (source / "support").rglob("site-permissions.json"):
+        try:
+            sites += len(json.loads(path.read_text()).get("sites", {}))
+        except (OSError, ValueError):
+            pass
+    counts["site decisions"] = sites
+    for name, key, label in (("link-routing.json", "rules", "link rules"), ("boosts.json", "entries", "boosts"),
+                             ("downloads.json", "entries", "downloads")):
+        stored = load(name)
+        if stored is not None:
+            counts[label] = len(stored.get(key, []))
     return counts
+
+
+def raw_settings(source):
+    """settings.json's own values, read without the app's decoder."""
+    try:
+        return json.loads((source / "config/settings.json").read_text())
+    except (OSError, ValueError):
+        return None
+
+
+def aside_files(folder):
+    """Files a store keeps when it can't read or migrates one."""
+    return {str(path.relative_to(folder)) for path in folder.rglob("*")
+            if path.name.endswith((".corrupt", ".unreadable", ".migrated"))}
 
 
 def summary_counts(summary):
@@ -313,16 +354,19 @@ def summary_counts(summary):
         "archive": summary.get("archive", 0),
         "extensions": len(summary.get("extensions", [])),
         "visits": sum(entry.get("visits", 0) for entry in summary.get("history", {}).values()),
+        "profiles": len(summary.get("profiles", [])),
+        "site decisions": sum(summary.get("sitePermissions", {}).values()),
+        "link rules": summary.get("linkRouting", 0),
+        "boosts": summary.get("boosts", 0),
+        "downloads": summary.get("downloads", 0),
     }
 
 
-def harness_run(binary, support, root):
-    """The new build restores the copied session, loads the copied
-    extensions and opens Settings, off screen."""
+def harness_run(binary, support, root, flags):
+    """The new build off screen, on a copy of the user's support folder."""
     run = subprocess.run(
         ["taskpolicy", "-b", str(binary), "snapshot", "--out", str(root / "check.png"),
-         "--support-dir", str(support), "--session", str(support / "session.json"),
-         "--wait", "6", "--settings", "--print-settings", "--print-windows", "--print-extensions"],
+         "--support-dir", str(support), "--wait", "6"] + flags,
         capture_output=True, text=True, timeout=300)
     lines = {}
     for line in run.stdout.splitlines():
@@ -365,6 +409,10 @@ def check(binary, baseline_app, backup_name):
         report["raw"], report["counts"] = raw, seen
         problems += [f"{key}: the files hold {value}, the new build sees {seen.get(key)}"
                      for key, value in raw.items() if seen.get(key, 0) < value]
+        # Every value settings.json holds must reach the app as it is.
+        stored = raw_settings(source)
+        if stored is not None:
+            problems += [f"settings: {line}" for line in differences(stored, new["settings"]["values"])]
         if not new["settings"]["readable"]:
             problems.append("settings.json does not decode")
         if not new["session"]["readable"]:
@@ -373,26 +421,35 @@ def check(binary, baseline_app, backup_name):
         problems += [f"History of profile {key} not persistent" for key, entry in new["history"].items()
                      if not entry["persistent"]]
 
+        # The real launch path on another copy: the saved session comes
+        # back tab for tab, every enabled extension runs, and no store
+        # moves a file aside.
         support_c, _ = working_copy(source, root, "harness")
-        run, lines = harness_run(binary, support_c, root)
+        aside_before = aside_files(support_c)
+        run, lines = harness_run(binary, support_c, root, [
+            "--session", str(support_c / "session.json"), "--print-windows", "--print-extensions"])
         if run.returncode != 0:
             problems.append(f"harness exited {run.returncode}: {run.stderr.strip()[-400:]}")
+        problems += [f"moved aside when the new build launched: {path}"
+                     for path in aside_files(support_c) - aside_before]
         windows = json.loads(lines["windows"]) if "windows" in lines else None
         restored = sum(len(w.get("tabs", [])) for w in windows.get("windows", [])
                        if w.get("kind") == "normal") if windows else 0
         report["restoredTabs"] = restored
-        # --settings adds its tab to a restored window.
-        if restored < raw.get("session tabs", 0):
-            problems.append(f"session: {raw.get('session tabs')} tabs saved, {restored} restored")
-        page = json.loads(lines["settings-page"]) if lines.get("settings-page", "").startswith("{") else None
-        if not page or page.get("address") != "soprano-web://settings":
-            problems.append("the Settings page did not render")
+        if raw.get("session tabs") and restored != raw["session tabs"]:
+            problems.append(f"session: {raw['session tabs']} tabs saved, {restored} restored")
         extensions = json.loads(lines["extensions"]) if "extensions" in lines else {"extensions": []}
         states = {e["id"]: e.get("state") for e in extensions.get("extensions", [])}
         report["extensionStates"] = states
         for record in new.get("extensions", []):
             if record["enabled"] and states.get(record["id"]) != "on":
                 problems.append(f"extension {record['name']}: {states.get(record['id'], 'not loaded')}")
+        # Settings renders (its own run: its tab would count as restored).
+        support_d, _ = working_copy(source, root, "settings")
+        run, lines = harness_run(binary, support_d, root, ["--settings", "--print-settings"])
+        page = json.loads(lines["settings-page"]) if lines.get("settings-page", "").startswith("{") else None
+        if run.returncode != 0 or not page or page.get("address") != "soprano-web://settings":
+            problems.append("the Settings page did not render")
     finally:
         shutil.rmtree(root, ignore_errors=True)
     report["problems"] = problems
@@ -436,27 +493,30 @@ def restore(name, yes):
     if not (source / "manifest.json").exists():
         fail(f"no backup {name}")
     replaced = replaced_folder()
-    move_aside(SUPPORT, replaced, "support")
-    move_aside(SETTINGS, replaced, "config/settings.json")
-    move_aside(WEBKIT, replaced, "webkit")
-    for cookie in COOKIE_NAMES:
-        move_aside(HTTP_STORAGES / cookie, replaced, f"httpstorages/{cookie}")
-    if (source / "support").exists():
-        shutil.copytree(source / "support", SUPPORT, symlinks=True)
-    # The content-blocker lists aren't backed up; the current ones stay.
-    if (replaced / "support/ContentBlocking").exists():
-        shutil.copytree(replaced / "support/ContentBlocking", SUPPORT / "ContentBlocking", symlinks=True)
-    if (source / "config/settings.json").exists():
-        SETTINGS.parent.mkdir(parents=True, exist_ok=True)
-        shutil.copy2(source / "config/settings.json", SETTINGS)
-    if (source / "webkit").exists():
-        shutil.copytree(source / "webkit", WEBKIT, symlinks=True)
-    for cookie in COOKIE_NAMES:
-        saved = source / "httpstorages" / cookie
-        if saved.is_dir():
-            shutil.copytree(saved, HTTP_STORAGES / cookie, symlinks=True)
-        elif saved.exists():
-            shutil.copy2(saved, HTTP_STORAGES / cookie)
+    try:
+        move_aside(SUPPORT, replaced, "support")
+        move_aside(SETTINGS, replaced, "config/settings.json")
+        move_aside(WEBKIT, replaced, "webkit")
+        for cookie in COOKIE_NAMES:
+            move_aside(HTTP_STORAGES / cookie, replaced, f"httpstorages/{cookie}")
+        if (source / "support").exists():
+            shutil.copytree(source / "support", SUPPORT, symlinks=True)
+        # The content-blocker lists aren't backed up; the current ones stay.
+        if (replaced / "support/ContentBlocking").exists():
+            shutil.copytree(replaced / "support/ContentBlocking", SUPPORT / "ContentBlocking", symlinks=True)
+        if (source / "config/settings.json").exists():
+            SETTINGS.parent.mkdir(parents=True, exist_ok=True)
+            shutil.copy2(source / "config/settings.json", SETTINGS)
+        if (source / "webkit").exists():
+            shutil.copytree(source / "webkit", WEBKIT, symlinks=True)
+        for cookie in COOKIE_NAMES:
+            saved = source / "httpstorages" / cookie
+            if saved.is_dir():
+                shutil.copytree(saved, HTTP_STORAGES / cookie, symlinks=True)
+            elif saved.exists():
+                shutil.copy2(saved, HTTP_STORAGES / cookie)
+    except (OSError, shutil.Error) as error:
+        fail(f"restore stopped part-way ({error}); the data it replaced is in {replaced}")
     print(f"data-guard: restored {name}; what it replaced is in {replaced}")
 
 

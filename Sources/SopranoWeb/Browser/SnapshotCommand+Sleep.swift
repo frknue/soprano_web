@@ -49,12 +49,8 @@ struct SnapshotSleepOptions {
             options.defaultZoom = BrowserZoom.nearestStep(zoom)
         case "--support-dir":
             let folder = URL(fileURLWithPath: try value(), isDirectory: true)
-            // The daily driver's own data is never a harness folder.
-            let real = FileManager.default.homeDirectoryForCurrentUser
-                .appendingPathComponent("Library/Application Support/Soprano Web", isDirectory: true)
-            guard folder.resolvingSymlinksInPath().standardizedFileURL.path
-                != real.resolvingSymlinksInPath().standardizedFileURL.path
-            else {
+            // The daily driver's data and its backups are never a harness folder.
+            guard !BrowserProtectedData.contains(folder) else {
                 throw SnapshotCommand.OptionError.realSupportFolder(folder.path)
             }
             options.supportDirectory = folder

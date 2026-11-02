@@ -26,6 +26,11 @@ enum BrowserDataCheck {
         }
         let support = URL(fileURLWithPath: arguments[0], isDirectory: true)
         let settings = URL(fileURLWithPath: arguments[1])
+        // Stores write their files back: never the real data or a backup.
+        guard !BrowserProtectedData.contains(support), !BrowserProtectedData.contains(settings) else {
+            FileHandle.standardError.write(Data("data-check: give it copies, not the installed app's data or a backup\n".utf8))
+            return 2
+        }
         let report = summary(support: support, settingsURL: settings)
         guard let data = try? JSONSerialization.data(withJSONObject: report, options: [.sortedKeys, .prettyPrinted]),
               let text = String(data: data, encoding: .utf8)
@@ -47,7 +52,11 @@ enum BrowserDataCheck {
         ]
 
         let profiles = BrowserProfileStore(url: support.appendingPathComponent("profiles.json"))
-        report["profiles"] = profiles.profiles.map { ["id": $0.id.uuidString, "name": $0.name] }
+        report["profiles"] = profiles.profiles.map {
+            // Which WebKit data store holds the profile's logins and site
+            // data: a build that changes it loses them on first launch.
+            ["id": $0.id.uuidString, "name": $0.name, "dataStore": $0.dataStoreIdentifier?.uuidString ?? "default"]
+        }
 
         let spaces = BrowserSpaceStore(url: support.appendingPathComponent("spaces.json"), profiles: profiles.profiles)
         report["spaces"] = spaces.spaces.map { space -> [String: Any] in
@@ -91,6 +100,12 @@ enum BrowserDataCheck {
         report["extensions"] = extensions.records.map {
             ["id": $0.id, "name": $0.name, "version": $0.version, "enabled": $0.isEnabled]
         }
+        // Where WebKit keeps the extensions' own storage (1Password's
+        // sign-in): the controller, and the scheme of each base URL.
+        report["webExtensionStorage"] = [
+            "controller": BrowserExtensions.controllerIdentifier.uuidString,
+            "scheme": BrowserExtensions.scheme,
+        ]
         report["linkRouting"] = BrowserLinkRoutingStore(url: support.appendingPathComponent("link-routing.json")).rules.count
         report["boosts"] = BrowserBoostStore(url: support.appendingPathComponent("boosts.json")).boosts.count
         report["downloads"] = BrowserDownloadStore(url: support.appendingPathComponent("downloads.json")).records.count

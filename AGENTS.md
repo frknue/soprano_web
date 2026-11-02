@@ -40,20 +40,27 @@ site storage, the extensions' own storage, 1Password's sign-in) and
 `~/Library/HTTPStorages/com.soprano.web*`.
 
 - Agents never write, move or delete those, and never point the dev app,
-  the harness (`--support-dir` refuses the real folder), tests or the
-  installed app's `browser` CLI at them. Reading a copy is fine:
-  `scripts/data-guard.py backup` makes one.
+  the harness, tests or the installed app's `browser` CLI at them. The
+  harness's `--support-dir` and `data-check` refuse the real folder and
+  `Soprano Web Backups` (`BrowserProtectedData`): files in a backup are
+  hard links shared by several backups, so even opening a database there
+  can change all of them. To look at the data, copy a backup first
+  (`cp -R`, `ditto`) and work on the copy.
 - Every install goes through `./scripts/install.sh`, which runs
   `scripts/data-guard.py` before replacing the app: `backup --with-app`
   (the data and the installed app, into `~/Library/Application
   Support/Soprano Web Backups/<time>-install-<commit>/`, the newest 15
   kept; SQLite through its online backup, so it is consistent while the app
-  runs) and `check` on copies of that backup: the new build's `data-check`
-  (`BrowserDataCheck`, one JSON summary of every store as the app reads
-  it) must equal the installed build's and see at least what the raw files
-  hold, no store may move a file aside (`.corrupt`, `.unreadable`,
-  `.migrated`), and the new build's harness must restore every saved tab,
-  run every enabled extension and render Settings. A failure stops the
+  runs; a database it can't copy, or a folder it can't read, aborts the
+  backup with nothing kept) and `check` on copies of that backup: the new
+  build's `data-check` (`BrowserDataCheck`, one JSON summary of every store
+  as the app reads it, the profiles' WebKit data stores and the
+  extensions' storage included) must equal the installed build's, see at
+  least what the raw files hold (every store's entries, every value in
+  `settings.json`), and move no file aside (`.corrupt`, `.unreadable`,
+  `.migrated`); the new build's harness must restore exactly the saved
+  tabs, run every enabled extension and move nothing aside on launch, and
+  render Settings in a run of its own. A failure stops the
   install with the installed app untouched: report it to Furkan with the
   `check-report.json` it names; never bypass or weaken the check.
 - A change to anything stored (a file format, a migration, a new store)
@@ -63,7 +70,8 @@ site storage, the extensions' own storage, 1Password's sign-in) and
   before the guard is changed to expect it.
 - `data-guard.py restore <backup> --yes` (data) and `rollback-app <backup>
   --yes` (the app) run only on Furkan's go, with the app quit; what they
-  replace is moved to `Backups/replaced-<time>/`, never deleted.
+  replace goes to `Backups/replaced-<time>-<random>/` first (the app as a
+  zip), never deleted, and a restore that stops part-way names that folder.
   `data-guard.py list` shows the backups and their check results.
 
 ## Verification

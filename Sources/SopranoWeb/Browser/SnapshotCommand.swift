@@ -75,7 +75,7 @@ enum SnapshotCommand {
         case unknownOption(String)
         case badSize(String)
         case missingOut
-        /// `--support-dir` named the installed app's own folder.
+        /// `--support-dir` named the installed app's data or a backup of it.
         case realSupportFolder(String)
 
         var description: String {
@@ -85,7 +85,7 @@ enum SnapshotCommand {
             case .badSize(let value): "--size must be WIDTHxHEIGHT, got \(value)"
             case .missingOut: "--out <png> is required"
             case .realSupportFolder(let path):
-                "--support-dir \(path) is the installed Soprano Web's data; use a copy (scripts/data-guard.py)"
+                "--support-dir \(path) is the installed Soprano Web's data or a backup of it; use a copy"
             }
         }
     }

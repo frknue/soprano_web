@@ -281,7 +281,8 @@ automation model, matching Soprano's browser pane.
   (this folder, settings, logins and site data, cookies) and the installed
   app into `~/Library/Application Support/Soprano Web Backups/` (the newest
   15 are kept) and checks the new build against a copy of it; a build that
-  would lose anything isn't installed. `scripts/data-guard.py list` shows
+  reads less of your data than the installed one, or doesn't restore your
+  tabs and extensions, isn't installed. `scripts/data-guard.py list` shows
   them; `restore <backup> --yes` and `rollback-app <backup> --yes` (with
   the app quit) bring back the data or the app, keeping what they replace.
 - Settings: `~/.config/soprano-web/settings.json` (written on first change).
