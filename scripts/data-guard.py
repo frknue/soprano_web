@@ -132,6 +132,14 @@ def copy_tree(source, target, previous):
     files the backup API already folded in."""
     if not source.exists():
         return 0
+    # The folder or file itself may be a link (a dotfiles settings.json):
+    # its contents are what's backed up.
+    source = source.resolve()
+    # A link out of the data (a profile folder kept elsewhere) can't be
+    # backed up as a link: a check of the copy would open the live target.
+    leaving = escaping_links(source)
+    if leaving:
+        raise BackupError(f"links out of {source}: {', '.join(leaving)}")
     if source.is_file():
         copy_file(source, target, previous)
         return 1
@@ -238,7 +246,30 @@ def working_copy(source, root, name):
     settings = folder / "settings.json"
     if (source / "config/settings.json").exists():
         shutil.copy2(source / "config/settings.json", settings)
+    # Nothing the builds open may lead out of the copy.
+    leaving = escaping_links(folder)
+    if leaving:
+        fail(f"the backup has links out of it, nothing was run on it: {', '.join(leaving)}")
     return folder / "support", settings
+
+
+def escaping_links(root):
+    """Links under `root` whose target is outside it (or missing)."""
+    if root.is_symlink():
+        return [str(root)]
+    if not root.is_dir():
+        return []
+    base = root.resolve()
+    found = []
+    for folder, folders, files in os.walk(root):
+        for name in folders + files:
+            path = Path(folder) / name
+            if not path.is_symlink():
+                continue
+            target = path.resolve()
+            if not target.exists() or (target != base and base not in target.parents):
+                found.append(str(path.relative_to(root)))
+    return sorted(found)
 
 
 def has_data_check(binary):

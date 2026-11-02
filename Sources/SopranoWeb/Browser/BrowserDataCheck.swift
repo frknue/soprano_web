@@ -31,6 +31,11 @@ enum BrowserDataCheck {
             FileHandle.standardError.write(Data("data-check: give it copies, not the installed app's data or a backup\n".utf8))
             return 2
         }
+        let leaving = BrowserProtectedData.escapingLinks(in: support)
+        guard leaving.isEmpty else {
+            FileHandle.standardError.write(Data("data-check: links lead out of the copy: \(leaving.joined(separator: ", "))\n".utf8))
+            return 2
+        }
         let report = summary(support: support, settingsURL: settings)
         guard let data = try? JSONSerialization.data(withJSONObject: report, options: [.sortedKeys, .prettyPrinted]),
               let text = String(data: data, encoding: .utf8)

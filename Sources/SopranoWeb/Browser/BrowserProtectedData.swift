@@ -22,6 +22,26 @@ enum BrowserProtectedData {
         return folders.map(normalized).contains { path == $0 || path.hasPrefix($0 + "/") }
     }
 
+    /// Links under `folder` that lead out of it: a store opening one would
+    /// read and write wherever it points, not the copy.
+    static func escapingLinks(in folder: URL) -> [String] {
+        let root = normalized(folder)
+        guard let walker = FileManager.default.enumerator(
+            at: folder,
+            includingPropertiesForKeys: [.isSymbolicLinkKey],
+            options: []
+        ) else { return [] }
+        var found: [String] = []
+        for case let url as URL in walker {
+            guard (try? url.resourceValues(forKeys: [.isSymbolicLinkKey]))?.isSymbolicLink == true else { continue }
+            let target = normalized(url)
+            if target != root, !target.hasPrefix(root + "/") {
+                found.append(url.path)
+            }
+        }
+        return found
+    }
+
     private static func normalized(_ url: URL) -> String {
         var path = url.resolvingSymlinksInPath().standardizedFileURL.path.lowercased()
         while path.count > 1, path.hasSuffix("/") {
