@@ -41,6 +41,8 @@ import sqlite3
 import subprocess
 import sys
 import tempfile
+import time
+from contextlib import closing
 from pathlib import Path
 
 HOME = Path.home()
@@ -90,20 +92,33 @@ def digest(path):
     return hasher.hexdigest()
 
 
-def copy_file(source, target, previous, notes):
+class BackupError(Exception):
+    pass
+
+
+def copy_file(source, target, previous):
     """Copies one file (SQLite through its backup API); a file equal to the
-    previous backup's becomes a hard link to it."""
+    previous backup's becomes a hard link to it. A database SQLite can't
+    back up stops the whole backup: copying only its main file would drop
+    what its WAL holds."""
     target.parent.mkdir(parents=True, exist_ok=True)
     if is_sqlite(source):
-        try:
-            with sqlite3.connect(read_only_uri(source), uri=True, timeout=10) as reader, \
-                    sqlite3.connect(target) as writer:
-                reader.backup(writer)
-                # The copy stands alone: no -wal or -shm next to it.
-                writer.execute("PRAGMA journal_mode=DELETE")
-        except sqlite3.Error as error:
-            notes.append(f"{source}: copied as a file ({error})")
-            shutil.copy2(source, target)
+        for attempt in range(3):
+            try:
+                # `with` on a connection only commits; closing() closes it,
+                # so the copy is left without -wal or -shm next to it.
+                with closing(sqlite3.connect(read_only_uri(source), uri=True, timeout=10)) as reader, \
+                        closing(sqlite3.connect(target)) as writer:
+                    reader.backup(writer)
+                    writer.execute("PRAGMA journal_mode=DELETE")
+                for suffix in ("-wal", "-shm"):
+                    Path(f"{target}{suffix}").unlink(missing_ok=True)
+                break
+            except sqlite3.Error as error:
+                target.unlink(missing_ok=True)
+                if attempt == 2:
+                    raise BackupError(f"{source}: SQLite could not back it up ({error})")
+                time.sleep(1)
     else:
         shutil.copy2(source, target, follow_symlinks=False)
     if previous is not None and previous.is_file() and not target.is_symlink():
@@ -112,13 +127,13 @@ def copy_file(source, target, previous, notes):
             os.link(previous, target)
 
 
-def copy_tree(source, target, previous, notes):
+def copy_tree(source, target, previous):
     """`source` into `target`, skipping rebuilt folders and the SQLite side
     files the backup API already folded in."""
     if not source.exists():
         return 0
     if source.is_file():
-        copy_file(source, target, previous, notes)
+        copy_file(source, target, previous)
         return 1
     count = 0
     for root, folders, files in os.walk(source):
@@ -135,7 +150,7 @@ def copy_tree(source, target, previous, notes):
             if path.is_socket() or not (path.is_file() or path.is_symlink()):
                 continue
             earlier = previous / relative / name if previous else None
-            copy_file(path, target / relative / name, earlier, notes)
+            copy_file(path, target / relative / name, earlier)
             count += 1
     return count
 
@@ -170,20 +185,24 @@ def backup(label, with_app):
     partial = BACKUPS / f".{name}.partial"
     shutil.rmtree(partial, ignore_errors=True)
     partial.mkdir(parents=True)
-    notes = []
-    files = {
-        "support": copy_tree(SUPPORT, partial / "support", previous / "support" if previous else None, notes),
-        "settings": copy_tree(SETTINGS, partial / "config/settings.json",
-                              previous / "config/settings.json" if previous else None, notes),
-        "webkit": copy_tree(WEBKIT, partial / "webkit", previous / "webkit" if previous else None, notes),
-        "cookies": sum(copy_tree(HTTP_STORAGES / cookie, partial / "httpstorages" / cookie,
-                                 previous / "httpstorages" / cookie if previous else None, notes)
-                       for cookie in COOKIE_NAMES),
-    }
-    if with_app and APP.exists():
-        (partial / "app").mkdir()
-        subprocess.run(["ditto", "-c", "-k", "--keepParent", str(APP), str(partial / "app/Soprano Web.app.zip")],
-                       check=True)
+    try:
+        files = {
+            "support": copy_tree(SUPPORT, partial / "support", previous / "support" if previous else None),
+            "settings": copy_tree(SETTINGS, partial / "config/settings.json",
+                                  previous / "config/settings.json" if previous else None),
+            "webkit": copy_tree(WEBKIT, partial / "webkit", previous / "webkit" if previous else None),
+            "cookies": sum(copy_tree(HTTP_STORAGES / cookie, partial / "httpstorages" / cookie,
+                                     previous / "httpstorages" / cookie if previous else None)
+                           for cookie in COOKIE_NAMES),
+        }
+        if with_app and APP.exists():
+            (partial / "app").mkdir()
+            subprocess.run(["ditto", "-c", "-k", "--keepParent", str(APP), str(partial / "app/Soprano Web.app.zip")],
+                           check=True)
+    except (BackupError, OSError, subprocess.CalledProcessError) as error:
+        # Nothing incomplete is ever published as a backup.
+        shutil.rmtree(partial, ignore_errors=True)
+        fail(f"backup failed, nothing kept: {error}")
     manifest = {
         "created": datetime.datetime.now().astimezone().isoformat(timespec="seconds"),
         "label": label,
@@ -192,7 +211,6 @@ def backup(label, with_app):
         "appKept": (partial / "app").exists(),
         "appWasRunning": app_running(),
         "files": files,
-        "notes": notes,
     }
     (partial / "manifest.json").write_text(json.dumps(manifest, indent=2) + "\n")
     partial.rename(target)
@@ -201,8 +219,6 @@ def backup(label, with_app):
     size = subprocess.run(["du", "-sh", str(target)], capture_output=True, text=True).stdout.split("\t")[0]
     print(f"data-guard: backup {target.name} ({size}, {sum(files.values())} files"
           f"{', app kept' if manifest['appKept'] else ''})")
-    for note in notes:
-        print(f"data-guard: note: {note}")
     return target
 
 
@@ -280,7 +296,7 @@ def raw_counts(source):
         counts["extensions"] = len(extensions.get("extensions", []))
     visits = 0
     for database in (source / "support").rglob("History.sqlite"):
-        with sqlite3.connect(read_only_uri(database), uri=True) as reader:
+        with closing(sqlite3.connect(read_only_uri(database), uri=True)) as reader:
             visits += reader.execute("select count(*) from visits").fetchone()[0]
     counts["visits"] = visits
     return counts
