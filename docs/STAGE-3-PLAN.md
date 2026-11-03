@@ -1,8 +1,8 @@
 # Stage 3 — Arc's organization model and import (design contract)
 
 The design every stage 3 phase builds against. Status, branches and the next step are in
-`docs/STATUS.md`. Read the repo `AGENTS.md` first (build env, `taskpolicy -b`, `-j 2`,
-swift-testing rules, harness, CHANGELOG, conventions), then `docs/ROADMAP.md` §3 and
+`docs/STATUS.md`. Read the repo `AGENTS.md` first (build env, `-j 2`,
+swift-testing rules, CHANGELOG, conventions; harness flags in `docs/HARNESS.md`), then `docs/ROADMAP.md` §3 and
 `docs/ARC-PARITY.md` ("Arc's model in brief", "Importing from Arc").
 
 ## User decisions (final, do not re-ask)

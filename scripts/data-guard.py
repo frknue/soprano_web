@@ -280,7 +280,7 @@ def has_data_check(binary):
 
 
 def data_check(binary, support, settings):
-    run = subprocess.run(["taskpolicy", "-b", str(binary), "data-check", str(support), str(settings)],
+    run = subprocess.run([str(binary), "data-check", str(support), str(settings)],
                          capture_output=True, text=True, timeout=120)
     if run.returncode != 0:
         fail(f"{binary} data-check exited {run.returncode}: {run.stderr.strip()}")
@@ -396,7 +396,7 @@ def summary_counts(summary):
 def harness_run(binary, support, root, flags):
     """The new build off screen, on a copy of the user's support folder."""
     run = subprocess.run(
-        ["taskpolicy", "-b", str(binary), "snapshot", "--out", str(root / "check.png"),
+        [str(binary), "snapshot", "--out", str(root / "check.png"),
          "--support-dir", str(support), "--wait", "6"] + flags,
         capture_output=True, text=True, timeout=300)
     lines = {}

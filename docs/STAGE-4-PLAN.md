@@ -1,8 +1,8 @@
 # Stage 4 — Arc extras (design contract)
 
 The design every stage 4 phase builds against. Status, branches and the next step are in
-`docs/STATUS.md`. Read the repo `AGENTS.md` first (build env, `taskpolicy -b`, `-j 2`,
-swift-testing rules, harness, dev app, CHANGELOG, conventions), then `docs/ROADMAP.md` §4
+`docs/STATUS.md`. Read the repo `AGENTS.md` first (build env, `-j 2`,
+swift-testing rules, dev app, CHANGELOG, conventions; harness flags in `docs/HARNESS.md`), then `docs/ROADMAP.md` §4
 and `docs/ARC-PARITY.md` (feature matrix, "What WebKit keeps private", "Extensions under
 WKWebExtension", prior art). Branch: `feat/stage-4`, one or more commits per phase.
 
@@ -38,8 +38,8 @@ WKWebExtension", prior art). Branch: `feat/stage-4`, one or more commits per pha
 
 ## Phases (build order: daily impact before Arc stops on 2026-12-22)
 
-Each phase ends with: `swift build` + `swift test` green (debug; release before install),
-harness flags documented in `AGENTS.md` for every new surface, the dev app exercised over
+Each phase ends with: `swift build` + `swift test` green,
+harness flags documented in `docs/HARNESS.md` or `docs/ARCHITECTURE.md` for every new surface, the dev app exercised over
 the `browser` CLI where the CLI reaches, `CHANGELOG.md` `[Unreleased]` lines, the
 roadmap item moved or deleted, `docs/STATUS.md` updated, committed on `feat/stage-4`.
 
