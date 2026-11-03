@@ -32,7 +32,10 @@ extension BrowserWindowManager {
             history: { [unowned self] profile in self.history(for: profile) },
             safeStoragePassword: importSafeStoragePassword,
             setCookies: { [unowned self] profile, cookies in
-                await self.context(for: profile.id).websiteDataStore.httpCookieStore.setCookies(cookies)
+                // A deleted profile's context would be Default's: never.
+                guard let context = Self.existingProfileContext(profile.id, profiles: self.profiles, context: self.context(for:))
+                else { return }
+                await context.websiteDataStore.httpCookieStore.setCookies(cookies)
             }
         )
     }

@@ -403,6 +403,12 @@ final class BrowserImporter {
                     entry.error = "cancelled"
                     break
                 }
+                // The Space deleted meanwhile: its cookies go nowhere (never
+                // into Default's data store).
+                guard profile.isDefault || stores.profiles.profile(id: profile.id) != nil else {
+                    entry.error = "The Space “\(entry.spaceName)” was deleted during the import"
+                    break
+                }
                 let cookies = read.cookies.compactMap(\.httpCookie)
                 await stores.setCookies(profile, cookies)
                 entry.added = cookies.count

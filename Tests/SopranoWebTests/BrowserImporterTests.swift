@@ -25,6 +25,13 @@ struct BrowserImporterTests {
         var histories: [UUID: BrowserHistoryStore] = [:]
         /// Cookies the import set, by profile.
         var cookies: [UUID: [HTTPCookie]] = [:]
+        /// Aside's keychain item exists; any other is missing.
+        var safeStoragePassword: @Sendable (String) throws -> String = { service in
+            guard service == "Aside Safe Storage" else {
+                throw BrowserImportError.keychain("The login keychain has no “\(service)” item")
+            }
+            return ChromiumCookieFixture.password
+        }
 
         @MainActor
         init() {
@@ -52,13 +59,7 @@ struct BrowserImporterTests {
                     histories[profile.id] = store
                     return store
                 },
-                // Aside's keychain item exists; any other is missing.
-                safeStoragePassword: { service in
-                    guard service == "Aside Safe Storage" else {
-                        throw BrowserImportError.keychain("The login keychain has no “\(service)” item")
-                    }
-                    return ChromiumCookieFixture.password
-                },
+                safeStoragePassword: safeStoragePassword,
                 setCookies: { [self] profile, cookies in
                     self.cookies[profile.id, default: []] += cookies
                 }
@@ -499,5 +500,51 @@ struct BrowserImporterTests {
         #expect(Progress(handled: 0, total: 20, item: "").statusText == "Importing…")
         #expect(Progress(handled: 0, total: 20, item: "Aside Cookies (Hustle)", isCookies: true).statusText == "Aside Cookies (Hustle)…")
         #expect(Progress(handled: 5, total: 20, item: "History").statusText == "History: 5 of 20 visits")
+    }
+
+    /// The destination Space deleted while macOS asks for the keychain:
+    /// its cookies go nowhere (never into Default's data store), and the
+    /// result says why.
+    @Test func aSpaceDeletedDuringTheKeychainPromptGetsNoCookies() async throws {
+        let fixture = Fixture()
+        let work = try #require(fixture.spaces.createSpace(name: "Hustle", color: .green, profiles: fixture.profiles))
+        let prompt = PromptGate()
+        fixture.safeStoragePassword = { _ in
+            prompt.asked.signal()
+            prompt.answer.wait()
+            return ChromiumCookieFixture.password
+        }
+        var plan = BrowserImportPlanner.chromium(.aside, try asideProfiles(fixture), context: fixture.context)
+        plan.cookies = plan.cookies.filter { $0.profileKey == "Profile 1" }
+        plan.folders = []
+        #expect(plan.profile(key: "Profile 1")?.target == .existing(work.profileID))
+
+        let importer = BrowserImporter(stores: fixture.stores)
+        let finished = Task { @MainActor in
+            await withCheckedContinuation { continuation in
+                importer.run(plan, cancellation: BrowserImportCancellation(), progress: { _ in }, completion: {
+                    continuation.resume(returning: $0)
+                })
+            }
+        }
+        await Task.detached { prompt.waitUntilAsked() }.value
+        fixture.spaces.deleteSpace(ofProfile: work.profileID)
+        fixture.profiles.remove(id: work.profileID)
+        prompt.answer.signal()
+        let summary = await finished.value
+
+        #expect(fixture.cookies.isEmpty)
+        #expect(summary.cookies.map(\.added) == [0])
+        #expect(summary.cookies.first?.error?.contains("deleted") == true)
+    }
+
+    /// A keychain prompt the test answers when it is ready.
+    private final class PromptGate: Sendable {
+        let asked = DispatchSemaphore(value: 0)
+        let answer = DispatchSemaphore(value: 0)
+
+        func waitUntilAsked() {
+            asked.wait()
+        }
     }
 }
