@@ -91,12 +91,13 @@ tabs unloaded in the importing window, the Archive with its favicons, each profi
 History off the main thread with progress and cancel, Air Traffic Control rules applied
 to links from other apps and listed in Settings ▸ Links from other apps; Arc's folder
 read in place, SQLite with `immutable=1`; a re-import skips what an earlier one made),
-Chrome (`Bookmarks` as a pinned folder, `History`), Safari's Export Browsing Data ZIP
-and bookmarks HTML files, and File ▸ Export Pinned Tabs… as bookmarks HTML.
+Chrome (the bookmarks bar pinned at the top level, `History`, cookies through the
+browser's "Safe Storage" keychain item, a Space per profile), Safari's Export Browsing
+Data ZIP and bookmarks HTML files, and File ▸ Export Pinned Tabs… as bookmarks HTML.
 
-- Brave, Edge, Vivaldi and Chromium import like Chrome (after stage 4). Not built: Arc's
-  `Arc Data Export.md` as a lossy fallback; Firefox as a source. Cookies and passwords
-  don't transfer; Easels, Notes and Boosts aren't on disk.
+- Brave, Edge, Vivaldi, Chromium and Aside import like Chrome (after stage 4). Not
+  built: Arc's `Arc Data Export.md` as a lossy fallback; Firefox as a source; Arc's
+  cookies. Passwords don't transfer; Easels, Notes and Boosts aren't on disk.
 
 ## 4. Arc extras
 

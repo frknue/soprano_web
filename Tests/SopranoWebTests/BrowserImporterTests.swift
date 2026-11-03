@@ -465,6 +465,38 @@ struct BrowserImporterTests {
         #expect(again.pinsAdded == 0 && again.foldersAdded == 0)
     }
 
+    /// A first import keeps the browser's own repeats: an address on the
+    /// bar and again in Other Bookmarks is pinned in both places.
+    @Test func aFirstImportKeepsAddressesTheBrowserHasTwice() async throws {
+        let fixture = Fixture()
+        let home = try #require(fixture.spaces.defaultSpace)
+        let nodes: [BrowserImportedNode] = [
+            .link(link("https://g.example/", "G")),
+            .folder(BrowserImportedFolder(name: "Other Bookmarks", children: [
+                .link(link("https://g.example/", "G")),
+                .link(link("https://f.example/", "F")),
+            ])),
+        ]
+        let plan = BrowserImportPlanner.chromium(.chrome, [BrowserImportSourceData.ChromeProfile(
+            profile: BrowserImportedProfile(key: "Default", displayName: "Me", directory: nil),
+            bookmarks: nodes, historyFile: nil,
+            historyCounts: BrowserImportSourceData.HistoryCounts(visits: 0, importable: 0, kept: 0)
+        )], context: fixture.context)
+        #expect(plan.folders.first?.pinCount == 3)
+        let summary = await run(plan, fixture)
+        #expect(summary.pinsAdded == 3)
+        let tree = fixture.spaces.pinTree(inSpace: home.id)
+        #expect(tree.root.children.compactMap(\.folder).first?.children.map(\.title) == ["G", "F"])
+
+        // Planned again: everything there, nothing to add, and the row says so.
+        let again = BrowserImportPlanner.chromium(.chrome, [BrowserImportSourceData.ChromeProfile(
+            profile: BrowserImportedProfile(key: "Default", displayName: "Me", directory: nil),
+            bookmarks: nodes, historyFile: nil,
+            historyCounts: BrowserImportSourceData.HistoryCounts(visits: 0, importable: 0, kept: 0)
+        )], context: fixture.context)
+        #expect(again.folders.first?.alreadyThere == true)
+    }
+
     @Test func aMissingKeychainItemFailsOnlyTheCookies() async throws {
         let fixture = Fixture()
         let summary = await run(BrowserImportPlanner.chromium(.chrome, try asideProfiles(fixture), context: fixture.context), fixture)

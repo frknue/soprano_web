@@ -519,19 +519,18 @@ enum BrowserImportPlanner {
     // MARK: Chromium browsers, Safari, bookmarks files
 
     /// Points a non-Arc plan at Space `spaceID`
-    /// (the sheet's Space menu): its folders go there (one the Space has
-    /// a top-level folder of that name for is skipped) and its History
-    /// and cookies join that Space's. A plan whose source profiles have
-    /// homes of their own (several Chromium profiles) has no target.
+    /// (the sheet's Space menu): its bookmarks go there (judged again
+    /// against that Space: a wrapped folder it has by name is skipped, top-
+    /// level bookmarks count what the merge would add) and its History and
+    /// cookies join that Space's. A plan whose source profiles have homes
+    /// of their own (several Chromium profiles) has no target.
     static func retarget(_ plan: inout BrowserImportPlan, to spaceID: UUID, spaces: BrowserSpaceList) {
-        guard plan.source != .arc, plan.profiles.isEmpty, spaces.space(id: spaceID) != nil else { return }
+        guard plan.source != .arc, plan.profiles.isEmpty, let space = spaces.space(id: spaceID) else { return }
         plan.targetSpaceID = spaceID
-        let tree = spaces.space(id: spaceID)?.pinned
         for index in plan.folders.indices {
             let wasThere = plan.folders[index].alreadyThere
-            let there = tree.map { isThere(plan.folders[index], in: $0) } ?? false
-            plan.folders[index].alreadyThere = there
-            if there {
+            judge(&plan.folders[index], in: space.pinned)
+            if plan.folders[index].alreadyThere {
                 plan.folders[index].isIncluded = false
             } else if wasThere {
                 plan.folders[index].isIncluded = !plan.folders[index].nodes.isEmpty
@@ -551,8 +550,8 @@ enum BrowserImportPlanner {
     /// a profile of its own. No two profiles share a home, so neither's
     /// cookies overwrite the other's: a Space another profile took already
     /// doesn't count. Its bookmarks are pinned there, and its History and
-    /// cookies go there. A re-import skips pins the Space has (same
-    /// address) and top-level folders of the same name.
+    /// cookies go there. A re-import adds only what `merge` would: pins
+    /// the Space doesn't have, folders filled into same-named ones.
     static func chromium(
         _ browser: BrowserImportSourceKind,
         _ profiles: [BrowserImportSourceData.ChromeProfile],
@@ -712,51 +711,46 @@ enum BrowserImportPlanner {
         space: BrowserSpace?,
         wrapsInFolder: Bool = true
     ) -> BrowserImportPlan.Folder {
-        let counts = nodeCounts(nodes)
         var folder = BrowserImportPlan.Folder(
             id: id,
             name: name,
             nodes: nodes,
-            pinCount: counts.pins,
-            folderCount: counts.folders,
+            pinCount: 0,
+            folderCount: 0,
             alreadyThere: false,
             isIncluded: false,
             wrapsInFolder: wrapsInFolder
         )
-        folder.alreadyThere = space.map { isThere(folder, in: $0.pinned) } ?? false
+        judge(&folder, in: space?.pinned ?? BrowserPinTree())
         folder.isIncluded = !folder.alreadyThere && !nodes.isEmpty
         return folder
     }
 
-    /// Whether `folder` is in `tree` from an earlier import: a top-level
-    /// folder of its name, or (not wrapped) every one of its nodes.
-    static func isThere(_ folder: BrowserImportPlan.Folder, in tree: BrowserPinTree) -> Bool {
-        guard !folder.wrapsInFolder else {
-            return tree.root.children.contains { $0.folder?.name == folder.name }
-        }
-        return !folder.nodes.isEmpty && folder.nodes.allSatisfy { isThere($0, in: tree) }
-    }
-
-    /// A pin whose address the Space pins anywhere; a folder whose every
-    /// pin is (an empty one: a top-level folder of its name).
-    static func isThere(_ node: BrowserImportedNode, in tree: BrowserPinTree) -> Bool {
-        switch node {
-        case let .link(link):
-            return !tree.pins(url: link.url).isEmpty
-        case let .folder(folder):
-            guard !folder.children.isEmpty else {
-                return tree.root.children.contains { $0.folder?.name == folder.name }
-            }
-            return folder.children.allSatisfy { isThere($0, in: tree) }
+    /// Sets `folder`'s counts and `alreadyThere` for `tree`: a wrapped one
+    /// is there when the tree has a top-level folder of its name; top-level
+    /// bookmarks count exactly what `merge` would add to a copy of the
+    /// tree, and are there when that is nothing.
+    private static func judge(_ folder: inout BrowserImportPlan.Folder, in tree: BrowserPinTree) {
+        if folder.wrapsInFolder {
+            let counts = nodeCounts(folder.nodes)
+            folder.pinCount = counts.pins
+            folder.folderCount = counts.folders
+            folder.alreadyThere = tree.root.children.contains { $0.folder?.name == folder.name }
+        } else {
+            var copy = tree
+            let added = merge(folder.nodes, into: BrowserPinTree.rootID, of: &copy)
+            folder.pinCount = added.pins
+            folder.folderCount = added.folders
+            folder.alreadyThere = !folder.nodes.isEmpty && added.pins == 0 && added.folders == 0
         }
     }
 
     /// Merges imported `nodes` into folder `folderID` of `tree`: a pin whose
-    /// address the tree pins anywhere is skipped; a folder joins the
-    /// same-named (not live) folder at that level, which keeps its id and
-    /// its own items and gets what it lacks, else comes in new with what
-    /// isn't pinned yet (nothing when everything is). Returns what was
-    /// added.
+    /// address the tree pinned before the merge began is skipped (the
+    /// source's own repeats all come in); a folder joins the same-named
+    /// (not live) folder at that level, which keeps its id and its own
+    /// items and gets what it lacks, else comes in new when it brings
+    /// something (or is empty in the source too). Returns what was added.
     @discardableResult
     static func merge(
         _ nodes: [BrowserImportedNode],
@@ -764,31 +758,45 @@ enum BrowserImportPlanner {
         of tree: inout BrowserPinTree,
         now: Date = Date()
     ) -> (pins: Int, folders: Int) {
+        let pinned = Set(tree.root.allPins.map(\.url))
+        return merge(nodes, into: folderID, of: &tree, pinned: pinned, now: now)
+    }
+
+    private static func merge(
+        _ nodes: [BrowserImportedNode],
+        into folderID: UUID,
+        of tree: inout BrowserPinTree,
+        pinned: Set<String>,
+        now: Date
+    ) -> (pins: Int, folders: Int) {
         var added = (pins: 0, folders: 0)
         for node in nodes {
             switch node {
             case let .link(link):
                 let pin = BrowserPin(url: link.url, title: link.title, addedAt: link.addedAt ?? now)
-                guard tree.pins(url: link.url).isEmpty, tree.insert(.pin(pin), into: folderID) else { continue }
+                guard !pinned.contains(link.url), tree.insert(.pin(pin), into: folderID) else { continue }
                 added.pins += 1
             case let .folder(source):
                 let sameNamed = tree.folder(id: folderID)?.children.first {
                     guard let folder = $0.folder else { return false }
                     return folder.name == source.name && !folder.isLive
                 }
-                let destination: UUID
                 if let sameNamed {
-                    destination = sameNamed.id
-                } else {
-                    guard source.children.isEmpty || !isThere(node, in: tree) else { continue }
-                    let made = BrowserPinFolder(name: source.name, addedAt: source.addedAt ?? now)
-                    guard tree.insert(.folder(made), into: folderID) else { continue }
-                    added.folders += 1
-                    destination = made.id
+                    let inner = merge(source.children, into: sameNamed.id, of: &tree, pinned: pinned, now: now)
+                    added.pins += inner.pins
+                    added.folders += inner.folders
+                    continue
                 }
-                let inner = merge(source.children, into: destination, of: &tree, now: now)
+                let made = BrowserPinFolder(name: source.name, addedAt: source.addedAt ?? now)
+                guard tree.insert(.folder(made), into: folderID) else { continue }
+                let inner = merge(source.children, into: made.id, of: &tree, pinned: pinned, now: now)
+                if inner.pins + inner.folders == 0, !source.children.isEmpty {
+                    // Everything in it is pinned elsewhere: no empty copy.
+                    tree.remove(made.id)
+                    continue
+                }
                 added.pins += inner.pins
-                added.folders += inner.folders
+                added.folders += inner.folders + 1
             }
         }
         return added

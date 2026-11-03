@@ -302,6 +302,41 @@ struct BrowserImportPlanTests {
         #expect(file.folders.map(\.name) == ["export"])
     }
 
+    /// The plan judges exactly what the import would add: empty folders
+    /// are looked for at their own level (a top-level folder of that name
+    /// elsewhere doesn't count, a matching one there does), and a partial
+    /// re-import counts only what's missing.
+    @Test func chromiumPlansCountWhatTheImportWouldAdd() {
+        let nodes: [BrowserImportedNode] = [
+            .folder(BrowserImportedFolder(name: "Work", children: [
+                .link(link("https://w.example/")),
+                .link(link("https://x.example/")),
+                .folder(BrowserImportedFolder(name: "Empty")),
+            ])),
+        ]
+        let profiles = [BrowserImportSourceData.ChromeProfile(
+            profile: BrowserImportedProfile(key: "Default", displayName: "Me", directory: nil),
+            bookmarks: nodes, historyFile: nil,
+            historyCounts: BrowserImportSourceData.HistoryCounts(visits: 0, importable: 0, kept: 0)
+        )]
+        var list = BrowserSpaceList()
+        list.reconcile(with: [.defaultProfile])
+        let spaceID = list.spaces[0].id
+        // w is pinned, there's a top-level "Empty", but Work/Empty and x are missing.
+        list.updatePins(in: spaceID) { $0.insert(.pin(BrowserPin(url: "https://w.example/", title: "W")), into: BrowserPinTree.rootID, at: nil) }
+        list.updatePins(in: spaceID) { $0.insert(.folder(BrowserPinFolder(name: "Empty")), into: BrowserPinTree.rootID, at: nil) }
+        let partial = BrowserImportPlanner.chromium(.chrome, profiles, context: context(spaces: list))
+        #expect(partial.folders.first?.isIncluded == true)
+        #expect(partial.folders.first.map { [$0.pinCount, $0.folderCount] } == [1, 2])
+
+        // After a full import: nothing to add, so the row says skipped.
+        var tree = list.space(id: spaceID)!.pinned
+        BrowserImportPlanner.merge(nodes, into: BrowserPinTree.rootID, of: &tree)
+        list.updatePins(in: spaceID) { $0 = tree; return true }
+        let again = BrowserImportPlanner.chromium(.chrome, profiles, context: context(spaces: list))
+        #expect(again.folders.first?.alreadyThere == true)
+    }
+
     /// Aside's profiles: Valkental matches a Space of that name, Hustle was
     /// imported before (its profile is marked), Datora gets a new Space, and
     /// a `Default` matching nothing lands in the Default Space.
