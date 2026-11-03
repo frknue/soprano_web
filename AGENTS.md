@@ -678,10 +678,14 @@ site storage, the extensions' own storage, 1Password's sign-in) and
   a new one named after its first Space —; an untouched home (no pins,
   never imported) is taken over by the profile's first new Space;
   a Chromium browser with one profile goes into the target Space, one
-  with several gives each profile a home (the Space an import marked
-  `aside:Profile N`, else the Space named like the profile, else
-  `Default` → the Default Space, else a new Space) for its bookmarks
-  folder, History and cookies, and has no Space menu;
+  with several (or one an earlier import gave a home) gives each profile
+  a home of its own, claimed in passes so profile order doesn't matter:
+  the Space an import marked (`aside:Profile N`), then the Space named
+  like the profile, then `Default` → the Default Space, else a new Space;
+  a home found by name or as Default is marked when the import uses it
+  (`BrowserProfileStore.markImported`). Its bookmarks folder, History
+  and cookies go there, empty History is unchecked, and it has no Space
+  menu;
   Spaces skipped by `importedFrom`, `retarget` for the Chrome/Safari/HTML
   Space menu, favorites past 12, Archive ids from Arc's item ids, History counts within
   Settings ▸ Remove history items; `BrowserImportColorMatch`, OKLab hue to

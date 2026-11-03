@@ -80,13 +80,22 @@ final class BrowserImporter {
         var visitsSkipped: Int { history.reduce(0) { $0 + $1.count.skipped } }
     }
 
-    /// Progress: History visits handled of `total`.
+    /// Progress: History visits handled of `total`, or (`isCookies`) the
+    /// cookie item `item` running, macOS's keychain prompt included.
     struct Progress: Sendable, Equatable {
         var handled: Int
         var total: Int
         var item: String
+        var isCookies = false
 
         var fraction: Double { total > 0 ? min(1, Double(handled) / Double(total)) : 1 }
+
+        /// The sheet's status line.
+        var statusText: String {
+            if isCookies { return "\(item)…" }
+            guard total > 0, !item.isEmpty else { return "Importing…" }
+            return "\(item): \(handled.formatted()) of \(total.formatted()) visits"
+        }
     }
 
     /// Visits per History transaction.
@@ -112,7 +121,7 @@ final class BrowserImporter {
     ) -> Summary {
         let result = applyStores(plan)
         Task { @MainActor in
-            let withCookies = await self.importCookies(plan, into: result, cancellation: cancellation)
+            let withCookies = await self.importCookies(plan, into: result, cancellation: cancellation, progress: progress)
             self.importHistory(plan, into: withCookies, cancellation: cancellation, progress: progress, completion: completion)
         }
         return result
@@ -300,6 +309,12 @@ final class BrowserImporter {
         }
         if let found {
             homes[key] = found.id
+            // A Chromium profile's home found by name or as Default stays
+            // its home for the next import, whatever the Spaces are called
+            // by then. (Arc's Default home is fixed and needs no mark.)
+            if plan.source.isChromium, case .existing = mapping.target {
+                stores.profiles.markImported(id: found.id, from: plan.profileSource(key))
+            }
         }
         return found
     }
@@ -344,12 +359,14 @@ final class BrowserImporter {
     private func importCookies(
         _ plan: BrowserImportPlan,
         into storesResult: Summary,
-        cancellation: BrowserImportCancellation
+        cancellation: BrowserImportCancellation,
+        progress: @escaping @MainActor @Sendable (Progress) -> Void
     ) async -> Summary {
         var result = storesResult
         var keys: [String: Result<Data, Error>] = [:]
         for item in plan.cookies where item.isIncluded && item.count > 0 {
             guard !cancellation.isCancelled else { break }
+            progress(Progress(handled: 0, total: plan.includedVisitCount, item: item.title, isCookies: true))
             let profile: BrowserProfile
             if let key = item.profileKey {
                 guard let home = resolveHome(key, in: plan, result: &result) else { continue }
@@ -381,6 +398,11 @@ final class BrowserImporter {
             }
             switch read {
             case let .success(read):
+                // Cancelled while macOS asked for the key or the file was read.
+                guard !cancellation.isCancelled else {
+                    entry.error = "cancelled"
+                    break
+                }
                 let cookies = read.cookies.compactMap(\.httpCookie)
                 await stores.setCookies(profile, cookies)
                 entry.added = cookies.count
@@ -404,7 +426,8 @@ final class BrowserImporter {
     ) {
         var result = storesResult
         var jobs: [HistoryRun.Job] = []
-        for item in plan.history where item.isIncluded {
+        // Cancelled during cookies: no home Space is made for History.
+        for item in plan.history where item.isIncluded && !cancellation.isCancelled {
             let profile: BrowserProfile
             if let key = item.profileKey {
                 // A source profile's History goes to its home Space only; one

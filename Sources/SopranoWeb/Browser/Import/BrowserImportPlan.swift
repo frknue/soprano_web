@@ -557,7 +557,11 @@ enum BrowserImportPlanner {
         var plan = BrowserImportPlan(source: browser, sourceName: name)
         plan.targetSpaceID = context.targetSpaceID
         plan.defaultSpaceName = context.spaces.defaultSpace?.displayName ?? BrowserProfile.defaultName
+        // A browser down to one profile still uses the home an earlier
+        // import gave it.
+        let profileList = BrowserProfileList(context.profiles)
         let ownHomes = profiles.count > 1
+            || profiles.contains { profileList.profile(importedFrom: profileSource(browser, $0.profile.key)) != nil }
         let target = context.targetSpaceID.flatMap { context.spaces.space(id: $0) }
         let homes = ownHomes ? chromiumHomes(browser, profiles.map(\.profile), context: context) : []
         plan.profiles = homes.map(\.profile)
@@ -579,7 +583,7 @@ enum BrowserImportPlanner {
                     profileKey: profileKey,
                     source: .chromium(file, since: context.historyCutoff),
                     visitCount: profile.historyCounts.kept,
-                    isIncluded: true,
+                    isIncluded: profile.historyCounts.kept > 0,
                     sourceVisitCount: profile.historyCounts.visits,
                     olderCount: profile.historyCounts.importable - profile.historyCounts.kept
                 ))
@@ -600,51 +604,56 @@ enum BrowserImportPlanner {
     }
 
     /// Each Chromium profile's home Space (see `chromium`), in order;
-    /// `space` is the existing one, nil for a new one. Homes an earlier
-    /// import marked are claimed first, so a name match can't take one.
+    /// `space` is the existing one, nil for a new one. Claimed in passes,
+    /// so the browser's profile order doesn't decide: homes an earlier
+    /// import marked, then Spaces named like a profile, then the Default
+    /// Space for `Default`; a Space is claimed once.
     private static func chromiumHomes(
         _ browser: BrowserImportSourceKind,
         _ profiles: [BrowserImportedProfile],
         context: Context
     ) -> [(profile: BrowserImportPlan.Profile, space: BrowserSpace?)] {
-        func existing(_ profile: BrowserImportedProfile, _ space: BrowserSpace) -> (profile: BrowserImportPlan.Profile, space: BrowserSpace?) {
-            (BrowserImportPlan.Profile(
-                key: profile.key,
-                displayName: profile.displayName,
-                target: .existing(space.profileID),
-                targetName: space.displayName
-            ), space)
-        }
         let profileList = BrowserProfileList(context.profiles)
-        var homes: [(profile: BrowserImportPlan.Profile, space: BrowserSpace?)?] = profiles.map { profile in
-            guard let earlier = profileList.profile(importedFrom: profileSource(browser, profile.key)),
-                  let space = context.spaces.space(ofProfile: earlier.id)
-            else { return nil }
-            return existing(profile, space)
+        var spaces: [BrowserSpace?] = Array(repeating: nil, count: profiles.count)
+        var taken: Set<UUID> = []
+        func claim(_ index: Int, _ space: BrowserSpace?) {
+            guard spaces[index] == nil, let space, !taken.contains(space.profileID) else { return }
+            spaces[index] = space
+            taken.insert(space.profileID)
         }
-        var taken = Set(homes.compactMap { $0?.space?.profileID })
-        for (index, profile) in profiles.enumerated() where homes[index] == nil {
-            let free = context.spaces.spaces.filter { !taken.contains($0.profileID) }
+        for (index, profile) in profiles.enumerated() {
+            let earlier = profileList.profile(importedFrom: profileSource(browser, profile.key))
+            claim(index, earlier.flatMap { context.spaces.space(ofProfile: $0.id) })
+        }
+        for (index, profile) in profiles.enumerated() {
             let wanted = profile.displayName.trimmingCharacters(in: .whitespacesAndNewlines)
-            let named = free.first {
-                $0.displayName.trimmingCharacters(in: .whitespacesAndNewlines)
+            claim(index, context.spaces.spaces.first {
+                !taken.contains($0.profileID)
+                    && $0.displayName.trimmingCharacters(in: .whitespacesAndNewlines)
                     .compare(wanted, options: [.caseInsensitive, .diacriticInsensitive]) == .orderedSame
-            }
-            let fallback = profile.isDefault ? free.first { $0.profileID == BrowserProfile.defaultID } : nil
-            if let space = named ?? fallback {
-                taken.insert(space.profileID)
-                homes[index] = existing(profile, space)
-            } else {
-                let name = wanted.isEmpty ? profile.key : wanted
-                homes[index] = (BrowserImportPlan.Profile(
+            })
+        }
+        for (index, profile) in profiles.enumerated() where profile.isDefault {
+            claim(index, context.spaces.space(ofProfile: BrowserProfile.defaultID))
+        }
+        return profiles.enumerated().map { index, profile in
+            if let space = spaces[index] {
+                return (BrowserImportPlan.Profile(
                     key: profile.key,
                     displayName: profile.displayName,
-                    target: .new(name: name),
-                    targetName: name
-                ), nil)
+                    target: .existing(space.profileID),
+                    targetName: space.displayName
+                ), space)
             }
+            let wanted = profile.displayName.trimmingCharacters(in: .whitespacesAndNewlines)
+            let name = wanted.isEmpty ? profile.key : wanted
+            return (BrowserImportPlan.Profile(
+                key: profile.key,
+                displayName: profile.displayName,
+                target: .new(name: name),
+                targetName: name
+            ), nil)
         }
-        return homes.compactMap(\.self)
     }
 
     /// Safari's export: `Bookmarks.html` as one pinned folder, each

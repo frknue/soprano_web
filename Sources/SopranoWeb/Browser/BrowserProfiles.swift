@@ -190,6 +190,17 @@ struct BrowserProfileList: Codable, Equatable, Sendable {
         profiles[index].archiveAfter = archiveAfter
     }
 
+    /// Records that an import put source `source`'s data in profile `id`
+    /// (a home it found by name), unless the profile is marked already.
+    @discardableResult
+    mutating func markImported(id: UUID, from source: String) -> Bool {
+        guard let index = profiles.firstIndex(where: { $0.id == id }), profiles[index].importedFrom == nil,
+              profile(importedFrom: source) == nil
+        else { return false }
+        profiles[index].importedFrom = source
+        return true
+    }
+
     /// Removes a profile; Default stays.
     mutating func remove(id: UUID) {
         guard id != BrowserProfile.defaultID else { return }
@@ -235,6 +246,13 @@ final class BrowserProfileStore {
     func setArchiveAfter(id: UUID, _ archiveAfter: BrowserArchiveAfter) {
         guard list.profile(id: id)?.archiveAfter != archiveAfter else { return }
         list.setArchiveAfter(id: id, archiveAfter)
+        persist()
+    }
+
+    /// An import's home found by name or fallback, marked for the next
+    /// import (`BrowserProfileList.markImported`).
+    func markImported(id: UUID, from source: String) {
+        guard list.markImported(id: id, from: source) else { return }
         persist()
     }
 

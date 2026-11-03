@@ -14,14 +14,14 @@ app.
   it looked when you last left it (the current page as it is now). A tab opened in the
   background and never shown has its icon instead. The cards fit the window's width.
 - File ▸ Import Browser Data… imports from Brave, Edge, Vivaldi, Chromium and Aside like
-  Chrome: a browser's bookmarks as a pinned folder named after it and its History into the
-  chosen Space. The sheet lists them when they're on this Mac; when macOS doesn't let
-  Soprano Web read one, it says where to allow it.
+  Chrome. The sheet lists them when they're on this Mac; when macOS doesn't let Soprano
+  Web read one, it says where to allow it.
 - Importing from a Chromium browser (Chrome, Aside, Brave, Edge, Vivaldi, Chromium) brings
   its cookies along, so you stay signed in; macOS asks once to let Soprano Web use the
-  browser's "Safe Storage" keychain item. A browser with several profiles brings each
-  profile into a Space of its own: the Space with the profile's name, else a new one, with
-  the profile's bookmarks, History and cookies.
+  browser's "Safe Storage" keychain item. A browser with one profile goes into the Space
+  you choose. With several profiles, each gets a Space of its own (the Space with the
+  profile's name, else a new one; never one Space for two profiles) with its bookmarks as
+  a pinned folder, its History and its cookies, and importing again uses the same Spaces.
 - AppleScript: Soprano Web has a scripting dictionary (open it in Script Editor). Scripts
   see the windows (the most recently active first; private windows never), the tabs of
   each window's current Space (name, URL — set it to load an address or search —,

@@ -453,4 +453,51 @@ struct BrowserImporterTests {
         let values = works.compactMap { fixture.cookies[$0.profileID]?.map(\.value) }
         #expect(values.sorted { $0.first ?? "" < $1.first ?? "" } == [["Profile 1"], ["Profile 2"]])
     }
+
+    /// A home found by name is marked, so a re-import finds it even after
+    /// the Space is renamed and another Space takes the name.
+    @Test func aHomeFoundByNameIsMarkedForTheNextImport() async throws {
+        let fixture = Fixture()
+        let valkental = try #require(fixture.spaces.createSpace(name: "Valkental", color: .cyan, profiles: fixture.profiles))
+        let profiles = try asideProfiles(fixture)
+        _ = await run(BrowserImportPlanner.chromium(.aside, profiles, context: fixture.context), fixture)
+        #expect(fixture.profiles.profile(id: valkental.profileID)?.importedFrom == "aside:Default")
+
+        fixture.spaces.renameSpace(valkental.id, to: "Shop")
+        _ = fixture.spaces.createSpace(name: "Valkental", color: .red, profiles: fixture.profiles)
+        let again = BrowserImportPlanner.chromium(.aside, profiles, context: fixture.context)
+        #expect(again.profile(key: "Default")?.target == .existing(valkental.profileID))
+        #expect(again.folders.first?.alreadyThere == true)
+    }
+
+    /// Cancelled before cookies and History: no cookies set and no home
+    /// Space made for them.
+    @Test func cancellingBeforeCookiesAndHistoryMakesNoSpaces() async throws {
+        let fixture = Fixture()
+        var plan = BrowserImportPlanner.chromium(.aside, try asideProfiles(fixture), context: fixture.context)
+        plan.folders = []
+        plan.history = [BrowserImportPlan.History(
+            id: "test", title: "History", profileKey: "Profile 1", source: .visits(visits()), visitCount: 5, isIncluded: true
+        )]
+        let cancellation = BrowserImportCancellation()
+        cancellation.cancel()
+        let summary = await withCheckedContinuation { continuation in
+            BrowserImporter(stores: fixture.stores).run(
+                plan, cancellation: cancellation, progress: { _ in }, completion: { continuation.resume(returning: $0) }
+            )
+        }
+        #expect(summary.cancelled)
+        #expect(summary.spacesCreated == 0)
+        #expect(fixture.cookies.isEmpty)
+        #expect(fixture.spaces.spaces.count == 1)
+    }
+
+    /// The sheet's status line never shows an empty item name, and names
+    /// the cookie item while macOS asks for the keychain.
+    @Test func statusTextNamesTheRunningItem() {
+        typealias Progress = BrowserImporter.Progress
+        #expect(Progress(handled: 0, total: 20, item: "").statusText == "Importing…")
+        #expect(Progress(handled: 0, total: 20, item: "Aside Cookies (Hustle)", isCookies: true).statusText == "Aside Cookies (Hustle)…")
+        #expect(Progress(handled: 5, total: 20, item: "History").statusText == "History: 5 of 20 visits")
+    }
 }

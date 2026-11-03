@@ -370,6 +370,43 @@ struct BrowserImportPlanTests {
         ])
     }
 
+    /// A name match wins over the `Default` fallback whatever the
+    /// browser's profile order; a profile with nothing to import makes no
+    /// Space (its empty History is unchecked).
+    @Test func nameMatchesComeBeforeTheDefaultFallbackAndEmptyHistoryStaysOut() {
+        func profile(_ key: String, _ name: String, visits: Int) -> BrowserImportSourceData.ChromeProfile {
+            BrowserImportSourceData.ChromeProfile(
+                profile: BrowserImportedProfile(key: key, displayName: name, directory: nil),
+                bookmarks: [], historyFile: URL(fileURLWithPath: "/tmp/\(key)/History"),
+                historyCounts: BrowserImportSourceData.HistoryCounts(visits: visits, importable: visits, kept: visits)
+            )
+        }
+        let plan = BrowserImportPlanner.chromium(.aside, [
+            profile("Default", "Valkental", visits: 4),
+            profile("Profile 1", "Default", visits: 0),
+        ], context: context())
+        #expect(plan.profiles.map(\.target) == [.new(name: "Valkental"), .existing(BrowserProfile.defaultID)])
+        #expect(plan.history.map(\.isIncluded) == [true, false])
+    }
+
+    /// A browser down to one profile still goes to that profile's home
+    /// from an earlier import, not to the Space menu's.
+    @Test func aSingleProfileWithAnEarlierHomeKeepsIt() {
+        let hustle = BrowserProfile(name: "Hustle", color: .green, importedFrom: BrowserImportPlanner.profileSource(.aside, "Profile 1"))
+        var list = BrowserSpaceList()
+        list.reconcile(with: [.defaultProfile])
+        list.create(name: "Hustle", color: .green, profileID: hustle.id)
+        let plan = BrowserImportPlanner.chromium(.aside, [
+            BrowserImportSourceData.ChromeProfile(
+                profile: BrowserImportedProfile(key: "Profile 1", displayName: "Hustle", directory: nil),
+                bookmarks: [.link(link("https://h.example/"))], historyFile: nil,
+                historyCounts: BrowserImportSourceData.HistoryCounts(visits: 0, importable: 0, kept: 0)
+            ),
+        ], context: context(profiles: [.defaultProfile, hustle], spaces: list))
+        #expect(plan.profiles.map(\.target) == [.existing(hustle.id)])
+        #expect(plan.folders.map(\.profileKey) == ["Profile 1"])
+    }
+
     @Test func safariHistoryIsOneVisitPerPageAtItsLastVisit() throws {
         let export = BrowserSafariExport(
             bookmarks: [],
