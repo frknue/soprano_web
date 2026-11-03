@@ -79,9 +79,10 @@ site storage, the extensions' own storage, 1Password's sign-in) and
 - While iterating, review-fix rounds included, verify with `swift build` and
   the affected suites (`swift test --filter <Suite>`); run the full `swift
   test` (about 15 s) once before each commit.
-- Install once per task, as its very last step: after every commit and
-  every review round, never after an individual fix. Subagents never
-  install; the parent does, once, after integrating. `./scripts/install.sh`
+- A task that changed the app or its packaging installs once, as its very
+  last step: after every commit and every review round, never after an
+  individual fix. Docs-only tasks and tasks with no change don't install.
+  Subagents never install; the parent does, once, after integrating. `./scripts/install.sh`
   builds for release through `scripts/build-with-guard.sh` (`-j 2`; it
   refuses to package a build that printed "nearly matches optional
   requirement", so a delegate signature that breaks only in release stops
