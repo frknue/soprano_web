@@ -23,6 +23,8 @@ struct BrowserImporterTests {
         let favicons: BrowserFaviconStore
         let linkRouting: BrowserLinkRoutingStore
         var histories: [UUID: BrowserHistoryStore] = [:]
+        /// Cookies the import set, by profile.
+        var cookies: [UUID: [HTTPCookie]] = [:]
 
         @MainActor
         init() {
@@ -49,6 +51,16 @@ struct BrowserImporterTests {
                     let store = BrowserHistoryStore(directory: profile.directory(in: folder))
                     histories[profile.id] = store
                     return store
+                },
+                // Aside's keychain item exists; any other is missing.
+                safeStoragePassword: { service in
+                    guard service == "Aside Safe Storage" else {
+                        throw BrowserImportError.keychain("The login keychain has no “\(service)” item")
+                    }
+                    return ChromiumCookieFixture.password
+                },
+                setCookies: { [self] profile, cookies in
+                    self.cookies[profile.id, default: []] += cookies
                 }
             )
         }
@@ -301,7 +313,7 @@ struct BrowserImporterTests {
         let fixture = Fixture()
         // The plan saw a home Space for Profile 1 that is deleted before
         // the import runs.
-        let gone = BrowserProfile(name: "Gone", color: .gray, importedFrom: BrowserImportPlanner.arcProfileSource("Profile 1"))
+        let gone = BrowserProfile(name: "Gone", color: .gray, importedFrom: BrowserImportPlanner.profileSource(.arc, "Profile 1"))
         var context = fixture.context
         context.profiles.append(gone)
         var list = context.spaces
@@ -359,5 +371,62 @@ struct BrowserImporterTests {
         #expect(again.folders.first?.isIncluded == false)
         BrowserImportPlanner.retarget(&again, to: home.id, spaces: fixture.spaces.list)
         #expect(again.folders.first?.isIncluded == true)
+    }
+
+    /// Aside's profiles: "Valkental" goes to the Space of that name,
+    /// "Hustle" gets a Space of its own; each Space gets its bookmarks
+    /// folder and its cookies, and importing again adds no Space.
+    private func asideProfiles(_ fixture: Fixture) throws -> [BrowserImportSourceData.ChromeProfile] {
+        let aside = fixture.folder.appendingPathComponent("Aside", isDirectory: true)
+        let expires = Date().addingTimeInterval(86_400)
+        func profile(_ key: String, _ name: String, cookie: String, bookmark: String) throws -> BrowserImportSourceData.ChromeProfile {
+            let file = aside.appendingPathComponent(key).appendingPathComponent("Cookies")
+            try ChromiumCookieFixture.write([.init(host: ".\(cookie).example", name: cookie, value: "v", expires: expires)], to: file)
+            return BrowserImportSourceData.ChromeProfile(
+                profile: BrowserImportedProfile(key: key, displayName: name, directory: nil),
+                bookmarks: [.link(link("https://\(bookmark).example/", bookmark))],
+                historyFile: nil,
+                historyCounts: BrowserImportSourceData.HistoryCounts(visits: 0, importable: 0, kept: 0),
+                cookiesFile: file,
+                cookieCount: 1
+            )
+        }
+        return [
+            try profile("Default", "Valkental", cookie: "work", bookmark: "shop"),
+            try profile("Profile 1", "Hustle", cookie: "side", bookmark: "side"),
+        ]
+    }
+
+    @Test func severalChromiumProfilesGoToTheirHomeSpacesWithTheirCookies() async throws {
+        let fixture = Fixture()
+        let valkental = try #require(fixture.spaces.createSpace(name: "Valkental", color: .cyan, profiles: fixture.profiles))
+        let profiles = try asideProfiles(fixture)
+        let summary = await run(BrowserImportPlanner.chromium(.aside, profiles, context: fixture.context), fixture)
+
+        #expect(summary.spacesCreated == 1)
+        let hustle = try #require(fixture.spaces.spaces.first { $0.displayName == "Hustle" })
+        #expect(hustle.profileID != valkental.profileID && hustle.profileID != BrowserProfile.defaultID)
+        #expect(fixture.spaces.pinTree(inSpace: valkental.id).root.children.map(\.title) == ["Aside Bookmarks"])
+        #expect(fixture.spaces.pinTree(inSpace: hustle.id).root.children.map(\.title) == ["Aside Bookmarks"])
+        #expect(fixture.cookies[valkental.profileID]?.map(\.name) == ["work"])
+        #expect(fixture.cookies[hustle.profileID]?.map(\.name) == ["side"])
+        #expect(fixture.cookies[BrowserProfile.defaultID] == nil)
+        #expect(summary.cookies.map(\.spaceName) == ["Valkental", "Hustle"])
+        #expect(summary.cookies.map(\.added) == [1, 1])
+
+        let again = await run(BrowserImportPlanner.chromium(.aside, profiles, context: fixture.context), fixture)
+        #expect(again.spacesCreated == 0)
+        #expect(again.pinsAdded == 0)
+        #expect(fixture.spaces.spaces.filter { $0.displayName == "Hustle" }.count == 1)
+        #expect(fixture.cookies[hustle.profileID]?.count == 2)
+    }
+
+    @Test func aMissingKeychainItemFailsOnlyTheCookies() async throws {
+        let fixture = Fixture()
+        let summary = await run(BrowserImportPlanner.chromium(.chrome, try asideProfiles(fixture), context: fixture.context), fixture)
+        #expect(summary.pinsAdded == 2)
+        #expect(summary.cookies.count == 2)
+        #expect(summary.cookies.allSatisfy { $0.added == 0 && $0.error?.contains("Chrome Safe Storage") == true })
+        #expect(fixture.cookies.isEmpty)
     }
 }

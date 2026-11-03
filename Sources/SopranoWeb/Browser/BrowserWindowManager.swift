@@ -126,6 +126,10 @@ final class BrowserWindowManager {
     var linkRoutingSheet: BrowserLinkRoutingSheet?
     /// File ▸ Import Browser Data…, while shown.
     var importSheet: BrowserImportSheet?
+    /// Where an import gets a Chromium browser's cookie password: the
+    /// login keychain (macOS asks the user). The harness replaces it, so
+    /// it never shows a keychain prompt.
+    var importSafeStoragePassword: @Sendable (String) throws -> String = BrowserChromiumSafeStorage.password(service:)
     /// Settings ▸ Extensions, while shown.
     var extensionsSheet: BrowserExtensionsSheet?
 

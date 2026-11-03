@@ -152,7 +152,7 @@ struct BrowserImportPlanTests {
     @Test func spacesImportedBeforeAreSkippedAndTheirHomeReused() {
         // An earlier import made Work from Arc's Space B, as Profile 1's
         // home (its profile is marked).
-        let work = BrowserProfile(name: "Work", color: .green, importedFrom: BrowserImportPlanner.arcProfileSource("Profile 1"))
+        let work = BrowserProfile(name: "Work", color: .green, importedFrom: BrowserImportPlanner.profileSource(.arc, "Profile 1"))
         var list = BrowserSpaceList()
         list.reconcile(with: [.defaultProfile])
         let earlier = list.create(name: "Work", color: .green, profileID: work.id, importedFrom: spaceB)
@@ -166,7 +166,7 @@ struct BrowserImportPlanTests {
     }
 
     @Test func aProfileAnImportMadeIsFoundByItsSource() {
-        let earlier = BrowserProfile(name: "Private", color: .gray, importedFrom: BrowserImportPlanner.arcProfileSource("Profile 2"))
+        let earlier = BrowserProfile(name: "Private", color: .gray, importedFrom: BrowserImportPlanner.profileSource(.arc, "Profile 2"))
         let plan = BrowserImportPlanner.arc(arc(), historyCounts: [:], context: context(profiles: [.defaultProfile, earlier]))
         #expect(plan.profile(key: "Profile 2")?.target == .existing(earlier.id))
     }
@@ -260,33 +260,77 @@ struct BrowserImportPlanTests {
 
     // MARK: Chrome, Safari, files
 
-    @Test func bookmarkSourcesBecomeOneFolderEachAndSkipAFolderThereAlready() {
+    @Test func aSingleChromeProfileGoesIntoTheTargetSpaceAndSkipsAFolderThereAlready() {
         let nodes: [BrowserImportedNode] = [.folder(BrowserImportedFolder(name: "Bookmarks Bar", children: [.link(link("https://c.example/"))]))]
         let profiles = [
             BrowserImportSourceData.ChromeProfile(
                 profile: BrowserImportedProfile(key: "Default", displayName: "Me", directory: nil),
                 bookmarks: nodes, historyFile: URL(fileURLWithPath: "/tmp/History"),
-                historyCounts: BrowserImportSourceData.HistoryCounts(visits: 9, importable: 7, kept: 5)
-            ),
-            BrowserImportSourceData.ChromeProfile(
-                profile: BrowserImportedProfile(key: "Profile 1", displayName: "Work", directory: nil),
-                bookmarks: nodes, historyFile: nil,
-                historyCounts: BrowserImportSourceData.HistoryCounts(visits: 0, importable: 0, kept: 0)
+                historyCounts: BrowserImportSourceData.HistoryCounts(visits: 9, importable: 7, kept: 5),
+                cookiesFile: URL(fileURLWithPath: "/tmp/Cookies"), cookieCount: 4
             ),
         ]
         var list = BrowserSpaceList()
         list.reconcile(with: [.defaultProfile])
-        let spaceID = list.spaces[0].id
-        list.updatePins(in: spaceID) { $0.insert(.folder(BrowserPinFolder(name: "Chrome Bookmarks (Work)")), into: BrowserPinTree.rootID, at: nil) }
         let plan = BrowserImportPlanner.chromium(.chrome, profiles, context: context(spaces: list))
-        #expect(plan.folders.map(\.name) == ["Chrome Bookmarks (Me)", "Chrome Bookmarks (Work)"])
-        #expect(plan.folders.map(\.isIncluded) == [true, false])
-        #expect(plan.folders.map(\.pinCount) == [1, 1])
-        #expect(plan.folders.map(\.folderCount) == [1, 1])
+        #expect(plan.profiles.isEmpty)
+        #expect(plan.folders.map(\.name) == ["Chrome Bookmarks"])
+        #expect(plan.folders.map(\.profileKey) == [nil])
         #expect(plan.history.map(\.visitCount) == [5])
+        #expect(plan.cookies.map(\.keychainService) == ["Chrome Safe Storage"])
+        #expect(plan.includedCookieCount == 4)
+        #expect(BrowserImportChecklist.summary(of: plan) == "1 pin · 5 visits · 4 cookies")
+
+        let spaceID = list.spaces[0].id
+        list.updatePins(in: spaceID) { $0.insert(.folder(BrowserPinFolder(name: "Chrome Bookmarks")), into: BrowserPinTree.rootID, at: nil) }
+        let again = BrowserImportPlanner.chromium(.chrome, profiles, context: context(spaces: list))
+        #expect(again.folders.map(\.isIncluded) == [false])
 
         let file = BrowserImportPlanner.bookmarksFile(nodes, name: "export.html", context: context())
         #expect(file.folders.map(\.name) == ["export"])
+    }
+
+    /// Aside's profiles: Valkental matches a Space of that name, Hustle was
+    /// imported before (its profile is marked), Datora gets a new Space, and
+    /// a `Default` matching nothing lands in the Default Space.
+    @Test func severalChromiumProfilesEachGetAHomeSpace() throws {
+        let nodes: [BrowserImportedNode] = [.link(link("https://c.example/"))]
+        func profile(_ key: String, _ name: String, cookies: Int = 0) -> BrowserImportSourceData.ChromeProfile {
+            BrowserImportSourceData.ChromeProfile(
+                profile: BrowserImportedProfile(key: key, displayName: name, directory: nil),
+                bookmarks: nodes, historyFile: URL(fileURLWithPath: "/tmp/\(key)/History"),
+                historyCounts: BrowserImportSourceData.HistoryCounts(visits: 3, importable: 3, kept: 3),
+                cookiesFile: URL(fileURLWithPath: "/tmp/\(key)/Cookies"), cookieCount: cookies
+            )
+        }
+        let valkental = BrowserProfile(name: "Valkental", color: .cyan)
+        let hustle = BrowserProfile(name: "Side", color: .green, importedFrom: BrowserImportPlanner.profileSource(.aside, "Profile 1"))
+        var list = BrowserSpaceList()
+        list.reconcile(with: [.defaultProfile])
+        let valkentalSpace = list.create(name: "valkental ", color: .cyan, profileID: valkental.id)
+        list.create(name: "Side", color: .green, profileID: hustle.id)
+        let stores = context(profiles: [.defaultProfile, valkental, hustle], spaces: list)
+
+        let plan = BrowserImportPlanner.chromium(.aside, [
+            profile("Default", "Valkental", cookies: 7),
+            profile("Profile 1", "Hustle", cookies: 2),
+            profile("Profile 3", "Datora"),
+        ], context: stores)
+        #expect(plan.profiles.map(\.target) == [.existing(valkental.id), .existing(hustle.id), .new(name: "Datora")])
+        #expect(plan.folders.map(\.name) == ["Aside Bookmarks", "Aside Bookmarks", "Aside Bookmarks"])
+        #expect(plan.folders.map(\.profileKey) == ["Default", "Profile 1", "Profile 3"])
+        #expect(plan.history.map(\.profileKey) == ["Default", "Profile 1", "Profile 3"])
+        #expect(plan.cookies.map(\.id) == ["aside:Default", "aside:Profile 1", "aside:Profile 3"])
+        #expect(plan.cookies.map(\.isIncluded) == [true, true, false])
+        #expect(plan.homeName(ofProfile: "Profile 3") == "new Space “Datora”")
+
+        // The sheet's Space menu doesn't apply: every profile has its home.
+        var retargeted = plan
+        BrowserImportPlanner.retarget(&retargeted, to: try #require(valkentalSpace).id, spaces: list)
+        #expect(retargeted.targetSpaceID == plan.targetSpaceID)
+
+        let fresh = BrowserImportPlanner.chromium(.chrome, [profile("Default", "Person 1"), profile("Profile 1", "Work")], context: context())
+        #expect(fresh.profiles.map(\.target) == [.existing(BrowserProfile.defaultID), .new(name: "Work")])
     }
 
     @Test func safariHistoryIsOneVisitPerPageAtItsLastVisit() throws {

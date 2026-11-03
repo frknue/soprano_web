@@ -7,15 +7,18 @@ import AppKit
 ///
 /// - `--import-arc [dir]` (default `~/Library/Application Support/Arc`),
 ///   `--import-chrome <dir>`, `--import-brave <dir>`, `--import-edge <dir>`,
-///   `--import-vivaldi <dir>`, `--import-chromium <dir>` (a Chromium
-///   browser's user-data folder),
+///   `--import-vivaldi <dir>`, `--import-chromium <dir>`, `--import-aside
+///   <dir>` (a Chromium browser's user-data folder),
 ///   `--import-safari <zip>`, `--import-html <file>` (repeatable, in
 ///   order): each prints `import-plan:` (one JSON line: each source
 ///   profile's home Space, Spaces with counts and create/skip/take-over,
-///   favorites, Archive, History visits per home, rules, totals), applies
-///   the plan as the sheet checks it by default and prints
-///   `import-result:` (what was made, History added/skipped and seconds
-///   per Space).
+///   favorites, Archive, History visits per home, cookies, rules,
+///   totals), applies the plan as the sheet checks it by default and
+///   prints `import-result:` (what was made, cookies and History
+///   added/skipped per Space).
+/// - `--import-safe-storage <password>`: the Chromium "Safe Storage"
+///   password cookies decrypt with. The harness never reads the keychain;
+///   without it a cookie item fails and says so.
 /// - `--import-space <name>`: any import but Arc's
 ///   goes into that Space (the sheet's Space menu) instead of the
 ///   window's.
@@ -52,17 +55,20 @@ struct SnapshotImportOptions {
     var fromPrivateWindow = false
     /// `--import-space`: the Space a non-Arc import goes into.
     var targetSpace: String?
+    /// `--import-safe-storage`: stands in for the keychain's password.
+    var safeStoragePassword: String?
 
     static let flags: Set<String> = [
         "--import-arc", "--import-chrome", "--import-brave", "--import-edge", "--import-vivaldi", "--import-chromium",
-        "--import-safari", "--import-html", "--import-plan", "--import-sheet",
+        "--import-aside", "--import-safari", "--import-html", "--import-plan", "--import-sheet",
         "--export-pins", "--export-all-pins", "--open-link", "--link-routing-sheet", "--import-from-private",
-        "--import-space", "--outside-links",
+        "--import-space", "--outside-links", "--import-safe-storage",
     ]
 
     static let usage = """
-                               [--import-arc [dir]] [--import-chrome|brave|edge|vivaldi|chromium <dir>] [--import-safari <zip>]
+                               [--import-arc [dir]] [--import-chrome|brave|edge|vivaldi|chromium|aside <dir>] [--import-safari <zip>]
                                [--import-html <file>] [--import-plan] [--import-sheet [checklist|progress|result]]
+                               [--import-safe-storage <password>]
                                [--export-pins <file>] [--export-all-pins <file>] [--open-link <url>]...
                                [--link-routing-sheet] [--import-from-private] [--import-space <name>]
                                [--outside-links little|recent]
@@ -113,6 +119,8 @@ struct SnapshotImportOptions {
             fromPrivateWindow = true
         case "--import-space":
             targetSpace = try value()
+        case "--import-safe-storage":
+            safeStoragePassword = try value()
         case "--outside-links":
             let raw = try value()
             switch raw {
@@ -123,7 +131,7 @@ struct SnapshotImportOptions {
         case "--link-routing-sheet":
             showsLinkRoutingSheet = true
         default:
-            // `--import-chrome|brave|edge|vivaldi|chromium <dir>`.
+            // `--import-chrome|brave|edge|vivaldi|chromium|aside <dir>`.
             guard option.hasPrefix("--import-"),
                   let browser = BrowserImportSourceKind(rawValue: String(option.dropFirst("--import-".count))),
                   browser.isChromium
@@ -147,6 +155,13 @@ struct SnapshotImportOptions {
     @MainActor
     func run(manager: BrowserWindowManager, controller normal: BrowserWindowController) -> Outcome {
         var outcome = Outcome()
+        let password = safeStoragePassword
+        manager.importSafeStoragePassword = { service in
+            guard let password else {
+                throw BrowserImportError.keychain("The harness reads no keychain; pass --import-safe-storage for “\(service)”")
+            }
+            return password
+        }
         let controller = fromPrivateWindow ? manager.newPrivateWindow() : normal
         if let stage = sheet {
             outcome.sheet = runSheet(stage, manager: manager, controller: controller, frozen: &outcome.frozen)
@@ -234,6 +249,10 @@ struct SnapshotImportOptions {
             print("import-today: \(links.count) imported, \(tabs) tabs of the Space in \(holders.count) window(s) [\(kinds)], "
                 + "Space \(shown), \(splits.count) Arc split view(s) -> \(made.count) split(s) "
                 + "[\(made.map { String($0.tabIDs.count) }.joined(separator: ","))]")
+        }
+        for cookies in finished.cookies {
+            print("import-cookies: \(cookies.id) -> \(cookies.spaceName) added \(cookies.added) skipped \(cookies.skipped)"
+                + (cookies.error.map { " error \($0)" } ?? ""))
         }
         for history in finished.history {
             print(String(
@@ -369,12 +388,21 @@ struct SnapshotImportOptions {
             ]
         }
         let folders: [[String: Any]] = plan.folders.map { folder in
-            ["name": folder.name, "pins": folder.pinCount, "folders": folder.folderCount, "skip": folder.alreadyThere]
+            [
+                "name": folder.name, "pins": folder.pinCount, "folders": folder.folderCount, "skip": folder.alreadyThere,
+                "home": folder.profileKey.map(plan.homeName(ofProfile:)) ?? "target",
+            ]
         }
         let history: [[String: Any]] = plan.history.map { history in
             [
                 "id": history.id, "title": history.title, "visits": history.visitCount, "checked": history.isIncluded,
                 "sourceVisits": history.sourceVisitCount, "olderThanRetention": history.olderCount,
+            ]
+        }
+        let cookies: [[String: Any]] = plan.cookies.map { cookies in
+            [
+                "id": cookies.id, "title": cookies.title, "cookies": cookies.count, "checked": cookies.isIncluded,
+                "keychain": cookies.keychainService, "home": cookies.profileKey.map(plan.homeName(ofProfile:)) ?? "target",
             ]
         }
         let pins: Int = plan.spaces.reduce(0) { $0 + $1.pinCount } + plan.folders.reduce(0) { $0 + $1.pinCount }
@@ -393,6 +421,8 @@ struct SnapshotImportOptions {
             "rules": plan.routing?.importable ?? 0,
             "visits": plan.history.reduce(0) { $0 + $1.visitCount },
             "visitsChecked": plan.includedVisitCount,
+            "cookies": plan.cookies.reduce(0) { $0 + $1.count },
+            "cookiesChecked": plan.includedCookieCount,
         ]
         var object: [String: Any] = [
             "source": plan.source.rawValue,
@@ -402,6 +432,7 @@ struct SnapshotImportOptions {
             "favorites": favorites,
             "folders": folders,
             "history": history,
+            "cookies": cookies,
             "totals": totals,
             "summary": BrowserImportChecklist.summary(of: plan),
             "targetSpace": plan.targetSpaceID?.uuidString ?? NSNull(),
@@ -429,6 +460,7 @@ struct SnapshotImportOptions {
             "todayTabs": summary.todayTabs.reduce(0) { $0 + $1.links.count },
             "visitsAdded": summary.visitsAdded,
             "visitsSkipped": summary.visitsSkipped,
+            "cookiesAdded": summary.cookies.reduce(0) { $0 + $1.added },
             "cancelled": summary.cancelled,
             "seconds": (seconds * 100).rounded() / 100,
         ]

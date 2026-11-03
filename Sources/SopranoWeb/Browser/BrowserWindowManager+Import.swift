@@ -29,7 +29,11 @@ extension BrowserWindowManager {
             archive: archive,
             favicons: faviconStore,
             linkRouting: linkRouting,
-            history: { [unowned self] profile in self.history(for: profile) }
+            history: { [unowned self] profile in self.history(for: profile) },
+            safeStoragePassword: importSafeStoragePassword,
+            setCookies: { [unowned self] profile, cookies in
+                await self.context(for: profile.id).websiteDataStore.httpCookieStore.setCookies(cookies)
+            }
         )
     }
 

@@ -3,13 +3,15 @@ import Foundation
 /// The apply step of an import: writes a `BrowserImportPlan`'s included
 /// items into the app's stores on the main actor (Spaces — each with a
 /// profile of its own — and pins, favorites, the Archive, favicons, link
-/// routing), then imports History off the main thread, one Space after
-/// another, in batches that can be cancelled. Running a plan twice adds
-/// nothing the first run added: Spaces carry `importedFrom`, a source
-/// profile's home Space's profile is marked (`arc:Profile 3`), favorites
-/// and overflow pins are matched by address, Archive entries keep Arc's
-/// ids, rules are compared and History skips visits it holds (same
-/// address and time).
+/// routing), then cookies (decrypted off the main thread, set in their
+/// Space's website data), then History off the main thread, one Space
+/// after another, in batches that can be cancelled. Running a plan twice
+/// adds nothing the first run added: Spaces carry `importedFrom`, a source
+/// profile's home Space's profile is marked (`arc:Profile 3`,
+/// `aside:Profile 1`), favorites and overflow pins are matched by address,
+/// Archive entries keep Arc's ids, rules are compared, cookies replace
+/// their own copies and History skips visits it holds (same address and
+/// time).
 @MainActor
 final class BrowserImporter {
     struct Stores {
@@ -19,6 +21,23 @@ final class BrowserImporter {
         var favicons: BrowserFaviconStore
         var linkRouting: BrowserLinkRoutingStore
         var history: @MainActor (BrowserProfile) -> BrowserHistoryStore
+        /// A Chromium browser's "Safe Storage" password by keychain
+        /// service; called off the main thread (it blocks while macOS asks).
+        var safeStoragePassword: @Sendable (String) throws -> String
+        /// Sets cookies in a profile's website data.
+        var setCookies: @MainActor (BrowserProfile, [HTTPCookie]) async -> Void
+    }
+
+    /// One cookie item's outcome.
+    struct CookieResult: Sendable, Equatable {
+        var id: String
+        var title: String
+        /// The Space whose website data got them.
+        var spaceName: String
+        var added = 0
+        /// Rows that didn't decrypt or that Foundation refused.
+        var skipped = 0
+        var error: String?
     }
 
     /// One History item's outcome.
@@ -54,6 +73,7 @@ final class BrowserImporter {
         /// The first Space this import made (the window switches to it).
         var firstSpaceID: UUID?
         var history: [HistoryResult] = []
+        var cookies: [CookieResult] = []
         var cancelled = false
 
         var visitsAdded: Int { history.reduce(0) { $0 + $1.count.added } }
@@ -80,9 +100,9 @@ final class BrowserImporter {
         self.stores = stores
     }
 
-    /// Applies `plan`: the store step at once, then History in the
-    /// background; `completion` gets everything once History is done or
-    /// cancelled. Returns the store step's result (for the Today tabs).
+    /// Applies `plan`: the store step at once, then cookies and History in
+    /// the background; `completion` gets everything once History is done
+    /// or cancelled. Returns the store step's result (for the Today tabs).
     @discardableResult
     func run(
         _ plan: BrowserImportPlan,
@@ -91,7 +111,10 @@ final class BrowserImporter {
         completion: @escaping @MainActor @Sendable (Summary) -> Void
     ) -> Summary {
         let result = applyStores(plan)
-        importHistory(plan, into: result, cancellation: cancellation, progress: progress, completion: completion)
+        Task { @MainActor in
+            let withCookies = await self.importCookies(plan, into: result, cancellation: cancellation)
+            self.importHistory(plan, into: withCookies, cancellation: cancellation, progress: progress, completion: completion)
+        }
         return result
     }
 
@@ -125,7 +148,7 @@ final class BrowserImporter {
                     color: space.color,
                     pinned: tree,
                     importedFrom: space.id,
-                    profileImportedFrom: isHome ? BrowserImportPlanner.arcProfileSource(space.profileKey) : nil,
+                    profileImportedFrom: isHome ? plan.profileSource(space.profileKey) : nil,
                     profiles: stores.profiles
                 )
                 if isHome, let made {
@@ -222,20 +245,23 @@ final class BrowserImporter {
             }
         }
 
-        if !plan.folders.isEmpty {
-            let target = plan.targetSpaceID.flatMap { stores.spaces.space(id: $0) } ?? stores.spaces.defaultSpace
-            for folder in plan.folders where folder.isIncluded {
-                guard let target else { break }
-                let root = stores.spaces.pinTree(inSpace: target.id).root
-                guard !root.children.contains(where: { $0.folder?.name == folder.name }) else { continue }
-                let node = BrowserPinNode.folder(BrowserPinFolder(
-                    name: folder.name,
-                    children: BrowserImportPlanner.pinNodes(folder.nodes)
-                ))
-                guard stores.spaces.insert(node, inSpace: target.id) else { continue }
-                result.pinsAdded += folder.pinCount
-                result.foldersAdded += folder.folderCount + 1
+        for folder in plan.folders where folder.isIncluded {
+            let target: BrowserSpace?
+            if let key = folder.profileKey {
+                target = resolveHome(key, in: plan, result: &result).flatMap { stores.spaces.space(ofProfile: $0.id) }
+            } else {
+                target = plan.targetSpaceID.flatMap { stores.spaces.space(id: $0) } ?? stores.spaces.defaultSpace
             }
+            guard let target else { continue }
+            let root = stores.spaces.pinTree(inSpace: target.id).root
+            guard !root.children.contains(where: { $0.folder?.name == folder.name }) else { continue }
+            let node = BrowserPinNode.folder(BrowserPinFolder(
+                name: folder.name,
+                children: BrowserImportPlanner.pinNodes(folder.nodes)
+            ))
+            guard stores.spaces.insert(node, inSpace: target.id) else { continue }
+            result.pinsAdded += folder.pinCount
+            result.foldersAdded += folder.folderCount + 1
         }
 
         result.faviconsAdded = importFavicons(plan, spaceMap: spaceMap)
@@ -270,7 +296,7 @@ final class BrowserImporter {
         }
         let found: BrowserProfile? = switch mapping.target {
         case let .existing(id): stores.profiles.profile(id: id)
-        case .new: stores.profiles.profile(importedFrom: BrowserImportPlanner.arcProfileSource(key))
+        case .new: stores.profiles.profile(importedFrom: plan.profileSource(key))
         }
         if let found {
             homes[key] = found.id
@@ -291,13 +317,80 @@ final class BrowserImporter {
               let space = stores.spaces.createSpace(
                   name: name,
                   color: BrowserProfileColor.allCases.first { !used.contains($0) } ?? .gray,
-                  profileImportedFrom: BrowserImportPlanner.arcProfileSource(key),
+                  profileImportedFrom: plan.profileSource(key),
                   profiles: stores.profiles
               )
         else { return nil }
         result.spacesCreated += 1
         homes[key] = space.profileID
         return stores.profiles.profile(id: space.profileID)
+    }
+
+    /// The profile whose data a plan item without a source profile joins:
+    /// the target Space's, else Default's.
+    private func targetProfile(of plan: BrowserImportPlan) -> BrowserProfile {
+        let id = plan.targetSpaceID.flatMap { stores.spaces.space(id: $0)?.profileID } ?? BrowserProfile.defaultID
+        return stores.profiles.profile(id: id) ?? .defaultProfile
+    }
+
+    // MARK: Cookies
+
+    /// Each included cookie item in turn: the browser's keychain password
+    /// once per service, the database read and decrypted off the main
+    /// thread, the cookies set in the home Space's (or target Space's)
+    /// website data, where they replace cookies of the same name, domain
+    /// and path. A denied keychain prompt fails every item of that
+    /// browser, each with the reason.
+    private func importCookies(
+        _ plan: BrowserImportPlan,
+        into storesResult: Summary,
+        cancellation: BrowserImportCancellation
+    ) async -> Summary {
+        var result = storesResult
+        var keys: [String: Result<Data, Error>] = [:]
+        for item in plan.cookies where item.isIncluded && item.count > 0 {
+            guard !cancellation.isCancelled else { break }
+            let profile: BrowserProfile
+            if let key = item.profileKey {
+                guard let home = resolveHome(key, in: plan, result: &result) else { continue }
+                profile = home
+            } else {
+                profile = targetProfile(of: plan)
+            }
+            var entry = CookieResult(
+                id: item.id,
+                title: item.title,
+                spaceName: stores.spaces.space(ofProfile: profile.id)?.displayName ?? profile.name
+            )
+            let service = item.keychainService
+            if keys[service] == nil {
+                let password = stores.safeStoragePassword
+                keys[service] = await Task.detached(priority: .userInitiated) {
+                    Result { BrowserChromiumCookieCrypto.key(password: try password(service)) }
+                }.value
+            }
+            let file = item.file
+            let read: Result<BrowserChromiumCookieReader.Read, Error>
+            switch keys[service] ?? .failure(BrowserImportError.keychain("No key for “\(service)”")) {
+            case let .success(key):
+                read = await Task.detached(priority: .userInitiated) {
+                    Result { try BrowserChromiumCookieReader(fileURL: file).read(key: key) }
+                }.value
+            case let .failure(error):
+                read = .failure(error)
+            }
+            switch read {
+            case let .success(read):
+                let cookies = read.cookies.compactMap(\.httpCookie)
+                await stores.setCookies(profile, cookies)
+                entry.added = cookies.count
+                entry.skipped = read.undecryptable + read.cookies.count - cookies.count
+            case let .failure(error):
+                entry.error = "\(error)"
+            }
+            result.cookies.append(entry)
+        }
+        return result
     }
 
     // MARK: History
@@ -310,18 +403,16 @@ final class BrowserImporter {
         completion: @escaping @MainActor @Sendable (Summary) -> Void
     ) {
         var result = storesResult
-        let targetProfileID = plan.targetSpaceID.flatMap { stores.spaces.space(id: $0)?.profileID }
-            ?? BrowserProfile.defaultID
         var jobs: [HistoryRun.Job] = []
         for item in plan.history where item.isIncluded {
             let profile: BrowserProfile
             if let key = item.profileKey {
-                // An Arc profile's History goes to its home Space only; one
+                // A source profile's History goes to its home Space only; one
                 // that is gone (deleted while the sheet was open) is skipped.
                 guard let home = resolveHome(key, in: plan, result: &result) else { continue }
                 profile = home
             } else {
-                profile = stores.profiles.profile(id: targetProfileID) ?? .defaultProfile
+                profile = targetProfile(of: plan)
             }
             let spaceName = stores.spaces.space(ofProfile: profile.id)?.displayName ?? profile.name
             jobs.append(HistoryRun.Job(item: item, spaceName: spaceName, store: stores.history(profile)))

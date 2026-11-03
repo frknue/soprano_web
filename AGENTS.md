@@ -265,15 +265,18 @@ site storage, the extensions' own storage, 1Password's sign-in) and
   Import flags (run after the first window opens, before every other
   action; sources are only read, Chromium History opens `immutable`):
   `--import-arc [dir]` (default `~/Library/Application Support/Arc`),
-  `--import-chrome|brave|edge|vivaldi|chromium <dir>` (a Chromium browser's
+  `--import-chrome|brave|edge|vivaldi|chromium|aside <dir>` (a Chromium browser's
   user-data folder), `--import-safari <zip>`, `--import-html <file>`
-  (repeatable) print `import-plan:` (one JSON line: each Arc profile's home
+  (repeatable) print `import-plan:` (one JSON line: each source profile's home
   Space, Spaces with counts and create/skip/take-over, favorites, Archive,
   History per home with
-  `sourceVisits`, `visits` imported and `olderThanRetention`, rules,
-  totals), apply the plan as checked by default and print
-  `import-result:` and one `import-history:` line per Space (added,
-  skipped, seconds); `--import-space <name>` points any import but Arc's
+  `sourceVisits`, `visits` imported and `olderThanRetention`, cookies,
+  rules, totals), apply the plan as checked by default and print
+  `import-result:`, one `import-cookies:` line per cookie item and one
+  `import-history:` line per Space (added,
+  skipped, seconds); `--import-safe-storage <password>` stands in for the
+  browser's keychain password (the harness never reads the keychain; without
+  it cookie items fail and say so); `--import-space <name>` points any import but Arc's
   at that Space (the sheet's Space menu); `--import-plan` plans only; `--import-sheet
   [checklist|progress|result]` captures File ▸ Import Browser Data… (on the
   first source flag, else the first source found) with its checklist, at
@@ -652,10 +655,17 @@ site storage, the extensions' own storage, 1Password's sign-in) and
   `BrowserArcImportReader` (Arc's support folder; profiles a Space or
   favorites use, then History-only ones, never `__ARC_SYSTEM_PROFILE`),
   `BrowserChromiumHistoryReader` (`read`, `counts`),
+  `BrowserChromiumCookieReader` (a profile's `Network/Cookies` or `Cookies`,
+  `immutable`; unexpired, unpartitioned rows; `BrowserChromiumCookieCrypto`:
+  `v10` AES-128-CBC under PBKDF2 of the "Safe Storage" password, the
+  `host_key` SHA-256 prefix from meta version 24; `BrowserChromiumSafeStorage`
+  reads that password from the login keychain — macOS asks the user —, only
+  when an import with cookies runs, off the main thread),
   `BrowserChromeBookmarksReader` (every Chromium browser:
   `BrowserImportSourceKind.chromiumFolder` names Chrome's, Brave's, Edge's,
-  Vivaldi's and Chromium's folder under `~/Library/Application Support`; the
-  sheet lists Brave, Edge, Vivaldi and Chromium only when found, and a
+  Vivaldi's, Chromium's and Aside's folder under `~/Library/Application Support`,
+  `safeStorageService` its keychain item; the
+  sheet lists Brave, Edge, Vivaldi, Chromium and Aside only when found, and a
   folder macOS won't let the app list is found after the readable ones and
   says why when chosen), `BrowserSafariExportReader`,
   `BrowserNetscapeBookmarks` (parse and write), the neutral model in
@@ -664,15 +674,22 @@ site storage, the extensions' own storage, 1Password's sign-in) and
   (`BrowserImportPlanner`: each Arc Space a Space of its own; each Arc
   profile's home Space for its History and favorites — Arc `Default` →
   the Default Space, `Profile N` → the Space whose profile an import
-  marked (`importedFrom` `arc:Profile N`), else its first new Space, else
+  marked (`importedFrom` `arc:Profile N`, `profileSource`), else its first new Space, else
   a new one named after its first Space —; an untouched home (no pins,
   never imported) is taken over by the profile's first new Space;
+  a Chromium browser with one profile goes into the target Space, one
+  with several gives each profile a home (the Space an import marked
+  `aside:Profile N`, else the Space named like the profile, else
+  `Default` → the Default Space, else a new Space) for its bookmarks
+  folder, History and cookies, and has no Space menu;
   Spaces skipped by `importedFrom`, `retarget` for the Chrome/Safari/HTML
   Space menu, favorites past 12, Archive ids from Arc's item ids, History counts within
   Settings ▸ Remove history items; `BrowserImportColorMatch`, OKLab hue to
   the nearest Folio color); `BrowserImportChecklist` the sheet's rows and
   result lines; `BrowserImporter` the apply step (store writes on the main
-  actor, every new Space with its own profile,
+  actor, every new Space with its own profile, then cookies through
+  `Stores.setCookies` — `WKHTTPCookieStore.setCookies` of the home's data
+  store, replacing same name/domain/path —,
   then History per home Space through `BrowserHistoryStore.importInBackground`:
   batches on a second connection, duplicates — same address and time —
   skipped, cancel between batches, frecency refreshed after).

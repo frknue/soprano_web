@@ -32,7 +32,7 @@ enum BrowserImportLoader {
 
     /// The sources found on this Mac without asking for a file: Arc's
     /// folder and each Chromium browser's (Chrome, Brave, Edge, Vivaldi,
-    /// Chromium) when it holds profiles; then the Chromium folders that
+    /// Chromium, Aside) when it holds profiles; then the Chromium folders that
     /// exist but macOS won't let the app read (reading says so), last so
     /// the sheet opens on a source it can read.
     static func detected(home: URL = FileManager.default.homeDirectoryForCurrentUser) -> [Request] {
@@ -83,11 +83,14 @@ enum BrowserImportLoader {
                     .flatMap { try? BrowserChromeBookmarksReader.read(fileURL: $0.appendingPathComponent("Bookmarks")) } ?? []
                 let history = directory?.appendingPathComponent("History")
                 let historyFile = history.flatMap { FileManager.default.fileExists(atPath: $0.path) ? $0 : nil }
+                let cookiesFile = directory.flatMap(BrowserChromiumCookieReader.file(inProfile:))
                 return BrowserImportSourceData.ChromeProfile(
                     profile: profile,
                     bookmarks: bookmarks,
                     historyFile: historyFile,
-                    historyCounts: historyFile.map(counts) ?? empty
+                    historyCounts: historyFile.map(counts) ?? empty,
+                    cookiesFile: cookiesFile,
+                    cookieCount: cookiesFile.flatMap { try? BrowserChromiumCookieReader(fileURL: $0).count() } ?? 0
                 )
             })
 

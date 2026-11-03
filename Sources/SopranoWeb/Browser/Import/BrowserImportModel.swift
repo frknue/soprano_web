@@ -184,12 +184,15 @@ enum BrowserImportError: Error, Equatable, CustomStringConvertible {
     case unreadable(URL, String)
     /// `ditto` could not expand the archive.
     case unzipFailed(String)
+    /// The browser's cookie key couldn't be read from the login keychain.
+    case keychain(String)
 
     var description: String {
         switch self {
         case let .missingFile(url): "Missing \(url.path)"
         case let .unreadable(url, reason): "Cannot read \(url.path): \(reason)"
         case let .unzipFailed(reason): "Cannot expand the archive: \(reason)"
+        case let .keychain(reason): reason
         }
     }
 }

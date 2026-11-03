@@ -11,6 +11,7 @@ enum BrowserImportChecklist {
         case routing
         case folder(String)
         case history(String)
+        case cookies(String)
     }
 
     struct Row: Equatable, Sendable {
@@ -58,13 +59,14 @@ enum BrowserImportChecklist {
             ))
         }
         for folder in plan.folders {
+            let destination = folder.profileKey.map { " in \(plan.homeName(ofProfile: $0))" } ?? ""
             let detail = folder.alreadyThere
                 ? "The Space has a folder of that name; skipped"
-                : "\(count(folder.pinCount, "pin")) · \(count(folder.folderCount, "folder")) → a pinned folder"
+                : "\(count(folder.pinCount, "pin")) · \(count(folder.folderCount, "folder")) → a pinned folder\(destination)"
             rows.append(Row(
                 item: .folder(folder.id),
                 section: "Bookmarks",
-                title: folder.name,
+                title: folder.profileKey.map { "Bookmarks of \(sourceName($0, in: plan))" } ?? folder.name,
                 detail: detail,
                 isChecked: folder.isIncluded,
                 isEnabled: !folder.alreadyThere && !folder.nodes.isEmpty
@@ -101,6 +103,17 @@ enum BrowserImportChecklist {
                 detail: detail,
                 isChecked: history.isIncluded,
                 isEnabled: history.visitCount > 0
+            ))
+        }
+        for cookies in plan.cookies {
+            let destination = cookies.profileKey.map { plan.homeName(ofProfile: $0) } ?? "the chosen Space"
+            rows.append(Row(
+                item: .cookies(cookies.id),
+                section: "Cookies",
+                title: cookies.profileKey.map { "Cookies of \(sourceName($0, in: plan))" } ?? cookies.title,
+                detail: "\(count(cookies.count, "cookie")) → \(destination) · macOS asks once for “\(cookies.keychainService)”",
+                isChecked: cookies.isIncluded && cookies.count > 0,
+                isEnabled: cookies.count > 0
             ))
         }
         if let routing = plan.routing {
@@ -147,6 +160,10 @@ enum BrowserImportChecklist {
             if let index = plan.history.firstIndex(where: { $0.id == id }) {
                 plan.history[index].isIncluded = included
             }
+        case let .cookies(id):
+            if let index = plan.cookies.firstIndex(where: { $0.id == id }) {
+                plan.cookies[index].isIncluded = included
+            }
         }
     }
 
@@ -164,6 +181,7 @@ enum BrowserImportChecklist {
             parts.append(count(archive.newCount, "archived tab"))
         }
         if plan.includedVisitCount > 0 { parts.append(count(plan.includedVisitCount, "visit")) }
+        if plan.includedCookieCount > 0 { parts.append(count(plan.includedCookieCount, "cookie")) }
         if let routing = plan.routing, routing.isIncluded, plan.importableRuleCount > 0 {
             parts.append(count(plan.importableRuleCount, "rule"))
         }
@@ -185,6 +203,12 @@ enum BrowserImportChecklist {
         lines.append("\(count(summary.rulesAdded, "link rule"))")
         if let otherLinks = summary.otherLinks {
             lines.append("Links from other apps open in \(otherLinks == .littleArc ? "Little Arc" : "the most recent window")")
+        }
+        for cookies in summary.cookies {
+            var line = "\(cookies.title): \(count(cookies.added, "cookie")) → “\(cookies.spaceName)”"
+            if cookies.skipped > 0 { line += ", \(cookies.skipped.formatted()) unreadable" }
+            if let error = cookies.error { line += " — \(error)" }
+            lines.append(line)
         }
         for history in summary.history {
             var line = "\(history.title): \(count(history.count.added, "visit")) added"

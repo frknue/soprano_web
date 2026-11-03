@@ -35,7 +35,7 @@ final class BrowserImportSheet: NSWindowController {
     private let rootView = NSView()
     private let header = NSTextField(labelWithString: "Import Browser Data")
     private let subtitle = NSTextField(
-        wrappingLabelWithString: "Spaces, pinned tabs, favorites, archived tabs, History and link rules. "
+        wrappingLabelWithString: "Spaces, pinned tabs, favorites, archived tabs, History, cookies and link rules. "
             + "The other browser's files are only read, never changed."
     )
     private let topRule: ChromeRuleView
@@ -259,9 +259,10 @@ final class BrowserImportSheet: NSWindowController {
         refresh()
     }
 
-    /// The Space a non-Arc import goes into.
+    /// The Space a non-Arc import goes into; nil when each source profile
+    /// has a home Space of its own (Arc, several Chromium profiles).
     var targetSpaceName: String? {
-        guard let plan, plan.source != .arc else { return nil }
+        guard let plan, plan.source != .arc, plan.profiles.isEmpty else { return nil }
         return plan.targetSpaceID.flatMap { manager?.spaces.space(id: $0) }?.displayName
     }
 
