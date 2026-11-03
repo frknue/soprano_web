@@ -231,7 +231,7 @@ extension BrowserWindowController {
         return spaces.movePin(id, to: destination.folderID, at: destination.index, inSpace: spaceID)
     }
 
-    private func pinMenu(for id: UUID?) -> NSMenu? {
+    func pinMenu(for id: UUID?) -> NSMenu? {
         let menu = NSMenu(title: "Pinned")
         menu.autoenablesItems = false
         if let id, let entry = manager.liveFolders.item(id: id) {
@@ -263,6 +263,7 @@ extension BrowserWindowController {
             menu.addItem(menuItem("New Folder", #selector(newPinFolderFromMenu(_:)), id))
             menu.addItem(menuItem("New Live Folder…", #selector(newLiveFolderFromMenu(_:)), id))
             menu.addItem(.separator())
+            menu.addItem(menuItem("Ungroup Folder", #selector(ungroupPinFolderFromMenu(_:)), id, enabled: !folder.children.isEmpty))
             menu.addItem(menuItem("Delete", #selector(deletePinFromMenu(_:)), id))
         case .pin:
             let tab = liveTab(for: .pinned(id))
@@ -308,6 +309,11 @@ extension BrowserWindowController {
     @objc private func deletePinFromMenu(_ sender: NSMenuItem) {
         guard let id = sender.representedObject as? UUID else { return }
         deleteBookmarkNode(id)
+    }
+
+    @objc private func ungroupPinFolderFromMenu(_ sender: NSMenuItem) {
+        guard let id = sender.representedObject as? UUID else { return }
+        ungroupBookmarkFolder(id)
     }
 
     /// In a folder: first inside it. On a pin: right after it. Elsewhere:

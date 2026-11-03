@@ -28,17 +28,18 @@ enum BrowserChromeBookmarksReader {
         }
     }
 
-    /// The roots that hold bookmarks, in Chrome's order, with the name
+    /// The roots after the bookmarks bar, in Chrome's order, with the name
     /// used when the file stores none.
-    private static let roots: [(key: String, name: String)] = [
-        ("bookmark_bar", "Bookmarks Bar"),
+    private static let folderRoots: [(key: String, name: String)] = [
         ("other", "Other Bookmarks"),
         ("synced", "Mobile Bookmarks"),
     ]
 
-    /// Every non-empty root (bookmarks bar, other, mobile) as a folder named
-    /// as Chrome names it. Nodes that are neither a URL nor a folder, and
-    /// URLs without a value, are skipped.
+    /// The bookmarks bar's contents as they are (the bar is the top level,
+    /// as the rail's pinned tabs are), then every other non-empty root
+    /// (other, mobile) as a folder named as Chrome names it. Nodes that
+    /// are neither a URL nor a folder, and URLs without a value, are
+    /// skipped.
     static func read(fileURL: URL) throws -> [BrowserImportedNode] {
         guard let data = FileManager.default.contents(atPath: fileURL.path) else {
             throw BrowserImportError.missingFile(fileURL)
@@ -54,7 +55,8 @@ enum BrowserChromeBookmarksReader {
         guard let object = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
               let rootsObject = object["roots"] as? [String: Any]
         else { return nil }
-        return roots.compactMap { (root: (key: String, name: String)) -> BrowserImportedNode? in
+        let bar = ((rootsObject["bookmark_bar"] as? [String: Any])?["children"] as? [Any] ?? []).compactMap(node)
+        return bar + folderRoots.compactMap { (root: (key: String, name: String)) -> BrowserImportedNode? in
             guard let json = rootsObject[root.key] as? [String: Any] else { return nil }
             let children = (json["children"] as? [Any] ?? []).compactMap(node)
             guard !children.isEmpty else { return nil }

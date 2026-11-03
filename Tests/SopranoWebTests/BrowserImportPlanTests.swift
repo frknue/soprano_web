@@ -260,8 +260,11 @@ struct BrowserImportPlanTests {
 
     // MARK: Chrome, Safari, files
 
-    @Test func aSingleChromeProfileGoesIntoTheTargetSpaceAndSkipsAFolderThereAlready() {
-        let nodes: [BrowserImportedNode] = [.folder(BrowserImportedFolder(name: "Bookmarks Bar", children: [.link(link("https://c.example/"))]))]
+    @Test func aSingleChromeProfileGoesIntoTheTargetSpaceAndSkipsPinsThereAlready() {
+        let nodes: [BrowserImportedNode] = [
+            .link(link("https://c.example/")),
+            .folder(BrowserImportedFolder(name: "Work", children: [.link(link("https://w.example/"))])),
+        ]
         let profiles = [
             BrowserImportSourceData.ChromeProfile(
                 profile: BrowserImportedProfile(key: "Default", displayName: "Me", directory: nil),
@@ -274,17 +277,23 @@ struct BrowserImportPlanTests {
         list.reconcile(with: [.defaultProfile])
         let plan = BrowserImportPlanner.chromium(.chrome, profiles, context: context(spaces: list))
         #expect(plan.profiles.isEmpty)
-        #expect(plan.folders.map(\.name) == ["Chrome Bookmarks"])
+        #expect(plan.folders.map(\.wrapsInFolder) == [false])
         #expect(plan.folders.map(\.profileKey) == [nil])
         #expect(plan.history.map(\.visitCount) == [5])
         #expect(plan.cookies.map(\.keychainService) == ["Chrome Safe Storage"])
         #expect(plan.includedCookieCount == 4)
-        #expect(BrowserImportChecklist.summary(of: plan) == "1 pin · 5 visits · 4 cookies")
+        #expect(BrowserImportChecklist.summary(of: plan) == "2 pins · 5 visits · 4 cookies")
+        #expect(BrowserImportChecklist.rows(for: plan).first?.detail == "2 pins · 1 folder → pinned in the chosen Space")
 
+        // The pin is there, the folder isn't: still to import.
         let spaceID = list.spaces[0].id
-        list.updatePins(in: spaceID) { $0.insert(.folder(BrowserPinFolder(name: "Chrome Bookmarks")), into: BrowserPinTree.rootID, at: nil) }
+        list.updatePins(in: spaceID) { $0.insert(.pin(BrowserPin(url: "https://c.example/", title: "C")), into: BrowserPinTree.rootID, at: nil) }
+        #expect(BrowserImportPlanner.chromium(.chrome, profiles, context: context(spaces: list)).folders.map(\.isIncluded) == [true])
+        // Both there: skipped.
+        list.updatePins(in: spaceID) { $0.insert(.folder(BrowserPinFolder(name: "Work")), into: BrowserPinTree.rootID, at: nil) }
         let again = BrowserImportPlanner.chromium(.chrome, profiles, context: context(spaces: list))
         #expect(again.folders.map(\.isIncluded) == [false])
+        #expect(BrowserImportChecklist.rows(for: again).first?.detail == "Pinned there already; skipped")
 
         let file = BrowserImportPlanner.bookmarksFile(nodes, name: "export.html", context: context())
         #expect(file.folders.map(\.name) == ["export"])
@@ -317,7 +326,7 @@ struct BrowserImportPlanTests {
             profile("Profile 3", "Datora"),
         ], context: stores)
         #expect(plan.profiles.map(\.target) == [.existing(valkental.id), .existing(hustle.id), .new(name: "Datora")])
-        #expect(plan.folders.map(\.name) == ["Aside Bookmarks", "Aside Bookmarks", "Aside Bookmarks"])
+        #expect(plan.folders.map(\.wrapsInFolder) == [false, false, false])
         #expect(plan.folders.map(\.profileKey) == ["Default", "Profile 1", "Profile 3"])
         #expect(plan.history.map(\.profileKey) == ["Default", "Profile 1", "Profile 3"])
         #expect(plan.cookies.map(\.id) == ["aside:Default", "aside:Profile 1", "aside:Profile 3"])

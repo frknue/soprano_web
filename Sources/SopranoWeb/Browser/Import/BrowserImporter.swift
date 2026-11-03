@@ -262,6 +262,21 @@ final class BrowserImporter {
                 target = plan.targetSpaceID.flatMap { stores.spaces.space(id: $0) } ?? stores.spaces.defaultSpace
             }
             guard let target else { continue }
+            guard folder.wrapsInFolder else {
+                // A Chromium browser's bookmarks at the top level; what a
+                // re-import finds there already (same address, folder of
+                // the same name) is skipped.
+                for node in folder.nodes
+                where !BrowserImportPlanner.isThere(node, in: stores.spaces.pinTree(inSpace: target.id)) {
+                    guard let pinNode = BrowserImportPlanner.pinNodes([node]).first,
+                          stores.spaces.insert(pinNode, inSpace: target.id)
+                    else { continue }
+                    let counts = BrowserImportPlanner.nodeCounts([node])
+                    result.pinsAdded += counts.pins
+                    result.foldersAdded += counts.folders
+                }
+                continue
+            }
             let root = stores.spaces.pinTree(inSpace: target.id).root
             guard !root.children.contains(where: { $0.folder?.name == folder.name }) else { continue }
             let node = BrowserPinNode.folder(BrowserPinFolder(

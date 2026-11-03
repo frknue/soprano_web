@@ -201,4 +201,12 @@ extension BrowserWindowController {
             self?.spaces.removePin(id, inSpace: spaceID)
         }
     }
+
+    /// The rail's Ungroup Folder: the folder goes, what it held stays where
+    /// it was. Nothing is deleted, so it asks nothing.
+    @discardableResult
+    func ungroupBookmarkFolder(_ id: UUID) -> Bool {
+        guard let spaceID = pinSpaceID else { return false }
+        return spaces.ungroupPinFolder(id, inSpace: spaceID)
+    }
 }

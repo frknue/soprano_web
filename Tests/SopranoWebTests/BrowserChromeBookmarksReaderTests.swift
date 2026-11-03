@@ -19,7 +19,9 @@ struct BrowserChromeBookmarksReaderTests {
     private let chromeTime = "13000000000000000"
     private let chromeDate = Date(timeIntervalSince1970: 1_355_526_400)
 
-    @Test func rootsBecomeFoldersAndNodesKeepOrderNamesAndDates() {
+    /// The bookmarks bar's contents come first, as they are (no "Bookmarks
+    /// bar" folder around them); Other and Mobile bookmarks stay folders.
+    @Test func theBarIsTheTopLevelAndOtherRootsBecomeFolders() {
         let json = """
             {
               "checksum": "x", "version": 1,
@@ -46,12 +48,10 @@ struct BrowserChromeBookmarksReaderTests {
             """
         let nodes = BrowserChromeBookmarksReader.nodes(from: Data(json.utf8))
         #expect(nodes == [
-            .folder(BrowserImportedFolder(name: "Bookmarks bar", addedAt: chromeDate, children: [
-                .link(BrowserImportedLink(url: "https://example.com/", title: "Example", addedAt: chromeDate)),
-                .folder(BrowserImportedFolder(name: "Work", children: [
-                    .link(BrowserImportedLink(url: "https://work.example/", title: "https://work.example/")),
-                    .folder(BrowserImportedFolder(name: "Empty")),
-                ])),
+            .link(BrowserImportedLink(url: "https://example.com/", title: "Example", addedAt: chromeDate)),
+            .folder(BrowserImportedFolder(name: "Work", children: [
+                .link(BrowserImportedLink(url: "https://work.example/", title: "https://work.example/")),
+                .folder(BrowserImportedFolder(name: "Empty")),
             ])),
             .folder(BrowserImportedFolder(name: "Mobile Bookmarks", children: [
                 .link(BrowserImportedLink(url: "https://phone.example/", title: "Phone")),

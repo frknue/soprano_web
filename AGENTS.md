@@ -198,6 +198,8 @@ site storage, the extensions' own storage, 1Password's sign-in) and
   switcher's "+" sheet, filled, Create Space pressed; empty parts keep its
   defaults), `--edit-space "<space>=<name>|<icon>|<color>|<archive after>"`,
   `--hover-folder <name>` (the folder preview resting on its row opens),
+  `--ungroup-folder <name>` (the folder's Ungroup Folder menu item; prints
+  the Space's top level),
   `--toggle-rail` (⌘S) and `--print-rail` (one `rail:` JSON line: header,
   favorites, pinned rows and Today tabs with live, selected and "/" state,
   the switcher and the Spaces in its More Spaces menu, every tab of the
@@ -537,7 +539,8 @@ site storage, the extensions' own storage, 1Password's sign-in) and
   (`WKNavigationDelegate`), `+UIDelegate`
   (`WKUIDelegate`), `+Downloads` (hand-off to the download manager), `+Sidebar`,
   `+Bookmarks` (⌘D and the star's popover, the rail's Open All in Tabs,
-  New Folder, Edit/Rename and Delete with its confirmation, all on the
+  New Folder, Edit/Rename, Ungroup Folder — its items take its place,
+  `BrowserPinTree.ungroup` — and Delete with its confirmation, all on the
   current Space's pins),
   `+Vimium`, `+Session` (window state, lazy restore, crash recovery,
   `NSWindowDelegate`), `+PageMessages`, `+Links` (pop-ups, pop-up windows,
@@ -661,7 +664,10 @@ site storage, the extensions' own storage, 1Password's sign-in) and
   `host_key` SHA-256 prefix from meta version 24; `BrowserChromiumSafeStorage`
   reads that password from the login keychain — macOS asks the user —, only
   when an import with cookies runs, off the main thread),
-  `BrowserChromeBookmarksReader` (every Chromium browser:
+  `BrowserChromeBookmarksReader` (the bookmarks bar's contents as the top
+  level, Other/Mobile as folders, which the plan pins without a wrapper
+  folder — `Folder.wrapsInFolder` false, a re-import skipping pinned
+  addresses and same-named top-level folders; every Chromium browser:
   `BrowserImportSourceKind.chromiumFolder` names Chrome's, Brave's, Edge's,
   Vivaldi's, Chromium's and Aside's folder under `~/Library/Application Support`,
   `safeStorageService` its keychain item; the

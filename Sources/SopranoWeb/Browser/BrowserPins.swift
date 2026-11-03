@@ -409,6 +409,19 @@ struct BrowserPinTree: Equatable, Sendable {
         return removed
     }
 
+    /// Takes folder `id` away and puts what it held in its place, in
+    /// order (pins keep their ids, so their live tabs stay linked). Never
+    /// the root or a live folder.
+    @discardableResult
+    mutating func ungroup(folder id: UUID) -> Bool {
+        guard id != Self.rootID, let folder = folder(id: id), !folder.isLive,
+              let location = location(of: id), remove(id) != nil
+        else { return false }
+        return updateFolder(location.folderID) { parent in
+            parent.children.insert(contentsOf: folder.children, at: min(location.index, parent.children.count))
+        }
+    }
+
     // MARK: Helpers
 
     @discardableResult

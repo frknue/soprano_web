@@ -347,6 +347,12 @@ final class BrowserSpaceStore {
         update { $0.updatePins(in: spaceID) { $0.remove(id) != nil } }
     }
 
+    /// The folder's pins and folders take its place (`BrowserPinTree.ungroup`).
+    @discardableResult
+    func ungroupPinFolder(_ id: UUID, inSpace spaceID: UUID) -> Bool {
+        update { $0.updatePins(in: spaceID) { $0.ungroup(folder: id) } }
+    }
+
     /// The Space's pins whose title, address or folder path contains
     /// `query`; every pin for an empty query.
     func matchingPins(_ query: String, inSpace spaceID: UUID) -> [BrowserPinEntry] {

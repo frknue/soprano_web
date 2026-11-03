@@ -18,10 +18,14 @@ app.
   Web read one, it says where to allow it.
 - Importing from a Chromium browser (Chrome, Aside, Brave, Edge, Vivaldi, Chromium) brings
   its cookies along, so you stay signed in; macOS asks once to let Soprano Web use the
-  browser's "Safe Storage" keychain item. A browser with one profile goes into the Space
-  you choose. With several profiles, each gets a Space of its own (the Space with the
-  profile's name, else a new one; never one Space for two profiles) with its bookmarks as
-  a pinned folder, its History and its cookies, and importing again uses the same Spaces.
+  browser's "Safe Storage" keychain item. Bookmarks arrive as they were in the browser: the
+  bookmarks bar's contents pinned at the top level, Other and Mobile bookmarks as folders.
+  A browser with one profile goes into the Space you choose. With several profiles, each
+  gets a Space of its own (the Space with the profile's name, else a new one; never one
+  Space for two profiles) with its bookmarks, History and cookies, and importing again uses
+  the same Spaces and skips what's pinned already.
+- Right-click a pinned folder ▸ Ungroup Folder: the folder goes away and its pins and
+  folders take its place.
 - AppleScript: Soprano Web has a scripting dictionary (open it in Script Editor). Scripts
   see the windows (the most recently active first; private windows never), the tabs of
   each window's current Space (name, URL — set it to load an address or search —,

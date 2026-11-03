@@ -183,19 +183,24 @@ struct BrowserImportPlan: Sendable {
         var otherLinks: BrowserOutsideLinkDestination? = nil
     }
 
-    /// Bookmarks (Chrome, Safari, a bookmarks file) as one pinned folder.
+    /// Bookmarks: one pinned folder named `name` (Safari, a bookmarks
+    /// file), or (`wrapsInFolder` false: a Chromium browser's) pins and
+    /// folders at the top of the Space, its bookmarks bar being the top
+    /// level.
     struct Folder: Sendable, Identifiable {
         var id: String
         var name: String
         var nodes: [BrowserImportedNode]
         var pinCount: Int
         var folderCount: Int
-        /// The target Space has a top-level folder of that name: skipped.
+        /// The target Space has a top-level folder of that name (or, not
+        /// wrapped, every node already): skipped.
         var alreadyThere: Bool
         var isIncluded: Bool
         /// The source profile whose home Space it goes to; nil: the target
         /// Space.
         var profileKey: String? = nil
+        var wrapsInFolder = true
     }
 
     /// A Chromium profile's cookies, set in the website data of its home
@@ -521,10 +526,10 @@ enum BrowserImportPlanner {
     static func retarget(_ plan: inout BrowserImportPlan, to spaceID: UUID, spaces: BrowserSpaceList) {
         guard plan.source != .arc, plan.profiles.isEmpty, spaces.space(id: spaceID) != nil else { return }
         plan.targetSpaceID = spaceID
-        let root = spaces.space(id: spaceID)?.pinned.root
+        let tree = spaces.space(id: spaceID)?.pinned
         for index in plan.folders.indices {
             let wasThere = plan.folders[index].alreadyThere
-            let there = root?.children.contains { $0.folder?.name == plan.folders[index].name } ?? false
+            let there = tree.map { isThere(plan.folders[index], in: $0) } ?? false
             plan.folders[index].alreadyThere = there
             if there {
                 plan.folders[index].isIncluded = false
@@ -535,8 +540,9 @@ enum BrowserImportPlanner {
     }
 
     /// A browser with one profile goes into the target Space: its
-    /// bookmarks as one pinned folder ("Chrome Bookmarks"), its History
-    /// and cookies into that Space's.
+    /// bookmarks pinned at the top level as they are in the browser (the
+    /// bookmarks bar's contents, then Other and Mobile bookmarks as
+    /// folders), its History and cookies into that Space's.
     ///
     /// With several profiles each one gets a home Space of its own, as an
     /// Arc profile does: the Space an earlier import marked (`aside:Profile
@@ -544,10 +550,9 @@ enum BrowserImportPlanner {
     /// `Default`) the Default Space, else a new Space named after it with
     /// a profile of its own. No two profiles share a home, so neither's
     /// cookies overwrite the other's: a Space another profile took already
-    /// doesn't count. Its bookmarks become a pinned folder there, and its
-    /// History and cookies go there. Names and ids carry the browser's
-    /// (`Brave Bookmarks`, `brave:Default`), so a re-import skips its own
-    /// folder.
+    /// doesn't count. Its bookmarks are pinned there, and its History and
+    /// cookies go there. A re-import skips pins the Space has (same
+    /// address) and top-level folders of the same name.
     static func chromium(
         _ browser: BrowserImportSourceKind,
         _ profiles: [BrowserImportSourceData.ChromeProfile],
@@ -572,7 +577,7 @@ enum BrowserImportPlanner {
             let profileKey = ownHomes ? key : nil
             let id = profileSource(browser, key)
             if !profile.bookmarks.isEmpty {
-                var item = folder(id: id, name: folderName, nodes: profile.bookmarks, space: home)
+                var item = folder(id: id, name: folderName, nodes: profile.bookmarks, space: home, wrapsInFolder: false)
                 item.profileKey = profileKey
                 plan.folders.append(item)
             }
@@ -698,19 +703,47 @@ enum BrowserImportPlanner {
         context.targetSpaceID.flatMap { context.spaces.space(id: $0) }
     }
 
-    /// A pinned folder for Space `space` (nil: a Space made by the import).
-    private static func folder(id: String, name: String, nodes: [BrowserImportedNode], space: BrowserSpace?) -> BrowserImportPlan.Folder {
+    /// Bookmarks for Space `space` (nil: a Space made by the import), in a
+    /// folder or (`wrapsInFolder` false) at its top level.
+    private static func folder(
+        id: String,
+        name: String,
+        nodes: [BrowserImportedNode],
+        space: BrowserSpace?,
+        wrapsInFolder: Bool = true
+    ) -> BrowserImportPlan.Folder {
         let counts = nodeCounts(nodes)
-        let alreadyThere = space?.pinned.root.children.contains { $0.folder?.name == name } ?? false
-        return BrowserImportPlan.Folder(
+        var folder = BrowserImportPlan.Folder(
             id: id,
             name: name,
             nodes: nodes,
             pinCount: counts.pins,
             folderCount: counts.folders,
-            alreadyThere: alreadyThere,
-            isIncluded: !alreadyThere && !nodes.isEmpty
+            alreadyThere: false,
+            isIncluded: false,
+            wrapsInFolder: wrapsInFolder
         )
+        folder.alreadyThere = space.map { isThere(folder, in: $0.pinned) } ?? false
+        folder.isIncluded = !folder.alreadyThere && !nodes.isEmpty
+        return folder
+    }
+
+    /// Whether `folder` is in `tree` from an earlier import: a top-level
+    /// folder of its name, or (not wrapped) every one of its nodes.
+    static func isThere(_ folder: BrowserImportPlan.Folder, in tree: BrowserPinTree) -> Bool {
+        guard !folder.wrapsInFolder else {
+            return tree.root.children.contains { $0.folder?.name == folder.name }
+        }
+        return !folder.nodes.isEmpty && folder.nodes.allSatisfy { isThere($0, in: tree) }
+    }
+
+    /// A pin whose address the Space pins anywhere, or a top-level folder
+    /// of the same name.
+    static func isThere(_ node: BrowserImportedNode, in tree: BrowserPinTree) -> Bool {
+        switch node {
+        case let .link(link): !tree.pins(url: link.url).isEmpty
+        case let .folder(folder): tree.root.children.contains { $0.folder?.name == folder.name }
+        }
     }
 
     // MARK: Trees

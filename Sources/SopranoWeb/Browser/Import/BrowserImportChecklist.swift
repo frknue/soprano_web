@@ -60,9 +60,13 @@ enum BrowserImportChecklist {
         }
         for folder in plan.folders {
             let destination = folder.profileKey.map { " in \(plan.homeName(ofProfile: $0))" } ?? ""
-            let detail = folder.alreadyThere
-                ? "The Space has a folder of that name; skipped"
-                : "\(count(folder.pinCount, "pin")) · \(count(folder.folderCount, "folder")) → a pinned folder\(destination)"
+            let counts = "\(count(folder.pinCount, "pin")) · \(count(folder.folderCount, "folder"))"
+            let detail = switch (folder.alreadyThere, folder.wrapsInFolder) {
+            case (true, true): "The Space has a folder of that name; skipped"
+            case (true, false): "Pinned there already; skipped"
+            case (false, true): "\(counts) → a pinned folder\(destination)"
+            case (false, false): "\(counts) → pinned\(destination.isEmpty ? " in the chosen Space" : destination)"
+            }
             rows.append(Row(
                 item: .folder(folder.id),
                 section: "Bookmarks",

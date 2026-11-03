@@ -37,6 +37,30 @@ struct BrowserPinTreeTests {
         folder.children.map(\.title)
     }
 
+    /// Ungroup: a folder's items take its place in order, keeping their
+    /// ids; never the root or a live folder.
+    @Test func ungroupPutsAFoldersItemsInItsPlace() {
+        var tree = sample()
+        let b = id("B", in: tree)
+        let work = tree.ungroup(folder: id("Work", in: tree))
+        #expect(work)
+        #expect(titles(tree.root) == ["A", "B", "Docs", "D"])
+        #expect(tree.node(id: b)?.title == "B")
+        let docs = tree.ungroup(folder: id("Docs", in: tree))
+        #expect(docs)
+        #expect(titles(tree.root) == ["A", "B", "C", "D"])
+
+        let rootUngrouped = tree.ungroup(folder: root)
+        let pinUngrouped = tree.ungroup(folder: b)
+        #expect(!rootUngrouped && !pinUngrouped)
+        var live = BrowserPinFolder(name: "PRs", children: [pin("P")])
+        live.source = .githubPullRequests(repo: "o/r")
+        tree.insert(.folder(live), into: root)
+        let liveUngrouped = tree.ungroup(folder: live.id)
+        #expect(!liveUngrouped)
+        #expect(tree.folder(id: live.id) != nil)
+    }
+
     @Test func insertPlacesAtTheIndexClampedAndRefusesTakenIdsOrMissingFolders() {
         var tree = sample()
         let work = id("Work", in: tree)

@@ -22,6 +22,9 @@ import AppKit
 ///   favorites, pinned rows, Today tabs and the switcher, each with its
 ///   live, selected and "/" state, and every tab of the Space with its
 ///   link.
+/// - `--ungroup-folder <name>`: the rail's Ungroup Folder on the
+///   top-level-or-nested folder named so (its menu item, sent as a click
+///   sends it); prints the Space's top level after.
 enum SnapshotRailAction {
     case clickPin(title: String, icon: Bool, command: Bool)
     case clickFavorite(String, command: Bool)
@@ -35,11 +38,12 @@ enum SnapshotRailAction {
     case printRail
     case hoverFolder(String)
     case toggleRail
+    case ungroupFolder(String)
 
     static let flags: Set<String> = [
         "--click-pin", "--click-favorite", "--pin-tab", "--unpin-tab", "--add-favorite", "--remove-favorite",
         "--replace-pin", "--new-space", "--edit-space", "--print-rail",
-        "--hover-folder", "--toggle-rail",
+        "--hover-folder", "--toggle-rail", "--ungroup-folder",
     ]
 
     static let usage = """
@@ -47,7 +51,7 @@ enum SnapshotRailAction {
                                [--pin-tab] [--unpin-tab] [--add-favorite] [--remove-favorite] [--replace-pin]
                                [--new-space "<name>|<icon>|<color>"]...
                                [--edit-space "<space>=<name>|<icon>|<color>|<archive after>"]
-                               [--print-rail] [--hover-folder <name>] [--toggle-rail]
+                               [--print-rail] [--hover-folder <name>] [--toggle-rail] [--ungroup-folder <name>]
     """
 
     /// Nil when `option` is not one of these flags.
@@ -78,6 +82,7 @@ enum SnapshotRailAction {
         case "--print-rail": return .printRail
         case "--hover-folder": return .hoverFolder(try value())
         case "--toggle-rail": return .toggleRail
+        case "--ungroup-folder": return .ungroupFolder(try value())
         default: return nil
         }
     }
@@ -162,6 +167,18 @@ enum SnapshotRailAction {
         case .toggleRail:
             controller.toggleVerticalSidebar()
             print("toggle-rail: rail \(rail.isHidden ? "hidden" : "shown"), folder preview \(controller.folderPreview == nil ? "closed" : "open")")
+        case let .ungroupFolder(name):
+            let tree = controller.currentPinTree
+            guard let entry = tree.folderEntries().first(where: { $0.name == name && $0.id != BrowserPinTree.rootID }),
+                  let item = controller.pinMenu(for: entry.id)?.items.first(where: { $0.title == "Ungroup Folder" }),
+                  item.isEnabled, let action = item.action
+            else {
+                print("ungroup-folder: no folder \(name) to ungroup")
+                return
+            }
+            NSApp.sendAction(action, to: item.target, from: item)
+            let top = controller.currentPinTree.root.children.map { $0.folder.map { "[\($0.displayName)]" } ?? $0.title }
+            print("ungroup-folder: \(name) -> top level \(top.joined(separator: ", "))")
         }
     }
 

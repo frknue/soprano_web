@@ -402,22 +402,29 @@ struct BrowserImporterTests {
         let fixture = Fixture()
         let valkental = try #require(fixture.spaces.createSpace(name: "Valkental", color: .cyan, profiles: fixture.profiles))
         let profiles = try asideProfiles(fixture)
-        let summary = await run(BrowserImportPlanner.chromium(.aside, profiles, context: fixture.context), fixture)
+        let plan = BrowserImportPlanner.chromium(.aside, profiles, context: fixture.context)
+        let summary = await run(plan, fixture)
 
         #expect(summary.spacesCreated == 1)
         let hustle = try #require(fixture.spaces.spaces.first { $0.displayName == "Hustle" })
         #expect(hustle.profileID != valkental.profileID && hustle.profileID != BrowserProfile.defaultID)
-        #expect(fixture.spaces.pinTree(inSpace: valkental.id).root.children.map(\.title) == ["Aside Bookmarks"])
-        #expect(fixture.spaces.pinTree(inSpace: hustle.id).root.children.map(\.title) == ["Aside Bookmarks"])
+        // The bookmarks bar is the top level: no folder around the pins.
+        #expect(fixture.spaces.pinTree(inSpace: valkental.id).root.children.map(\.title) == ["shop"])
+        #expect(fixture.spaces.pinTree(inSpace: hustle.id).root.children.map(\.title) == ["side"])
+        #expect(summary.pinsAdded == 2)
+        #expect(summary.foldersAdded == 0)
         #expect(fixture.cookies[valkental.profileID]?.map(\.name) == ["work"])
         #expect(fixture.cookies[hustle.profileID]?.map(\.name) == ["side"])
         #expect(fixture.cookies[BrowserProfile.defaultID] == nil)
         #expect(summary.cookies.map(\.spaceName) == ["Valkental", "Hustle"])
         #expect(summary.cookies.map(\.added) == [1, 1])
 
-        let again = await run(BrowserImportPlanner.chromium(.aside, profiles, context: fixture.context), fixture)
+        // The same plan again (the sheet open before the first import):
+        // the pins there are skipped.
+        let again = await run(plan, fixture)
         #expect(again.spacesCreated == 0)
         #expect(again.pinsAdded == 0)
+        #expect(fixture.spaces.pinTree(inSpace: hustle.id).root.children.count == 1)
         #expect(fixture.spaces.spaces.filter { $0.displayName == "Hustle" }.count == 1)
         #expect(fixture.cookies[hustle.profileID]?.count == 2)
     }
