@@ -102,13 +102,12 @@ site storage, the extensions' own storage, 1Password's sign-in) and
       [--find] [--settings] [--vertical-tabs] [--collapsed] [--print-tabs] …
   ```
 
-  It builds the real windows with volatile stores through the window
-  manager, captures the chrome with AppKit and the page with WebKit, and
-  writes a PNG; its windows stay off every display and never become key or
-  front. Every flag (windows, tabs, Spaces, pins, Archive, sleep, content
-  blocker, search engines, import, Command Bar, shortcuts, extensions, …)
-  is in `docs/HARNESS.md`; the stage 4 features' flags sit with their entry
-  in `docs/ARCHITECTURE.md`. Read the part you need before running it.
+  The flags of stage 4 phases P6–P12 (Site Control Center, Boosts, Capture,
+  Mini Player, Reader and Translate, Live folders, AppleScript) sit with
+  their entry in `docs/ARCHITECTURE.md`; every other flag (windows, tabs,
+  Spaces, pins, Archive, sleep, content blocker, import, Command Bar,
+  Little Arc, Peek, Split View, extensions, …) is in `docs/HARNESS.md`.
+  Read the part you need before running it.
 
 - Verify real navigation, Spaces and the agent surface in the dev app. Agents
   launch it on their own, in the background (`open -g` leaves focus with the
