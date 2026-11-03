@@ -666,8 +666,9 @@ site storage, the extensions' own storage, 1Password's sign-in) and
   when an import with cookies runs, off the main thread),
   `BrowserChromeBookmarksReader` (the bookmarks bar's contents as the top
   level, Other/Mobile as folders, which the plan pins without a wrapper
-  folder — `Folder.wrapsInFolder` false, a re-import skipping pinned
-  addresses and same-named top-level folders; every Chromium browser:
+  folder — `Folder.wrapsInFolder` false; `BrowserImportPlanner.merge`
+  skips addresses the Space pins and puts a folder into the same-named one
+  at its level, which keeps its id —; every Chromium browser:
   `BrowserImportSourceKind.chromiumFolder` names Chrome's, Brave's, Edge's,
   Vivaldi's, Chromium's and Aside's folder under `~/Library/Application Support`,
   `safeStorageService` its keychain item; the

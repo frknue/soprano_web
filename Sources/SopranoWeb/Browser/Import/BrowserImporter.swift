@@ -263,18 +263,12 @@ final class BrowserImporter {
             }
             guard let target else { continue }
             guard folder.wrapsInFolder else {
-                // A Chromium browser's bookmarks at the top level; what a
-                // re-import finds there already (same address, folder of
-                // the same name) is skipped.
-                for node in folder.nodes
-                where !BrowserImportPlanner.isThere(node, in: stores.spaces.pinTree(inSpace: target.id)) {
-                    guard let pinNode = BrowserImportPlanner.pinNodes([node]).first,
-                          stores.spaces.insert(pinNode, inSpace: target.id)
-                    else { continue }
-                    let counts = BrowserImportPlanner.nodeCounts([node])
-                    result.pinsAdded += counts.pins
-                    result.foldersAdded += counts.folders
-                }
+                // A Chromium browser's bookmarks at the top level, merged:
+                // what a re-import finds pinned already is skipped, and a
+                // folder joins the Space's same-named one.
+                let added = stores.spaces.mergeImported(folder.nodes, inSpace: target.id)
+                result.pinsAdded += added.pins
+                result.foldersAdded += added.folders
                 continue
             }
             let root = stores.spaces.pinTree(inSpace: target.id).root

@@ -429,6 +429,42 @@ struct BrowserImporterTests {
         #expect(fixture.cookies[hustle.profileID]?.count == 2)
     }
 
+    /// A folder the Space has already (same name, same level) gets the
+    /// pins it lacks, keeping its id and its own pins; pins pinned
+    /// anywhere are skipped; running the plan again adds nothing.
+    @Test func topLevelBookmarksMergeIntoSameNamedFolders() async throws {
+        let fixture = Fixture()
+        let home = try #require(fixture.spaces.defaultSpace)
+        let mine = BrowserPinFolder(name: "AI", children: [.pin(BrowserPin(url: "https://mine.example/", title: "Mine"))])
+        fixture.spaces.insert(.folder(mine), inSpace: home.id)
+        fixture.spaces.addPin(url: "https://c.example/", title: "C", inSpace: home.id)
+        let nodes: [BrowserImportedNode] = [
+            .link(link("https://c.example/", "C")),
+            .folder(BrowserImportedFolder(name: "AI", children: [
+                .link(link("https://chat.example/", "Chat")),
+                .folder(BrowserImportedFolder(name: "Labs", children: [.link(link("https://lab.example/", "Lab"))])),
+            ])),
+        ]
+        let plan = BrowserImportPlanner.chromium(.chrome, [BrowserImportSourceData.ChromeProfile(
+            profile: BrowserImportedProfile(key: "Default", displayName: "Me", directory: nil),
+            bookmarks: nodes, historyFile: nil,
+            historyCounts: BrowserImportSourceData.HistoryCounts(visits: 0, importable: 0, kept: 0)
+        )], context: fixture.context)
+        #expect(plan.folders.map(\.isIncluded) == [true])
+
+        let summary = await run(plan, fixture)
+        #expect(summary.pinsAdded == 2)
+        #expect(summary.foldersAdded == 1)
+        let tree = fixture.spaces.pinTree(inSpace: home.id)
+        #expect(Set(tree.root.children.map(\.title)) == ["AI", "C"])
+        let ai = try #require(tree.folder(id: mine.id))
+        #expect(ai.children.map(\.title) == ["Mine", "Chat", "Labs"])
+        #expect(ai.children.last?.folder?.children.map(\.title) == ["Lab"])
+
+        let again = await run(plan, fixture)
+        #expect(again.pinsAdded == 0 && again.foldersAdded == 0)
+    }
+
     @Test func aMissingKeychainItemFailsOnlyTheCookies() async throws {
         let fixture = Fixture()
         let summary = await run(BrowserImportPlanner.chromium(.chrome, try asideProfiles(fixture), context: fixture.context), fixture)

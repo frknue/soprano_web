@@ -282,6 +282,21 @@ final class BrowserSpaceStore {
         update { $0.updatePins(in: spaceID) { $0.insert(node, into: folderID, at: index) } }
     }
 
+    /// Merges imported bookmarks into the Space's top level
+    /// (`BrowserImportPlanner.merge`): the importers' entry point for a
+    /// browser whose bookmarks bar is the top level. Returns what was added.
+    @discardableResult
+    func mergeImported(_ nodes: [BrowserImportedNode], inSpace spaceID: UUID) -> (pins: Int, folders: Int) {
+        var added = (pins: 0, folders: 0)
+        update { list in
+            list.updatePins(in: spaceID) { tree in
+                added = BrowserImportPlanner.merge(nodes, into: BrowserPinTree.rootID, of: &tree)
+                return added.pins + added.folders > 0
+            }
+        }
+        return added
+    }
+
     /// Adds an empty folder in `parentID` at `index` (nil appends).
     @discardableResult
     func addPinFolder(

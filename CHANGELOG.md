@@ -23,7 +23,7 @@ app.
   A browser with one profile goes into the Space you choose. With several profiles, each
   gets a Space of its own (the Space with the profile's name, else a new one; never one
   Space for two profiles) with its bookmarks, History and cookies, and importing again uses
-  the same Spaces and skips what's pinned already.
+  the same Spaces, adds only bookmarks not pinned yet and fills folders of the same name.
 - Right-click a pinned folder ▸ Ungroup Folder: the folder goes away and its pins and
   folders take its place.
 - AppleScript: Soprano Web has a scripting dictionary (open it in Script Editor). Scripts

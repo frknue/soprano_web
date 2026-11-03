@@ -289,8 +289,11 @@ struct BrowserImportPlanTests {
         let spaceID = list.spaces[0].id
         list.updatePins(in: spaceID) { $0.insert(.pin(BrowserPin(url: "https://c.example/", title: "C")), into: BrowserPinTree.rootID, at: nil) }
         #expect(BrowserImportPlanner.chromium(.chrome, profiles, context: context(spaces: list)).folders.map(\.isIncluded) == [true])
-        // Both there: skipped.
+        // A same-named folder without the pin inside doesn't count.
         list.updatePins(in: spaceID) { $0.insert(.folder(BrowserPinFolder(name: "Work")), into: BrowserPinTree.rootID, at: nil) }
+        #expect(BrowserImportPlanner.chromium(.chrome, profiles, context: context(spaces: list)).folders.map(\.isIncluded) == [true])
+        // Every address pinned: skipped.
+        list.updatePins(in: spaceID) { $0.insert(.pin(BrowserPin(url: "https://w.example/", title: "W")), into: BrowserPinTree.rootID, at: nil) }
         let again = BrowserImportPlanner.chromium(.chrome, profiles, context: context(spaces: list))
         #expect(again.folders.map(\.isIncluded) == [false])
         #expect(BrowserImportChecklist.rows(for: again).first?.detail == "Pinned there already; skipped")
