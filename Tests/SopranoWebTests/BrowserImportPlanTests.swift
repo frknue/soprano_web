@@ -333,6 +333,43 @@ struct BrowserImportPlanTests {
         #expect(fresh.profiles.map(\.target) == [.existing(BrowserProfile.defaultID), .new(name: "Work")])
     }
 
+    /// Two profiles never share a home: a second "Work" gets a new Space,
+    /// and `Default` doesn't fall back onto a Space another profile took,
+    /// nor may a name match take the Space an earlier import marked.
+    @Test func chromiumProfilesNeverShareAHome() {
+        func profile(_ key: String, _ name: String) -> BrowserImportSourceData.ChromeProfile {
+            BrowserImportSourceData.ChromeProfile(
+                profile: BrowserImportedProfile(key: key, displayName: name, directory: nil),
+                bookmarks: [], historyFile: nil,
+                historyCounts: BrowserImportSourceData.HistoryCounts(visits: 0, importable: 0, kept: 0)
+            )
+        }
+        let work = BrowserProfile(name: "Work", color: .green)
+        let marked = BrowserProfile(name: "Side", color: .red, importedFrom: BrowserImportPlanner.profileSource(.chrome, "Profile 2"))
+        var list = BrowserSpaceList()
+        list.reconcile(with: [.defaultProfile])
+        list.create(name: "Work", color: .green, profileID: work.id)
+        list.create(name: "Side", color: .red, profileID: marked.id)
+        let stores = context(profiles: [.defaultProfile, work, marked], spaces: list)
+
+        let plan = BrowserImportPlanner.chromium(.chrome, [
+            profile("Profile 1", "Work"),
+            profile("Profile 3", "work"),
+            profile("Profile 4", "Side"),
+            profile("Profile 5", "Default"),
+            profile("Default", "Person 1"),
+            profile("Profile 2", "Renamed"),
+        ], context: stores)
+        #expect(plan.profiles.map(\.target) == [
+            .existing(work.id),
+            .new(name: "work"),
+            .new(name: "Side"),
+            .existing(BrowserProfile.defaultID),
+            .new(name: "Person 1"),
+            .existing(marked.id),
+        ])
+    }
+
     @Test func safariHistoryIsOneVisitPerPageAtItsLastVisit() throws {
         let export = BrowserSafariExport(
             bookmarks: [],

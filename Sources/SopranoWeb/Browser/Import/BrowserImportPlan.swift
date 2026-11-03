@@ -538,13 +538,16 @@ enum BrowserImportPlanner {
     /// bookmarks as one pinned folder ("Chrome Bookmarks"), its History
     /// and cookies into that Space's.
     ///
-    /// With several profiles each one gets a home Space, as an Arc profile
-    /// does: the Space an earlier import marked (`aside:Profile 1`), else
-    /// the Space named like the profile, else (Chromium's `Default`) the
-    /// Default Space, else a new Space named after it with a profile of
-    /// its own. Its bookmarks become a pinned folder there, and its History
-    /// and cookies go there. Names and ids carry the browser's (`Brave
-    /// Bookmarks`, `brave:Default`), so a re-import skips its own folder.
+    /// With several profiles each one gets a home Space of its own, as an
+    /// Arc profile does: the Space an earlier import marked (`aside:Profile
+    /// 1`), else the Space named like the profile, else (Chromium's
+    /// `Default`) the Default Space, else a new Space named after it with
+    /// a profile of its own. No two profiles share a home, so neither's
+    /// cookies overwrite the other's: a Space another profile took already
+    /// doesn't count. Its bookmarks become a pinned folder there, and its
+    /// History and cookies go there. Names and ids carry the browser's
+    /// (`Brave Bookmarks`, `brave:Default`), so a re-import skips its own
+    /// folder.
     static func chromium(
         _ browser: BrowserImportSourceKind,
         _ profiles: [BrowserImportSourceData.ChromeProfile],
@@ -556,23 +559,12 @@ enum BrowserImportPlanner {
         plan.defaultSpaceName = context.spaces.defaultSpace?.displayName ?? BrowserProfile.defaultName
         let ownHomes = profiles.count > 1
         let target = context.targetSpaceID.flatMap { context.spaces.space(id: $0) }
-        var homeOwners: [UUID: Int] = [:]
-        for profile in profiles {
+        let homes = ownHomes ? chromiumHomes(browser, profiles.map(\.profile), context: context) : []
+        plan.profiles = homes.map(\.profile)
+        for (index, profile) in profiles.enumerated() {
             let key = profile.profile.key
-            var home = target
-            var folderName = "\(name) Bookmarks"
-            if ownHomes {
-                let mapping = chromiumHome(browser, profile.profile, context: context)
-                plan.profiles.append(mapping.profile)
-                home = mapping.space
-                // Two profiles in one Space keep their folders apart.
-                if let space = home {
-                    homeOwners[space.id, default: 0] += 1
-                    if homeOwners[space.id, default: 0] > 1 {
-                        folderName += " (\(profile.profile.displayName))"
-                    }
-                }
-            }
+            let home = ownHomes ? homes[index].space : target
+            let folderName = "\(name) Bookmarks"
             let profileKey = ownHomes ? key : nil
             let id = profileSource(browser, key)
             if !profile.bookmarks.isEmpty {
@@ -607,14 +599,15 @@ enum BrowserImportPlanner {
         return plan
     }
 
-    /// A Chromium profile's home Space (see `chromium`); `space` is the
-    /// existing one, nil for a new one.
-    private static func chromiumHome(
+    /// Each Chromium profile's home Space (see `chromium`), in order;
+    /// `space` is the existing one, nil for a new one. Homes an earlier
+    /// import marked are claimed first, so a name match can't take one.
+    private static func chromiumHomes(
         _ browser: BrowserImportSourceKind,
-        _ profile: BrowserImportedProfile,
+        _ profiles: [BrowserImportedProfile],
         context: Context
-    ) -> (profile: BrowserImportPlan.Profile, space: BrowserSpace?) {
-        func existing(_ space: BrowserSpace) -> (profile: BrowserImportPlan.Profile, space: BrowserSpace?) {
+    ) -> [(profile: BrowserImportPlan.Profile, space: BrowserSpace?)] {
+        func existing(_ profile: BrowserImportedProfile, _ space: BrowserSpace) -> (profile: BrowserImportPlan.Profile, space: BrowserSpace?) {
             (BrowserImportPlan.Profile(
                 key: profile.key,
                 displayName: profile.displayName,
@@ -623,26 +616,35 @@ enum BrowserImportPlanner {
             ), space)
         }
         let profileList = BrowserProfileList(context.profiles)
-        if let earlier = profileList.profile(importedFrom: profileSource(browser, profile.key)),
-           let space = context.spaces.space(ofProfile: earlier.id) {
-            return existing(space)
+        var homes: [(profile: BrowserImportPlan.Profile, space: BrowserSpace?)?] = profiles.map { profile in
+            guard let earlier = profileList.profile(importedFrom: profileSource(browser, profile.key)),
+                  let space = context.spaces.space(ofProfile: earlier.id)
+            else { return nil }
+            return existing(profile, space)
         }
-        let wanted = profile.displayName.trimmingCharacters(in: .whitespacesAndNewlines)
-        if let space = context.spaces.spaces.first(where: {
-            $0.displayName.trimmingCharacters(in: .whitespacesAndNewlines)
-                .compare(wanted, options: [.caseInsensitive, .diacriticInsensitive]) == .orderedSame
-        }) {
-            return existing(space)
+        var taken = Set(homes.compactMap { $0?.space?.profileID })
+        for (index, profile) in profiles.enumerated() where homes[index] == nil {
+            let free = context.spaces.spaces.filter { !taken.contains($0.profileID) }
+            let wanted = profile.displayName.trimmingCharacters(in: .whitespacesAndNewlines)
+            let named = free.first {
+                $0.displayName.trimmingCharacters(in: .whitespacesAndNewlines)
+                    .compare(wanted, options: [.caseInsensitive, .diacriticInsensitive]) == .orderedSame
+            }
+            let fallback = profile.isDefault ? free.first { $0.profileID == BrowserProfile.defaultID } : nil
+            if let space = named ?? fallback {
+                taken.insert(space.profileID)
+                homes[index] = existing(profile, space)
+            } else {
+                let name = wanted.isEmpty ? profile.key : wanted
+                homes[index] = (BrowserImportPlan.Profile(
+                    key: profile.key,
+                    displayName: profile.displayName,
+                    target: .new(name: name),
+                    targetName: name
+                ), nil)
+            }
         }
-        if profile.isDefault, let space = context.spaces.defaultSpace {
-            return existing(space)
-        }
-        return (BrowserImportPlan.Profile(
-            key: profile.key,
-            displayName: profile.displayName,
-            target: .new(name: wanted.isEmpty ? profile.key : wanted),
-            targetName: wanted.isEmpty ? profile.key : wanted
-        ), nil)
+        return homes.compactMap(\.self)
     }
 
     /// Safari's export: `Bookmarks.html` as one pinned folder, each

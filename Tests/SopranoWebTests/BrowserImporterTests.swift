@@ -429,4 +429,28 @@ struct BrowserImporterTests {
         #expect(summary.cookies.allSatisfy { $0.added == 0 && $0.error?.contains("Chrome Safe Storage") == true })
         #expect(fixture.cookies.isEmpty)
     }
+
+    /// Two profiles with one name each get a Space, and the same cookie
+    /// with different values stays apart.
+    @Test func sameNamedProfilesKeepTheirCookiesApart() async throws {
+        let fixture = Fixture()
+        let aside = fixture.folder.appendingPathComponent("Aside", isDirectory: true)
+        let expires = Date().addingTimeInterval(86_400)
+        let profiles = try ["Profile 1", "Profile 2"].map { key in
+            let file = aside.appendingPathComponent(key).appendingPathComponent("Cookies")
+            try ChromiumCookieFixture.write([.init(host: ".shop.example", name: "sid", value: key, expires: expires)], to: file)
+            return BrowserImportSourceData.ChromeProfile(
+                profile: BrowserImportedProfile(key: key, displayName: "Work", directory: nil),
+                bookmarks: [], historyFile: nil,
+                historyCounts: BrowserImportSourceData.HistoryCounts(visits: 0, importable: 0, kept: 0),
+                cookiesFile: file, cookieCount: 1
+            )
+        }
+        let summary = await run(BrowserImportPlanner.chromium(.aside, profiles, context: fixture.context), fixture)
+        #expect(summary.spacesCreated == 2)
+        let works = fixture.spaces.spaces.filter { $0.displayName == "Work" }
+        #expect(Set(works.map(\.profileID)).count == 2)
+        let values = works.compactMap { fixture.cookies[$0.profileID]?.map(\.value) }
+        #expect(values.sorted { $0.first ?? "" < $1.first ?? "" } == [["Profile 1"], ["Profile 2"]])
+    }
 }
