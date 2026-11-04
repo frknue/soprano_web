@@ -51,23 +51,32 @@ enum BrowserDownloadProgressText {
         }
         let received = size(record.receivedBytes)
         guard let expected = record.expectedBytes else {
-            guard let rate = record.bytesPerSecond, rate > 0 else { return received }
+            guard let rate = record.bytesPerSecond, rate > 0, rate < Self.maximumRate else { return received }
             return "\(received) · \(size(Int64(rate)))/s"
         }
         var text = "\(received) of \(size(expected))"
-        if let rate = record.bytesPerSecond, rate > 0, expected > record.receivedBytes {
-            text += " · " + timeLeft(Double(expected - record.receivedBytes) / rate)
+        if let rate = record.bytesPerSecond, rate > 0, expected > record.receivedBytes,
+           let left = timeLeft(Double(expected - record.receivedBytes) / rate)
+        {
+            text += " · " + left
         }
         return text
     }
 
-    /// "5 s left" (in fives under a minute), "2 min left", "1 h 5 min left".
-    static func timeLeft(_ seconds: TimeInterval) -> String {
-        let total = Int(seconds.rounded(.up))
-        if total < 60 {
-            return "\(max(5, Int((Double(total) / 5).rounded(.up)) * 5)) s left"
+    /// Speeds above this (1 PB/s) are no measurement; they show none.
+    static let maximumRate: Double = 1e15
+    /// Past 100 hours a time left tells nothing: none shows.
+    static let maximumTimeLeft: TimeInterval = 100 * 3_600
+
+    /// "5 s left" (in fives under a minute), "2 min left", "1 h 5 min
+    /// left"; nil past `maximumTimeLeft`.
+    static func timeLeft(_ seconds: TimeInterval) -> String? {
+        guard seconds.isFinite, seconds <= maximumTimeLeft else { return nil }
+        let fives = max(5, Int((max(0, seconds) / 5).rounded(.up)) * 5)
+        if fives < 60 {
+            return "\(fives) s left"
         }
-        let minutes = Int((Double(total) / 60).rounded(.up))
+        let minutes = Int((seconds / 60).rounded(.up))
         if minutes < 60 {
             return "\(minutes) min left"
         }

@@ -45,12 +45,23 @@ struct BrowserDownloadProgressTests {
     @Test func timeLeftRoundsUp() {
         #expect(BrowserDownloadProgressText.timeLeft(0.4) == "5 s left")
         #expect(BrowserDownloadProgressText.timeLeft(11) == "15 s left")
+        // Rounded to fives, 56 s is a minute already.
+        #expect(BrowserDownloadProgressText.timeLeft(56) == "1 min left")
         #expect(BrowserDownloadProgressText.timeLeft(59.5) == "1 min left")
         #expect(BrowserDownloadProgressText.timeLeft(61) == "2 min left")
         #expect(BrowserDownloadProgressText.timeLeft(3_600) == "1 h left")
         #expect(BrowserDownloadProgressText.timeLeft(3_900) == "1 h 5 min left")
     }
 
+    @Test func anAbsurdTimeLeftIsLeftOut() {
+        // A server claiming an enormous size, trickling: no time left
+        // rather than a number nobody can use (or one too big for Int).
+        #expect(BrowserDownloadProgressText.timeLeft(1e20) == nil)
+        #expect(BrowserDownloadProgressText.timeLeft(.infinity) == nil)
+        let size = BrowserDownloadProgressText.size
+        #expect(BrowserDownloadProgressText.detail(record(received: 1, expected: .max, rate: 0.5))
+            == "\(size(1)) of \(size(.max))")
+    }
     @Test func theSpeedIsARunningAverageOfSamplesHalfASecondApart() {
         var rate = BrowserDownloadRate()
         let start = Date()

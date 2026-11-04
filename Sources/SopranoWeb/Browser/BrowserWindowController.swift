@@ -590,8 +590,13 @@ final class BrowserWindowController: NSWindowController {
                 self?.syncFolderPreview()
             },
             downloads.changes.observe { [weak self] in
-                self?.sidebar.refresh()
-                self?.updateRailDownloads()
+                guard let self else { return }
+                // Progress notices come about once a second per download:
+                // only a shown Downloads list reloads (showing it reloads).
+                if self.isSidebarVisible, self.sidebar.section == .downloads {
+                    self.sidebar.refresh()
+                }
+                self.updateRailDownloads()
             },
             manager.archive.changes.observe { [weak self] in
                 guard let self, self.isSidebarVisible, self.sidebar.section == .archive else { return }

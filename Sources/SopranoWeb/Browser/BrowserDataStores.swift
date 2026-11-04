@@ -283,8 +283,12 @@ final class BrowserDownloadStore {
         records[index].finishedAt = nil
         records[index].errorMessage = nil
         discardResumeData(at: index)
-        // A resumed download measures its speed afresh.
+        // A resumed download measures its bytes and speed afresh; the old
+        // run's show nowhere meanwhile.
         forgetProgress(id)
+        records[index].receivedBytes = 0
+        records[index].expectedBytes = nil
+        records[index].bytesPerSecond = nil
         changes.notify()
         persist(after: records[index])
     }
@@ -317,6 +321,7 @@ final class BrowserDownloadStore {
             if let file = record.resumeDataFile {
                 privateResumeData[file] = nil
             }
+            forgetProgress(record.id)
         }
         records.removeAll { $0.privateContextID == id }
         if records.count != count {

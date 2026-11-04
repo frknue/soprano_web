@@ -211,6 +211,10 @@ struct BrowserDownloadStoreTests {
         store.updateProgress(id: record.id, fraction: 0.2, receivedBytes: 20_000_000, expectedBytes: 100_000_000, at: start.addingTimeInterval(1))
         store.cancel(id: record.id)
         store.restart(id: record.id)
+        // Until WebKit reports again, nothing of the old run shows.
+        #expect(store.records[0].receivedBytes == 0)
+        #expect(store.records[0].expectedBytes == nil)
+        #expect(store.records[0].bytesPerSecond == nil)
         // The first sample after Resume sets a baseline only: the 10 s
         // gap with the old bytes counts for nothing.
         store.updateProgress(id: record.id, fraction: 0.3, receivedBytes: 30_000_000, expectedBytes: 100_000_000, at: start.addingTimeInterval(11))

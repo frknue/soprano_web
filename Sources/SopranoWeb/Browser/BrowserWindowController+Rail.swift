@@ -63,8 +63,8 @@ extension BrowserWindowController {
         updateRailDownloads()
     }
 
-    /// The rail's rows for this window's downloads in progress (its own
-    /// private ones in a private window).
+    /// The rail's rows for the downloads in progress this window's
+    /// Downloads list shows: the saved ones, and a private window's own.
     func updateRailDownloads() {
         verticalTabsView.setDownloads(
             downloads.matching("", privateContextID: dataContext.downloadContextID).filter { $0.state == .inProgress }
