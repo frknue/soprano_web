@@ -68,6 +68,16 @@ struct BrowserAgentTranscript: Equatable, Sendable {
         blocks.removeAll()
     }
 
+    /// omp's process ended: work stops, and its message and tool call ids
+    /// no longer match anything, since the next process numbers its
+    /// messages from `msg-1` again.
+    mutating func processEnded() {
+        endWork()
+        for index in entries.indices {
+            entries[index].key = nil
+        }
+    }
+
     mutating func clear() {
         self = BrowserAgentTranscript()
     }

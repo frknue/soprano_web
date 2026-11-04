@@ -497,7 +497,9 @@ enum BrowserAgentRenderer {
             if intent.contains(.strikethrough) {
                 attributes[.strikethroughStyle] = NSUnderlineStyle.single.rawValue
             }
-            if let link = run.link {
+            // Web and mail links only: a `file:` link would open (or launch)
+            // whatever it names.
+            if let link = run.link, ["http", "https", "mailto"].contains(link.scheme?.lowercased() ?? "") {
                 attributes[.link] = link
             }
             output.append(NSAttributedString(string: piece, attributes: attributes))

@@ -76,7 +76,9 @@ extension BrowserWindowController {
         let chat = BrowserAgentChat(window: self, theme: theme)
         let view = chat.view
         view.isHidden = true
-        rootView.addSubview(view)
+        // At the sidebar's depth: under the address suggestions, the
+        // Command Bar and every other overlay added after it.
+        rootView.addSubview(view, positioned: .above, relativeTo: sidebar)
         NSLayoutConstraint.activate([
             // The sidebar's slot: under the toolbar, at the right edge.
             view.topAnchor.constraint(equalTo: sidebar.topAnchor),
@@ -106,7 +108,12 @@ extension BrowserWindowController {
             agentChat?.stop()
         case "send":
             showAgent(focus: false)
-            agentChat?.send(arguments.dropFirst().joined(separator: " "))
+            guard let chat = agentChat else { break }
+            chat.send(arguments.dropFirst().joined(separator: " "))
+            // A message that couldn't reach omp ends at once, with a note.
+            if !chat.transcript.isWorking, let note = chat.transcript.entries.last, note.kind == .note {
+                return .failure(BrowserAutomationError.unavailable(note.text))
+            }
             return .success("sent")
         default:
             break

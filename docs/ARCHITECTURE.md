@@ -792,9 +792,13 @@ touches; `AGENTS.md` holds the rules.
   parses them with `BrowserCommandRequest.parse` (`PWD` = omp's folder,
   no stdin) and runs them through `BrowserAutomationRouter.perform(…,
   defaultWindow:)`, so without `--window` they act on the chat's own
-  window; `agent` is refused, the CLI's timeouts apply
-  (`BrowserAutomationReplyOnce`), and an answer for an ended omp process
-  (`generation`) is dropped. `browser agent [show|hide|new|stop|send
+  window; with a Peek open `site`, `reader`, `translate` and `devtools`
+  get the selected tab's `--tab` (the CLI would act on the Peek), `agent`
+  and `boost css|js <host> -` (no stdin) are refused, the CLI's timeouts
+  apply (`BrowserAutomationReplyOnce`), and an answer for an ended omp
+  process (`generation`) is dropped; when omp exits, the transcript drops
+  its message ids (`processEnded`: the next process starts at `msg-1`
+  again). `browser agent [show|hide|new|stop|send
   <message>]` drives the panel and prints its state and chat.
 - `Browser/BrowserWebInspector.swift` — WebKit's Web Inspector in the app
   (View ▸ Show Web Inspector, F12; WebKit's own "Inspect Element" in the

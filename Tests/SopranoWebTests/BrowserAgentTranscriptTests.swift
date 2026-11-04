@@ -42,6 +42,19 @@ struct BrowserAgentTranscriptTests {
         #expect(transcript.entries.filter { $0.kind == .assistant }.map(\.text) == ["First", "Second"])
     }
 
+    @Test func aRestartedOmpReusingMessageIDsAddsNewEntries() {
+        var transcript = sent("Count")
+        transcript.apply(.textDelta(messageID: "msg-2", index: 0, text: "1 2 3"))
+        transcript.addNote("omp exited (status 143).")
+        transcript.processEnded()
+        transcript.addUser("Again", page: nil)
+        // The next omp process numbers its messages from msg-1 again.
+        transcript.apply(.textDelta(messageID: "msg-2", index: 0, text: "back"))
+        transcript.apply(.assistantEnd(messageID: "msg-2", text: "back"))
+        #expect(transcript.entries.map(\.kind) == [.user, .assistant, .note, .user, .assistant])
+        #expect(transcript.entries.filter { $0.kind == .assistant }.map(\.text) == ["1 2 3", "back"])
+    }
+
     @Test func toolCallsRunAndFail() {
         var transcript = sent()
         transcript.apply(.toolStart(callID: "t", title: "browser click @e9", intent: "Opening the link"))

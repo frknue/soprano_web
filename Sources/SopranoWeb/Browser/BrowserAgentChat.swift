@@ -83,7 +83,7 @@ final class BrowserAgentChat {
 
     private func exited(_ message: String) {
         transcript.addNote(message)
-        transcript.endWork()
+        transcript.processEnded()
         refresh()
     }
 
@@ -116,19 +116,45 @@ final class BrowserAgentChat {
             reply(.failure(BrowserAutomationError.unavailable("The window closed.")))
             return
         }
-        let request: BrowserCommandRequest
+        // `boost css|js <host> -` reads the CLI's standard input, which the
+        // agent has none of: it would replace the Boost with nothing.
+        if arguments.first == "boost", arguments.count >= 4, ["css", "js"].contains(arguments[1]), arguments[3] == "-" {
+            reply(.failure(BrowserAutomationError.invalidArguments(
+                "`boost css|js <host> -` reads standard input, which the agent has none of; write the code to a file and pass its path."
+            )))
+            return
+        }
+        var request: BrowserCommandRequest
         do {
-            // A relative screenshot path is under omp's folder; `boost
-            // css|js <host> -` has no standard input here.
+            // A relative screenshot path is under omp's folder.
             guard let parsed = try BrowserCommandRequest.parse(
                 ["soprano-web", "browser"] + arguments,
                 environment: ["PWD": session.workingDirectory],
                 standardInput: { Data() }
-            ) else { return }
+            ) else {
+                reply(.failure(BrowserAutomationError.invalidArguments(BrowserCommand.help)))
+                return
+            }
             request = parsed
         } catch {
             reply(.failure(error))
             return
+        }
+        // `site`, `reader`, `translate` and `devtools` act on a Peek when
+        // one is open; the agent's messages name the selected tab under it.
+        if request.windowIndex == nil, request.tabIndex == nil, window.peek != nil,
+           Self.peekCommands.contains(request.command),
+           let selected = window.selectedTab,
+           let index = window.visibleTabs.firstIndex(where: { $0 === selected })
+        {
+            request = BrowserCommandRequest(
+                command: request.command,
+                arguments: request.arguments,
+                tabIndex: index + 1,
+                windowIndex: nil,
+                timeout: request.timeout,
+                space: request.space
+            )
         }
         if request.command == "help" {
             reply(.success(BrowserCommand.help))
@@ -158,6 +184,10 @@ final class BrowserAgentChat {
             once.send(BrowserAutomationResponse(result: result))
         }
     }
+
+    /// Commands that act on a Peek, without `--tab`, instead of the
+    /// selected tab.
+    private static let peekCommands: Set<String> = ["site", "reader", "translate", "devtools"]
 
     // MARK: - The harness
 
