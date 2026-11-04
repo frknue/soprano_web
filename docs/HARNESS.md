@@ -289,5 +289,7 @@ The offscreen UI harness (`.build/debug/SopranoWeb snapshot …`,
   `--agent-draft <text>` types text into the composer (implies `--agent`).
   `--agent-button` (repeatable) presses the toolbar's Agent button through
   its accessibility press and prints `agent-button: panel shown|hidden,
-  button on|off`; `--url 'soprano-web://settings#agent'` opens Settings ▸
-  Agent.
+  button on|off`; `--agent-gear` (after `--settings-search`) presses the
+  panel's gear, so `--settings --settings-search privacy --agent-gear
+  --print-settings` shows the search cleared and Agent current;
+  `--url 'soprano-web://settings#agent'` opens Settings ▸ Agent.

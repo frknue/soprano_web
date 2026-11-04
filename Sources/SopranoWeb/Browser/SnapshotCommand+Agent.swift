@@ -8,15 +8,19 @@ import AppKit
 /// - `--agent-button` (repeatable): presses the toolbar's Agent button
 ///   through its accessibility press, as a click does; after each press
 ///   prints `agent-button: panel shown|hidden, button on|off`.
+/// - `--agent-gear`: after `--settings-search`, presses the panel's gear
+///   (Settings ▸ Agent) and prints `agent-gear: pressed`; `--print-settings`
+///   then shows where the Settings page went.
 struct SnapshotAgentOptions {
     var shows = false
     var draft: String?
     var buttonPresses = 0
+    var pressesGear = false
 
     var isActive: Bool { shows || buttonPresses > 0 }
 
     static let usage = """
-                               [--agent] [--agent-draft <text>] [--agent-button]...
+                               [--agent] [--agent-draft <text>] [--agent-button]... [--agent-gear]
     """
 
     /// True when `option` is one of these flags (its value read).
@@ -29,6 +33,8 @@ struct SnapshotAgentOptions {
             options.draft = try value()
         case "--agent-button":
             options.buttonPresses += 1
+        case "--agent-gear":
+            options.pressesGear = true
         default:
             return false
         }
@@ -73,6 +79,21 @@ struct SnapshotAgentOptions {
             let on = (button as? ChromeIconButton)?.isToggledOn == true
             print("agent-button: panel \(controller.isAgentVisible ? "shown" : "hidden"), button \(on ? "on" : "off")")
         }
+    }
+
+    /// `--agent-gear`: the panel's gear, pressed as a click does.
+    @MainActor
+    func pressGear(controller: BrowserWindowController) {
+        guard pressesGear else { return }
+        controller.showAgent(focus: false)
+        guard let view = controller.agentChat?.view,
+              let gear = Self.buttons(in: view).first(where: { $0.accessibilityLabel() == "Agent Settings" })
+        else {
+            print("agent-gear: no panel")
+            return
+        }
+        _ = gear.accessibilityPerformPress()
+        print("agent-gear: pressed")
     }
 
     @MainActor

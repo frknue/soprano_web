@@ -596,6 +596,10 @@ enum SnapshotCommand {
             searchSettings(text, controller: controller)
             wait(0.3)
         }
+        if options.agent.pressesGear {
+            options.agent.pressGear(controller: controller)
+            wait(0.6)
+        }
         if options.showSecurityInfo {
             openConnectionDetails(controller: controller)
             wait(0.35)

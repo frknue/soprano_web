@@ -642,10 +642,7 @@ enum BrowserSettingsWebPage {
           post({ action: "allowTranslation", code: target.dataset.code });
         } else if (target.dataset.nav) {
           event.preventDefault();
-          const search = document.getElementById("search");
-          if (search.value) { search.value = ""; filter(); }
-          chosen = target.dataset.nav;
-          document.getElementById(chosen).scrollIntoView({ behavior: "smooth" });
+          showSection(target.dataset.nav, true);
         }
       });
       for (const select of all("select[data-key]")) {
@@ -713,11 +710,22 @@ enum BrowserSettingsWebPage {
       for (const type of ["wheel", "touchmove", "keydown"]) window.addEventListener(type, release, { passive: true });
       window.addEventListener("scroll", spy, { passive: true });
 
-      apply(state);
-      if (location.hash.length > 1) {
-        const section = document.getElementById(location.hash.slice(1));
-        if (section) { chosen = section.id; section.scrollIntoView(); spy(); }
+      // A sidebar link, the address's #section and the app (the Agent
+      // panel's gear): a search that hides the section is cleared first.
+      function showSection(id, smooth) {
+        const section = document.getElementById(id);
+        if (!section || section.tagName !== "SECTION") return false;
+        const search = document.getElementById("search");
+        if (search.value) { search.value = ""; filter(); }
+        chosen = section.id;
+        section.scrollIntoView(smooth ? { behavior: "smooth" } : undefined);
+        spy();
+        return true;
       }
+      window.__sopranoSettings.show = showSection;
+
+      apply(state);
+      if (location.hash.length > 1) showSection(location.hash.slice(1), false);
       post({ action: "ready" });
       document.addEventListener("visibilitychange", () => { if (!document.hidden) post({ action: "ready" }); });
     })();

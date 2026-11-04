@@ -40,9 +40,11 @@ extension BrowserWindowManager {
         }
     }
 
-    /// The Settings tab, as `showSettings()` picks it, scrolled to section
-    /// `section` (`agent`): a new tab opens at `#section`, an open one
-    /// scrolls there.
+    /// The Settings tab, as `showSettings()` picks it, at section `section`
+    /// (`agent`): a new tab opens at `#section`; a loaded one runs the
+    /// page's own section link (`__sopranoSettings.show`, which clears a
+    /// search hiding it); one not loaded (restored lazily, asleep, still
+    /// loading) loads `#section`.
     func showSettings(section: String) {
         let address = "\(BrowserSettingsWebPage.url.absoluteString)#\(section)"
         guard let target = outsideTabbedController else {
@@ -50,13 +52,19 @@ extension BrowserWindowManager {
             return
         }
         if let tab = target.visibleTabs.first(where: Self.isSettingsTab) {
+            let loaded = BrowserSettingsWebPage.isSettings(tab.webView.url) && !tab.webView.isLoading
+                && !tab.isAsleep && tab.lifecycle.pendingRestore == nil
             target.selectTab(id: tab.id, focus: true)
-            let id = BrowserSettingsWebPage.literal(["id": section])
-            tab.webView.evaluateJavaScript(
-                "document.getElementById(\(id).id)?.scrollIntoView()",
-                in: nil,
-                in: .page
-            ) { _ in }
+            if loaded {
+                let id = BrowserSettingsWebPage.literal(["id": section])
+                tab.webView.evaluateJavaScript(
+                    "window.__sopranoSettings && window.__sopranoSettings.show(\(id).id, true)",
+                    in: nil,
+                    in: .page
+                ) { _ in }
+            } else if let url = URL(string: address) {
+                target.navigate(tab, to: url)
+            }
         } else {
             target.newTab(url: address)
         }
