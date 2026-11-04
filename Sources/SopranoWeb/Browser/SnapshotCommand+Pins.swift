@@ -231,7 +231,7 @@ extension SnapshotCommand {
         editor.layoutSubtreeIfNeeded()
         let folder = controller.currentPinTree.folder(id: editor.content.folderID)?.displayName ?? "?"
         let pinned = controller.pinSpaceID.map { controller.spaces.isPinned(result.pin.url, inSpace: $0) } ?? false
-        print("pin-popover: \(editor.content.heading) | name \(editor.nameField.stringValue) | folder \(folder) | star \(pinned ? "filled" : "empty")")
+        print("pin-popover: \(editor.content.heading) | name \(editor.nameField.stringValue) | folder \(folder) | pinned \(pinned ? "yes" : "no")")
         for line in BrowserSpacesMenu.dump(editor.folderMenu()) {
             print("pin-popover-folders: \(line)")
         }

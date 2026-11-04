@@ -231,9 +231,6 @@ extension BrowserWindowController {
         let shownURL = tab.failedURL ?? url?.absoluteString ?? ""
         toolbar.setAddress(tab.isStartPage ? "" : shownURL, security: securityState(for: tab))
         toolbar.setProgress(tab.webView.estimatedProgress, isLoading: tab.webView.isLoading)
-        let isPinned = pinSpaceID.map { spaces.isPinned(shownURL, inSpace: $0) } ?? false
-        toolbar.setBookmarked(!tab.isStartPage && isPinned)
-        toolbar.setBookmarkEnabled(!tab.isStartPage && !shownURL.isEmpty)
         toolbar.setSidebarToggle(isSidebarVisible)
         toolbar.setDownloadsToggle(isSidebarVisible && sidebarSection == .downloads)
         window?.title = kind.windowTitle(tab.isStartPage ? "New Tab" : tab.displayTitle)

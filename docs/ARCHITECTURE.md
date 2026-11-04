@@ -129,7 +129,7 @@ touches; `AGENTS.md` holds the rules.
   the tab lists call, the find query a moved tab carries), `+Navigation`
   (`WKNavigationDelegate`), `+UIDelegate`
   (`WKUIDelegate`), `+Downloads` (hand-off to the download manager), `+Sidebar`,
-  `+Bookmarks` (⌘D and the star's popover, the rail's Open All in Tabs,
+  `+Bookmarks` (⌘D's popover under the address field, the rail's Open All in Tabs,
   New Folder, Edit/Rename, Ungroup Folder — its items take its place,
   `BrowserPinTree.ungroup` — and Delete with its confirmation, all on the
   current Space's pins),

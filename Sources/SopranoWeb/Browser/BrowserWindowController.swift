@@ -537,7 +537,6 @@ final class BrowserWindowController: NSWindowController {
         toolbar.onToggleVerticalSidebar = { [weak self] in self?.toggleVerticalSidebar() }
 
         toolbar.onSubmit = { [weak self] value in self?.submitAddress(value) }
-        toolbar.onBookmark = { [weak self] in self?.starPressed() }
         toolbar.onDownloads = { [weak self] in self?.toggleSidebar(section: .downloads) }
         toolbar.onSecurityInfo = { [weak self] in self?.toggleSiteControl() }
         toolbar.onSidebar = { [weak self] in

@@ -1,12 +1,11 @@
 import AppKit
 
 /// The address bar row: back, forward and reload, the address field,
-/// bookmark, downloads and the sidebar toggle, with a 2 pt loading line
-/// along its bottom edge.
+/// downloads and the sidebar toggle, with a 2 pt loading line along its
+/// bottom edge.
 @MainActor
 final class BrowserToolbarView: NSView, NSTextFieldDelegate {
     var onSubmit: ((String) -> Void)?
-    var onBookmark: (() -> Void)?
     var onDownloads: (() -> Void)?
     var onSidebar: (() -> Void)?
     var onToggleVerticalSidebar: (() -> Void)?
@@ -33,7 +32,7 @@ final class BrowserToolbarView: NSView, NSTextFieldDelegate {
     let addressAccessories = NSStackView()
     private let progressBar = BrowserProgressBar()
     /// Camera/microphone in-use mark between the address field and the
-    /// bookmark button; hidden while the selected tab captures nothing.
+    /// toolbar buttons; hidden while the selected tab captures nothing.
     let captureIndicator: BrowserCaptureIndicator
     /// The playing tab's controls when the window has no rail on screen;
     /// between the address field and the capture mark, no width while
@@ -44,12 +43,11 @@ final class BrowserToolbarView: NSView, NSTextFieldDelegate {
         constant: 0
     )
     /// The Extensions button (one for every extension: its menu lists
-    /// them), between the capture mark and the bookmark star; no width
-    /// while hidden (no extension runs in the window).
+    /// them), between the capture mark and Downloads; no width while
+    /// hidden (no extension runs in the window).
     private let extensionStack = NSStackView()
     private let extensionsButton: ChromeIconButton
     private let verticalTabsButton: ChromeIconButton
-    private let bookmarkButton: ChromeIconButton
     private let downloadsButton: ChromeIconButton
     private let sidebarButton: ChromeIconButton
     /// A Little Arc's "Open in" (another Space) and ⌘O buttons, at the
@@ -115,13 +113,6 @@ final class BrowserToolbarView: NSView, NSTextFieldDelegate {
             target: nil,
             action: nil
         )
-        self.bookmarkButton = ChromeIconButton(
-            symbolName: "star",
-            accessibilityLabel: "Bookmark This Page",
-            pointSize: 12,
-            target: nil,
-            action: nil
-        )
         self.downloadsButton = ChromeIconButton(
             symbolName: "arrow.down.circle",
             accessibilityLabel: "Downloads",
@@ -163,17 +154,15 @@ final class BrowserToolbarView: NSView, NSTextFieldDelegate {
         translatesAutoresizingMaskIntoConstraints = false
         wantsLayer = true
 
-        for button in [verticalTabsButton, bookmarkButton, downloadsButton, sidebarButton] {
+        for button in [verticalTabsButton, downloadsButton, sidebarButton] {
             button.target = self
             addSubview(button)
         }
         verticalTabsButton.action = #selector(verticalTabsPressed)
-        bookmarkButton.action = #selector(bookmarkPressed)
         downloadsButton.action = #selector(downloadsPressed)
         sidebarButton.action = #selector(sidebarPressed)
 
         verticalTabsButton.toolTip = "Vertical tabs (⌘S)"
-        bookmarkButton.toolTip = "Bookmark this page (⌘D)"
         downloadsButton.toolTip = "Downloads (⌥⌘L)"
         sidebarButton.toolTip = "Sidebar (⇧⌘B)"
         openInButton.target = self
@@ -259,8 +248,6 @@ final class BrowserToolbarView: NSView, NSTextFieldDelegate {
             sidebarButton.centerYAnchor.constraint(equalTo: verticalTabsButton.centerYAnchor),
             downloadsButton.trailingAnchor.constraint(equalTo: sidebarButton.leadingAnchor, constant: -2),
             downloadsButton.centerYAnchor.constraint(equalTo: sidebarButton.centerYAnchor),
-            bookmarkButton.trailingAnchor.constraint(equalTo: downloadsButton.leadingAnchor, constant: -2),
-            bookmarkButton.centerYAnchor.constraint(equalTo: sidebarButton.centerYAnchor),
 
             navigationLeadingToToggle,
             navigationControls.centerYAnchor.constraint(equalTo: verticalTabsButton.centerYAnchor),
@@ -291,7 +278,7 @@ final class BrowserToolbarView: NSView, NSTextFieldDelegate {
 
             captureTrailingToButtons,
             captureIndicator.centerYAnchor.constraint(equalTo: sidebarButton.centerYAnchor),
-            extensionStack.trailingAnchor.constraint(equalTo: bookmarkButton.leadingAnchor, constant: -2),
+            extensionStack.trailingAnchor.constraint(equalTo: downloadsButton.leadingAnchor, constant: -2),
             extensionStack.centerYAnchor.constraint(equalTo: sidebarButton.centerYAnchor),
             littleStack.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -10),
             littleStack.centerYAnchor.constraint(equalTo: sidebarButton.centerYAnchor),
@@ -311,7 +298,7 @@ final class BrowserToolbarView: NSView, NSTextFieldDelegate {
 
     func apply(theme: AppTheme) {
         self.theme = theme
-        for button in [verticalTabsButton, bookmarkButton, downloadsButton, sidebarButton, openInButton, spaceWindowButton, extensionsButton] {
+        for button in [verticalTabsButton, downloadsButton, sidebarButton, openInButton, spaceWindowButton, extensionsButton] {
             button.apply(theme: theme)
         }
         navigationControls.apply(theme: theme)
@@ -342,28 +329,14 @@ final class BrowserToolbarView: NSView, NSTextFieldDelegate {
         refreshSecurityIcon()
     }
 
-    func setBookmarked(_ bookmarked: Bool) {
-        bookmarkButton.setSymbol(
-            bookmarked ? "star.fill" : "star",
-            accessibilityLabel: bookmarked ? "Edit Bookmark" : "Bookmark This Page",
-            pointSize: 12
-        )
-        bookmarkButton.isToggledOn = bookmarked
-        bookmarkButton.toolTip = bookmarked ? "Edit bookmark (⌘D)" : "Bookmark this page (⌘D)"
-    }
-
-    func setBookmarkEnabled(_ enabled: Bool) {
-        bookmarkButton.isEnabled = enabled
-    }
-
     /// The playing tab's controls (nil hides them).
     func setMedia(_ item: BrowserMediaControlItem?) {
         mediaControls.update(item)
         mediaTrailing.constant = item == nil ? 0 : -6
     }
 
-    /// The star, which the bookmark popover hangs from.
-    var bookmarkAnchor: NSView { bookmarkButton }
+    /// The address field, which ⌘D's popover hangs from (right-aligned).
+    var bookmarkAnchor: NSView { addressFrame }
 
     /// The lock / site chip: the Site Control Center's anchor.
     var securityAnchor: NSView { securityIcon }
@@ -458,7 +431,7 @@ final class BrowserToolbarView: NSView, NSTextFieldDelegate {
     }
 
     /// Compact windows: back/forward/reload and the address; no tab,
-    /// bookmark or sidebar buttons. A pop-up's address can be read and
+    /// downloads or sidebar buttons. A pop-up's address can be read and
     /// copied but not edited; a Little Arc's (`editable`) is a full
     /// address field with its "Open in" and ⌘O buttons.
     func setCompact(_ compact: Bool, editable: Bool = false) {
@@ -466,7 +439,7 @@ final class BrowserToolbarView: NSView, NSTextFieldDelegate {
         guard compact != isCompact || little != isLittleArc else { return }
         isCompact = compact
         isLittleArc = little
-        for button in [verticalTabsButton, bookmarkButton, downloadsButton, sidebarButton] {
+        for button in [verticalTabsButton, downloadsButton, sidebarButton] {
             button.isHidden = compact
         }
         extensionStack.isHidden = compact
@@ -519,10 +492,6 @@ final class BrowserToolbarView: NSView, NSTextFieldDelegate {
 
     @objc private func spaceWindowPressed() {
         onMoveToSpaceWindow?()
-    }
-
-    @objc private func bookmarkPressed() {
-        onBookmark?()
     }
 
     @objc private func downloadsPressed() {

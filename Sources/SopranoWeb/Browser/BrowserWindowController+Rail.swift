@@ -200,8 +200,8 @@ extension BrowserWindowController {
         updateRail()
     }
 
-    /// The rail row showing `id` for the editor to hang from; the star
-    /// when the rail is hidden.
+    /// The rail row showing `id` for the editor to hang from; the address
+    /// field when the rail is hidden.
     func pinAnchorView(_ id: UUID) -> NSView {
         if !verticalTabsView.isHidden, let row = verticalTabsView.pinsView.rowView(for: id) {
             verticalTabsView.layoutSubtreeIfNeeded()

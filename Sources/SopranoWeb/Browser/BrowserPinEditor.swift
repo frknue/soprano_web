@@ -279,9 +279,6 @@ final class BrowserPinEditorPanel: NSPanel {
     private weak var hostWindow: NSWindow?
     private var editor: BrowserPinEditorView?
     private var isClosing = false
-    /// When it last closed because another window took the click; the
-    /// star ignores the click that closed it.
-    private(set) var lastResignedAt: Date?
 
     init() {
         super.init(
@@ -348,7 +345,6 @@ final class BrowserPinEditorPanel: NSPanel {
     override func resignKey() {
         super.resignKey()
         guard editor != nil, !isClosing else { return }
-        lastResignedAt = Date()
         close(saving: true)
     }
 }

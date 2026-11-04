@@ -1,25 +1,16 @@
 import AppKit
 
-/// ⌘D and the star's popover, and what the rail's pinned outline asks
+/// ⌘D's popover, and what the rail's pinned outline asks
 /// for: Open All in Tabs, New Folder, Edit/Rename and Delete. All of it
 /// reads and writes the pins of the window's current Space (`pinSpaceID`;
 /// a private window's: its profile's first Space). Private windows may
 /// pin too (a deliberate save).
 extension BrowserWindowController {
-    // MARK: - ⌘D and the star
-
-    /// The star. A click that just closed the popover (the click took key
-    /// from it) doesn't open it again.
-    func starPressed() {
-        if let resigned = bookmarkEditorPanel.lastResignedAt, Date().timeIntervalSince(resigned) < 0.3 {
-            return
-        }
-        bookmarkCurrentPage()
-    }
+    // MARK: - ⌘D
 
     /// ⌘D: a page that isn't pinned goes into the folder ⌘D last used in
     /// this Space (the top level at first); either way the popover opens
-    /// under the star to name, file or remove it.
+    /// under the address field to name, file or remove it.
     func bookmarkCurrentPage() {
         guard let window, let result = bookmarkSelectedPage() else {
             NSSound.beep()

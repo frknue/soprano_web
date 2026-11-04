@@ -573,6 +573,10 @@ app.
   new folder format on first launch; the old file stays as
   `bookmarks.json.migrated`.
 
+### Removed
+- The star button in the toolbar. `⌘D` (Spaces ▸ Pin This Page) still pins the page and
+  opens its popover, now under the address field.
+
 ### Fixed
 - Extensions: 1Password no longer logs `"" cannot be parsed as a URL` when a tab shows
   the start page or another page it can't read. Extensions that can read tab addresses

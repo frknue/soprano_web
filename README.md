@@ -89,7 +89,7 @@ family, not notarized.
    **Pop-up blocked** button in the address bar opens them or allows the site.
    Sign-in pop-ups that ask for a size open in a small window of that size,
    which closes itself when the site is done; other links open as tabs.
-4. `⌘D` (or the star) bookmarks the page into the folder you used last and
+4. `⌘D` bookmarks the page into the folder you used last and
    opens a small popover to rename it, pick another folder or remove it; on a
    bookmarked page it edits the bookmark. The Bookmarks menu lists every
    bookmark, with a submenu per folder. `⌘Y`, `⌥⌘B` and `⌥⌘L` open History,
