@@ -2,27 +2,40 @@ import Foundation
 
 /// A download's recent speed from the bytes WebKit reports: each sample at
 /// least half a second after the last one moves a running average (30 %
-/// the newest), so a burst or a stall shifts the time left gradually.
+/// the newest), so a burst or a stall shifts the time left gradually. No
+/// new bytes for `stallInterval` is a stall: no speed (so no time left)
+/// until bytes come again, and then a speed from those alone.
 struct BrowserDownloadRate: Sendable {
     private(set) var bytesPerSecond: Double?
     private var lastBytes: Int64?
     private var lastAt: Date?
+    private var lastGrowthAt: Date?
 
     static let minimumInterval: TimeInterval = 0.5
     static let newestWeight = 0.3
+    static let stallInterval: TimeInterval = 5
 
     mutating func sample(bytes: Int64, at now: Date) {
         guard let lastBytes, let lastAt else {
             self.lastBytes = bytes
             self.lastAt = now
+            lastGrowthAt = now
             return
         }
         let elapsed = now.timeIntervalSince(lastAt)
         guard elapsed >= Self.minimumInterval else { return }
-        let instant = Double(max(0, bytes - lastBytes)) / elapsed
-        bytesPerSecond = bytesPerSecond.map { $0 * (1 - Self.newestWeight) + instant * Self.newestWeight } ?? instant
+        let delta = max(0, bytes - lastBytes)
         self.lastBytes = bytes
         self.lastAt = now
+        if delta > 0 {
+            let instant = Double(delta) / elapsed
+            bytesPerSecond = bytesPerSecond.map { $0 * (1 - Self.newestWeight) + instant * Self.newestWeight } ?? instant
+            lastGrowthAt = now
+        } else if now.timeIntervalSince(lastGrowthAt ?? now) >= Self.stallInterval {
+            bytesPerSecond = nil
+        } else if let rate = bytesPerSecond {
+            bytesPerSecond = rate * (1 - Self.newestWeight)
+        }
     }
 }
 

@@ -182,7 +182,8 @@ final class BrowserDownloadStore {
     /// WebKit's progress, sampled by the manager's timer: the fraction, the
     /// bytes so far and the file's size (nil or ≤ 0 while unknown). The
     /// speed follows the bytes (`BrowserDownloadRate`). Observers hear a
-    /// move of half a percent, a new size, or new bytes after a second.
+    /// move of half a percent or a new size at once, new bytes or a new
+    /// speed (a stall slowing it, then clearing it) at most once a second.
     func updateProgress(
         id: UUID,
         fraction: Double,
@@ -200,9 +201,10 @@ final class BrowserDownloadStore {
         rate.sample(bytes: received, at: now)
         rates[id] = rate
         let old = records[index]
+        let secondPassed = now.timeIntervalSince(lastNotified[id] ?? .distantPast) >= 1
         let changed = abs(old.fractionCompleted - value) >= 0.005
             || old.expectedBytes != expected
-            || (old.receivedBytes != received && now.timeIntervalSince(lastNotified[id] ?? .distantPast) >= 1)
+            || (secondPassed && (old.receivedBytes != received || old.bytesPerSecond != rate.bytesPerSecond))
         guard changed else { return }
         records[index].fractionCompleted = value
         records[index].receivedBytes = received

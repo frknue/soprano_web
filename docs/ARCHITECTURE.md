@@ -365,9 +365,11 @@ touches; `AGENTS.md` holds the rules.
   (`{version, entries}` envelopes, lossy decoding; a private window's download
   rows carry `privateContextID` and stay in memory; a row's bytes, size and
   speed are in memory only, from `BrowserDownloadManager`'s 0.25 s progress
-  timer through `updateProgress`, which notifies on half a percent, a new
-  size or new bytes after a second); `BrowserDownloadProgress.swift` (pure:
-  `BrowserDownloadRate`, a running average of samples ≥ 0.5 s apart, and
+  timer through `updateProgress`, which notifies on half a percent or a
+  new size at once, new bytes or a new speed once a second);
+  `BrowserDownloadProgress.swift` (pure: `BrowserDownloadRate`, a running
+  average of samples ≥ 0.5 s apart that falls while no bytes come and
+  clears after a 5 s stall, and
   `BrowserDownloadProgressText`, "12 MB of 45 MB · 2 min left" for the
   sidebar's rows and the rail's);
   `BrowserSitePermissionStore.swift` — per-host decisions and values

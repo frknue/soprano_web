@@ -167,6 +167,40 @@ struct BrowserDownloadStoreTests {
         #expect(saved?.contains("bytesPerSecond") == false)
     }
 
+    @Test func aStalledDownloadLosesItsTimeLeft() {
+        let directory = temporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let store = BrowserDownloadStore(url: directory.appendingPathComponent("downloads.json"))
+        let record = store.begin(url: "https://example.com/big.iso", filename: "big.iso")
+        let start = Date()
+        store.updateProgress(id: record.id, fraction: 0.10, receivedBytes: 10_000_000, expectedBytes: 100_000_000, at: start)
+        store.updateProgress(id: record.id, fraction: 0.11, receivedBytes: 11_000_000, expectedBytes: 100_000_000, at: start.addingTimeInterval(1))
+        #expect(store.records[0].bytesPerSecond.map { abs($0 - 1_000_000) < 1 } == true)
+        var notices = 0
+        let observation = store.changes.observe { notices += 1 }
+        defer { observation.cancel() }
+
+        // The same bytes for a few seconds: the speed shown falls with it.
+        for second in 2...3 {
+            store.updateProgress(id: record.id, fraction: 0.11, receivedBytes: 11_000_000, expectedBytes: 100_000_000,
+                                 at: start.addingTimeInterval(Double(second)))
+        }
+        #expect(notices >= 1)
+        #expect((store.records[0].bytesPerSecond ?? 0) < 1_000_000)
+        // Nothing for 5 s: stalled, no speed and so no time left.
+        for second in 4...7 {
+            store.updateProgress(id: record.id, fraction: 0.11, receivedBytes: 11_000_000, expectedBytes: 100_000_000,
+                                 at: start.addingTimeInterval(Double(second)))
+        }
+        #expect(store.records[0].bytesPerSecond == nil)
+        #expect(!BrowserDownloadProgressText.detail(store.records[0]).contains("left"))
+
+        // Bytes again: a speed from the new ones, not averaged with the
+        // stall.
+        store.updateProgress(id: record.id, fraction: 0.12, receivedBytes: 12_000_000, expectedBytes: 100_000_000, at: start.addingTimeInterval(8))
+        #expect(store.records[0].bytesPerSecond.map { abs($0 - 1_000_000) < 1 } == true)
+    }
+
     @Test func aRestartedDownloadMeasuresItsSpeedAfresh() {
         let directory = temporaryDirectory()
         defer { try? FileManager.default.removeItem(at: directory) }
