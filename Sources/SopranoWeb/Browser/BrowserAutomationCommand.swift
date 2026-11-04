@@ -218,6 +218,17 @@ struct BrowserCommandRequest: Codable, Equatable, Sendable {
                 timeout = maxWaitTimeout
             }
         }
+        if command == "agent" {
+            let valid = switch arguments.first {
+            case nil, "show", "hide", "new", "stop": arguments.count <= 1
+            case "send": arguments.count > 1
+            default: false
+            }
+            guard valid else { throw BrowserAutomationError.invalidArguments(agentUsage) }
+            if arguments.first == "send" {
+                arguments = ["send", arguments.dropFirst().joined(separator: " ")]
+            }
+        }
 
         return BrowserCommandRequest(
             command: command,
@@ -419,6 +430,7 @@ struct BrowserCommandRequest: Codable, Equatable, Sendable {
     """
     static let readerUsage = "Usage: soprano-web browser [--window n] [--tab n] reader [on|off]"
     static let translateUsage = "Usage: soprano-web browser [--window n] [--tab n] translate [to <language>|off]"
+    static let agentUsage = "Usage: soprano-web browser [--window n] agent [show|hide|new|stop|send <message>]"
     static let liveFolderUsage = """
     Usage: soprano-web browser live-folders
            soprano-web browser [--window n] live-folder add <owner/repo|github.com link|search query>
@@ -496,6 +508,7 @@ enum BrowserCommand {
       soprano-web browser [--window n] [--tab n] media [info|play|pause|next|previous|mute]
       soprano-web browser [--window n] [--tab n] reader [on|off]
       soprano-web browser [--window n] [--tab n] translate [to <language>|off]
+      soprano-web browser [--window n] agent [show|hide|new|stop|send <message>]
       soprano-web browser [--window n] [--tab n] devtools [show|hide|toggle|dock|window]
       soprano-web browser boost [list]
       soprano-web browser boost show|enable|disable|remove <host>
@@ -546,6 +559,11 @@ enum BrowserCommand {
     its own window (a split pane's is always a window), then print
     `docked`, `window` or `hidden`; `unavailable` when this macOS's
     WebKit has no inspector.
+    `agent` prints the window's Agent panel (shown or hidden, working or
+    idle, what it does now) and its chat; `show` and `hide` toggle the
+    panel, `new` starts a new chat, `stop` stops the agent, `send` sends a
+    message as typed into the panel (with the selected tab) and returns
+    at once: poll `agent` for the answer.
     `extensions` lists the installed Chrome extensions: id, name, version,
     state (on, off, not running, installing), private windows, site access,
     source and how many errors WebKit reported. `extension install` takes a
@@ -733,9 +751,12 @@ final class BrowserAutomationController {
 /// targeted.
 @MainActor
 enum BrowserAutomationRouter {
+    /// `defaultWindow` is the window a request without `--window` goes to
+    /// (the Agent panel's own); nil is the key or most recently active one.
     static func perform(
         _ request: BrowserCommandRequest,
         in manager: BrowserWindowManager,
+        defaultWindow: BrowserWindowController? = nil,
         completion: @escaping (Result<String, Error>) -> Void
     ) {
         let url = request.arguments.first
@@ -773,7 +794,7 @@ enum BrowserAutomationRouter {
                     return
                 }
             } else {
-                let active = manager.automationActiveController.flatMap(manager.space(of:))
+                let active = (defaultWindow ?? manager.automationActiveController).flatMap(manager.space(of:))
                 controller = manager.newWindow(url: url, spaceID: active?.id)
             }
             completion(.success("window \(manager.number(of: controller) ?? manager.automationControllers.count)"))
@@ -792,6 +813,8 @@ enum BrowserAutomationRouter {
                 return
             }
             target = windows[number - 1]
+        } else if let defaultWindow, windows.contains(where: { $0 === defaultWindow }) {
+            target = defaultWindow
         } else if let active = manager.automationActiveController {
             target = active
         } else if request.command == "open" || request.command == "new-tab" {
@@ -834,6 +857,8 @@ enum BrowserAutomationRouter {
             completion(target.performSplitCommand(request.arguments))
         case "live-folder":
             BrowserLiveFolderCommands.perform(request.arguments, in: target, manager: manager, completion: completion)
+        case "agent":
+            completion(target.performAgentCommand(request.arguments))
         default:
             target.performAutomation(request, completion: completion)
         }

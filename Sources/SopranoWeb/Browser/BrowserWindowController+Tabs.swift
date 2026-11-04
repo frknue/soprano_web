@@ -444,6 +444,7 @@ extension BrowserWindowController {
     /// The window closed: every tab is unbound and released without
     /// selecting (and so loading) the lazily restored ones.
     func tearDown() {
+        agentChat?.shutdown()
         splits.removeAll()
         closePeek()
         cancelStoreObservations()

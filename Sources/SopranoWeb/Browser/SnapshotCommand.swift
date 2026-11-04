@@ -68,6 +68,7 @@ enum SnapshotCommand {
         var showsShortcutsSheet = false
         var imports = SnapshotImportOptions()
         var extensions = SnapshotExtensionOptions()
+        var agent = SnapshotAgentOptions()
     }
 
     enum OptionError: Error, CustomStringConvertible {
@@ -121,6 +122,7 @@ enum SnapshotCommand {
     \(SnapshotSearchEngineOptions.usage)
     \(SnapshotImportOptions.usage)
     \(SnapshotExtensionOptions.usage)
+    \(SnapshotAgentOptions.usage)
     """
 
     nonisolated static func parse(_ arguments: [String]) throws -> Options {
@@ -308,6 +310,7 @@ enum SnapshotCommand {
                     || SnapshotBlockerOptions.parse(option, value: { try value(option) }, into: &options.blocker)
                     || SnapshotSearchEngineOptions.parse(option, value: { try value(option) }, into: &options.searchEngines)
                     || SnapshotExtensionOptions.parse(option, value: { try value(option) }, into: &options.extensions)
+                    || SnapshotAgentOptions.parse(option, value: { try value(option) }, into: &options.agent)
                 else {
                     throw OptionError.unknownOption(option)
                 }
@@ -575,6 +578,11 @@ enum SnapshotCommand {
                     before: min(deadline, Date().addingTimeInterval(0.05))
                 )
             }
+        }
+        if options.agent.shows {
+            // After the wait, so the message names the loaded page.
+            options.agent.run(controller: controller)
+            wait(0.2)
         }
         if let credentials = options.signIn {
             submitSignIn(credentials, controller: controller)

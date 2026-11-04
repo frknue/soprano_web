@@ -165,7 +165,7 @@ APIs WebKit lacks (Universal Autofill until it runs; no own vault).
   alternate app icons, sound effects: they need Arc's servers or are not browser features.
 - Easels and Notes; Arc deprecated Notes itself.
 - Arc Max (ChatGPT in the Command Bar, Tidy titles and downloads, 5-Second Previews): AI
-  comes from Soprano's agents through the `browser` CLI.
+  comes from omp, in the Agent panel (⌘E) and through the `browser` CLI.
 - Calendar and mail previews on hover (0.4% of Arc's daily users used calendar previews).
 - Chromium-only surface: DevTools Protocol, Cast, installed web-app shims, `arc://` pages.
 - Sparkle updates: the family installs with `scripts/install.sh`.

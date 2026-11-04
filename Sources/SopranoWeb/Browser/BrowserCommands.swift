@@ -17,6 +17,7 @@ enum BrowserCommandID: String, CaseIterable, Sendable {
     case back, forward, home, reload, stop
     case zoomIn = "zoom-in", zoomOut = "zoom-out", actualSize = "actual-size"
     case toggleSidebar = "toggle-sidebar", toggleRail = "toggle-rail", toggleToolbar = "toggle-toolbar"
+    case toggleAgent = "toggle-agent", newAgentChat = "new-agent-chat"
     case fullScreen = "full-screen"
     case splitAdd = "split-add", splitClose = "split-close"
     case splitPane1 = "split-pane-1", splitPane2 = "split-pane-2", splitPane3 = "split-pane-3"
@@ -413,6 +414,22 @@ struct BrowserAppCommand: Sendable {
             },
             run: { $0.controller?.toggleToolbar() }
         ),
+        make(
+            .toggleAgent, "Show Agent", .view, 4, "cmd+e", synonyms: ["agent", "ask", "chat", "omp", "ai"],
+            symbol: "bubble.left.and.text.bubble.right",
+            state: { context in
+                guard let controller = context.controller else { return .disabled }
+                return BrowserCommandState(
+                    isEnabled: controller.canShowAgent,
+                    title: controller.isAgentVisible ? "Hide Agent" : "Show Agent"
+                )
+            },
+            run: { $0.controller?.toggleAgent() }
+        ),
+        make(.newAgentChat, "New Agent Chat", .view, 4, "shift+cmd+e", synonyms: ["agent", "ask", "omp"],
+             symbol: "square.and.pencil", state: { .when($0.controller?.canShowAgent ?? false) }) {
+            $0.controller?.newAgentChat()
+        },
         system(.fullScreen, "Enter Full Screen", .view, 5, "ctrl+cmd+f", "toggleFullScreen:"),
         make(
             .splitAdd, "Add Split Pane", .view, 6, "ctrl+shift+=", synonyms: ["split view", "side by side", "new pane"],

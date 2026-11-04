@@ -240,6 +240,9 @@ extension BrowserWindowController {
         updateZoomChip()
         updateReaderChip()
         updateTranslateChip()
+        if isAgentVisible {
+            agentChat?.updatePage()
+        }
     }
 }
 

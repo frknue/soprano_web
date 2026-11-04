@@ -43,6 +43,11 @@ final class BrowserWindowController: NSWindowController {
     var spaceSelections: [UUID: UUID] = [:]
     var isSidebarVisible = false
     var sidebarSection: BrowserSidebarSection = .history
+    /// The Agent panel (⌘E), made when first shown; it shares the right
+    /// edge with the sidebar, one at a time.
+    var agentChat: BrowserAgentChat?
+    var isAgentVisible = false
+    var webTrailingToAgent: NSLayoutConstraint?
     var findQuery = ""
     var staleStartTabs: Set<UUID> = []
     /// A private window's closed tabs, in memory only (⇧⌘T in the window
@@ -515,7 +520,7 @@ final class BrowserWindowController: NSWindowController {
         let rail = usesVerticalTabs && !isVerticalSidebarCollapsed
             ? BrowserVerticalTabsView.preferredWidth
             : 0
-        let rightSidebar: CGFloat = isSidebarVisible ? 300 : 0
+        let rightSidebar: CGFloat = isSidebarVisible ? 300 : (isAgentVisible ? BrowserAgentPanelView.width : 0)
         let width = max(760, 400 + rail + rightSidebar)
         window?.minSize = NSSize(width: width, height: 520)
         if let window, window.frame.width < width {
@@ -716,6 +721,7 @@ final class BrowserWindowController: NSWindowController {
         recentTabsOverlay?.apply(theme: theme)
         findBar.apply(theme: theme)
         sidebar.apply(theme: theme)
+        agentChat?.view.apply(theme: theme)
         linkStatus.apply(theme: theme)
         peek?.view.apply(theme: theme)
         splitPage.apply(theme: theme)

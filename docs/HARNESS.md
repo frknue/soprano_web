@@ -282,3 +282,8 @@ The offscreen UI harness (`.build/debug/SopranoWeb snapshot …`,
   granted match patterns, the windows and tabs WebKit tracks for it, and
   the captured window's Extensions button (`button`), its rows with label
   and badge (`rows`) and the whole menu as text (`menu`)).
+  Agent panel: `--agent` shows it with a seeded chat (a message, tool calls
+  that worked and one that failed, a Markdown answer), fed through
+  `BrowserAgentTranscript` as omp's events would be, after the page's
+  `--wait`; the chat prints as `agent:` lines. omp never starts.
+  `--agent-draft <text>` types text into the composer (implies `--agent`).
