@@ -36,7 +36,8 @@ final class BrowserAgentPanelView: NSView, NSTextViewDelegate {
     /// TextKit 1, so `BrowserAgentLayoutManager` draws the bubbles and
     /// cards; the storage owns the layout manager and its container.
     private let transcriptStorage = NSTextStorage()
-    private let transcriptView: NSTextView
+    /// The chat (internal for tests, which click its links).
+    let transcriptView: NSTextView
     private let emptyLabel = NSTextField(wrappingLabelWithString: "")
     private let composerFrame = BrowserAgentComposerFrame()
     private let composerScroll = NSScrollView()
@@ -57,8 +58,11 @@ final class BrowserAgentPanelView: NSView, NSTextViewDelegate {
     private var copiedRun: Int?
     /// Each run's answer as Copy puts it on the pasteboard.
     private var answers: [Int: String] = [:]
-    /// The click a link and its attachment both report, handled once.
+    /// The click a link and its attachment both report, handled once:
+    /// the same link with the same event's timestamp.
     private var lastAction: (url: URL, time: TimeInterval)?
+    /// Where Copy puts an answer (tests pass their own).
+    var pasteboard = NSPasteboard.general
     private var cache = RenderCache(width: 0)
     private var renderScheduled = false
 
@@ -334,6 +338,14 @@ final class BrowserAgentPanelView: NSView, NSTextViewDelegate {
         textDidChange(Notification(name: NSText.didChangeNotification, object: composer))
     }
 
+    /// The chat as shown now, a pending render done first (tests).
+    var renderedChat: NSAttributedString {
+        if renderScheduled {
+            render()
+        }
+        return transcriptStorage
+    }
+
     /// Every run's steps shown (the harness).
     func expandAllSteps() -> Int {
         for case let .run(run) in transcript.blocks where !run.steps.isEmpty {
@@ -457,9 +469,12 @@ final class BrowserAgentPanelView: NSView, NSTextViewDelegate {
     }
 
     private func perform(_ url: URL) {
-        let time = NSApp.currentEvent?.timestamp ?? 0
-        if let lastAction, lastAction.url == url, lastAction.time == time { return }
-        lastAction = (url, time)
+        // Without an event (an accessibility press) there's no second
+        // report to drop.
+        if let time = NSApp?.currentEvent?.timestamp {
+            if let lastAction, lastAction.url == url, lastAction.time == time { return }
+            lastAction = (url, time)
+        }
         guard let id = Int(url.lastPathComponent) else { return }
         switch url.host() {
         case "steps":
@@ -469,8 +484,8 @@ final class BrowserAgentPanelView: NSView, NSTextViewDelegate {
             render(scrolls: false)
         case "copy":
             guard let answer = answers[id] else { return }
-            NSPasteboard.general.clearContents()
-            NSPasteboard.general.setString(answer, forType: .string)
+            pasteboard.clearContents()
+            pasteboard.setString(answer, forType: .string)
             copiedRun = id
             render(scrolls: false)
             DispatchQueue.main.asyncAfter(deadline: .now() + 1.5) { [weak self] in
