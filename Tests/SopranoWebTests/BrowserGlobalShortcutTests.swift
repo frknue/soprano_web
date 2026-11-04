@@ -21,6 +21,10 @@ struct BrowserGlobalShortcutTests {
         #expect(!BrowserGlobalShortcut.isAcceptable(shortcut("shift+cmd+4"), keymap: keymap))
         // Not assignable: no ⌘ or ⌃.
         #expect(!BrowserGlobalShortcut.isAcceptable(shortcut("shift+n"), keymap: keymap))
+        // A bare function key is a shortcut in the app, never system-wide.
+        #expect(!BrowserGlobalShortcut.isAcceptable(shortcut("f5"), keymap: keymap))
+        #expect(!BrowserGlobalShortcut.isAcceptable(shortcut("shift+f5"), keymap: keymap))
+        #expect(BrowserGlobalShortcut.isAcceptable(shortcut("ctrl+f5"), keymap: keymap))
     }
 
     @Test func newLittleArcsOwnChordAndFreeChordsAreAccepted() {

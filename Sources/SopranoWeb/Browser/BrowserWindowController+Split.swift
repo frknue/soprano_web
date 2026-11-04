@@ -346,8 +346,7 @@ extension BrowserWindowController {
             if isPane, tab.webView.isInspectorDocked {
                 // WebKit docks across the whole page area; a pane's
                 // inspector goes to its own window.
-                tab.webView.inspectorDidUndock()
-                BrowserWebInspector.detach(tab.webView)
+                BrowserWebInspector.moveToWindow(paneOf: tab.webView)
             }
             if isPane {
                 NSLayoutConstraint.deactivate(tab.webView.pageEdgeConstraints)

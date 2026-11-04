@@ -42,17 +42,27 @@ final class BrowserWebView: WKWebView {
         NSLayoutConstraint.deactivate(undockedConstraints)
         translatesAutoresizingMaskIntoConstraints = true
         autoresizingMask = [.width, .height]
+        // Docked beside a tab that isn't shown, it stays out of sight too.
+        inspector.isHidden = isHiddenOrHasHiddenAncestor
         dockedInspector = inspector
         isInspectorDocked = true
     }
 
+    /// Whether WebKit's inspector may dock beside this page: it spans the
+    /// whole superview, so a split pane's can't.
+    var canDockInspector: Bool {
+        isInspectorDocked || pageEdgeConstraints.allSatisfy(\.isActive)
+    }
+
     /// The inspector closed or moved to its own window: the page's
-    /// constraints take over again.
+    /// constraints take over again. WebKit reuses the inspector's view
+    /// (in its window, or docked again), so it leaves visible.
     func inspectorDidUndock() {
         guard isInspectorDocked else { return }
         translatesAutoresizingMaskIntoConstraints = false
         NSLayoutConstraint.activate(undockedConstraints)
         undockedConstraints = []
+        dockedInspector?.isHidden = false
         dockedInspector = nil
         isInspectorDocked = false
     }

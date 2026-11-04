@@ -766,12 +766,18 @@ touches; `AGENTS.md` holds the rules.
   resizing with the superview so WebKit lays both out again; when WebKit
   takes it out (closed, its own window) the constraints come back. A split
   pane can't dock (WebKit would span the whole page area): its inspector
-  goes to its own window, also when a docked page becomes a pane. The
-  docked inspector hides and shows with its page, and closes when the page
-  moves to another superview (another window, a Peek, the Mini Player).
+  goes to its own window, also when a docked page becomes a pane. WebKit
+  saves "own window" whenever it is detached, so after the app moved a
+  pane's inspector the next F12 on a whole page docks it again
+  (`redockOnNextShow`; `attach` docks at the bottom). The docked inspector
+  hides and shows with its page (and docks hidden beside a hidden one),
+  leaves visible, and closes when the page moves to another superview
+  (another window, a Peek, the Mini Player). Bare function keys are
+  in-app shortcuts only: the global New Little Arc shortcut still needs
+  ⌘, ⌃ or ⌥ (`BrowserGlobalShortcut.isAcceptable`).
   `browser devtools [show|hide|toggle|dock|window]` drives it and prints
   `docked`, `window` or `hidden`; the snapshot harness draws a docked
-  inspector beside its page (`--page-key f12`). `isInspectable` stays on,
+  inspector beside its page or the Peek's (`--page-key f12`). `isInspectable` stays on,
   so Safari ▸ Develop still reaches every tab, extension popup and
   background page.
 - `Browser/VimiumController.swift`, `VimiumKeyMap.swift`, `VimiumPageScripts.swift`,

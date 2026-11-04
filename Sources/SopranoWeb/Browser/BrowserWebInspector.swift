@@ -67,14 +67,57 @@ enum BrowserWebInspector {
         return true
     }
 
-    /// Moves a docked inspector into its own window.
+    /// WebKit saves "open in its own window" whenever its inspector is
+    /// detached, also when the app does it for a split pane. Set then, so
+    /// the next inspector shown beside a whole page docks again, as the
+    /// user last had it.
+    private static var redockOnNextShow = false
+
+    /// Opens `page`'s inspector (F12, `browser devtools show`), docked when
+    /// a pane's inspector was last moved to its own window by the app.
+    static func show(_ page: BrowserWebView) {
+        guard setVisible(true, for: page), redockOnNextShow, page.canDockInspector else { return }
+        let deadline = Date().addingTimeInterval(3)
+        func redock() {
+            guard redockOnNextShow, !page.isInspectorDocked, page.canDockInspector else { return }
+            guard isVisible(for: page) else {
+                // WebKit opens it asynchronously.
+                if Date() < deadline {
+                    DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) { MainActor.assumeIsolated { redock() } }
+                }
+                return
+            }
+            redockOnNextShow = false
+            attach(page)
+        }
+        redock()
+    }
+
+    /// A split pane's inspector goes to its own window (`attach` and the
+    /// dock buttons would span the whole page area).
+    static func moveToWindow(paneOf page: BrowserWebView) {
+        page.inspectorDidUndock()
+        detach(page)
+        redockOnNextShow = true
+        // WebKit leaves the pane's frame spanning the page area.
+        page.superview?.needsLayout = true
+    }
+
+    /// Moves a docked inspector into its own window (and WebKit saves that
+    /// for the next one).
     static func detach(_ webView: WKWebView) {
         perform(detachSelector, on: webView)
     }
 
-    /// Docks an inspector that has its own window beside the page.
+    /// Docks an inspector that has its own window, at the bottom of the
+    /// page (and WebKit saves that for the next one).
     static func attach(_ webView: WKWebView) {
         perform(attachSelector, on: webView)
+    }
+
+    /// The user (`browser devtools dock|window`) chose where it goes.
+    static func placementChosen() {
+        redockOnNextShow = false
     }
 
     private static func perform(_ selector: Selector, on webView: WKWebView) {
@@ -101,11 +144,12 @@ enum BrowserWebInspector {
     static func host(_ host: NSView, didAdd subview: NSView) {
         guard subview is WKWebView, !(subview is BrowserWebView) else { return }
         for case let page as BrowserWebView in host.subviews where inspectorView(of: page) === subview {
-            if page.pageEdgeConstraints.allSatisfy(\.isActive) {
+            if page.canDockInspector {
                 page.inspectorDidDock(subview)
+                redockOnNextShow = false
             } else {
                 // Not while WebKit is still attaching it.
-                DispatchQueue.main.async { detach(page) }
+                DispatchQueue.main.async { moveToWindow(paneOf: page) }
             }
             return
         }
@@ -135,7 +179,7 @@ class BrowserInspectorHostView: NSView {
 
 extension BrowserWindowController {
     /// The page F12 inspects: the one the user looks at (a Peek's).
-    var inspectableWebView: WKWebView? {
+    var inspectableWebView: BrowserWebView? {
         guard let tab = pageTab, !tab.isAsleep, BrowserWebInspector.isAvailable(for: tab.webView) else { return nil }
         return tab.webView
     }
@@ -147,7 +191,11 @@ extension BrowserWindowController {
     /// F12: opens the page's Web Inspector, or closes it.
     func toggleWebInspector() {
         guard let webView = inspectableWebView else { return }
-        BrowserWebInspector.setVisible(!BrowserWebInspector.isVisible(for: webView), for: webView)
+        if BrowserWebInspector.isVisible(for: webView) {
+            BrowserWebInspector.setVisible(false, for: webView)
+        } else {
+            BrowserWebInspector.show(webView)
+        }
     }
 
     /// `browser devtools [show|hide|toggle|dock|window]`: prints `docked`,
@@ -166,7 +214,7 @@ extension BrowserWindowController {
             return
         }
         let target: Bool?
-        let docked: Bool?
+        var docked: Bool?
         switch arguments {
         case []: (target, docked) = (nil, nil)
         case ["show"]: (target, docked) = (true, nil)
@@ -180,14 +228,22 @@ extension BrowserWindowController {
             )))
             return
         }
-        if let target { BrowserWebInspector.setVisible(target, for: webView) }
+        if docked != nil {
+            BrowserWebInspector.placementChosen()
+            // A split pane's stays in its window.
+            if docked == true, !webView.canDockInspector { docked = nil }
+            BrowserWebInspector.setVisible(true, for: webView)
+        } else if target == true {
+            BrowserWebInspector.show(webView)
+        } else if let target {
+            BrowserWebInspector.setVisible(target, for: webView)
+        }
         let deadline = Date().addingTimeInterval(3)
         var moved = false
         func report() {
             let visible = BrowserWebInspector.isVisible(for: webView)
             if visible, let docked, !moved {
-                // Once it shows: WebKit moves it, the page area takes it in
-                // (a split pane's stays in its window).
+                // Once it shows: WebKit moves it, the page area takes it in.
                 moved = true
                 if docked { BrowserWebInspector.attach(webView) } else { BrowserWebInspector.detach(webView) }
             }

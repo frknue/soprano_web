@@ -236,9 +236,12 @@ enum BrowserGlobalShortcut {
     ].compactMap(BrowserShortcut.init))
 
     /// `shortcut` is assignable and taken by nothing: no reserved chord,
-    /// no system chord, no command of `keymap` but New Little Arc.
+    /// no system chord, no command of `keymap` but New Little Arc. A bare
+    /// function key (F5, ⇧F11) would leave every other app without it, so
+    /// it needs ⌘, ⌃ or ⌥ here.
     static func isAcceptable(_ shortcut: BrowserShortcut, keymap: BrowserKeymap) -> Bool {
         guard shortcut.isAssignable,
+              !shortcut.isFunctionKey || !shortcut.modifiers.isDisjoint(with: [.command, .control, .option]),
               BrowserShortcut.reservedOwner(of: shortcut) == nil,
               !systemChords.contains(shortcut)
         else { return false }
