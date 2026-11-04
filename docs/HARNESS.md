@@ -283,13 +283,15 @@ The offscreen UI harness (`.build/debug/SopranoWeb snapshot …`,
   the captured window's Extensions button (`button`), its rows with label
   and badge (`rows`) and the whole menu as text (`menu`)).
   Agent panel: `--agent` shows it with a seeded chat (a message, tool calls
-  that worked and one that failed, a Markdown answer), fed through
-  `BrowserAgentTranscript` as omp's events would be, after the page's
-  `--wait`; the chat prints as `agent:` lines. omp never starts.
+  that worked and one that failed, a Markdown answer with a list), fed
+  through `BrowserAgentTranscript` as omp's events would be, after the
+  page's `--wait`; the chat prints as `agent:` lines. omp never starts.
   `--agent-draft <text>` types text into the composer (implies `--agent`).
+  `--agent-steps` (implies `--agent`) shows every run's steps, as a click
+  on "Worked for …" does, and prints `agent-steps: <runs> shown`.
   `--agent-button` (repeatable) presses the toolbar's Agent button through
   its accessibility press and prints `agent-button: panel shown|hidden,
   button on|off`; `--agent-gear` (after `--settings-search`) presses the
-  panel's gear, so `--settings --settings-search privacy --agent-gear
+  composer's model chip, so `--settings --settings-search privacy --agent-gear
   --print-settings` shows the search cleared and Agent current;
   `--url 'soprano-web://settings#agent'` opens Settings ▸ Agent.

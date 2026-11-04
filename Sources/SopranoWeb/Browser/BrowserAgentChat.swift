@@ -41,6 +41,7 @@ final class BrowserAgentChat {
 
     func send(_ text: String) {
         let page = view.includesPage ? window?.agentPage : nil
+        rememberIcon(of: page)
         transcript.addUser(text, page: page)
         do {
             syncLaunch()
@@ -80,6 +81,12 @@ final class BrowserAgentChat {
         view.pageTitle = window?.agentPage.map { $0.title.isEmpty ? $0.url : $0.title }
     }
 
+    /// The selected tab's icon, for the card of a message sent with it.
+    private func rememberIcon(of page: BrowserAgentPage?) {
+        guard let page else { return }
+        view.setIcon(window?.selectedTab?.favicon, for: page)
+    }
+
     private func handle(_ event: BrowserAgentEvent) {
         if case let .hostToolCall(id, toolName, arguments) = event {
             runHostTool(id: id, toolName: toolName, arguments: arguments)
@@ -106,9 +113,14 @@ final class BrowserAgentChat {
     /// Redraws the panel (with the model omp runs or will start with).
     func refresh() {
         syncLaunch()
-        let model = session.launch.model.isEmpty ? "" : " · \(session.launch.model)"
-        let status = transcript.isWorking ? "omp\(model) · \(transcript.activity ?? "Working")…" : "omp\(model)"
-        view.update(transcript, status: status)
+        view.update(transcript, model: Self.modelName(session.launch))
+    }
+
+    /// The model chip: the model's name without its provider, and the
+    /// thinking level when Settings ▸ Agent sets one.
+    nonisolated static func modelName(_ launch: BrowserAgentLaunch) -> String {
+        let model = launch.model.split(separator: "/").last.map(String.init) ?? "Default model"
+        return launch.thinking == .default ? model : "\(model) · \(launch.thinking.name)"
     }
 
     // MARK: - The browser tool
@@ -219,6 +231,7 @@ final class BrowserAgentChat {
 
     /// Feeds `events` as if omp sent them (`--agent` seeds a chat).
     func replay(user text: String, page: BrowserAgentPage?, events: [BrowserAgentEvent]) {
+        rememberIcon(of: page)
         transcript.addUser(text, page: page)
         for event in events {
             transcript.apply(event)

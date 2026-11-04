@@ -22,10 +22,20 @@ struct BrowserAgentTranscript: Equatable, Sendable {
     struct Entry: Equatable, Sendable {
         let id: Int
         let kind: Kind
+        /// When the entry was added.
+        let date: Date
         /// The user's or assistant's text, the tool's title line, the note.
         var text: String
-        /// The user's tab title; a tool call's intent.
+        /// A tool call's intent.
         var detail: String?
+        /// The tab a user message went with.
+        var page: BrowserAgentPage?
+        /// On the last user message of a run (a steer is one more), once
+        /// the run ended: how long the agent worked since the run's first
+        /// message ("Worked for 16s").
+        var duration: TimeInterval?
+        /// When that run ended.
+        var runEnd: Date?
         var toolState: ToolState = .done
         /// A failed tool's output, its first lines.
         var failure: String?
@@ -41,38 +51,106 @@ struct BrowserAgentTranscript: Equatable, Sendable {
     /// while idle.
     private(set) var activity: String?
     private var nextID = 1
+    /// When the run in progress started: its first message's send.
+    private var runStart: Date?
     /// Streaming assistant text by message id, then by content index.
-    private var blocks: [String: [Int: String]] = [:]
+    private var streaming: [String: [Int: String]] = [:]
 
     var isEmpty: Bool { entries.isEmpty }
 
-    mutating func addUser(_ text: String, page: BrowserAgentPage?) {
-        append(Entry(id: takeID(), kind: .user, text: text, detail: page.map { $0.title.isEmpty ? $0.url : $0.title }))
+    mutating func addUser(_ text: String, page: BrowserAgentPage?, at date: Date = Date()) {
+        append(Entry(id: takeID(), kind: .user, date: date, text: text, page: page))
+        if !isWorking || runStart == nil {
+            runStart = date
+        }
         isWorking = true
         activity = "Starting"
     }
 
-    mutating func addNote(_ text: String) {
-        append(Entry(id: takeID(), kind: .note, text: text))
+    mutating func addNote(_ text: String, at date: Date = Date()) {
+        append(Entry(id: takeID(), kind: .note, date: date, text: text))
     }
 
     /// The run ended without omp saying so (stop, crash): nothing works
     /// any more, running tools stop.
-    mutating func endWork() {
+    mutating func endWork(at date: Date = Date()) {
+        if let runStart, let index = entries.lastIndex(where: { $0.kind == .user }) {
+            entries[index].duration = max(0, date.timeIntervalSince(runStart))
+            entries[index].runEnd = date
+            entries[index].revision += 1
+        }
+        runStart = nil
         isWorking = false
         activity = nil
         for index in entries.indices where entries[index].kind == .tool && entries[index].toolState == .running {
             entries[index].toolState = .failed
             entries[index].revision += 1
         }
-        blocks.removeAll()
+        streaming.removeAll()
+    }
+
+    /// The chat as the panel lays it out: each user message and note on
+    /// its own, and the agent's entries between them as one run.
+    enum Block: Equatable, Sendable {
+        case user(Entry)
+        case note(Entry)
+        case run(Run)
+    }
+
+    /// The agent's entries between two user messages or notes: its steps
+    /// (tool calls and the text between them, under "Worked for 16s") and
+    /// its answer (the text after the last tool call).
+    struct Run: Equatable, Sendable {
+        /// Its first entry's id.
+        var id: Int
+        var steps: [Entry]
+        var answer: [Entry]
+        /// How long the agent worked, on the run that ended its work.
+        var duration: TimeInterval?
+        /// When the run ended, or its last entry was added.
+        var end: Date
+    }
+
+    var blocks: [Block] {
+        var blocks: [Block] = []
+        var run: [Entry] = []
+        var user: Entry?
+        func closeRun() {
+            guard let first = run.first, let last = run.last else { return }
+            let split = run.lastIndex { $0.kind == .tool }.map { $0 + 1 } ?? 0
+            let duration = user?.duration
+            blocks.append(.run(Run(
+                id: first.id,
+                steps: Array(run[..<split]),
+                answer: Array(run[split...]),
+                duration: duration,
+                end: user?.runEnd ?? last.date
+            )))
+            run = []
+            user = nil
+        }
+        for entry in entries {
+            switch entry.kind {
+            case .assistant, .tool:
+                run.append(entry)
+            case .user:
+                closeRun()
+                user = entry
+                blocks.append(.user(entry))
+            case .note:
+                closeRun()
+                blocks.append(.note(entry))
+            }
+        }
+        closeRun()
+        return blocks
     }
 
     /// omp's process ended: work stops, and its message and tool call ids
     /// no longer match anything, since the next process numbers its
     /// messages from `msg-1` again.
-    mutating func processEnded() {
-        endWork()
+    mutating func processEnded(at date: Date = Date()) {
+        endWork(at: date)
         for index in entries.indices {
             entries[index].key = nil
         }
@@ -82,7 +160,7 @@ struct BrowserAgentTranscript: Equatable, Sendable {
         self = BrowserAgentTranscript()
     }
 
-    mutating func apply(_ event: BrowserAgentEvent) {
+    mutating func apply(_ event: BrowserAgentEvent, at date: Date = Date()) {
         switch event {
         case .ready, .hostToolCall:
             break
@@ -93,19 +171,19 @@ struct BrowserAgentTranscript: Equatable, Sendable {
             activity = "Thinking"
         case let .textDelta(messageID, index, text):
             activity = "Writing"
-            var message = blocks[messageID] ?? [:]
+            var message = streaming[messageID] ?? [:]
             message[index, default: ""] += text
-            blocks[messageID] = message
+            streaming[messageID] = message
             let joined = message.keys.sorted().compactMap { message[$0] }.joined(separator: "\n\n")
-            upsertAssistant(messageID, text: joined)
+            upsertAssistant(messageID, text: joined, at: date)
         case let .assistantEnd(messageID, text):
-            blocks.removeValue(forKey: messageID)
+            streaming.removeValue(forKey: messageID)
             let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
             if trimmed.isEmpty {
                 // A message of tool calls only.
                 entries.removeAll { $0.kind == .assistant && $0.key == messageID }
             } else {
-                upsertAssistant(messageID, text: trimmed)
+                upsertAssistant(messageID, text: trimmed, at: date)
             }
         case let .toolStart(callID, title, intent):
             activity = "Running \(title.split(separator: " ").first.map(String.init) ?? title)"
@@ -115,7 +193,7 @@ struct BrowserAgentTranscript: Equatable, Sendable {
                 entries[index].toolState = .running
                 entries[index].revision += 1
             } else {
-                append(Entry(id: takeID(), kind: .tool, text: title, detail: intent, toolState: .running, key: callID))
+                append(Entry(id: takeID(), kind: .tool, date: date, text: title, detail: intent, toolState: .running, key: callID))
             }
         case let .toolEnd(callID, error):
             activity = "Thinking"
@@ -127,20 +205,20 @@ struct BrowserAgentTranscript: Equatable, Sendable {
             entries[index].revision += 1
         case let .promptResult(status, error, settled):
             if status == "error" {
-                addNote(error ?? "omp stopped with an error.")
+                addNote(error ?? "omp stopped with an error.", at: date)
             } else if status == "aborted" {
-                addNote("Stopped.")
+                addNote("Stopped.", at: date)
             }
             if settled {
-                endWork()
+                endWork(at: date)
             }
         case .settled:
-            endWork()
+            endWork(at: date)
         case let .commandFailed(command, error):
             // A refused prompt never runs; other refusals are setup noise.
             if command == "prompt" {
-                addNote(error)
-                endWork()
+                addNote(error, at: date)
+                endWork(at: date)
             }
         }
     }
@@ -162,13 +240,13 @@ struct BrowserAgentTranscript: Equatable, Sendable {
         }.joined(separator: "\n")
     }
 
-    private mutating func upsertAssistant(_ messageID: String, text: String) {
+    private mutating func upsertAssistant(_ messageID: String, text: String, at date: Date) {
         if let index = entries.lastIndex(where: { $0.kind == .assistant && $0.key == messageID }) {
             guard entries[index].text != text else { return }
             entries[index].text = text
             entries[index].revision += 1
         } else {
-            append(Entry(id: takeID(), kind: .assistant, text: text, key: messageID))
+            append(Entry(id: takeID(), kind: .assistant, date: date, text: text, key: messageID))
         }
     }
 

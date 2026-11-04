@@ -2,25 +2,29 @@ import AppKit
 
 /// Snapshot flags for the Agent panel, which never starts omp here:
 /// - `--agent`: the panel shown with a seeded chat (a message, tool calls
-///   that worked and one that failed, a Markdown answer), fed through the
-///   transcript as omp's events would; the chat prints as `agent:` lines.
+///   that worked and one that failed, a Markdown answer with a list), fed
+///   through the transcript as omp's events would; the chat prints as
+///   `agent:` lines.
 /// - `--agent-draft <text>`: text typed into the composer.
+/// - `--agent-steps`: every run's steps shown, as a click on "Worked for
+///   …" does; prints `agent-steps: <runs> shown`.
 /// - `--agent-button` (repeatable): presses the toolbar's Agent button
 ///   through its accessibility press, as a click does; after each press
 ///   prints `agent-button: panel shown|hidden, button on|off`.
-/// - `--agent-gear`: after `--settings-search`, presses the panel's gear
-///   (Settings ▸ Agent) and prints `agent-gear: pressed`; `--print-settings`
-///   then shows where the Settings page went.
+/// - `--agent-gear`: after `--settings-search`, presses the composer's
+///   model chip (Settings ▸ Agent) and prints `agent-gear: pressed`;
+///   `--print-settings` then shows where the Settings page went.
 struct SnapshotAgentOptions {
     var shows = false
     var draft: String?
+    var expandsSteps = false
     var buttonPresses = 0
     var pressesGear = false
 
     var isActive: Bool { shows || buttonPresses > 0 }
 
     static let usage = """
-                               [--agent] [--agent-draft <text>] [--agent-button]... [--agent-gear]
+                               [--agent] [--agent-draft <text>] [--agent-steps] [--agent-button]... [--agent-gear]
     """
 
     /// True when `option` is one of these flags (its value read).
@@ -31,6 +35,9 @@ struct SnapshotAgentOptions {
         case "--agent-draft":
             options.shows = true
             options.draft = try value()
+        case "--agent-steps":
+            options.shows = true
+            options.expandsSteps = true
         case "--agent-button":
             options.buttonPresses += 1
         case "--agent-gear":
@@ -61,6 +68,9 @@ struct SnapshotAgentOptions {
         if let draft {
             chat.view.setDraft(draft)
         }
+        if expandsSteps {
+            print("agent-steps: \(chat.view.expandAllSteps()) shown")
+        }
         for line in chat.transcript.plainText.split(separator: "\n") {
             print("agent: \(line)")
         }
@@ -81,7 +91,7 @@ struct SnapshotAgentOptions {
         }
     }
 
-    /// `--agent-gear`: the panel's gear, pressed as a click does.
+    /// `--agent-gear`: the composer's model chip, pressed as a click does.
     @MainActor
     func pressGear(controller: BrowserWindowController) {
         guard pressesGear else { return }
@@ -118,7 +128,12 @@ struct SnapshotAgentOptions {
             text: """
             It's **Example Domain**, a page reserved for documentation examples (`example.com`).
 
-            I opened its only link, *Learn more*, which goes to [iana.org](https://www.iana.org/help/example-domains).
+            **What's on it**
+
+            - One heading and a short paragraph saying the domain is for examples.
+            - A single link, *Learn more*, which goes to [iana.org](https://www.iana.org/help/example-domains).
+
+            I opened that link; the tab now shows IANA's page on example domains.
             """
         ),
         .promptResult(status: "completed", error: nil, settled: true),

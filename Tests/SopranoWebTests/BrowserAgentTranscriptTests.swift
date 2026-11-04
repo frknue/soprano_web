@@ -13,7 +13,7 @@ struct BrowserAgentTranscriptTests {
         let transcript = sent()
         #expect(transcript.isWorking)
         #expect(transcript.entries.map(\.kind) == [.user])
-        #expect(transcript.entries.first?.detail == "Example")
+        #expect(transcript.entries.first?.page?.title == "Example")
     }
 
     @Test func deltasOfSeveralBlocksJoinAndTheEndIsAuthoritative() {
@@ -120,5 +120,31 @@ struct BrowserAgentTranscriptTests {
         tool failed: browser click @e2 (Opening): gone
         agent: Done.
         """)
+    }
+
+    @Test func aRunShowsItsAnswerAfterTheLastToolAndHowLongTheWholeRunTook() {
+        let start = Date(timeIntervalSinceReferenceDate: 1_000)
+        var transcript = BrowserAgentTranscript()
+        transcript.addUser("Open it", page: nil, at: start)
+        transcript.apply(.textDelta(messageID: "m1", index: 0, text: "Looking."), at: start + 1)
+        transcript.apply(.toolStart(callID: "t", title: "browser click @e2", intent: "Opening"), at: start + 2)
+        // A steer while the run works: the run's time still counts from the first message.
+        transcript.addUser("Faster", page: nil, at: start + 3)
+        transcript.apply(.toolEnd(callID: "t", error: nil), at: start + 4)
+        transcript.apply(.assistantEnd(messageID: "m2", text: "Opened."), at: start + 5)
+        transcript.apply(.assistantEnd(messageID: "m3", text: "It's IANA."), at: start + 6)
+        transcript.apply(.settled, at: start + 16)
+
+        let runs = transcript.blocks.compactMap { block -> BrowserAgentTranscript.Run? in
+            if case let .run(run) = block { run } else { nil }
+        }
+        #expect(runs.count == 2)
+        #expect(runs[0].steps.map(\.text) == ["Looking.", "browser click @e2"])
+        #expect(runs[0].answer.isEmpty)
+        #expect(runs[0].duration == nil)
+        #expect(runs[1].steps.isEmpty)
+        #expect(runs[1].answer.map(\.text) == ["Opened.", "It's IANA."])
+        #expect(runs[1].duration == 16)
+        #expect(runs[1].end == start + 16)
     }
 }

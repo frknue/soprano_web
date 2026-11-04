@@ -766,14 +766,15 @@ touches; `AGENTS.md` holds the rules.
   uncaught exceptions and the console errors WebKit records.
 - `Browser/BrowserAgentProtocol.swift`, `BrowserAgentSession.swift`,
   `BrowserAgentTranscript.swift`, `BrowserAgentChat.swift`,
-  `BrowserAgentPanelView.swift`, `BrowserWindowController+Agent.swift` —
+  `BrowserAgentPanelView.swift`, `BrowserAgentRenderer.swift`,
+  `BrowserWindowController+Agent.swift` —
   the Agent panel (View ▸ Show Agent, ⌘E, the toolbar's Agent button at
   its trailing edge — `BrowserToolbarView.setShowsAgentButton`, hidden in
   private and compact windows, `setAgentToggle` while shown; New Agent
   Chat ⇧⌘E), a chat with omp at the window's right edge, in the
   sidebar's slot (one of the two at a time; normal windows only, never
   private ones). Settings ▸ Agent (`agent` section of
-  `BrowserSettingsWebPage`; the panel's gear opens it through
+  `BrowserSettingsWebPage`; the composer's model chip opens it through
   `showSettings(section:)`) holds `agentModel`, `agentThinking`
   (`BrowserAgentThinking`), `agentDirectory` (nil: home; Change is a folder
   panel) and `agentIncludesPage` (the page button's start state), and
@@ -792,13 +793,30 @@ touches; `AGENTS.md` holds the rules.
   folder.
   `BrowserAgentProtocol` encodes the frames and decodes omp's stdout into
   `BrowserAgentEvent`; `BrowserAgentTranscript` (pure) folds those into
-  entries with a `revision`, so `BrowserAgentPanelView` re-renders only
-  changed entries into one selectable text view (inline Markdown, a tool
-  call as its intent over its command, a failure in red), once per run
-  loop turn. A message carries the window's selected tab (`agentPage`:
+  dated entries with a `revision`, and `blocks` groups them as the panel
+  shows them: each user message and note, and the agent's entries between
+  them as a run whose steps (tool calls and the text between them) come
+  before its answer (the text after the last tool call); the run's last
+  user message records how long the run took (`duration`, from its first
+  message, a steer included) and when it ended. `BrowserAgentPanelView`
+  shows the chat's first message as its header, then one selectable
+  TextKit 1 text view rendered by `BrowserAgentRenderer` (pieces cached
+  by entry and revision, once per run loop turn): a centered time over a
+  message after a 15-minute pause, the message's tab as a card (its
+  favicon, title and host) over the message in a bubble at the trailing
+  edge (`BrowserAgentBox` runs that `BrowserAgentLayoutManager` draws
+  under the text), "Worked for 16s ›" (while working, the running tool's
+  intent) whose `soprano-agent://steps/<run>` link shows the steps, the
+  answer's Markdown (paragraphs, headings, nested lists, quotes, fenced
+  code in a box, table rows in mono, inline styles, web links), and a
+  footer with Copy (`soprano-agent://copy/<run>`, the answer's Markdown)
+  and the time. The composer grows to 160 pt; under it sit the page chip,
+  the model chip (model without provider, thinking level), a spinner
+  while working, and a round button that sends, or stops while a run
+  works and nothing is typed. A message carries the window's selected tab (`agentPage`:
   the tab the tool's page commands act on, never a Peek over it; none on
   a start page) as a closing
-  `[Current tab: title — url]` line, unless the composer's page button
+  `[Current tab: title — url]` line, unless the composer's page chip
   is off; while a run is live it goes in with `streamingBehavior: steer`.
   `browser` host tool calls are `browser` CLI words: `BrowserAgentChat`
   parses them with `BrowserCommandRequest.parse` (`PWD` = omp's folder,

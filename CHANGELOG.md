@@ -13,11 +13,15 @@ app.
 - Agent panel (View ▸ Show Agent, `⌘E`, or the Agent button at the toolbar's right
   end): a chat with omp at the window's right edge, like Aside's side panel. Ask about
   the page you're on, or have the agent click, fill, open tabs and browse for you in
-  that window; you see each step it takes, and Stop ends it. Each message includes the
-  current tab (click the page button under the message field to leave it out). Return
-  sends, `⇧Return` starts a new line, `⇧⌘E` starts a new chat. Settings ▸ Agent (or the
-  panel's gear) picks the model, thinking level and working folder, shows where omp was
-  found, and whether messages include the current tab; changes apply to the next chat.
+  that window. Your messages sit in bubbles with the tab they went with as a card above
+  them; the agent's answer shows formatted (headings, lists, code), under "Worked for
+  16s ›", which shows each step it took when clicked, and over a Copy button and the
+  time. The round button sends, or stops the agent while you haven't typed anything.
+  Each message includes the current tab (click the page chip in the message field to
+  leave it out). Return sends, `⇧Return` starts a new line, `⇧⌘E` starts a new chat.
+  Settings ▸ Agent (or the model chip in the message field) picks the model, thinking
+  level and working folder, shows where omp was found, and whether messages include the
+  current tab; changes apply to the next chat.
   Needs `omp` installed and logged in; private windows have no Agent panel.
 - Downloads in progress show at the bottom of the rail, above the Space icons, as in
   Arc: the file's name, how much has arrived of the whole and the time left ("200 MB of
