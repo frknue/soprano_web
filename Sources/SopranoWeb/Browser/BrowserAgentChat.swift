@@ -17,14 +17,20 @@ final class BrowserAgentChat {
     init(window: BrowserWindowController, theme: AppTheme) {
         self.window = window
         view = BrowserAgentPanelView(theme: theme)
-        session = BrowserAgentSession(hostTool: BrowserAgentProtocol.hostToolDefinition(help: BrowserCommand.help))
+        session = BrowserAgentSession(
+            launch: BrowserAgentLaunch(settings: window.settingsStore.settings),
+            hostTool: BrowserAgentProtocol.hostToolDefinition(help: BrowserCommand.help)
+        )
         session.onEvent = { [weak self] event in self?.handle(event) }
         session.onExit = { [weak self] message in self?.exited(message) }
         view.onSend = { [weak self] text in self?.send(text) }
         view.onStop = { [weak self] in self?.stop() }
         view.onNewChat = { [weak self] in self?.newChat() }
         view.onClose = { [weak window] in window?.hideAgent() }
+        view.onSettings = { [weak window] in window?.manager.showSettings(section: "agent") }
+        view.setIncludesPage(window.settingsStore.settings.agentIncludesPage)
         updatePage()
+        refresh()
     }
 
     /// One line on the panel's state (`browser agent`).
@@ -37,6 +43,7 @@ final class BrowserAgentChat {
         let page = view.includesPage ? window?.agentPage : nil
         transcript.addUser(text, page: page)
         do {
+            syncLaunch()
             try session.startIfNeeded()
             session.send(BrowserAgentProtocol.prompt(BrowserAgentProtocol.message(text, page: page)))
         } catch {
@@ -60,6 +67,7 @@ final class BrowserAgentChat {
     func newChat() {
         session.stop()
         transcript.clear()
+        view.setIncludesPage(window?.settingsStore.settings.agentIncludesPage ?? true)
         refresh()
     }
 
@@ -87,8 +95,19 @@ final class BrowserAgentChat {
         refresh()
     }
 
-    private func refresh() {
-        let status = transcript.isWorking ? "omp · \(transcript.activity ?? "Working")…" : "omp"
+    /// While no omp runs, Settings ▸ Agent is read again, so the next
+    /// message starts omp the way it says.
+    private func syncLaunch() {
+        if !session.isRunning, let settings = window?.settingsStore.settings {
+            session.launch = BrowserAgentLaunch(settings: settings)
+        }
+    }
+
+    /// Redraws the panel (with the model omp runs or will start with).
+    func refresh() {
+        syncLaunch()
+        let model = session.launch.model.isEmpty ? "" : " · \(session.launch.model)"
+        let status = transcript.isWorking ? "omp\(model) · \(transcript.activity ?? "Working")…" : "omp\(model)"
         view.update(transcript, status: status)
     }
 

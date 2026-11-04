@@ -39,11 +39,13 @@ extension BrowserWindowController {
         }
         let chat = agentChat ?? makeAgentChat()
         chat.updatePage()
+        chat.refresh()
         chat.view.isHidden = false
         isAgentVisible = true
         webTrailingToRoot.isActive = false
         webTrailingToSidebar.isActive = false
         webTrailingToAgent?.isActive = true
+        toolbar.setAgentToggle(true)
         updateWindowMinSize()
         viewNeedsLayout()
         if focus {
@@ -58,6 +60,7 @@ extension BrowserWindowController {
         chat.view.isHidden = true
         webTrailingToAgent?.isActive = false
         webTrailingToRoot.isActive = true
+        toolbar.setAgentToggle(false)
         updateWindowMinSize()
         viewNeedsLayout()
         if hadKeyboard, let webView = pageTab?.webView {

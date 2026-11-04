@@ -40,6 +40,29 @@ extension BrowserWindowManager {
         }
     }
 
+    /// The Settings tab, as `showSettings()` picks it, scrolled to section
+    /// `section` (`agent`): a new tab opens at `#section`, an open one
+    /// scrolls there.
+    func showSettings(section: String) {
+        let address = "\(BrowserSettingsWebPage.url.absoluteString)#\(section)"
+        guard let target = outsideTabbedController else {
+            newWindow(url: address)
+            return
+        }
+        if let tab = target.visibleTabs.first(where: Self.isSettingsTab) {
+            target.selectTab(id: tab.id, focus: true)
+            let id = BrowserSettingsWebPage.literal(["id": section])
+            tab.webView.evaluateJavaScript(
+                "document.getElementById(\(id).id)?.scrollIntoView()",
+                in: nil,
+                in: .page
+            ) { _ in }
+        } else {
+            target.newTab(url: address)
+        }
+        present(target)
+    }
+
     /// A tab showing Settings, loaded or still to load.
     static func isSettingsTab(_ tab: BrowserTab) -> Bool {
         let address = tab.webView.url?.absoluteString ?? tab.pendingURL ?? tab.lifecycle.pendingRestore?.url
@@ -80,6 +103,8 @@ extension BrowserWindowManager {
             BrowserDefaultBrowser.makeDefault { [weak self] _ in self?.refreshSettingsPages() }
         case .chooseDownloads:
             chooseDownloadFolder(on: controller)
+        case .chooseAgentFolder:
+            chooseAgentFolder(on: controller)
         case .recordShortcut:
             recordGlobalShortcut(in: controller, tab: tab)
         case let .allowTranslation(code):
@@ -111,7 +136,10 @@ extension BrowserWindowManager {
             shortcutUnavailable: settings.globalLittleArcEnabled && !recording
                 && globalHotKey.map { !$0.isRegistered } == true,
             settingsFile: settingsStore.displayPath,
-            version: Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? ""
+            version: Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "",
+            agentExecutable: BrowserAgentSession.resolve().map {
+                $0.path.replacingOccurrences(of: FileManager.default.homeDirectoryForCurrentUser.path, with: "~")
+            }
         )
         return BrowserSettingsWebPage.state(settings: settings, environment: environment)
     }
@@ -184,6 +212,22 @@ extension BrowserWindowManager {
         panel.beginSheetModal(for: window) { [weak self] response in
             guard response == .OK, let url = panel.url else { return }
             self?.settingsStore.update { $0.downloadDirectory = url.path }
+        }
+    }
+
+    /// Settings ▸ Agent ▸ Working folder ▸ Change: where the next chat's
+    /// omp runs.
+    private func chooseAgentFolder(on controller: BrowserWindowController) {
+        guard let window = controller.window, window.attachedSheet == nil, !placement.isOffscreen else { return }
+        let panel = NSOpenPanel()
+        panel.canChooseFiles = false
+        panel.canChooseDirectories = true
+        panel.canCreateDirectories = true
+        panel.allowsMultipleSelection = false
+        panel.directoryURL = URL(fileURLWithPath: BrowserAgentLaunch(settings: settingsStore.settings).workingDirectory, isDirectory: true)
+        panel.beginSheetModal(for: window) { [weak self] response in
+            guard response == .OK, let url = panel.url else { return }
+            self?.settingsStore.update { $0.agentDirectory = url.path }
         }
     }
 

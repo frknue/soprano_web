@@ -2,12 +2,15 @@ import Foundation
 
 enum BrowserAgentError: LocalizedError, Equatable {
     case ompMissing
+    case folderMissing(String)
     case launchFailed(String)
 
     var errorDescription: String? {
         switch self {
         case .ompMissing:
             "omp isn't installed. Install oh-my-pi (`bun install -g @oh-my-pi/pi-coding-agent`) and log in with `omp login`."
+        case let .folderMissing(path):
+            "The agent's working folder \(path) doesn't exist. Choose another in Settings ▸ Agent."
         case let .launchFailed(message):
             "omp didn't start: \(message)"
         }
@@ -26,7 +29,11 @@ final class BrowserAgentSession {
     /// The process ended without `stop()`: why, from its stderr.
     var onExit: ((String) -> Void)?
 
-    let workingDirectory: String
+    /// How the next process starts (Settings ▸ Agent); a running one keeps
+    /// what it started with.
+    var launch: BrowserAgentLaunch
+    /// The folder the running (or next) omp works in.
+    private(set) var workingDirectory: String
     private let hostTool: [String: Any]
     private var process: Process?
     private var input: FileHandle?
@@ -39,11 +46,9 @@ final class BrowserAgentSession {
     /// process never reaches the next one.
     private(set) var generation = 0
 
-    init(
-        workingDirectory: String = FileManager.default.homeDirectoryForCurrentUser.path,
-        hostTool: [String: Any]
-    ) {
-        self.workingDirectory = workingDirectory
+    init(launch: BrowserAgentLaunch, hostTool: [String: Any]) {
+        self.launch = launch
+        self.workingDirectory = launch.workingDirectory
         self.hostTool = hostTool
     }
 
@@ -53,11 +58,16 @@ final class BrowserAgentSession {
     func startIfNeeded() throws {
         guard process == nil else { return }
         guard let omp = Self.resolve() else { throw BrowserAgentError.ompMissing }
+        let launch = self.launch
+        var isFolder: ObjCBool = false
+        guard FileManager.default.fileExists(atPath: launch.workingDirectory, isDirectory: &isFolder), isFolder.boolValue else {
+            throw BrowserAgentError.folderMissing(launch.workingDirectory)
+        }
         let process = Process()
         process.executableURL = omp
-        process.arguments = BrowserAgentProtocol.launchArguments(workingDirectory: workingDirectory)
+        process.arguments = launch.arguments
         process.environment = Self.environment()
-        process.currentDirectoryURL = URL(fileURLWithPath: workingDirectory, isDirectory: true)
+        process.currentDirectoryURL = URL(fileURLWithPath: launch.workingDirectory, isDirectory: true)
         let stdin = Pipe()
         let stdout = Pipe()
         let stderr = Pipe()
@@ -95,6 +105,7 @@ final class BrowserAgentSession {
             throw BrowserAgentError.launchFailed(error.localizedDescription)
         }
         self.process = process
+        workingDirectory = launch.workingDirectory
         generation += 1
         input = stdin.fileHandleForWriting
         pending = Data()

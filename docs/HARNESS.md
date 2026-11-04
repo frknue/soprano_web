@@ -287,3 +287,7 @@ The offscreen UI harness (`.build/debug/SopranoWeb snapshot …`,
   `BrowserAgentTranscript` as omp's events would be, after the page's
   `--wait`; the chat prints as `agent:` lines. omp never starts.
   `--agent-draft <text>` types text into the composer (implies `--agent`).
+  `--agent-button` (repeatable) presses the toolbar's Agent button through
+  its accessibility press and prints `agent-button: panel shown|hidden,
+  button on|off`; `--url 'soprano-web://settings#agent'` opens Settings ▸
+  Agent.

@@ -173,6 +173,17 @@ struct BrowserSettings: Codable, Equatable, Sendable {
     /// Settings ▸ "Allow JavaScript from Apple Events": AppleScript's
     /// `execute javascript` runs only while this is on.
     var allowsJavaScriptFromAppleEvents: Bool = false
+    /// Settings ▸ Agent ▸ Model: what omp gets as `--model` ("opus",
+    /// "openai/gpt-5.2"); empty uses omp's own default.
+    var agentModel: String = ""
+    /// Settings ▸ Agent ▸ Thinking: `--thinking`; `.default` passes none.
+    var agentThinking: BrowserAgentThinking = .default
+    /// Settings ▸ Agent ▸ Working folder, where omp runs; nil is the home
+    /// folder.
+    var agentDirectory: String?
+    /// Settings ▸ Agent ▸ "Send the current tab": the composer's page
+    /// button starts on in each chat.
+    var agentIncludesPage: Bool = true
 
     static let `default` = BrowserSettings()
 
@@ -264,6 +275,10 @@ extension BrowserSettings {
             ?? neverTranslateLanguages
         allowsJavaScriptFromAppleEvents = (try? c.decodeIfPresent(Bool.self, forKey: .allowsJavaScriptFromAppleEvents))
             ?? allowsJavaScriptFromAppleEvents
+        agentModel = (try? c.decodeIfPresent(String.self, forKey: .agentModel)) ?? agentModel
+        agentThinking = (try? c.decodeIfPresent(BrowserAgentThinking.self, forKey: .agentThinking)) ?? agentThinking
+        agentDirectory = (try? c.decodeIfPresent(String.self, forKey: .agentDirectory)) ?? agentDirectory
+        agentIncludesPage = (try? c.decodeIfPresent(Bool.self, forKey: .agentIncludesPage)) ?? agentIncludesPage
         // A chord the system, text editing or another command uses never
         // becomes a global hotkey (a hand-edited file included): a taken
         // chord falls back to the default, and when that one is taken too

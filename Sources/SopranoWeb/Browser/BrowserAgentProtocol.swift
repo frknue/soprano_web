@@ -26,6 +26,59 @@ enum BrowserAgentEvent: Equatable, Sendable {
     case commandFailed(command: String, error: String)
 }
 
+/// Settings ▸ Agent ▸ Thinking: omp's `--thinking` level, or none
+/// (`default`: omp's own).
+enum BrowserAgentThinking: String, CaseIterable, Codable, Sendable {
+    case `default`, off, minimal, low, medium, high, xhigh
+
+    var name: String {
+        switch self {
+        case .default: "omp’s default"
+        case .off: "Off"
+        case .minimal: "Minimal"
+        case .low: "Low"
+        case .medium: "Medium"
+        case .high: "High"
+        case .xhigh: "Extra high"
+        }
+    }
+}
+
+/// How a window's omp starts: its folder, model and thinking level, read
+/// from Settings ▸ Agent when a chat's first message starts omp.
+struct BrowserAgentLaunch: Equatable, Sendable {
+    var workingDirectory: String
+    /// Empty: omp's default model.
+    var model: String = ""
+    var thinking: BrowserAgentThinking = .default
+
+    init(workingDirectory: String, model: String = "", thinking: BrowserAgentThinking = .default) {
+        self.workingDirectory = workingDirectory
+        self.model = model
+        self.thinking = thinking
+    }
+
+    init(settings: BrowserSettings, home: String = FileManager.default.homeDirectoryForCurrentUser.path) {
+        let folder = settings.agentDirectory.flatMap { $0.isEmpty ? nil : $0 }
+        self.init(
+            workingDirectory: folder ?? home,
+            model: settings.agentModel.trimmingCharacters(in: .whitespacesAndNewlines),
+            thinking: settings.agentThinking
+        )
+    }
+
+    /// `omp --mode rpc --no-ui --allow-home --cwd <dir> [--model <m>]
+    /// [--thinking <level>] --append-system-prompt <prompt>`. No UI
+    /// requests: omp's dialogs resolve to their defaults and a tool its
+    /// approval policy would prompt for fails closed.
+    var arguments: [String] {
+        var arguments = ["--mode", "rpc", "--no-ui", "--allow-home", "--cwd", workingDirectory]
+        if !model.isEmpty { arguments += ["--model", model] }
+        if thinking != .default { arguments += ["--thinking", thinking.rawValue] }
+        return arguments + ["--append-system-prompt", BrowserAgentProtocol.systemPrompt]
+    }
+}
+
 /// omp's `--mode rpc` JSONL protocol (omp 18.16, `omp://rpc.md`), as the
 /// Agent panel speaks it: one `omp` child per window, the window's
 /// `browser` host tool, prompts and aborts in, events out. Pure, so the
@@ -33,15 +86,17 @@ enum BrowserAgentEvent: Equatable, Sendable {
 enum BrowserAgentProtocol {
     static let hostToolName = "browser"
 
-    /// `omp --mode rpc --no-ui --allow-home --cwd <dir> --append-system-prompt
-    /// <prompt>`. No UI requests: omp's dialogs resolve to their defaults and
-    /// a tool its approval policy would prompt for fails closed.
-    static func launchArguments(workingDirectory: String) -> [String] {
-        [
-            "--mode", "rpc", "--no-ui", "--allow-home",
-            "--cwd", workingDirectory,
-            "--append-system-prompt", systemPrompt,
-        ]
+    /// The longest model name Settings ▸ Agent accepts.
+    static let modelLimit = 200
+
+    /// A model as typed into Settings ▸ Agent: trimmed; nil when it is too
+    /// long or holds spaces or control characters (no model name does).
+    static func validModel(_ text: String) -> String? {
+        let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard trimmed.count <= modelLimit,
+              trimmed.unicodeScalars.allSatisfy({ !CharacterSet.whitespacesAndNewlines.contains($0) && !CharacterSet.controlCharacters.contains($0) })
+        else { return nil }
+        return trimmed
     }
 
     static let systemPrompt = """

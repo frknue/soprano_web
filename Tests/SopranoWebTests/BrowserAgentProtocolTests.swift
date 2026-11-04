@@ -155,4 +155,36 @@ struct BrowserAgentProtocolTests {
         #expect(shot.arguments == ["/Users/me/page.png"])
         #expect(try BrowserAgentChat.toolRequest(["boost", "zap", "example.com", ".ad"], workingDirectory: "/").command == "boost")
     }
+
+    @Test func launchFollowsSettingsAgent() throws {
+        let plain = BrowserAgentLaunch(settings: .default, home: "/Users/me")
+        #expect(plain.workingDirectory == "/Users/me")
+        #expect(Array(plain.arguments.prefix(6)) == ["--mode", "rpc", "--no-ui", "--allow-home", "--cwd", "/Users/me"])
+        #expect(!plain.arguments.contains("--model"))
+        #expect(!plain.arguments.contains("--thinking"))
+        #expect(plain.arguments.suffix(2).first == "--append-system-prompt")
+
+        var settings = BrowserSettings.default
+        settings.agentModel = "opus"
+        settings.agentThinking = .low
+        settings.agentDirectory = "/Users/me/work"
+        let chosen = BrowserAgentLaunch(settings: settings, home: "/Users/me")
+        #expect(chosen.workingDirectory == "/Users/me/work")
+        let arguments = chosen.arguments
+        let model = try #require(arguments.firstIndex(of: "--model"))
+        #expect(arguments[model + 1] == "opus")
+        let thinking = try #require(arguments.firstIndex(of: "--thinking"))
+        #expect(arguments[thinking + 1] == "low")
+    }
+
+    @Test func agentSettingsDecodeTolerantly() throws {
+        let settings = try JSONDecoder().decode(BrowserSettings.self, from: Data(#"""
+        {"agentThinking": "maximum", "agentModel": "opus", "agentIncludesPage": "no", "homepage": "x"}
+        """#.utf8))
+        #expect(settings.agentThinking == .default)
+        #expect(settings.agentModel == "opus")
+        #expect(settings.agentIncludesPage)
+        #expect(settings.agentDirectory == nil)
+        #expect(settings.homepage == "x")
+    }
 }

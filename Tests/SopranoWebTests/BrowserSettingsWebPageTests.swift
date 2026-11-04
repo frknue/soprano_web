@@ -56,6 +56,11 @@ struct BrowserSettingsWebPageTests {
             ("homepage", .text(String(repeating: "a", count: BrowserSettingsWebPage.homepageLimit + 1))),
             ("downloadDirectory", .text("/")),
             ("customSearchEngines", .text("[]")),
+            ("agentThinking", .text("maximum")),
+            ("agentModel", .text("claude opus")),
+            ("agentModel", .text(String(repeating: "m", count: BrowserAgentProtocol.modelLimit + 1))),
+            ("agentModel", .bool(true)),
+            ("agentDirectory", .text("/")),
         ]
         for (key, value) in refused {
             #expect(!BrowserSettingsWebPage.apply(key: key, value: value, to: &settings), "\(key)")
@@ -76,6 +81,9 @@ struct BrowserSettingsWebPageTests {
             ("defaultZoom", .text("1.25")),
             ("tabSleep", .text(BrowserTabSleepAfter.fourHours.rawValue)),
             ("homepage", .text("  https://example.com  ")),
+            ("agentModel", .text("  openai/gpt-5.2 ")),
+            ("agentThinking", .text("high")),
+            ("agentIncludesPage", .bool(false)),
         ]
         for (key, value) in accepted {
             #expect(BrowserSettingsWebPage.apply(key: key, value: value, to: &settings), "\(key)")
@@ -88,6 +96,9 @@ struct BrowserSettingsWebPageTests {
         #expect(settings.defaultZoom == 1.25)
         #expect(settings.tabSleep == .fourHours)
         #expect(settings.homepage == "https://example.com")
+        #expect(settings.agentModel == "openai/gpt-5.2")
+        #expect(settings.agentThinking == .high)
+        #expect(!settings.agentIncludesPage)
         // The menu's value for that zoom is what the page posts back.
         #expect(BrowserSettingsWebPage.zoomValue(1.25) == "1.25")
         #expect(BrowserSettingsWebPage.zoomValue(1) == "1")

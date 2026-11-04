@@ -135,13 +135,15 @@ showing a prompt or holding unsaved input never sleep; right-click a tab ▸
 `⇧⌘B` toggles the sidebar. Click the lock in the address bar for the
 connection details and certificate, and for **Block ads on this site**.
 
-`⌘E` opens the Agent panel on the right: a chat with
-[omp](https://github.com/can1357/oh-my-pi) that works in this window. Ask about
-the page you're on, or have it click, fill, open tabs and browse for you; each
-step it takes shows in the chat and Stop ends it. Every message includes the
-current tab unless you switch off the page button under the message field.
-`⇧⌘E` starts a new chat. It needs `omp` installed and logged in (`omp login`);
-private windows have no Agent panel.
+`⌘E` or the Agent button at the toolbar's right end opens the Agent panel: a
+chat with [omp](https://github.com/can1357/oh-my-pi) that works in this window.
+Ask about the page you're on, or have it click, fill, open tabs and browse for
+you; each step it takes shows in the chat and Stop ends it. Every message
+includes the current tab unless you switch off the page button under the
+message field. `⇧⌘E` starts a new chat. **Settings ▸ Agent** (or the panel's
+gear) sets the model, thinking level and working folder for the next chat. It
+needs `omp` installed and logged in (`omp login`); private windows have no
+Agent panel.
 
 ## Ad and tracker blocking
 

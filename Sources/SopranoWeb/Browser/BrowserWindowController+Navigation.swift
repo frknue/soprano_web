@@ -232,6 +232,7 @@ extension BrowserWindowController {
         toolbar.setAddress(tab.isStartPage ? "" : shownURL, security: securityState(for: tab))
         toolbar.setProgress(tab.webView.estimatedProgress, isLoading: tab.webView.isLoading)
         toolbar.setSidebarToggle(isSidebarVisible)
+        toolbar.setAgentToggle(isAgentVisible)
         toolbar.setDownloadsToggle(isSidebarVisible && sidebarSection == .downloads)
         verticalTabsView.switcher.setDownloadsToggle(isSidebarVisible && sidebarSection == .downloads)
         window?.title = kind.windowTitle(tab.isStartPage ? "New Tab" : tab.displayTitle)

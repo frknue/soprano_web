@@ -43,6 +43,7 @@ enum BrowserSettingsWebPage {
         case updateLists
         case makeDefault
         case chooseDownloads
+        case chooseAgentFolder
         case recordShortcut
         case allowTranslation(String)
         case revealSettingsFile
@@ -63,6 +64,8 @@ enum BrowserSettingsWebPage {
                 self = .makeDefault
             case "chooseDownloads":
                 self = .chooseDownloads
+            case "chooseAgentFolder":
+                self = .chooseAgentFolder
             case "recordShortcut":
                 self = .recordShortcut
             case "allowTranslation":
@@ -112,6 +115,13 @@ enum BrowserSettingsWebPage {
         case let ("blockAdsAndTrackers", .bool(on)): settings.blockAdsAndTrackers = on
         case let ("allowsJavaScriptFromAppleEvents", .bool(on)): settings.allowsJavaScriptFromAppleEvents = on
         case let ("globalLittleArcEnabled", .bool(on)): settings.globalLittleArcEnabled = on
+        case let ("agentIncludesPage", .bool(on)): settings.agentIncludesPage = on
+        case let ("agentThinking", .text(raw)):
+            guard let thinking = BrowserAgentThinking(rawValue: raw) else { return false }
+            settings.agentThinking = thinking
+        case let ("agentModel", .text(text)):
+            guard let model = BrowserAgentProtocol.validModel(text) else { return false }
+            settings.agentModel = model
         case let ("searchEngine", .text(id)):
             guard settings.searchEngines.all.contains(where: { $0.id.rawValue == id }) else { return false }
             settings.searchEngines.setDefault(BrowserSearchEngineID(rawValue: id))
@@ -164,6 +174,8 @@ enum BrowserSettingsWebPage {
         var shortcutUnavailable: Bool
         var settingsFile: String
         var version: String
+        /// Where omp was found ("~/.bun/bin/omp"); nil when it wasn't.
+        var agentExecutable: String?
     }
 
     /// The state `window.__sopranoSettings.apply` renders: `values` by
@@ -192,6 +204,9 @@ enum BrowserSettingsWebPage {
             "blockAdsAndTrackers": settings.blockAdsAndTrackers,
             "allowsJavaScriptFromAppleEvents": settings.allowsJavaScriptFromAppleEvents,
             "globalLittleArcEnabled": settings.globalLittleArcEnabled,
+            "agentModel": settings.agentModel,
+            "agentThinking": settings.agentThinking.rawValue,
+            "agentIncludesPage": settings.agentIncludesPage,
         ]
         let menus: [String: Any] = [
             "searchEngine": options(settings.searchEngines.all, value: \.id.rawValue, label: \.name),
@@ -201,6 +216,7 @@ enum BrowserSettingsWebPage {
             "tabSleep": options(BrowserTabSleepAfter.allCases, value: \.rawValue, label: \.name),
             "historyRetention": options(BrowserHistoryRetention.allCases, value: \.rawValue, label: \.name),
             "autoplay": options(AutoplayPolicy.allCases, value: \.rawValue, label: \.name),
+            "agentThinking": options(BrowserAgentThinking.allCases, value: \.rawValue, label: \.name),
         ]
         let text: [String: Any] = [
             "downloadDirectory": settings.downloadDirectoryURL.path,
@@ -223,6 +239,9 @@ enum BrowserSettingsWebPage {
             },
             "settingsFile": environment.settingsFile,
             "version": environment.version,
+            "agentExecutable": environment.agentExecutable.map { "Found at \($0)" }
+                ?? "omp isn’t installed: install oh-my-pi, then run omp login in Terminal",
+            "agentDirectory": BrowserAgentLaunch(settings: settings).workingDirectory,
         ]
         return ["values": values, "options": menus, "text": text, "theme": themeState(environment.theme)]
     }
@@ -282,6 +301,7 @@ enum BrowserSettingsWebPage {
         ("shortcuts", "Keyboard shortcuts", "M1.5 4h13v8h-13zM4 6.5h1M7.5 6.5h1M11 6.5h1M5 9.5h6"),
         ("browser", "Default browser", "M8 1.5a6.5 6.5 0 1 0 0 13 6.5 6.5 0 0 0 0-13zM1.5 8h13M8 1.5c-2 2-2 11 0 13M8 1.5c2 2 2 11 0 13"),
         ("extensions", "Extensions", "M3 5.5h3v-1a1.5 1.5 0 1 1 3 0v1h3v3h-1a1.5 1.5 0 1 0 0 3h1v3H3v-3h1a1.5 1.5 0 1 0 0-3H3z"),
+        ("agent", "Agent", "M2 2.5h12v8.5H7l-3.5 3v-3H2z"),
         ("system", "System", "M8 5.5a2.5 2.5 0 1 0 0 5 2.5 2.5 0 0 0 0-5zM8 1v2M8 13v2M1 8h2M13 8h2M3 3l1.5 1.5M11.5 11.5L13 13M3 13l1.5-1.5M11.5 4.5L13 3"),
     ]
 
@@ -413,6 +433,17 @@ enum BrowserSettingsWebPage {
           <h2>Extensions</h2>
           <div class="card">
             <button class="row link" data-open="extensions" data-keywords="add-ons chrome web store ublock 1password"><div class="text"><div class="label">Manage extensions</div><div class="desc">Install from the Chrome Web Store, site access, private windows</div></div><span class="chevron">›</span></button>
+          </div>
+        </section>
+        <section id="agent">
+          <h2>Agent</h2>
+          <div class="card">
+            <div class="row" data-keywords="omp oh-my-pi ai chat install"><div class="text"><div class="label">Agent panel</div><div class="desc">⌘E or the toolbar’s Agent button opens a chat with omp beside your pages. Changes here apply to the next chat.</div></div></div>
+            <div class="row" data-keywords="omp oh-my-pi install path cli"><div class="text"><div class="label">omp</div><div class="desc path" data-text="agentExecutable"></div></div></div>
+            <div class="row" data-keywords="omp model llm claude gpt opus"><div class="text"><div class="label">Model</div><div class="desc">A model omp knows, like opus or openai/gpt-5.2. Empty uses omp’s default.</div></div><input class="field" data-field="agentModel" type="text" placeholder="omp’s default" spellcheck="false" autocomplete="off" aria-label="Model"></div>
+            <div class="row" data-keywords="omp reasoning effort thinking"><div class="text"><div class="label">Thinking</div><div class="desc">How much the model reasons before it answers</div></div><select data-key="agentThinking" aria-label="Thinking"></select></div>
+            <div class="row" data-keywords="omp folder directory cwd files"><div class="text"><div class="label">Working folder</div><div class="desc path" data-text="agentDirectory"></div></div><button class="btn" data-command="chooseAgentFolder">Change</button></div>
+            <div class="row" data-keywords="omp page tab context"><div class="text"><div class="label">Send the current tab</div><div class="desc">Each message names the tab you’re on; the page button under the message field changes it for one chat</div></div><button class="switch" data-switch="agentIncludesPage" role="switch" aria-label="Send the current tab"></button></div>
           </div>
         </section>
         <section id="system">
@@ -567,6 +598,9 @@ enum BrowserSettingsWebPage {
         }
         const home = document.getElementById("homepage");
         if (document.activeElement !== home) home.value = next.values.homepage;
+        for (const field of all("input[data-field]")) {
+          if (document.activeElement !== field) field.value = next.values[field.dataset.field] ?? "";
+        }
         for (const element of all("[data-text]")) element.textContent = next.text[element.dataset.text] ?? "";
         for (const element of all(".path")) element.title = element.textContent;
         const makeDefault = document.querySelector('[data-command="makeDefault"]');
@@ -621,6 +655,10 @@ enum BrowserSettingsWebPage {
       const saveHome = () => post({ action: "set", key: "homepage", value: home.value });
       home.addEventListener("change", saveHome);
       home.addEventListener("keydown", (event) => { if (event.key === "Enter") home.blur(); });
+      for (const field of all("input[data-field]")) {
+        field.addEventListener("change", () => post({ action: "set", key: field.dataset.field, value: field.value }));
+        field.addEventListener("keydown", (event) => { if (event.key === "Enter") field.blur(); });
+      }
 
       // Search: rows whose words contain every word typed; sections without
       // one hide, and so do their sidebar entries.

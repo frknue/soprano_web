@@ -767,17 +767,29 @@ touches; `AGENTS.md` holds the rules.
 - `Browser/BrowserAgentProtocol.swift`, `BrowserAgentSession.swift`,
   `BrowserAgentTranscript.swift`, `BrowserAgentChat.swift`,
   `BrowserAgentPanelView.swift`, `BrowserWindowController+Agent.swift` —
-  the Agent panel (View ▸ Show Agent, ⌘E; New Agent Chat ⇧⌘E), a chat
-  with omp at the window's right edge, in the sidebar's slot (one of the
-  two at a time; normal windows only, never private ones).
-  `BrowserAgentSession` runs one `omp --mode rpc --no-ui --allow-home
-  --cwd ~ --append-system-prompt …` per window, started by the first
+  the Agent panel (View ▸ Show Agent, ⌘E, the toolbar's Agent button at
+  its trailing edge — `BrowserToolbarView.setShowsAgentButton`, hidden in
+  private and compact windows, `setAgentToggle` while shown; New Agent
+  Chat ⇧⌘E), a chat with omp at the window's right edge, in the
+  sidebar's slot (one of the two at a time; normal windows only, never
+  private ones). Settings ▸ Agent (`agent` section of
+  `BrowserSettingsWebPage`; the panel's gear opens it through
+  `showSettings(section:)`) holds `agentModel`, `agentThinking`
+  (`BrowserAgentThinking`), `agentDirectory` (nil: home; Change is a folder
+  panel) and `agentIncludesPage` (the page button's start state), and
+  shows where omp was found. `BrowserAgentLaunch(settings:)` turns them
+  into `omp --mode rpc --no-ui --allow-home --cwd <folder> [--model m]
+  [--thinking t] --append-system-prompt …`; `BrowserAgentChat` re-reads
+  it whenever no omp runs, so a change applies to the next chat.
+  `BrowserAgentSession` runs one omp per window, started by the first
   message (omp and `bun` looked up in `~/.bun/bin`, `~/.local/bin` and
-  Homebrew first, as `gh` is), stdin `F_SETNOSIGPIPE`; it registers an
+  Homebrew first, as `gh` is; a missing working folder is a note, not a
+  launch), stdin `F_SETNOSIGPIPE`; it registers an
   event filter (deltas only) and one host tool, `browser`. Window close
   and New Chat send `abort`, close stdin (omp exits on EOF), SIGTERM after
   3 s; the app quitting closes the pipe the same way. Nothing is stored by
-  the app: omp keeps each session's file in its own folder.
+  the app but those settings: omp keeps each session's file in its own
+  folder.
   `BrowserAgentProtocol` encodes the frames and decodes omp's stdout into
   `BrowserAgentEvent`; `BrowserAgentTranscript` (pure) folds those into
   entries with a `revision`, so `BrowserAgentPanelView` re-renders only

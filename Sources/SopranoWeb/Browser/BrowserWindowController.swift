@@ -500,6 +500,7 @@ final class BrowserWindowController: NSWindowController {
         // The window's mark ("Private", its profile, or both) sits in the
         // rail header, or next to the address field when there is no rail.
         toolbar.setWindowMarkShown(!railShown)
+        toolbar.setShowsAgentButton(canShowAgent)
         updateDownloadsButtonPlacement()
         updateTabStrip()
         updateMediaControls()
@@ -548,6 +549,10 @@ final class BrowserWindowController: NSWindowController {
         toolbar.onSidebar = { [weak self] in
             guard let self else { return }
             self.toggleSidebar(section: self.sidebarSection)
+        }
+        toolbar.onAgent = { [weak self] in
+            guard let self else { return }
+            if self.isAgentVisible { self.hideAgent() } else { self.showAgent() }
         }
         toolbar.onExtensions = { [weak self] anchor in self?.showExtensionsMenu(from: anchor) }
 
@@ -680,6 +685,8 @@ final class BrowserWindowController: NSWindowController {
 
     private func applySettings(_ settings: BrowserSettings) {
         refreshPermissionStates()
+        // Settings ▸ Agent: the status line names the next chat's model.
+        agentChat?.refresh()
         // Settings ▸ Default page zoom: sites without their own zoom follow.
         applySiteZooms()
         let searchChanged = lastSearchEngine != settings.defaultSearchEngine

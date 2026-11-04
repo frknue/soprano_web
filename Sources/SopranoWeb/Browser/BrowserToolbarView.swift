@@ -8,6 +8,7 @@ final class BrowserToolbarView: NSView, NSTextFieldDelegate {
     var onSubmit: ((String) -> Void)?
     var onDownloads: (() -> Void)?
     var onSidebar: (() -> Void)?
+    var onAgent: (() -> Void)?
     var onToggleVerticalSidebar: (() -> Void)?
     var onAddressFocusChange: ((Bool) -> Void)?
     var onSecurityInfo: (() -> Void)?
@@ -50,6 +51,18 @@ final class BrowserToolbarView: NSView, NSTextFieldDelegate {
     private let verticalTabsButton: ChromeIconButton
     private let downloadsButton: ChromeIconButton
     private let sidebarButton: ChromeIconButton
+    /// The Agent panel's toggle (⌘E), at the trailing edge; hidden in
+    /// windows without the panel (private, compact).
+    private let agentButton: ChromeIconButton
+    private var showsAgentButton = true
+    private lazy var sidebarTrailingToAgent = sidebarButton.trailingAnchor.constraint(
+        equalTo: agentButton.leadingAnchor,
+        constant: -2
+    )
+    private lazy var sidebarTrailingToEdge = sidebarButton.trailingAnchor.constraint(
+        equalTo: trailingAnchor,
+        constant: -10
+    )
     /// A Little Arc's "Open in" (another Space) and ⌘O buttons, at the
     /// trailing edge.
     private let littleStack = NSStackView()
@@ -137,6 +150,13 @@ final class BrowserToolbarView: NSView, NSTextFieldDelegate {
             target: nil,
             action: nil
         )
+        self.agentButton = ChromeIconButton(
+            symbolName: "bubble.left.and.text.bubble.right",
+            accessibilityLabel: "Agent",
+            pointSize: 12,
+            target: nil,
+            action: nil
+        )
         self.openInButton = ChromeIconButton(
             symbolName: "square.on.square",
             accessibilityLabel: "Open in Space",
@@ -164,10 +184,12 @@ final class BrowserToolbarView: NSView, NSTextFieldDelegate {
         translatesAutoresizingMaskIntoConstraints = false
         wantsLayer = true
 
-        for button in [verticalTabsButton, downloadsButton, sidebarButton] {
+        for button in [verticalTabsButton, downloadsButton, sidebarButton, agentButton] {
             button.target = self
             addSubview(button)
         }
+        agentButton.action = #selector(agentPressed)
+        agentButton.toolTip = "Agent (⌘E)"
         verticalTabsButton.action = #selector(verticalTabsPressed)
         downloadsButton.action = #selector(downloadsPressed)
         sidebarButton.action = #selector(sidebarPressed)
@@ -254,7 +276,9 @@ final class BrowserToolbarView: NSView, NSTextFieldDelegate {
             verticalTabsButton.leadingAnchor.constraint(equalTo: leadingAnchor, constant: 10),
             verticalTabsButton.centerYAnchor.constraint(equalTo: centerYAnchor, constant: -1),
 
-            sidebarButton.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -10),
+            agentButton.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -10),
+            agentButton.centerYAnchor.constraint(equalTo: verticalTabsButton.centerYAnchor),
+            sidebarTrailingToAgent,
             sidebarButton.centerYAnchor.constraint(equalTo: verticalTabsButton.centerYAnchor),
             downloadsButton.trailingAnchor.constraint(equalTo: sidebarButton.leadingAnchor, constant: -2),
             downloadsButton.centerYAnchor.constraint(equalTo: sidebarButton.centerYAnchor),
@@ -308,7 +332,7 @@ final class BrowserToolbarView: NSView, NSTextFieldDelegate {
 
     func apply(theme: AppTheme) {
         self.theme = theme
-        for button in [verticalTabsButton, downloadsButton, sidebarButton, openInButton, spaceWindowButton, extensionsButton] {
+        for button in [verticalTabsButton, downloadsButton, sidebarButton, agentButton, openInButton, spaceWindowButton, extensionsButton] {
             button.apply(theme: theme)
         }
         navigationControls.apply(theme: theme)
@@ -404,6 +428,27 @@ final class BrowserToolbarView: NSView, NSTextFieldDelegate {
         sidebarButton.isToggledOn = on
     }
 
+    func setAgentToggle(_ on: Bool) {
+        agentButton.isToggledOn = on
+        agentButton.toolTip = on ? "Hide Agent (⌘E)" : "Show Agent (⌘E)"
+    }
+
+    /// Whether the window has an Agent panel (not a private one).
+    func setShowsAgentButton(_ shows: Bool) {
+        guard shows != showsAgentButton else { return }
+        showsAgentButton = shows
+        updateAgentButton()
+    }
+
+    private func updateAgentButton() {
+        let shown = showsAgentButton && !isCompact
+        agentButton.isHidden = !shown
+        // The old one off first: both at once can't be satisfied.
+        let (on, off) = shown ? (sidebarTrailingToAgent, sidebarTrailingToEdge) : (sidebarTrailingToEdge, sidebarTrailingToAgent)
+        off.isActive = false
+        on.isActive = true
+    }
+
     func setVerticalTabsToggle(_ on: Bool) {
         verticalTabsButton.isToggledOn = on
         verticalTabsButton.toolTip = on ? "Hide vertical tabs (⌘S)" : "Show vertical tabs (⌘S)"
@@ -472,6 +517,7 @@ final class BrowserToolbarView: NSView, NSTextFieldDelegate {
             button.isHidden = compact
         }
         updateDownloadsButton()
+        updateAgentButton()
         extensionStack.isHidden = compact
         littleStack.isHidden = !little
         navigationLeadingToToggle.isActive = !compact
@@ -530,6 +576,10 @@ final class BrowserToolbarView: NSView, NSTextFieldDelegate {
 
     @objc private func sidebarPressed() {
         onSidebar?()
+    }
+
+    @objc private func agentPressed() {
+        onAgent?()
     }
 
     @objc private func securityIconClicked() {

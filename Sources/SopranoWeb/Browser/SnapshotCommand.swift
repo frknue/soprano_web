@@ -579,7 +579,7 @@ enum SnapshotCommand {
                 )
             }
         }
-        if options.agent.shows {
+        if options.agent.isActive {
             // After the wait, so the message names the loaded page.
             options.agent.run(controller: controller)
             wait(0.2)

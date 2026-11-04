@@ -13,6 +13,8 @@ final class BrowserAgentPanelView: NSView, NSTextViewDelegate {
     var onStop: (() -> Void)?
     var onNewChat: (() -> Void)?
     var onClose: (() -> Void)?
+    /// The header's gear: Settings ▸ Agent.
+    var onSettings: (() -> Void)?
 
     /// Whether a message carries the selected tab (the page button).
     private(set) var includesPage = true
@@ -25,6 +27,7 @@ final class BrowserAgentPanelView: NSView, NSTextViewDelegate {
     private let divider: ChromeRuleView
     private let titleLabel = NSTextField(labelWithString: "Agent")
     private let statusLabel = NSTextField(labelWithString: "")
+    private let settingsButton: ChromeIconButton
     private let newChatButton: ChromeIconButton
     private let closeButton: ChromeIconButton
     private let scrollView = NSScrollView()
@@ -48,6 +51,14 @@ final class BrowserAgentPanelView: NSView, NSTextViewDelegate {
     init(theme: AppTheme) {
         self.theme = theme
         divider = ChromeRuleView(axis: .vertical, color: theme.colors.borderSubtle)
+        settingsButton = ChromeIconButton(
+            symbolName: "gearshape",
+            accessibilityLabel: "Agent Settings",
+            pointSize: 12,
+            size: 22,
+            target: nil,
+            action: nil
+        )
         newChatButton = ChromeIconButton(
             symbolName: "square.and.pencil",
             accessibilityLabel: "New Chat",
@@ -84,7 +95,13 @@ final class BrowserAgentPanelView: NSView, NSTextViewDelegate {
         statusLabel.lineBreakMode = .byTruncatingTail
         addSubview(statusLabel)
 
-        for (button, action) in [(newChatButton, #selector(newChatPressed)), (closeButton, #selector(closePressed))] {
+        settingsButton.toolTip = "Agent settings: model, thinking, working folder"
+        newChatButton.toolTip = "New chat (⇧⌘E)"
+        for (button, action) in [
+            (settingsButton, #selector(settingsPressed)),
+            (newChatButton, #selector(newChatPressed)),
+            (closeButton, #selector(closePressed)),
+        ] {
             button.target = self
             button.action = action
             addSubview(button)
@@ -158,12 +175,14 @@ final class BrowserAgentPanelView: NSView, NSTextViewDelegate {
 
             titleLabel.topAnchor.constraint(equalTo: topAnchor, constant: 16),
             titleLabel.leadingAnchor.constraint(equalTo: leadingAnchor, constant: 16),
-            titleLabel.trailingAnchor.constraint(lessThanOrEqualTo: newChatButton.leadingAnchor, constant: -8),
+            titleLabel.trailingAnchor.constraint(lessThanOrEqualTo: settingsButton.leadingAnchor, constant: -8),
 
             closeButton.centerYAnchor.constraint(equalTo: titleLabel.centerYAnchor),
             closeButton.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -12),
             newChatButton.centerYAnchor.constraint(equalTo: titleLabel.centerYAnchor),
             newChatButton.trailingAnchor.constraint(equalTo: closeButton.leadingAnchor, constant: -4),
+            settingsButton.centerYAnchor.constraint(equalTo: titleLabel.centerYAnchor),
+            settingsButton.trailingAnchor.constraint(equalTo: newChatButton.leadingAnchor, constant: -4),
 
             statusLabel.topAnchor.constraint(equalTo: titleLabel.bottomAnchor, constant: 4),
             statusLabel.leadingAnchor.constraint(equalTo: leadingAnchor, constant: 16),
@@ -220,6 +239,7 @@ final class BrowserAgentPanelView: NSView, NSTextViewDelegate {
         statusLabel.textColor = colors.textMuted
         emptyLabel.textColor = colors.textMuted
         placeholderLabel.textColor = colors.textMuted
+        settingsButton.apply(theme: theme)
         newChatButton.apply(theme: theme)
         closeButton.apply(theme: theme)
         composerFrame.apply(theme: theme)
@@ -277,6 +297,13 @@ final class BrowserAgentPanelView: NSView, NSTextViewDelegate {
     @objc private func sendPressed() { submit() }
     @objc private func stopPressed() { onStop?() }
     @objc private func newChatPressed() { onNewChat?() }
+    @objc private func settingsPressed() { onSettings?() }
+
+    /// The page button's state for a new chat (Settings ▸ Agent).
+    func setIncludesPage(_ on: Bool) {
+        includesPage = on
+        updatePageButton()
+    }
     @objc private func closePressed() { onClose?() }
 
     @objc private func pagePressed() {
