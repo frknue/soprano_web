@@ -311,7 +311,7 @@ app.
   and Delete (a folder with bookmarks asks first); New Folder also sits at
   the bottom of the sidebar. Searching lists matching bookmarks with the
   folder they're in.
-- `⌘D` and the star open a small popover: a new bookmark goes into the folder
+- `⌘D` opens a small popover: a new bookmark goes into the folder
   you used last, and the popover lets you rename it, pick another folder or
   remove it (Return or Done saves, Esc closes). On a bookmarked page the
   same popover edits the bookmark.
@@ -455,7 +455,7 @@ app.
   access (on all sites, on specific sites, when you click it) and Remove.
   Store extensions update daily. Extensions run in every Space and see the
   real tabs and windows. One Extensions button (the puzzle piece next to
-  the star) lists them: a click on an extension runs it or opens its popup
+  Downloads) lists them: a click on an extension runs it or opens its popup
   under the button, its badge shows beside its name, and Options holds each
   extension's own menu items and options page. Their context-menu items
   appear in the page menu, their keyboard shortcuts work (never over the

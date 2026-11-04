@@ -12,7 +12,7 @@ struct BrowserPinEditorTests {
         #expect(BrowserPinEditorContent.address(from: "   ") == nil)
     }
 
-    @Test func thePopoverHangsUnderTheStarInsideTheWindow() {
+    @Test func thePopoverHangsUnderItsAnchorInsideTheWindow() {
         let size = NSSize(width: 300, height: 150)
         let window = NSRect(x: 0, y: 0, width: 1200, height: 800)
         let anchor = NSRect(x: 1100, y: 760, width: 24, height: 24)
