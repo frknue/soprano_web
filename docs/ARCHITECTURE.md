@@ -783,8 +783,9 @@ touches; `AGENTS.md` holds the rules.
   entries with a `revision`, so `BrowserAgentPanelView` re-renders only
   changed entries into one selectable text view (inline Markdown, a tool
   call as its intent over its command, a failure in red), once per run
-  loop turn. A message carries the tab the user looks at (`agentPage`:
-  the Peek's or selected tab, none on a start page) as a closing
+  loop turn. A message carries the window's selected tab (`agentPage`:
+  the tab the tool's page commands act on, never a Peek over it; none on
+  a start page) as a closing
   `[Current tab: title — url]` line, unless the composer's page button
   is off; while a run is live it goes in with `streamingBehavior: steer`.
   `browser` host tool calls are `browser` CLI words: `BrowserAgentChat`

@@ -9,10 +9,11 @@ extension BrowserWindowController {
         role == .normal && !kind.isPrivate
     }
 
-    /// The tab a message goes with: the page the user looks at (a Peek's),
-    /// nil on a start page.
+    /// The tab a message goes with: the selected tab (a split's focused
+    /// pane), the one the `browser` tool's page commands act on; never a
+    /// Peek over it. Nil on a start page.
     var agentPage: BrowserAgentPage? {
-        guard let tab = pageTab, !tab.isStartPage else { return nil }
+        guard let tab = selectedTab, !tab.isStartPage else { return nil }
         guard let url = tab.webView.url?.absoluteString ?? tab.state.url, !url.isEmpty else { return nil }
         return BrowserAgentPage(title: tab.displayTitle, url: url)
     }

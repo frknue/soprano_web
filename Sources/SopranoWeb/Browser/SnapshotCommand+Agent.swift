@@ -36,9 +36,11 @@ struct SnapshotAgentOptions {
         }
         controller.showAgent(focus: false)
         guard let chat = controller.agentChat else { return }
+        let page = controller.agentPage
+        print("agent: page \(page.map { "\($0.title) — \($0.url)" } ?? "none")")
         chat.replay(
             user: "What is this page about? Then open its link.",
-            page: controller.agentPage,
+            page: page,
             events: Self.seededEvents
         )
         if let draft {
