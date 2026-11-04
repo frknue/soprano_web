@@ -71,7 +71,7 @@ final class BrowserToolbarView: NSView, NSTextFieldDelegate {
     private(set) var isCompact = false
     private(set) var isLittleArc = false
     /// Off while the rail's bottom bar has the Downloads button.
-    private var showsDownloadsButton = true
+    private(set) var showsDownloadsButton = true
     private lazy var navigationLeadingToToggle = navigationControls.leadingAnchor.constraint(
         equalTo: verticalTabsButton.trailingAnchor,
         constant: 4

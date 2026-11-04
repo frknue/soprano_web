@@ -28,7 +28,7 @@ final class BrowserRailSpaceSwitcher: NSView {
     private(set) var items: [BrowserRailSpace] = []
     private var cells: [BrowserRailSpaceCell] = []
     private let newButton: ChromeIconButton
-    private let downloadsButton: ChromeIconButton
+    let downloadsButton: ChromeIconButton
     /// The Spaces that don't fit, in a menu.
     private let moreButton: ChromeIconButton
     private(set) var overflow: [BrowserRailSpace] = []
