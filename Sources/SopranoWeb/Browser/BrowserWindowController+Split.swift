@@ -343,9 +343,15 @@ extension BrowserWindowController {
             }
             tab.webView.isHidden = !willShow
             let isPane = isSplit && shown.contains { $0 === tab }
+            if isPane, tab.webView.isInspectorDocked {
+                // WebKit docks across the whole page area; a pane's
+                // inspector goes to its own window.
+                tab.webView.inspectorDidUndock()
+                BrowserWebInspector.detach(tab.webView)
+            }
             if isPane {
                 NSLayoutConstraint.deactivate(tab.webView.pageEdgeConstraints)
-            } else {
+            } else if !tab.webView.isInspectorDocked {
                 NSLayoutConstraint.activate(tab.webView.pageEdgeConstraints)
             }
         }

@@ -43,8 +43,8 @@ final class BrowserPeekView: NSView {
     private let clip = NSView()
     private let titleBar = NSView()
     private let rule: ChromeRuleView
-    /// Holds the Peek's web view, edge to edge.
-    let content = NSView()
+    /// Holds the Peek's web view, edge to edge (and its docked Web Inspector).
+    let content = BrowserInspectorHostView()
     let backButton: ChromeIconButton
     let forwardButton: ChromeIconButton
     let titleLabel = NSTextField(labelWithString: "")

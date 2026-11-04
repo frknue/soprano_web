@@ -749,7 +749,7 @@ enum SnapshotCommand {
         base.addRepresentation(baseRep)
 
         // Every page on screen: the selected tab, or each pane of its split.
-        var pageImages: [(webView: BrowserWebView, image: NSImage)] = []
+        var pageImages: [(webView: NSView, image: NSImage)] = []
         if privacySheet == nil, !options.showHelp, !options.showPrompt,
            websitesSheet == nil, searchEnginesSheet == nil, shortcutsSheet == nil, spaceSheet == nil,
            extensionsSheet == nil,
@@ -758,18 +758,21 @@ enum SnapshotCommand {
            captureWindow === window
         {
             for tab in controller.shownTabs where tab.lifecycle.crashView == nil {
-                let webView = tab.webView
-                var finished = false
-                webView.takeSnapshot(with: nil) { image, _ in
-                    if let image { pageImages.append((webView, image)) }
-                    finished = true
-                }
-                let pageDeadline = Date().addingTimeInterval(5)
-                while !finished, Date() < pageDeadline {
-                    _ = RunLoop.current.run(
-                        mode: .default,
-                        before: min(pageDeadline, Date().addingTimeInterval(0.05))
-                    )
+                // A docked Web Inspector (F12) is a second web view beside the page.
+                let docked = tab.webView.dockedInspector as? WKWebView
+                for webView in [tab.webView, docked].compactMap({ $0 }) {
+                    var finished = false
+                    webView.takeSnapshot(with: nil) { image, _ in
+                        if let image { pageImages.append((webView, image)) }
+                        finished = true
+                    }
+                    let pageDeadline = Date().addingTimeInterval(5)
+                    while !finished, Date() < pageDeadline {
+                        _ = RunLoop.current.run(
+                            mode: .default,
+                            before: min(pageDeadline, Date().addingTimeInterval(0.05))
+                        )
+                    }
                 }
             }
         }

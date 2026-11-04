@@ -496,7 +496,7 @@ enum BrowserCommand {
       soprano-web browser [--window n] [--tab n] media [info|play|pause|next|previous|mute]
       soprano-web browser [--window n] [--tab n] reader [on|off]
       soprano-web browser [--window n] [--tab n] translate [to <language>|off]
-      soprano-web browser [--window n] [--tab n] devtools [show|hide|toggle]
+      soprano-web browser [--window n] [--tab n] devtools [show|hide|toggle|dock|window]
       soprano-web browser boost [list]
       soprano-web browser boost show|enable|disable|remove <host>
       soprano-web browser boost css|js <host> <file|->
@@ -542,8 +542,10 @@ enum BrowserCommand {
     original.
     `devtools` acts on the page the user looks at (the Peek's, the focused
     pane's; `--tab n` another) like F12: `show`, `hide` or `toggle` its
-    Web Inspector, then print `docked`, `window` (its own window) or
-    `hidden`; `unavailable` when this macOS's WebKit has no inspector.
+    Web Inspector, `dock` or `window` show it docked in the window or in
+    its own window (a split pane's is always a window), then print
+    `docked`, `window` or `hidden`; `unavailable` when this macOS's
+    WebKit has no inspector.
     `extensions` lists the installed Chrome extensions: id, name, version,
     state (on, off, not running, installing), private windows, site access,
     source and how many errors WebKit reported. `extension install` takes a

@@ -23,6 +23,40 @@ final class BrowserWebView: WKWebView {
     /// pane constraints (`applyPaneLayout`).
     var pageEdgeConstraints: [NSLayoutConstraint] = []
 
+    /// The Web Inspector WebKit docked beside this page, in the same
+    /// superview (`BrowserInspectorHostView`). WebKit sets both frames, so
+    /// while it is docked the page is laid out by frame (resizing with the
+    /// superview, which makes WebKit lay both out again) and its
+    /// constraints to the superview wait in `undockedConstraints`.
+    private(set) weak var dockedInspector: NSView?
+    private(set) var isInspectorDocked = false
+    private var undockedConstraints: [NSLayoutConstraint] = []
+
+    func inspectorDidDock(_ inspector: NSView) {
+        guard !isInspectorDocked, let superview else { return }
+        undockedConstraints = superview.constraints.filter { constraint in
+            constraint.isActive
+                && ((constraint.firstItem === self && constraint.secondItem === superview)
+                    || (constraint.firstItem === superview && constraint.secondItem === self))
+        }
+        NSLayoutConstraint.deactivate(undockedConstraints)
+        translatesAutoresizingMaskIntoConstraints = true
+        autoresizingMask = [.width, .height]
+        dockedInspector = inspector
+        isInspectorDocked = true
+    }
+
+    /// The inspector closed or moved to its own window: the page's
+    /// constraints take over again.
+    func inspectorDidUndock() {
+        guard isInspectorDocked else { return }
+        translatesAutoresizingMaskIntoConstraints = false
+        NSLayoutConstraint.activate(undockedConstraints)
+        undockedConstraints = []
+        dockedInspector = nil
+        isInspectorDocked = false
+    }
+
     /// A click into a split's other pane makes its web view first
     /// responder: that pane becomes the focused (selected) one.
     override func becomeFirstResponder() -> Bool {
@@ -54,23 +88,24 @@ final class BrowserWebView: WKWebView {
         return super.performKeyEquivalent(with: event)
     }
 
-    /// A docked Web Inspector sits beside the page in the same superview
-    /// (WebKit puts it there), so it follows the page: hidden with it
-    /// (another tab selected), shown again with it, and closed when the
-    /// page moves to another superview (another window, a Peek, the Mini
-    /// Player) or closes. A detached inspector window is left alone.
+    /// A docked inspector follows the page: hidden with it (another tab
+    /// selected), shown again with it, and closed when the page moves to
+    /// another superview (another window, a Peek, the Mini Player) or
+    /// closes. An inspector in its own window is left alone.
     override func viewDidHide() {
         super.viewDidHide()
-        BrowserWebInspector.dockedView(of: self)?.isHidden = true
+        dockedInspector?.isHidden = true
     }
 
     override func viewDidUnhide() {
         super.viewDidUnhide()
-        BrowserWebInspector.dockedView(of: self)?.isHidden = false
+        dockedInspector?.isHidden = false
     }
 
     override func viewWillMove(toSuperview newSuperview: NSView?) {
-        if newSuperview !== superview, BrowserWebInspector.dockedView(of: self) != nil {
+        if newSuperview !== superview, isInspectorDocked {
+            // Its constraints first: the new superview adds its own.
+            inspectorDidUndock()
             BrowserWebInspector.setVisible(false, for: self)
         }
         super.viewWillMove(toSuperview: newSuperview)

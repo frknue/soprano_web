@@ -13,9 +13,9 @@ app.
 - Web Inspector inside the app: F12 (View ▸ Show Web Inspector, remappable in Settings ▸
   Keyboard shortcuts) opens it for the page you're looking at and closes it again, and
   right-click ▸ Inspect Element opens it on that element. It docks in the window or opens
-  in its own (its dock buttons switch); a docked inspector stays with its tab. On a Mac
-  keyboard press fn-F12 unless the F-keys are set as standard function keys. Function
-  keys (F1–F12) can now be shortcuts on their own.
+  in its own (its dock buttons switch; in Split View it opens in its own window); a docked
+  inspector stays with its tab. On a Mac keyboard press fn-F12 unless the F-keys are set
+  as standard function keys. Function keys (F1–F12) can now be shortcuts on their own.
 - `⌃Tab` shows a preview of each recent tab's page, like the app switcher: the page as
   it looked when you last left it (the current page as it is now). A tab opened in the
   background and never shown has its icon instead. The cards fit the window's width.

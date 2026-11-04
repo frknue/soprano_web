@@ -756,15 +756,24 @@ touches; `AGENTS.md` holds the rules.
   it is called so a macOS without it hides the command instead of
   crashing: `makePreferences` turns on `_developerExtrasEnabled` for every
   tab, and the command shows or closes `_inspector` (`_WKInspector`) of
-  the page the user looks at (a Peek's). Docked, WebKit puts the
-  inspector's web view beside the page in the page's superview and
-  shrinks the page; `BrowserWebView` hides it with the page (another tab
-  selected), shows it again with it and closes it when the page moves
-  to another superview (another window, a Peek, the Mini Player). A
-  detached inspector is WebKit's own window. `browser devtools
-  [show|hide|toggle]` drives it and prints `docked`, `window` or
-  `hidden`. `isInspectable` stays on, so Safari ▸ Develop still reaches
-  every tab, extension popup and background page.
+  the page the user looks at (a Peek's). Docked, WebKit adds the
+  inspector's web view to the page's superview and sets both frames from
+  the superview's bounds, again on every change of the page's frame
+  (window resize, the inspector's divider, its dock side). The page area
+  and the Peek's panel are `BrowserInspectorHostView`s: when WebKit adds
+  the inspector there, the page (`BrowserWebView.inspectorDidDock`) sets
+  its constraints to the superview aside and is laid out by frame,
+  resizing with the superview so WebKit lays both out again; when WebKit
+  takes it out (closed, its own window) the constraints come back. A split
+  pane can't dock (WebKit would span the whole page area): its inspector
+  goes to its own window, also when a docked page becomes a pane. The
+  docked inspector hides and shows with its page, and closes when the page
+  moves to another superview (another window, a Peek, the Mini Player).
+  `browser devtools [show|hide|toggle|dock|window]` drives it and prints
+  `docked`, `window` or `hidden`; the snapshot harness draws a docked
+  inspector beside its page (`--page-key f12`). `isInspectable` stays on,
+  so Safari ▸ Develop still reaches every tab, extension popup and
+  background page.
 - `Browser/VimiumController.swift`, `VimiumKeyMap.swift`, `VimiumPageScripts.swift`,
   `VimiumPanels.swift`, `BrowserWebView.swift` — the native Vimium mode layer.
 - `Browser/BrowserSettingsWebPage.swift` — Settings as a page in a tab

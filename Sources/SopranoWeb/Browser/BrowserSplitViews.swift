@@ -3,9 +3,10 @@ import AppKit
 /// The page area (`BrowserWindowController.webArea`): holds every tab's web
 /// view, the find bar and the Peek, and takes a tab dragged onto a pane's
 /// edge (`BrowserSplitDrop`). Web views don't read the tab pasteboard type,
-/// so a tab dragged over a page reaches this view.
+/// so a tab dragged over a page reaches this view. A Web Inspector WebKit
+/// docks beside a page lands here too (`BrowserInspectorHostView`).
 @MainActor
-final class BrowserPageAreaView: NSView {
+final class BrowserPageAreaView: BrowserInspectorHostView {
     /// Where a dragged tab at `x` would join the page's panes; nil when it
     /// can't drop there.
     var dropTarget: ((UUID, CGFloat) -> Int?)?
