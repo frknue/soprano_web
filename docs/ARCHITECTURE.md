@@ -794,7 +794,7 @@ touches; `AGENTS.md` holds the rules.
   defaultWindow:)`, so without `--window` they act on the chat's own
   window; with a Peek open `site`, `reader`, `translate` and `devtools`
   get the selected tab's `--tab` (the CLI would act on the Peek), `agent`
-  and `boost css|js <host> -` (no stdin) are refused, the CLI's timeouts
+  and any command that reads stdin (`boost css|js <host> -`, flags anywhere; `toolRequest`) are refused, the CLI's timeouts
   apply (`BrowserAutomationReplyOnce`), and an answer for an ended omp
   process (`generation`) is dropped; when omp exits, the transcript drops
   its message ids (`processEnded`: the next process starts at `msg-1`

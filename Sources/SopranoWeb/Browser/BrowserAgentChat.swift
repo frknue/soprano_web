@@ -116,26 +116,9 @@ final class BrowserAgentChat {
             reply(.failure(BrowserAutomationError.unavailable("The window closed.")))
             return
         }
-        // `boost css|js <host> -` reads the CLI's standard input, which the
-        // agent has none of: it would replace the Boost with nothing.
-        if arguments.first == "boost", arguments.count >= 4, ["css", "js"].contains(arguments[1]), arguments[3] == "-" {
-            reply(.failure(BrowserAutomationError.invalidArguments(
-                "`boost css|js <host> -` reads standard input, which the agent has none of; write the code to a file and pass its path."
-            )))
-            return
-        }
         var request: BrowserCommandRequest
         do {
-            // A relative screenshot path is under omp's folder.
-            guard let parsed = try BrowserCommandRequest.parse(
-                ["soprano-web", "browser"] + arguments,
-                environment: ["PWD": session.workingDirectory],
-                standardInput: { Data() }
-            ) else {
-                reply(.failure(BrowserAutomationError.invalidArguments(BrowserCommand.help)))
-                return
-            }
-            request = parsed
+            request = try Self.toolRequest(arguments, workingDirectory: session.workingDirectory)
         } catch {
             reply(.failure(error))
             return
@@ -183,6 +166,30 @@ final class BrowserAgentChat {
         BrowserAutomationRouter.perform(request, in: window.manager, defaultWindow: window) { result in
             once.send(BrowserAutomationResponse(result: result))
         }
+    }
+
+    /// The `browser` CLI request for a tool call's words. A relative
+    /// screenshot path is under omp's folder. A command that reads the
+    /// CLI's standard input (`boost css|js <host> -`, wherever `--window`
+    /// or `--tab` sit) is refused: the agent has none, and an empty read
+    /// would replace the Boost with nothing.
+    nonisolated static func toolRequest(_ arguments: [String], workingDirectory: String) throws -> BrowserCommandRequest {
+        var readsStandardInput = false
+        let parsed = try BrowserCommandRequest.parse(
+            ["soprano-web", "browser"] + arguments,
+            environment: ["PWD": workingDirectory],
+            standardInput: {
+                readsStandardInput = true
+                return Data()
+            }
+        )
+        if readsStandardInput {
+            throw BrowserAutomationError.invalidArguments(
+                "`-` reads standard input, which the agent has none of; write the code to a file and pass its path."
+            )
+        }
+        guard let parsed else { throw BrowserAutomationError.invalidArguments(BrowserCommand.help) }
+        return parsed
     }
 
     /// Commands that act on a Peek, without `--tab`, instead of the

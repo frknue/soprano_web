@@ -134,4 +134,25 @@ struct BrowserAgentProtocolTests {
             try BrowserCommandRequest.parse(["SopranoWeb", "browser", "agent", "dance"])
         }
     }
+
+    @Test func toolCallsThatReadStandardInputAreRefusedWhereverFlagsSit() {
+        for words in [
+            ["boost", "css", "example.com", "-"],
+            ["--window", "1", "boost", "css", "example.com", "-"],
+            ["boost", "--window", "1", "js", "example.com", "-"],
+            ["boost", "css", "example.com", "--tab", "2", "-"],
+        ] {
+            #expect(throws: BrowserAutomationError.self, "\(words)") {
+                try BrowserAgentChat.toolRequest(words, workingDirectory: "/Users/me")
+            }
+        }
+    }
+
+    @Test func toolCallsParseAsTheCLIWouldFromOmpsFolder() throws {
+        let shot = try BrowserAgentChat.toolRequest(["--window", "2", "screenshot", "page.png"], workingDirectory: "/Users/me")
+        #expect(shot.command == "screenshot")
+        #expect(shot.windowIndex == 2)
+        #expect(shot.arguments == ["/Users/me/page.png"])
+        #expect(try BrowserAgentChat.toolRequest(["boost", "zap", "example.com", ".ad"], workingDirectory: "/").command == "boost")
+    }
 }
