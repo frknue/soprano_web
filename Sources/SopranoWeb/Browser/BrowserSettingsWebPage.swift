@@ -713,8 +713,9 @@ enum BrowserSettingsWebPage {
       // A sidebar link, the address's #section and the app (the Agent
       // panel's gear): a search that hides the section is cleared first.
       function showSection(id, smooth) {
-        const section = document.getElementById(id);
-        if (!section || section.tagName !== "SECTION") return false;
+        // `search` is the search box's id too: look for the section itself.
+        const section = all("section").find((element) => element.id === id);
+        if (!section) return false;
         const search = document.getElementById("search");
         if (search.value) { search.value = ""; filter(); }
         chosen = section.id;

@@ -865,7 +865,10 @@ touches; `AGENTS.md` holds the rules.
   link or script, or a window a page opened and then navigates. `BrowserWindowManager+Settings.swift` —
   `showSettings(page:)` (the current Space's Settings tab of the most
   recently active normal window, else a new one; a page other than General
-  opens its sheet over it), `handleSettingsMessage` (the page gets the
+  opens its sheet over it), `showSettings(section:)` (that tab at a
+  section through the page's `__sopranoSettings.show`, which clears a
+  search hiding it; an unloaded tab loads `#section`; the Agent panel's
+  gear), `handleSettingsMessage` (the page gets the
   whole state back after each message), `refreshSettingsPages` (settings,
   content blocker and theme changes), `openSettingsSheet` (search engines,
   shortcuts, websites, website data, links from other apps, extensions,

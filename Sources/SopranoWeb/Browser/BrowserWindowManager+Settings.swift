@@ -145,8 +145,9 @@ extension BrowserWindowManager {
                 && globalHotKey.map { !$0.isRegistered } == true,
             settingsFile: settingsStore.displayPath,
             version: Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "",
-            agentExecutable: BrowserAgentSession.resolve().map {
-                $0.path.replacingOccurrences(of: FileManager.default.homeDirectoryForCurrentUser.path, with: "~")
+            agentExecutable: BrowserAgentSession.resolve().map { url in
+                let home = FileManager.default.homeDirectoryForCurrentUser.path
+                return url.path.hasPrefix(home + "/") ? "~" + url.path.dropFirst(home.count) : url.path
             }
         )
         return BrowserSettingsWebPage.state(settings: settings, environment: environment)
