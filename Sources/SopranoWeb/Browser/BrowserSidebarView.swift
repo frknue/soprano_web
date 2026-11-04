@@ -881,7 +881,7 @@ private final class BrowserSidebarCellView: NSTableCellView {
             titleLabel.stringValue = download.filename
             dateLabel.stringValue = Self.date(download.startedAt)
             if download.state == .inProgress {
-                subtitleLabel.stringValue = "Downloading… \(Int((download.fractionCompleted * 100).rounded()))%"
+                subtitleLabel.stringValue = BrowserDownloadProgressText.detail(download)
                 progressBar.progress = download.fractionCompleted
                 progressBar.isHidden = false
             } else {
@@ -1033,8 +1033,9 @@ private final class BrowserSidebarDayView: NSTableCellView {
     }
 }
 
+/// A download's 2 pt progress line (the sidebar's rows, the rail's).
 @MainActor
-private final class BrowserDownloadProgressBar: NSView {
+final class BrowserDownloadProgressBar: NSView {
     var progress: Double = 0 {
         didSet { needsDisplay = true }
     }

@@ -130,4 +130,57 @@ struct BrowserDownloadStoreTests {
         let active = BrowserDownloadRecord(url: "https://example.com/x", filename: "x", state: .inProgress)
         #expect(!active.canRetry)
     }
+
+    @Test func bytesAndSpeedFollowWebKitsProgressAndStayOutOfTheFile() {
+        let directory = temporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let url = directory.appendingPathComponent("downloads.json")
+        let store = BrowserDownloadStore(url: url)
+        let record = store.begin(url: "https://example.com/big.iso", filename: "big.iso")
+        let start = Date()
+        var notices = 0
+        let observation = store.changes.observe { notices += 1 }
+        defer { observation.cancel() }
+
+        store.updateProgress(id: record.id, fraction: 0.1, receivedBytes: 10_000_000, expectedBytes: 100_000_000, at: start)
+        #expect(store.records[0].receivedBytes == 10_000_000)
+        #expect(store.records[0].expectedBytes == 100_000_000)
+        // One sample has no speed yet.
+        #expect(store.records[0].bytesPerSecond == nil)
+
+        // Under half a second later with the fraction barely moved: no
+        // notice, and too soon to count for the speed.
+        let before = notices
+        store.updateProgress(id: record.id, fraction: 0.102, receivedBytes: 10_200_000, expectedBytes: 100_000_000, at: start.addingTimeInterval(0.3))
+        #expect(notices == before)
+
+        store.updateProgress(id: record.id, fraction: 0.12, receivedBytes: 12_000_000, expectedBytes: 100_000_000, at: start.addingTimeInterval(2))
+        #expect(store.records[0].bytesPerSecond.map { abs($0 - 1_000_000) < 1 } == true)
+
+        // An unknown size (WebKit's -1) is none.
+        store.updateProgress(id: record.id, fraction: 0, receivedBytes: 13_000_000, expectedBytes: -1, at: start.addingTimeInterval(4))
+        #expect(store.records[0].expectedBytes == nil)
+
+        store.finish(id: record.id, path: "/tmp/big.iso")
+        let saved = try? String(contentsOf: url, encoding: .utf8)
+        #expect(saved?.contains("receivedBytes") == false)
+        #expect(saved?.contains("bytesPerSecond") == false)
+    }
+
+    @Test func aRestartedDownloadMeasuresItsSpeedAfresh() {
+        let directory = temporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let store = BrowserDownloadStore(url: directory.appendingPathComponent("downloads.json"))
+        let record = store.begin(url: "https://example.com/big.iso", filename: "big.iso")
+        let start = Date()
+        store.updateProgress(id: record.id, fraction: 0.1, receivedBytes: 10_000_000, expectedBytes: 100_000_000, at: start)
+        store.updateProgress(id: record.id, fraction: 0.2, receivedBytes: 20_000_000, expectedBytes: 100_000_000, at: start.addingTimeInterval(1))
+        store.cancel(id: record.id)
+        store.restart(id: record.id)
+        // The first sample after Resume sets a baseline only: the 10 s
+        // gap with the old bytes counts for nothing.
+        store.updateProgress(id: record.id, fraction: 0.3, receivedBytes: 30_000_000, expectedBytes: 100_000_000, at: start.addingTimeInterval(11))
+        store.updateProgress(id: record.id, fraction: 0.4, receivedBytes: 32_000_000, expectedBytes: 100_000_000, at: start.addingTimeInterval(12))
+        #expect(store.records[0].bytesPerSecond.map { abs($0 - 2_000_000) < 1 } == true)
+    }
 }

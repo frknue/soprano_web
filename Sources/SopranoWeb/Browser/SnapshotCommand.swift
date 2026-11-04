@@ -540,7 +540,17 @@ enum SnapshotCommand {
                     url: "https://example.com/files/large-report.pdf",
                     filename: "large-report.pdf"
                 )
-                downloads.updateProgress(id: active.id, fraction: 0.42)
+                // Two samples a second apart: 1 MB/s, so the rows show the
+                // size and the time left.
+                let sampled = Date()
+                downloads.updateProgress(
+                    id: active.id, fraction: 0.44, receivedBytes: 199_000_000, expectedBytes: 450_000_000,
+                    at: sampled.addingTimeInterval(-1)
+                )
+                downloads.updateProgress(
+                    id: active.id, fraction: 0.445, receivedBytes: 200_000_000, expectedBytes: 450_000_000,
+                    at: sampled
+                )
             }
             if section == .archive {
                 SnapshotArchiveAction.seed(manager.archive, spaces: manager.spaces, now: Date())

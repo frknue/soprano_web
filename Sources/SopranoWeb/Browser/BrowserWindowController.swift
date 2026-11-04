@@ -589,7 +589,10 @@ final class BrowserWindowController: NSWindowController {
                 self?.updateChrome()
                 self?.syncFolderPreview()
             },
-            downloads.changes.observe { [weak self] in self?.sidebar.refresh() },
+            downloads.changes.observe { [weak self] in
+                self?.sidebar.refresh()
+                self?.updateRailDownloads()
+            },
             manager.archive.changes.observe { [weak self] in
                 guard let self, self.isSidebarVisible, self.sidebar.section == .archive else { return }
                 self.sidebar.refresh()

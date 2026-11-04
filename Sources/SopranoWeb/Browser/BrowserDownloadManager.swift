@@ -267,7 +267,13 @@ final class BrowserDownloadManager: NSObject {
     @objc private func progressTimerFired(_ timer: Timer) {
         var hasActiveRecord = false
         for (recordID, download) in downloadsByRecord {
-            store.updateProgress(id: recordID, fraction: download.progress.fractionCompleted)
+            let progress = download.progress
+            store.updateProgress(
+                id: recordID,
+                fraction: progress.fractionCompleted,
+                receivedBytes: progress.completedUnitCount,
+                expectedBytes: progress.totalUnitCount
+            )
             if store.records.contains(where: { $0.id == recordID && $0.state == .inProgress }) {
                 hasActiveRecord = true
             }

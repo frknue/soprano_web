@@ -55,6 +55,8 @@ final class BrowserVerticalTabsView: NSView {
     let todayHeader: BrowserRailTodayHeader
     /// The playing tab's controls, between the tabs and the switcher.
     let mediaControls: BrowserMediaControlsView
+    /// Downloads in progress, under the media controls (Arc's place).
+    let downloadsView: BrowserRailDownloadsView
     private(set) var content = BrowserRailContent()
 
     private var theme: AppTheme
@@ -96,6 +98,7 @@ final class BrowserVerticalTabsView: NSView {
         self.switcher = BrowserRailSpaceSwitcher(theme: theme)
         self.todayHeader = BrowserRailTodayHeader(theme: theme)
         self.mediaControls = BrowserMediaControlsView(style: .rail, theme: theme)
+        self.downloadsView = BrowserRailDownloadsView(theme: theme)
         super.init(frame: .zero)
         translatesAutoresizingMaskIntoConstraints = false
         wantsLayer = true
@@ -138,7 +141,7 @@ final class BrowserVerticalTabsView: NSView {
         footer.orientation = .vertical
         footer.spacing = 0
         footer.detachesHiddenViews = true
-        for view in [mediaControls, switcher] as [NSView] {
+        for view in [mediaControls, downloadsView, switcher] as [NSView] {
             footer.addArrangedSubview(view)
             view.widthAnchor.constraint(equalTo: footer.widthAnchor).isActive = true
         }
@@ -214,9 +217,19 @@ final class BrowserVerticalTabsView: NSView {
         }
     }
 
+    /// The downloads in progress (none hides their rows).
+    func setDownloads(_ records: [BrowserDownloadRecord]) {
+        let wasHidden = downloadsView.isHidden
+        downloadsView.update(records)
+        if wasHidden != downloadsView.isHidden {
+            updateFooter()
+            needsLayout = true
+        }
+    }
+
     /// The tabs end above the footer while it shows anything.
     private func updateFooter() {
-        let showsFooter = !switcher.isHidden || !mediaControls.isHidden
+        let showsFooter = !switcher.isHidden || !mediaControls.isHidden || !downloadsView.isHidden
         guard scrollToFooter.isActive != showsFooter || scrollToBottom.isActive == showsFooter else { return }
         scrollToBottom.isActive = false
         scrollToFooter.isActive = false
@@ -289,6 +302,7 @@ final class BrowserVerticalTabsView: NSView {
         pinsView.apply(theme: theme)
         switcher.apply(theme: theme)
         mediaControls.apply(theme: theme)
+        downloadsView.apply(theme: theme)
         todayHeader.apply(theme: theme)
         dropMarker.apply(theme: theme)
         needsDisplay = true

@@ -147,4 +147,48 @@ struct BrowserRailDownloadsTests {
         let privateWindow = fixture.manager.newPrivateWindow()
         #expect(privateWindow.toolbar.showsDownloadsButton)
     }
+
+    @Test func downloadsInProgressShowAtTheRailsBottomAndCancelThere() {
+        let fixture = makeFixture()
+        defer { fixture.tearDown() }
+        let window = fixture.manager.newWindow()
+        let store = fixture.manager.downloads
+        let rail = window.verticalTabsView.downloadsView
+        #expect(rail.isHidden)
+
+        let finished = store.begin(url: "https://example.com/done.zip", filename: "done.zip")
+        store.finish(id: finished.id, path: "/tmp/done.zip")
+        let first = store.begin(url: "https://example.com/a.iso", filename: "a.iso")
+        let second = store.begin(url: "https://example.com/b.iso", filename: "b.iso")
+        store.updateProgress(id: second.id, fraction: 0.25, receivedBytes: 25_000_000, expectedBytes: 100_000_000)
+        // Only what is still downloading, newest first.
+        #expect(!rail.isHidden)
+        #expect(rail.rows.map(\.recordID) == [second.id, first.id])
+        #expect(rail.rows[0].detailLabel.stringValue.hasPrefix(BrowserDownloadProgressText.size(25_000_000)))
+
+        // A click on a row shows the Downloads sidebar.
+        rail.rows[0].mouseDown(with: NSEvent.mouseEvent(
+            with: .leftMouseDown, location: .zero, modifierFlags: [], timestamp: 0,
+            windowNumber: 0, context: nil, eventNumber: 0, clickCount: 1, pressure: 1
+        )!)
+        #expect(window.isSidebarVisible)
+        #expect(window.sidebarSection == .downloads)
+
+        press(rail.rows[0].cancelButton)
+        #expect(store.records.first { $0.id == second.id }?.state == .cancelled)
+        #expect(rail.rows.map(\.recordID) == [first.id])
+
+        store.finish(id: first.id, path: "/tmp/a.iso")
+        #expect(rail.isHidden)
+    }
+
+    @Test func theRailShowsAtMostThreeDownloads() {
+        let view = BrowserRailDownloadsView(theme: .folioPaper)
+        let records = (0..<5).map { BrowserDownloadRecord(url: "https://example.com/\($0)", filename: "\($0).bin") }
+        view.update(records)
+        #expect(view.rows.map(\.recordID) == records.prefix(BrowserRailDownloadsView.maxRows).map(\.id))
+        view.update([])
+        #expect(view.isHidden)
+        #expect(view.rows.isEmpty)
+    }
 }

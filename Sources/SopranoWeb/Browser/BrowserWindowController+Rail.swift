@@ -23,6 +23,8 @@ extension BrowserWindowController {
         rail.switcher.onSelect = { [weak self] id in self?.switchToSpace(id) }
         rail.switcher.onNewSpace = { [weak self] in self?.presentSpaceSheet(editing: nil) }
         rail.switcher.onDownloads = { [weak self] in self?.toggleSidebar(section: .downloads) }
+        rail.downloadsView.onOpen = { [weak self] in self?.showSidebar(section: .downloads) }
+        rail.downloadsView.onCancel = { [weak self] id in self?.cancelDownload(id: id) }
         rail.switcher.menuProvider = { [weak self] id in self?.spaceMenu(for: id) }
     }
 
@@ -58,6 +60,15 @@ extension BrowserWindowController {
         verticalTabsView.update(content: railContent(selected: selected))
         verticalTabsView.update(tabs: todayRows.compactMap(rowItem), selectedID: selectedRowID)
         updateDownloadsButtonPlacement()
+        updateRailDownloads()
+    }
+
+    /// The rail's rows for this window's downloads in progress (its own
+    /// private ones in a private window).
+    func updateRailDownloads() {
+        verticalTabsView.setDownloads(
+            downloads.matching("", privateContextID: dataContext.downloadContextID).filter { $0.state == .inProgress }
+        )
     }
 
     /// Downloads sits in the rail's bottom bar while the rail shows it (a

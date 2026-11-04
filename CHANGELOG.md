@@ -10,6 +10,10 @@ app.
 ## [Unreleased]
 
 ### Added
+- Downloads in progress show at the bottom of the rail, above the Space icons, as in
+  Arc: the file's name, how much has arrived of the whole and the time left ("200 MB of
+  450 MB · 5 min left"; the speed when the server gives no size), a progress line and a
+  × to cancel. A click opens Downloads. The Downloads list shows the same line.
 - Web Inspector inside the app: F12 (View ▸ Show Web Inspector, remappable in Settings ▸
   Keyboard shortcuts) opens it for the page you're looking at and closes it again, and
   right-click ▸ Inspect Element opens it on that element. It docks in the window or opens

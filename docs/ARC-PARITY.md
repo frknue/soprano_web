@@ -125,7 +125,7 @@ Status of Soprano Web: **done**, **partial**, **missing**, **broken**. `BWC` =
 | External app links | prompt | risky: opened without asking (`BWC:1356-1364`) | `NSWorkspace.open` behind a prompt | 1 |
 | Content blocking | uBlock Origin extension [A4]; 1.169 also bundles EasyList/EasyPrivacy in a native blocker module | missing | uBO Lite via `WKWebExtension`, or `WKContentRuleList` (≤150,000 rules per list) | 2 |
 | Clear browsing data | Chromium; "Clear Cookies and Refresh" | broken: "Clear History" empties `history.json` only (`BWC:904-926`) | `WKWebsiteDataStore.removeData(ofTypes:modifiedSince:)`, `fetchDataRecords` | 1 |
-| Downloads | Library | partial: progress and cancel; no resume, retry or ask; in-progress items dropped on relaunch (`BWC:1576-1588`) | `WKDownload` resume data (11.3) | 1 |
+| Downloads | Library; size, time left and cancel at the sidebar's bottom | built: the Downloads button at the rail's bottom left; downloads in progress over the Space switcher (size of the whole, time left, cancel) and in the sidebar list; Resume and Retry in the profile they started in; Settings ▸ "Ask where to save each file"; a download running at quit stops as Interrupted with its resume data | `WKDownload` resume data (11.3); `WKDownload.progress` byte counts | — |
 | Download quarantine | `LSFileQuarantineEnabled` | done: WebKit's network process applies `com.apple.quarantine` | — | — |
 | User agent | Chromium | partial: bare WKWebView UA has no `Version/… Safari/…` token | `applicationNameForUserAgent` (10.11) | 1 |
 

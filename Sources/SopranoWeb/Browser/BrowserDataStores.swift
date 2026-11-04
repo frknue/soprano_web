@@ -50,6 +50,12 @@ struct BrowserDownloadRecord: Codable, Identifiable, Equatable, Sendable {
     /// The private window's data context the download started in. Such a
     /// record is listed while that window is open and never saved.
     var privateContextID: UUID?
+    /// Bytes so far, the file's size (nil while the server hasn't said) and
+    /// the recent speed (nil until two samples apart): in memory only,
+    /// while it downloads, for "12 MB of 45 MB · 2 min left".
+    var receivedBytes: Int64 = 0
+    var expectedBytes: Int64?
+    var bytesPerSecond: Double?
 
     init(
         id: UUID = UUID(),
@@ -124,6 +130,9 @@ final class BrowserDownloadStore {
     let changes = BrowserObservers<Void>()
     /// Private records' resume data, by `resumeDataFile` name.
     private var privateResumeData: [String: Data] = [:]
+    /// The speed and last notice of each download in progress.
+    private var rates: [UUID: BrowserDownloadRate] = [:]
+    private var lastNotified: [UUID: Date] = [:]
 
     init(url: URL = BrowserFiles.supportDirectory().appendingPathComponent("downloads.json")) {
         self.url = url
@@ -170,13 +179,36 @@ final class BrowserDownloadStore {
         return record
     }
 
-    func updateProgress(id: UUID, fraction: Double) {
+    /// WebKit's progress, sampled by the manager's timer: the fraction, the
+    /// bytes so far and the file's size (nil or ≤ 0 while unknown). The
+    /// speed follows the bytes (`BrowserDownloadRate`). Observers hear a
+    /// move of half a percent, a new size, or new bytes after a second.
+    func updateProgress(
+        id: UUID,
+        fraction: Double,
+        receivedBytes: Int64 = 0,
+        expectedBytes: Int64? = nil,
+        at now: Date = Date()
+    ) {
         guard let index = records.firstIndex(where: { $0.id == id }),
               records[index].state == .inProgress
         else { return }
         let value = min(1, max(0, fraction))
-        guard abs(records[index].fractionCompleted - value) >= 0.005 else { return }
+        let expected = expectedBytes.flatMap { $0 > 0 ? $0 : nil }
+        let received = max(0, receivedBytes)
+        var rate = rates[id] ?? BrowserDownloadRate()
+        rate.sample(bytes: received, at: now)
+        rates[id] = rate
+        let old = records[index]
+        let changed = abs(old.fractionCompleted - value) >= 0.005
+            || old.expectedBytes != expected
+            || (old.receivedBytes != received && now.timeIntervalSince(lastNotified[id] ?? .distantPast) >= 1)
+        guard changed else { return }
         records[index].fractionCompleted = value
+        records[index].receivedBytes = received
+        records[index].expectedBytes = expected
+        records[index].bytesPerSecond = rate.bytesPerSecond
+        lastNotified[id] = now
         changes.notify()
     }
 
@@ -198,6 +230,7 @@ final class BrowserDownloadStore {
         records[index].finishedAt = Date()
         records[index].errorMessage = nil
         discardResumeData(at: index)
+        forgetProgress(id)
         let record = records[index]
         let pruned = prune()
         changes.notify()
@@ -248,6 +281,8 @@ final class BrowserDownloadStore {
         records[index].finishedAt = nil
         records[index].errorMessage = nil
         discardResumeData(at: index)
+        // A resumed download measures its speed afresh.
+        forgetProgress(id)
         changes.notify()
         persist(after: records[index])
     }
@@ -255,6 +290,7 @@ final class BrowserDownloadStore {
     func remove(id: UUID) {
         guard let index = records.firstIndex(where: { $0.id == id }) else { return }
         discardResumeData(at: index)
+        forgetProgress(id)
         let record = records.remove(at: index)
         changes.notify()
         persist(after: record)
@@ -296,11 +332,17 @@ final class BrowserDownloadStore {
         }
     }
 
+    private func forgetProgress(_ id: UUID) {
+        rates[id] = nil
+        lastNotified[id] = nil
+    }
+
     private func stop(id: UUID, state: BrowserDownloadState, message: String?, resumeData: Data?) {
         guard let index = records.firstIndex(where: { $0.id == id }) else { return }
         records[index].state = state
         records[index].finishedAt = Date()
         records[index].errorMessage = message
+        forgetProgress(id)
         if let resumeData {
             saveResumeData(resumeData, at: index)
         }

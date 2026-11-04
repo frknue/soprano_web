@@ -363,7 +363,13 @@ touches; `AGENTS.md` holds the rules.
   only) for its Command Bar.
 - `Browser/BrowserDataStores.swift` — downloads JSON
   (`{version, entries}` envelopes, lossy decoding; a private window's download
-  rows carry `privateContextID` and stay in memory);
+  rows carry `privateContextID` and stay in memory; a row's bytes, size and
+  speed are in memory only, from `BrowserDownloadManager`'s 0.25 s progress
+  timer through `updateProgress`, which notifies on half a percent, a new
+  size or new bytes after a second); `BrowserDownloadProgress.swift` (pure:
+  `BrowserDownloadRate`, a running average of samples ≥ 0.5 s apart, and
+  `BrowserDownloadProgressText`, "12 MB of 45 MB · 2 min left" for the
+  sidebar's rows and the rail's);
   `BrowserSitePermissionStore.swift` — per-host decisions and values
   (`site-permissions.json` in each profile's folder; `init(overlaying:)` is a
   private window's in-memory layer, `forget` shadows a saved value there);
@@ -733,7 +739,9 @@ touches; `AGENTS.md` holds the rules.
   Downloads button hides while the rail shows the switcher
   (`updateDownloadsButtonPlacement`) and stays in windows without one:
   horizontal tabs, a collapsed rail, private windows —, the "Today" head,
-  `BrowserSpaceIconDrawing`),
+  `BrowserSpaceIconDrawing`), `BrowserRailDownloadsView.swift` (downloads in
+  progress at the rail's bottom, over the switcher, as in Arc: the newest
+  three, a click shows the Downloads sidebar, × cancels),
   `BrowserPinFolderPreview.swift` (a folder's hover preview with search),
   `BrowserSpaceSheet.swift` (New Space / Edit Space), `BrowserTabButton.swift`,
   `BrowserTabDragSession.swift` (a tab's system drag session and drop marker),
