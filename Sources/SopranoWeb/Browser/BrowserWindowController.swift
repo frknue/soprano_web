@@ -570,6 +570,12 @@ final class BrowserWindowController: NSWindowController {
         sidebar.onRetryDownload = { [weak self] id in self?.retryDownload(id: id) }
         sidebar.onClear = { [weak self] section in self?.clear(section) }
         sidebar.onClose = { [weak self] in self?.hideSidebar() }
+        // The toolbar's and the rail's Downloads buttons follow, and the
+        // next press shows Downloads instead of closing the sidebar.
+        sidebar.onSelectSection = { [weak self] section in
+            self?.sidebarSection = section
+            self?.updateChrome()
+        }
 
         storeObservations = [
             spaces.changes.observe { [weak self] in

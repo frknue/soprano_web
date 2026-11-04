@@ -80,6 +80,8 @@ final class BrowserSidebarView: NSView, NSTableViewDataSource, NSTableViewDelega
     var onRetryDownload: ((UUID) -> Void)?
     var onClear: ((BrowserSidebarSection) -> Void)?
     var onClose: (() -> Void)?
+    /// The user switched sections with the sidebar's own buttons.
+    var onSelectSection: ((BrowserSidebarSection) -> Void)?
     /// Restores an archived tab (click, Return, Restore).
     var onRestoreArchived: ((UUID) -> Void)?
     var onDeleteArchived: ((UUID) -> Void)?
@@ -92,7 +94,7 @@ final class BrowserSidebarView: NSView, NSTableViewDataSource, NSTableViewDelega
     private var theme: AppTheme
     private let titleLabel = NSTextField(labelWithString: "")
     private let closeButton: ChromeIconButton
-    private var sectionButtons: [BrowserSidebarSection: ChromeButton] = [:]
+    private(set) var sectionButtons: [BrowserSidebarSection: ChromeButton] = [:]
     /// False in a private window, which has no Archive of its own (it never
     /// archives, and the profile's belongs to its normal windows).
     var showsArchive = true {
@@ -595,6 +597,7 @@ final class BrowserSidebarView: NSView, NSTableViewDataSource, NSTableViewDelega
     @objc private func sectionPressed(_ sender: ChromeButton) {
         guard sender.tag >= 0, sender.tag < BrowserSidebarSection.allCases.count else { return }
         select(BrowserSidebarSection.allCases[sender.tag])
+        onSelectSection?(section)
     }
 
     @objc private func closePressed() {

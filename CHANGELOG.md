@@ -485,9 +485,10 @@ app.
   runs an extension from the Extensions menu and prints (and captures) its popup.
 
 ### Changed
-- With vertical tabs, the Downloads button sits at the bottom left of the sidebar, before
-  the Space icons, as in Arc (lit while Downloads shows; `⌥⌘L` still opens it). With
-  horizontal tabs, a hidden sidebar or in a private window it stays in the toolbar.
+- The Downloads button sits at the bottom left of the rail (vertical tabs), before the
+  Space icons, as in Arc; it is lit while the right sidebar shows Downloads, and `⌥⌘L`
+  still opens it. With horizontal tabs, the rail collapsed (`⌘S`) or in a private window
+  it stays in the toolbar.
 - Settings opens in a tab, like Chrome's (`⌘,`; `soprano-web://settings`), instead of
   its own window: a sidebar of sections, **Search settings**, and cards with switches
   and menus in the window's theme. `⌘,` selects the Settings tab when one is open.
@@ -589,6 +590,9 @@ app.
   opens its popover, now under the address field.
 
 ### Fixed
+- Switching the right sidebar to History or Archive with its own buttons now turns the
+  Downloads button off, and the next click on it shows Downloads instead of closing the
+  sidebar.
 - Extensions: 1Password no longer logs `"" cannot be parsed as a URL` when a tab shows
   the start page or another page it can't read. Extensions that can read tab addresses
   get no empty address from `tabs.onUpdated`; the address is left out, as in Chrome.

@@ -424,8 +424,12 @@ final class BrowserToolbarView: NSView, NSTextFieldDelegate {
     private func updateDownloadsButton() {
         let shown = showsDownloadsButton && !isCompact
         downloadsButton.isHidden = !shown
-        extensionsTrailingToDownloads.isActive = shown
-        extensionsTrailingToSidebar.isActive = !shown
+        // The old one off first: both at once can't be satisfied.
+        let (on, off) = shown
+            ? (extensionsTrailingToDownloads, extensionsTrailingToSidebar)
+            : (extensionsTrailingToSidebar, extensionsTrailingToDownloads)
+        off.isActive = false
+        on.isActive = true
     }
 
     /// Sets the window's mark; it shows before the address field while

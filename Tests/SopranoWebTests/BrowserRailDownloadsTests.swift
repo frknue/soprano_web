@@ -83,6 +83,52 @@ struct BrowserRailDownloadsTests {
         #expect(button.isToggledOn)
     }
 
+    @Test func switchingSectionsInTheSidebarMovesTheLitButton() {
+        let fixture = makeFixture()
+        defer { fixture.tearDown() }
+        let window = fixture.manager.newWindow()
+        let button = window.verticalTabsView.switcher.downloadsButton
+        press(button)
+        #expect(button.isToggledOn)
+
+        // The sidebar's own History button: Downloads no longer shows.
+        press(window.sidebar.sectionButtons[.history]!)
+        #expect(window.sidebarSection == .history)
+        #expect(!button.isToggledOn)
+
+        // So the rail's button shows Downloads again rather than closing.
+        press(button)
+        #expect(window.isSidebarVisible)
+        #expect(window.sidebarSection == .downloads)
+        #expect(button.isToggledOn)
+    }
+
+    /// The switcher at the rail's width: Downloads first, then the Space
+    /// icons, "More Spaces" and "+", none over another; the current Space
+    /// keeps its icon when the rest overflow.
+    @Test func downloadsLeavesRoomForTheSpacesAtTheRailsWidth() {
+        for count in [1, 5, 12] {
+            let switcher = BrowserRailSpaceSwitcher(theme: .folioPaper)
+            switcher.frame = NSRect(x: 0, y: 0, width: BrowserVerticalTabsView.preferredWidth, height: BrowserRailSpaceSwitcher.height)
+            let spaces = (0..<count).map { index in
+                BrowserRailSpace(id: UUID(), name: "S\(index)", icon: .none, color: .blue, isCurrent: index == count - 1)
+            }
+            switcher.update(spaces)
+            switcher.layoutSubtreeIfNeeded()
+            let shown = switcher.subviews.filter { !$0.isHidden && !($0 is ChromeRuleView) }
+                .map(\.frame)
+                .sorted { $0.minX < $1.minX }
+            #expect(shown.first == switcher.downloadsButton.frame, "\(count) Spaces")
+            for (left, right) in zip(shown, shown.dropFirst()) {
+                #expect(left.maxX <= right.minX, "\(count) Spaces: \(left) overlaps \(right)")
+            }
+            #expect((shown.last?.maxX ?? 0) <= switcher.bounds.width, "\(count) Spaces")
+            let overflowed = Set(switcher.overflow.map(\.id))
+            #expect(!overflowed.contains(spaces[count - 1].id), "\(count) Spaces: the current one overflowed")
+            #expect(overflowed.isEmpty == (count <= 5), "\(count) Spaces")
+        }
+    }
+
     @Test func onlyWindowsWithoutTheRailsBottomBarKeepTheToolbarButton() {
         let fixture = makeFixture()
         defer { fixture.tearDown() }
