@@ -36,7 +36,7 @@ enum BrowserCommandID: String, CaseIterable, Sendable {
     case bringAllToFront = "bring-all-to-front"
     case keyboardShortcuts = "keyboard-shortcuts"
     case editBoost = "edit-boost", zapElements = "zap-elements"
-    case reader, translatePage = "translate-page"
+    case reader, translatePage = "translate-page", webInspector = "web-inspector"
 
     var command: BrowserAppCommand { BrowserAppCommand.byID[self]! }
     var defaultShortcut: BrowserShortcut? { command.shortcut }
@@ -464,6 +464,19 @@ struct BrowserAppCommand: Sendable {
                 return .when(controller.canTranslatePage)
             },
             run: { $0.controller?.toggleTranslation() }
+        ),
+        make(
+            .webInspector, "Show Web Inspector", .view, 9, "f12",
+            synonyms: ["devtools", "developer tools", "inspect element", "console"],
+            symbol: "chevron.left.forwardslash.chevron.right",
+            state: { context in
+                guard let controller = context.controller, controller.inspectableWebView != nil else { return .disabled }
+                return BrowserCommandState(
+                    isEnabled: true,
+                    title: controller.isWebInspectorVisible ? "Hide Web Inspector" : "Show Web Inspector"
+                )
+            },
+            run: { $0.controller?.toggleWebInspector() }
         ),
 
         // History

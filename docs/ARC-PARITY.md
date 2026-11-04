@@ -108,7 +108,7 @@ Status of Soprano Web: **done**, **partial**, **missing**, **broken**. `BWC` =
 | Picture in Picture | automatic when leaving a video tab | built (stage 4 P9): leaving a tab with a playing, visible main-frame video moves its own web view (bound, same history) into a floating non-activating panel; injected fill CSS (constructed sheet) removed on return; Back to Tab, Close pauses, position remembered (never from a private window); one at a time; panes and Peeks never move; audio-only shows rail/toolbar controls (artwork, play/pause, next via Media Session, mute); Settings switch; CLI `browser media` | private (`_allowsPictureInPictureMediaPlayback`); floating `NSPanel` hosting the web view; `navigator.mediaSession` read and `callActionHandler` called from the isolated world (verified in the harness) | 4 |
 | Capture | ⇧⌘2 area, full page, portrait | built (stage 4 P8): ⇧⌘2 (remappable) overlay over the page tab (Peek, focused pane): drag an area, click for the visible page, Full Page; pasteboard + `Soprano Capture <date> at <time>.png` in the download folder + thumbnail toast (click reveals in Finder); private windows too; `/capture`; CLI `browser screenshot [--full]`; no portrait capture | `takeSnapshot(with:)` (10.13) for an area or the viewport (its rect stays inside the view); full page through `createPDF` (11.0) with the rect set to the document, rasterized and capped at 16,384 px | 4 |
 | Boosts | per-site CSS/JS, fonts, Zap | built (stage 4 P7): per host (+ `www.`), app-wide `boosts.json`; CSS as a constructed sheet in `adoptedStyleSheets` at document start (live; cascades after the page's sheets, not blocked by a CSP `style-src`; no `@import`), each zap its own `insertRule`, JS in its own content world (next load), Zap picker with stable selectors (live); editor sheet from the Site Control Center and `/boost`; CLI `browser boost`; no font picker (write it as CSS) | `WKUserScript` + `WKContentWorld` (11.0); user style sheets are private; an injected `<style>` falls to a page's CSP `style-src`, a constructed sheet doesn't | 4 |
-| Developer tools | ⌥⌘I, ⌥⌘U, Developer Mode on localhost | partial: `isInspectable` (Safari ▸ Develop), Vimium `gs` | in-app inspector is private | — |
+| Developer tools | ⌥⌘I, ⌥⌘U, Developer Mode on localhost | built: View ▸ Show Web Inspector (F12, remappable), WebKit's "Inspect Element" in the context menu, docked or in its own window; CLI `browser devtools`; `isInspectable` (Safari ▸ Develop) on every tab, extension popup and background page; Vimium `gs`; no Developer Mode | private, used on purpose (`WKPreferences._developerExtrasEnabled`, `WKWebView._inspector` → `_WKInspector show/close`), each selector checked first | — |
 
 ### Security, privacy and permissions
 
@@ -157,7 +157,10 @@ Status of Soprano Web: **done**, **partial**, **missing**, **broken**. `BWC` =
 ## What WebKit keeps private
 
 Public API covers nearly everything above. These need a workaround because the public
-surface stops short (macOS 27 SDK headers, WebKit `main` @37aa2b5):
+surface stops short (macOS 27 SDK headers, WebKit `main` @37aa2b5). The Web Inspector is
+the one exception the app takes on purpose (Furkan, 2026-11-04): `BrowserWebInspector`
+calls `_developerExtrasEnabled` and `_inspector` behind a selector check, so a macOS
+that drops them hides F12 instead of crashing.
 
 | Behavior | Private symbol (off-limits) | Workaround |
 |---|---|---|
@@ -170,7 +173,6 @@ surface stops short (macOS 27 SDK headers, WebKit `main` @37aa2b5):
 | User style sheets | `_WKUserStyleSheet` | inject `<style>` / `adoptedStyleSheets` |
 | Save button in the built-in PDF viewer | `_webView:saveDataToFile:…` | own "Download PDF" via `startDownload` |
 | `window.print()` from a page, per-frame print | `_printOperationWithPrintInfo:forFrame:` | override `window.print` by script → `printOperation(with:)` |
-| In-app Web Inspector | `_inspector` | Safari ▸ Develop (`isInspectable`, 13.3) |
 
 New public API worth adopting, by SDK: macOS 26 `fetchData`/`restoreData` (localStorage
 only), macOS 26.4 `securityRestrictionMode`, macOS 27 `globalPrivacyControlEnabled`,

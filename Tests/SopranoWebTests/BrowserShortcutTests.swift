@@ -28,13 +28,18 @@ struct BrowserShortcutTests {
         #expect(shortcut("shift+cmd+delete").keyEquivalent == "\u{8}")
     }
 
-    @Test func onlyModifiedKeysAreAssignable() {
+    @Test func onlyModifiedOrFunctionKeysAreAssignable() {
         #expect(!shortcut("c").isAssignable)
         #expect(!shortcut("shift+c").isAssignable)
         #expect(!shortcut("opt+c").isAssignable)
+        #expect(!shortcut("down").isAssignable)
         #expect(shortcut("opt+down").isAssignable)
         #expect(shortcut("ctrl+tab").isAssignable)
         #expect(shortcut("cmd+k").isAssignable)
+        // A function key types nothing: F12 alone opens the Web Inspector.
+        #expect(shortcut("f12").isAssignable)
+        #expect(shortcut("shift+f5").isAssignable)
+        #expect(BrowserKeymap().command(for: shortcut("f12")) == .webInspector)
     }
 
     @Test func pageReportsMapByPhysicalKey() {

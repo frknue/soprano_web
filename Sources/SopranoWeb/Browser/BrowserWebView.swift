@@ -54,10 +54,33 @@ final class BrowserWebView: WKWebView {
         return super.performKeyEquivalent(with: event)
     }
 
+    /// A docked Web Inspector sits beside the page in the same superview
+    /// (WebKit puts it there), so it follows the page: hidden with it
+    /// (another tab selected), shown again with it, and closed when the
+    /// page moves to another superview (another window, a Peek, the Mini
+    /// Player) or closes. A detached inspector window is left alone.
+    override func viewDidHide() {
+        super.viewDidHide()
+        BrowserWebInspector.dockedView(of: self)?.isHidden = true
+    }
+
+    override func viewDidUnhide() {
+        super.viewDidUnhide()
+        BrowserWebInspector.dockedView(of: self)?.isHidden = false
+    }
+
+    override func viewWillMove(toSuperview newSuperview: NSView?) {
+        if newSuperview !== superview, BrowserWebInspector.dockedView(of: self) != nil {
+            BrowserWebInspector.setVisible(false, for: self)
+        }
+        super.viewWillMove(toSuperview: newSuperview)
+    }
+
     override func keyDown(with event: NSEvent) {
-        // ⌃ and ⌥ shortcuts (⌃Tab) may arrive as plain key-downs; so may
-        // an extension's shortcut.
-        if !event.modifierFlags.intersection([.command, .control, .option]).isEmpty,
+        // ⌃ and ⌥ shortcuts (⌃Tab) and function keys (F12) may arrive as
+        // plain key-downs; so may an extension's shortcut.
+        if !event.modifierFlags.intersection([.command, .control, .option]).isEmpty
+            || BrowserShortcut(event: event)?.isFunctionKey == true,
            let controller = window?.windowController as? BrowserWindowController,
            controller.routePageShortcut(event, in: self)
             || controller.extensions.performCommand(for: event, in: controller)

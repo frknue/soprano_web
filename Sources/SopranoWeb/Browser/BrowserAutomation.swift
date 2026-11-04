@@ -58,6 +58,13 @@ extension BrowserWindowController {
             } else {
                 performTranslateCommand(arguments, tab: tab, completion: completion)
             }
+        case "devtools":
+            // Without `--tab`, the page the user looks at (a Peek's), as F12.
+            guard let tab = request.tabIndex == nil ? pageTab : target else {
+                completion(.failure(noTab))
+                return
+            }
+            performDevToolsCommand(arguments, tab: tab, completion: completion)
         case "media":
             // Without `--tab`, the tab the media controls show.
             performMediaCommand(arguments, tab: request.tabIndex == nil ? nil : target, completion: completion)

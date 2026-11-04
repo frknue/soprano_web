@@ -3,9 +3,9 @@ import WebKit
 
 /// The page side of Site wins: a capture listener on `window`, installed
 /// before any page script in the isolated world (so the page can neither
-/// see nor forge it), reports each modified `keydown` once the event has
-/// finished dispatching, with whether a page listener called
-/// `preventDefault`. Every frame reports; only the selected tab counts.
+/// see nor forge it), reports each modified or function-key `keydown`
+/// once the event has finished dispatching, with whether a page listener
+/// called `preventDefault`. Every frame reports; only the selected tab counts.
 enum BrowserShortcutScripts {
     static let keyReport = BrowserPageScript(
         source: """
@@ -13,7 +13,7 @@ enum BrowserShortcutScripts {
           if (window.__sopranoKeyReport) return;
           window.__sopranoKeyReport = true;
           window.addEventListener('keydown', (event) => {
-            if (!event.isTrusted || !(event.metaKey || event.ctrlKey || event.altKey)) return;
+            if (!event.isTrusted || !(event.metaKey || event.ctrlKey || event.altKey || /^F([1-9]|1[0-2])$/.test(event.code))) return;
             setTimeout(() => {
               try {
                 window.webkit.messageHandlers.sopranoWeb.postMessage({

@@ -241,7 +241,7 @@ enum SnapshotCommandBarAction {
         case let .conflict(other): "conflict with \(other.rawValue) (\(other.command.title))"
         case let .refused(other): "refused: \(other.command.title) can't change"
         case let .reserved(owner): "refused: reserved by \(owner)"
-        case .invalid: "invalid (needs ⌘ or ⌃)"
+        case .invalid: "invalid (needs ⌘, ⌃ or a function key)"
         }
     }
 
@@ -326,7 +326,8 @@ enum SnapshotCommandBarAction {
         "=": 24, "9": 25, "7": 26, "-": 27, "8": 28, "0": 29, "]": 30, "o": 31, "u": 32, "[": 33, "i": 34,
         "p": 35, "l": 37, "j": 38, "'": 39, "k": 40, ";": 41, "\\": 42, ",": 43, "/": 44, "n": 45, "m": 46,
         ".": 47, "`": 50, "tab": 48, "return": 36, "delete": 51, "escape": 53, "space": 49, "left": 123,
-        "right": 124, "down": 125, "up": 126,
+        "right": 124, "down": 125, "up": 126, "f1": 122, "f2": 120, "f3": 99, "f4": 118, "f5": 96, "f6": 97,
+        "f7": 98, "f8": 100, "f9": 101, "f10": 109, "f11": 103, "f12": 111,
     ]
 
     @MainActor

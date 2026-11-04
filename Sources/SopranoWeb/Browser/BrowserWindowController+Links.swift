@@ -175,6 +175,7 @@ extension BrowserWindowController {
         let preferences = WKPreferences()
         preferences.isElementFullscreenEnabled = true
         preferences.javaScriptCanOpenWindowsAutomatically = false
+        BrowserWebInspector.enableDeveloperExtras(preferences)
         return preferences
     }
 

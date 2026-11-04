@@ -190,7 +190,7 @@ extension BrowserWindowManager {
     // MARK: New Little Arc shortcut
 
     /// The next acceptable shortcut typed on the Settings page `tab` (with
-    /// ⌘ or ⌃, or ⌥ on a named key; nothing the system, text editing or
+    /// ⌘ or ⌃, a function key, or ⌥ on a named key; nothing the system, text editing or
     /// another command uses: `BrowserGlobalShortcut`) becomes the global
     /// one and turns it on; anything else beeps. Esc cancels, and so does
     /// the page leaving the screen: another tab, a navigation, the tab or

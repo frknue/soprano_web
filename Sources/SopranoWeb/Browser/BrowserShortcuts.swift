@@ -160,11 +160,16 @@ struct BrowserShortcut: Hashable, Sendable {
         }
     }
 
-    /// A shortcut the app can own: it has ⌘ or ⌃, or ⌥ with a key that
-    /// types nothing (arrows, Tab, function keys).
+    /// A shortcut the app can own: it has ⌘ or ⌃, is a function key
+    /// (F12 alone), or ⌥ with a key that types nothing (arrows, Tab).
     var isAssignable: Bool {
-        if modifiers.contains(.command) || modifiers.contains(.control) { return true }
+        if modifiers.contains(.command) || modifiers.contains(.control) || isFunctionKey { return true }
         return modifiers.contains(.option) && Self.namedKeys.contains(key) && key != "space"
+    }
+
+    /// F1…F12, which type nothing and reach the page only as `keydown`.
+    var isFunctionKey: Bool {
+        key.hasPrefix("f") && Int(key.dropFirst()).map { (1...12).contains($0) } == true
     }
 
     /// Keys outside the registry the app must leave alone, with who owns
@@ -220,7 +225,7 @@ struct BrowserShortcut: Hashable, Sendable {
         case "pageup": return function(NSPageUpFunctionKey)
         case "pagedown": return function(NSPageDownFunctionKey)
         default:
-            if key.hasPrefix("f"), let number = Int(key.dropFirst()), (1...12).contains(number) {
+            if isFunctionKey, let number = Int(key.dropFirst()) {
                 return function(NSF1FunctionKey + number - 1)
             }
             // ⇧ with punctuation or a digit: the menu keys on the shifted
@@ -514,7 +519,7 @@ struct BrowserKeymap: Equatable, Sendable {
         case refused(BrowserCommandID)
         /// The system, text editing or Vimium uses it (`reservedOwner`).
         case reserved(String)
-        /// No ⌘ or ⌃ (or ⌥ with a key that types nothing).
+        /// No ⌘ or ⌃ and no function key (or ⌥ with a key that types nothing).
         case invalid
     }
 

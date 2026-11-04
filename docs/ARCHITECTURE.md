@@ -323,13 +323,13 @@ touches; `AGENTS.md` holds the rules.
   bindings and Vimium's ⌃E/⌃Y/⌃[),
   `BrowserShortcutGate`, `BrowserRecentTabs` / `BrowserRecentTabSwitcher`
   and `BrowserRailWalk`. Priority mechanism: `BrowserWebView.performKeyEquivalent`
-  (and `keyDown` for ⌃/⌥ keys) calls `routePageShortcut` while the page has
+  (and `keyDown` for ⌃/⌥ keys and F1–F12) calls `routePageShortcut` while the page has
   focus — AppKit offers key equivalents to the window's views before the
   menu. App wins runs the command there. Site wins and Press twice let
   WebKit send the key to the page; WebKit hands back a key the page left
   unhandled by sending the same `NSEvent` again (`forwardedKey`), and the
   isolated-world `BrowserShortcutScripts.keyReport` posts each modified
-  `keydown`'s `defaultPrevented` on the `sopranoWeb` channel; the first
+  or function-key `keydown`'s `defaultPrevented` on the `sopranoWeb` channel; the first
   answer decides, the late one is swallowed. Forwarded presses are
   tracked per event (a token each), so key repeat and Press twice races
   never run a command twice; `BrowserWindow.performKeyEquivalent` checks a
@@ -750,6 +750,21 @@ touches; `AGENTS.md` holds the rules.
   default window; prints the popup's address, size and text and saves its
   capture, or "no popup") drive them. `errors` includes the background's
   uncaught exceptions and the console errors WebKit records.
+- `Browser/BrowserWebInspector.swift` — WebKit's Web Inspector in the app
+  (View ▸ Show Web Inspector, F12; WebKit's own "Inspect Element" in the
+  page's context menu). Private WebKit API, each selector checked before
+  it is called so a macOS without it hides the command instead of
+  crashing: `makePreferences` turns on `_developerExtrasEnabled` for every
+  tab, and the command shows or closes `_inspector` (`_WKInspector`) of
+  the page the user looks at (a Peek's). Docked, WebKit puts the
+  inspector's web view beside the page in the page's superview and
+  shrinks the page; `BrowserWebView` hides it with the page (another tab
+  selected), shows it again with it and closes it when the page moves
+  to another superview (another window, a Peek, the Mini Player). A
+  detached inspector is WebKit's own window. `browser devtools
+  [show|hide|toggle]` drives it and prints `docked`, `window` or
+  `hidden`. `isInspectable` stays on, so Safari ▸ Develop still reaches
+  every tab, extension popup and background page.
 - `Browser/VimiumController.swift`, `VimiumKeyMap.swift`, `VimiumPageScripts.swift`,
   `VimiumPanels.swift`, `BrowserWebView.swift` — the native Vimium mode layer.
 - `Browser/BrowserSettingsWebPage.swift` — Settings as a page in a tab
