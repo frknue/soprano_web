@@ -70,6 +70,8 @@ final class BrowserToolbarView: NSView, NSTextFieldDelegate {
     /// only in a pop-up, editable in a Little Arc).
     private(set) var isCompact = false
     private(set) var isLittleArc = false
+    /// Off while the rail's bottom bar has the Downloads button.
+    private var showsDownloadsButton = true
     private lazy var navigationLeadingToToggle = navigationControls.leadingAnchor.constraint(
         equalTo: verticalTabsButton.trailingAnchor,
         constant: 4
@@ -88,6 +90,14 @@ final class BrowserToolbarView: NSView, NSTextFieldDelegate {
     )
     private lazy var captureTrailingToLittle = captureIndicator.trailingAnchor.constraint(
         equalTo: littleStack.leadingAnchor,
+        constant: -2
+    )
+    private lazy var extensionsTrailingToDownloads = extensionStack.trailingAnchor.constraint(
+        equalTo: downloadsButton.leadingAnchor,
+        constant: -2
+    )
+    private lazy var extensionsTrailingToSidebar = extensionStack.trailingAnchor.constraint(
+        equalTo: sidebarButton.leadingAnchor,
         constant: -2
     )
     private lazy var addressLeadingToNavigation = addressFrame.leadingAnchor.constraint(
@@ -278,7 +288,7 @@ final class BrowserToolbarView: NSView, NSTextFieldDelegate {
 
             captureTrailingToButtons,
             captureIndicator.centerYAnchor.constraint(equalTo: sidebarButton.centerYAnchor),
-            extensionStack.trailingAnchor.constraint(equalTo: downloadsButton.leadingAnchor, constant: -2),
+            extensionsTrailingToDownloads,
             extensionStack.centerYAnchor.constraint(equalTo: sidebarButton.centerYAnchor),
             littleStack.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -10),
             littleStack.centerYAnchor.constraint(equalTo: sidebarButton.centerYAnchor),
@@ -403,6 +413,21 @@ final class BrowserToolbarView: NSView, NSTextFieldDelegate {
         downloadsButton.isToggledOn = on
     }
 
+    /// The toolbar's Downloads button; a window whose rail shows its
+    /// bottom bar has it there instead, as in Arc.
+    func setDownloadsButtonShown(_ shown: Bool) {
+        guard shown != showsDownloadsButton else { return }
+        showsDownloadsButton = shown
+        updateDownloadsButton()
+    }
+
+    private func updateDownloadsButton() {
+        let shown = showsDownloadsButton && !isCompact
+        downloadsButton.isHidden = !shown
+        extensionsTrailingToDownloads.isActive = shown
+        extensionsTrailingToSidebar.isActive = !shown
+    }
+
     /// Sets the window's mark; it shows before the address field while
     /// `setWindowMarkShown(true)` and the mark has words.
     func setWindowMark(_ mark: BrowserWindowMark) {
@@ -439,9 +464,10 @@ final class BrowserToolbarView: NSView, NSTextFieldDelegate {
         guard compact != isCompact || little != isLittleArc else { return }
         isCompact = compact
         isLittleArc = little
-        for button in [verticalTabsButton, downloadsButton, sidebarButton] {
+        for button in [verticalTabsButton, sidebarButton] {
             button.isHidden = compact
         }
+        updateDownloadsButton()
         extensionStack.isHidden = compact
         littleStack.isHidden = !little
         navigationLeadingToToggle.isActive = !compact

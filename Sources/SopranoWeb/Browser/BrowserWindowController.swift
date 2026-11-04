@@ -495,6 +495,7 @@ final class BrowserWindowController: NSWindowController {
         // The window's mark ("Private", its profile, or both) sits in the
         // rail header, or next to the address field when there is no rail.
         toolbar.setWindowMarkShown(!railShown)
+        updateDownloadsButtonPlacement()
         updateTabStrip()
         updateMediaControls()
         syncFolderPreview()

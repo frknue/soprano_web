@@ -9,22 +9,26 @@ struct BrowserRailSpace: Equatable {
     var isCurrent: Bool
 }
 
-/// The bottom of the rail: one icon per Space in display order (its emoji
-/// or SF Symbol, else a dot, with its color mark under it), the current one
-/// on a raised tile, then "+" for a new Space. Each icon's menu has Edit
+/// The bottom of the rail, as in Arc: the Downloads button at the leading
+/// edge, then one icon per Space in display order (its emoji or SF
+/// Symbol, else a dot, with its color mark under it), the current one on a
+/// raised tile, then "+" for a new Space. Each icon's menu has Edit
 /// Space… and Delete Space.
 @MainActor
 final class BrowserRailSpaceSwitcher: NSView {
     static let height: CGFloat = 44
     static let cellSize: CGFloat = 28
+    private static let downloadsSide: CGFloat = 24
 
     var onSelect: ((UUID) -> Void)?
     var onNewSpace: (() -> Void)?
+    var onDownloads: (() -> Void)?
     var menuProvider: ((UUID) -> NSMenu?)?
 
     private(set) var items: [BrowserRailSpace] = []
     private var cells: [BrowserRailSpaceCell] = []
     private let newButton: ChromeIconButton
+    private let downloadsButton: ChromeIconButton
     /// The Spaces that don't fit, in a menu.
     private let moreButton: ChromeIconButton
     private(set) var overflow: [BrowserRailSpace] = []
@@ -37,6 +41,14 @@ final class BrowserRailSpaceSwitcher: NSView {
             symbolName: "plus",
             accessibilityLabel: "New Space",
             pointSize: 11,
+            size: 24,
+            target: nil,
+            action: nil
+        )
+        downloadsButton = ChromeIconButton(
+            symbolName: "arrow.down.circle",
+            accessibilityLabel: "Downloads",
+            pointSize: 12,
             size: 24,
             target: nil,
             action: nil
@@ -57,6 +69,11 @@ final class BrowserRailSpaceSwitcher: NSView {
         newButton.action = #selector(newPressed)
         newButton.toolTip = "New Space…"
         addSubview(newButton)
+        downloadsButton.translatesAutoresizingMaskIntoConstraints = true
+        downloadsButton.target = self
+        downloadsButton.action = #selector(downloadsPressed)
+        downloadsButton.toolTip = "Downloads (⌥⌘L)"
+        addSubview(downloadsButton)
         moreButton.translatesAutoresizingMaskIntoConstraints = true
         moreButton.target = self
         moreButton.action = #selector(morePressed)
@@ -103,21 +120,38 @@ final class BrowserRailSpaceSwitcher: NSView {
         self.theme = theme
         rule.color = theme.colors.borderSubtle
         newButton.apply(theme: theme)
+        downloadsButton.apply(theme: theme)
         moreButton.apply(theme: theme)
         cells.forEach { $0.theme = theme }
     }
 
-    /// Icons left to right from the rail's inset, closer together as
-    /// Spaces are added; when even that runs out of room, the rest go into
-    /// a "More Spaces" menu (the current Space always keeps its icon), and
-    /// "+" follows.
+    /// Lit while the sidebar shows Downloads.
+    func setDownloadsToggle(_ on: Bool) {
+        downloadsButton.isToggledOn = on
+    }
+
+    /// Downloads at the rail's inset, then the Space icons, closer
+    /// together as Spaces are added; when even that runs out of room, the
+    /// rest go into a "More Spaces" menu (the current Space always keeps
+    /// its icon), and "+" follows.
     override func layout() {
         super.layout()
         let inset: CGFloat = 12
         let gap: CGFloat = 4
         let minimumStep: CGFloat = 22
         let buttonSize = newButton.intrinsicContentSize
-        let available = bounds.width - inset * 2 - buttonSize.width - gap
+        let buttonY = floor((bounds.height - buttonSize.height) / 2)
+        // Downloads keeps its whole 24 pt square (the circle is wider than
+        // "+"), centered on the bar like the Space icons.
+        downloadsButton.frame = NSRect(
+            x: inset - 4,
+            y: floor((bounds.height - Self.downloadsSide) / 2),
+            width: Self.downloadsSide,
+            height: Self.downloadsSide
+        )
+        // The Spaces start a step after Downloads.
+        let spacesStart = downloadsButton.frame.maxX + gap * 2
+        let available = bounds.width - spacesStart - inset - buttonSize.width - gap
         var shown = Array(cells.indices)
         var showsMore = false
         if CGFloat(cells.count) * minimumStep > available {
@@ -132,7 +166,7 @@ final class BrowserRailSpaceSwitcher: NSView {
         let step = min(Self.cellSize + gap, room / CGFloat(max(shown.count, 1)))
         let size = min(Self.cellSize, step - 2)
         let y = floor((bounds.height - size) / 2)
-        var x = inset
+        var x = spacesStart
         for (index, cell) in cells.enumerated() {
             guard shown.contains(index) else {
                 cell.isHidden = true
@@ -144,7 +178,6 @@ final class BrowserRailSpaceSwitcher: NSView {
         }
         overflow = items.indices.filter { !shown.contains($0) }.map { items[$0] }
         moreButton.isHidden = !showsMore
-        let buttonY = floor((bounds.height - buttonSize.height) / 2)
         if showsMore {
             moreButton.frame = NSRect(x: x + 2, y: buttonY, width: buttonSize.width, height: buttonSize.height)
             x += buttonSize.width + gap
@@ -190,6 +223,10 @@ final class BrowserRailSpaceSwitcher: NSView {
 
     @objc private func newPressed() {
         onNewSpace?()
+    }
+
+    @objc private func downloadsPressed() {
+        onDownloads?()
     }
 }
 

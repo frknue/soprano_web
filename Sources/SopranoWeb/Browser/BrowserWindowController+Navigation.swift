@@ -233,6 +233,7 @@ extension BrowserWindowController {
         toolbar.setProgress(tab.webView.estimatedProgress, isLoading: tab.webView.isLoading)
         toolbar.setSidebarToggle(isSidebarVisible)
         toolbar.setDownloadsToggle(isSidebarVisible && sidebarSection == .downloads)
+        verticalTabsView.switcher.setDownloadsToggle(isSidebarVisible && sidebarSection == .downloads)
         window?.title = kind.windowTitle(tab.isStartPage ? "New Tab" : tab.displayTitle)
         window?.representedURL = tab.isStartPage ? nil : url
         updatePopupBlockedControl()

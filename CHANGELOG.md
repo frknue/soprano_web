@@ -485,6 +485,9 @@ app.
   runs an extension from the Extensions menu and prints (and captures) its popup.
 
 ### Changed
+- With vertical tabs, the Downloads button sits at the bottom left of the sidebar, before
+  the Space icons, as in Arc (lit while Downloads shows; `⌥⌘L` still opens it). With
+  horizontal tabs, a hidden sidebar or in a private window it stays in the toolbar.
 - Settings opens in a tab, like Chrome's (`⌘,`; `soprano-web://settings`), instead of
   its own window: a sidebar of sections, **Search settings**, and cards with switches
   and menus in the window's theme. `⌘,` selects the Settings tab when one is open.

@@ -729,7 +729,11 @@ touches; `AGENTS.md` holds the rules.
   rail: Space header, Favorites, the pinned outline, Today with "+ New
   Tab", the switcher), `BrowserRailPinsView.swift` (the Favorites grid and
   the pinned outline with its drag and drop), `BrowserRailSpaceSwitcher.swift`
-  (the switcher, the "Today" head, `BrowserSpaceIconDrawing`),
+  (the switcher — Downloads at its leading edge, as in Arc; the toolbar's
+  Downloads button hides while the rail shows the switcher
+  (`updateDownloadsButtonPlacement`) and stays in windows without one:
+  horizontal tabs, a collapsed rail, private windows —, the "Today" head,
+  `BrowserSpaceIconDrawing`),
   `BrowserPinFolderPreview.swift` (a folder's hover preview with search),
   `BrowserSpaceSheet.swift` (New Space / Edit Space), `BrowserTabButton.swift`,
   `BrowserTabDragSession.swift` (a tab's system drag session and drop marker),

@@ -22,6 +22,7 @@ extension BrowserWindowController {
         rail.pinsView.onHoverFolder = { [weak self] id, frame in self?.folderHovered(id, rowFrame: frame) }
         rail.switcher.onSelect = { [weak self] id in self?.switchToSpace(id) }
         rail.switcher.onNewSpace = { [weak self] in self?.presentSpaceSheet(editing: nil) }
+        rail.switcher.onDownloads = { [weak self] in self?.toggleSidebar(section: .downloads) }
         rail.switcher.menuProvider = { [weak self] id in self?.spaceMenu(for: id) }
     }
 
@@ -56,6 +57,13 @@ extension BrowserWindowController {
         guard let selected = selectedTab, let selectedRowID else { return }
         verticalTabsView.update(content: railContent(selected: selected))
         verticalTabsView.update(tabs: todayRows.compactMap(rowItem), selectedID: selectedRowID)
+        updateDownloadsButtonPlacement()
+    }
+
+    /// Downloads sits in the rail's bottom bar while the rail shows it (a
+    /// window with Spaces), as in Arc; otherwise in the toolbar.
+    func updateDownloadsButtonPlacement() {
+        toolbar.setDownloadsButtonShown(verticalTabsView.isHidden || verticalTabsView.switcher.isHidden)
     }
 
     private func railContent(selected: BrowserTab) -> BrowserRailContent {
