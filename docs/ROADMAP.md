@@ -159,6 +159,23 @@ APIs WebKit lacks (Universal Autofill until it runs; no own vault).
 - **Space colors in Folio.** Arc tints the whole window per Space; Folio reserves the accent
   and fixes palettes per theme.
 
+## Linux (Omarchy)
+
+Furkan moves to Omarchy (Arch Linux, Hyprland, Wayland) later. Today only macOS builds:
+about 76,000 lines of AppKit and WebKit, no separate core target.
+
+- Engine: WebKitGTK is the same engine with a different API, so every `WKWebView` call site
+  is rewritten. Split a Foundation-only core (sessions, Spaces, the Arc importer, the `browser`
+  CLI) out first, and build it on Linux (Swift through `swiftly`) with a Linux CI job.
+- No WebKitGTK counterpart: `WKWebExtension` (the 1Password extension and the Chrome API
+  stand-ins), so passwords need a new plan (1Password's Linux desktop app, or another).
+- Other macOS-only parts: `WKContentRuleList` (→ WebKitGTK's user content filters),
+  `_WKInspector` (→ WebKitGTK's inspector), Keychain `SecItem` (→ libsecret), CryptoKit and
+  CommonCrypto (→ swift-crypto), Translation and NaturalLanguage (no system counterpart),
+  AppleScript and the Dock menu.
+- The UI is rebuilt on the toolkit chosen once for the family, in Soprano first (every app
+  syncs its chrome from there).
+
 ## Not copied
 
 - Arc account, Arc Sync, shared Space and Folder links, Membership Card, referrals,
