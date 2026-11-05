@@ -42,6 +42,7 @@ import subprocess
 import sys
 import tempfile
 import time
+import uuid
 from contextlib import closing
 from pathlib import Path
 
@@ -353,11 +354,99 @@ def raw_counts(source):
             pass
     counts["site decisions"] = sites
     for name, key, label in (("link-routing.json", "rules", "link rules"), ("boosts.json", "entries", "boosts"),
-                             ("downloads.json", "entries", "downloads"), ("agent-chats.json", "entries", "agent chats")):
+                             ("downloads.json", "entries", "downloads")):
         stored = load(name)
         if stored is not None:
             counts[label] = len(stored.get(key, []))
+    chats = load("agent-chats.json")
+    if chats is not None:
+        counts["agent chats"], counts["agent chat messages"], counts["agent chat answers"] = chat_contents(
+            source / "support" / "Agent Chats", chats.get("entries", []))
     return counts
+
+
+def chat_contents(folder, records):
+    """Chats (each id once; an entry without a valid id is no chat), then
+    the user messages and agent answers on the active branch of each one's
+    newest omp session file (omp's leaf back along parentId; failed replies
+    omp retried left out), as the app shows them."""
+    messages = answers = 0
+    seen = set()
+    for record in records:
+        try:
+            chat = str(uuid.UUID(str(record.get("id")))).upper()
+        except (ValueError, AttributeError):
+            continue
+        if chat in seen:
+            continue
+        seen.add(chat)
+        try:
+            names = [name for name in os.listdir(folder / chat) if name.endswith(".jsonl") and not name.startswith(".")]
+        except OSError:
+            continue
+        if not names:
+            continue
+        entries = []
+        try:
+            with open(folder / chat / max(names), "rb") as handle:
+                for line in handle:
+                    try:
+                        entry = json.loads(line)
+                    except ValueError:
+                        continue
+                    if isinstance(entry, dict) and isinstance(entry.get("id"), str) and entry.get("type") != "session":
+                        entries.append(entry)
+        except OSError:
+            continue
+        branch = active_branch(entries)
+        for entry in entries:
+            message = entry.get("message")
+            if entry.get("type") != "message" or not isinstance(message, dict):
+                continue
+            if branch is not None and entry["id"] not in branch:
+                continue
+            if message.get("retryRecovery") is not None:
+                continue
+            role = message.get("role")
+            if role == "user" and message.get("attribution") in (None, "user"):
+                messages += 1
+            elif role == "assistant":
+                content = message.get("content")
+                text = "\n\n".join(block.get("text", "") for block in content if isinstance(block, dict)
+                                   and block.get("type") == "text" and isinstance(block.get("text"), str)) \
+                    if isinstance(content, list) else ""
+                if text.strip():
+                    answers += 1
+    return len(seen), messages, answers
+
+
+def active_branch(entries):
+    """omp's active branch as ids; None (every entry) when an entry has no
+    parentId field, an empty set when the leaf was cleared."""
+    if not entries:
+        return None
+    ids = {entry["id"] for entry in entries}
+
+    def leaf_of(entry):
+        return entry["activeLeafId"] if "activeLeafId" in entry else entry["id"]
+
+    last = entries[-1]
+    if "activeLeafId" in last and last["activeLeafId"] is None:
+        return set()
+    leaf = leaf_of(last)
+    if not (isinstance(leaf, str) and leaf in ids):
+        leaf = next((entry["id"] for entry in reversed(entries) if leaf_of(entry) == entry["id"]), None)
+    if leaf is None:
+        return set()
+    parents = {entry["id"]: entry["parentId"] for entry in entries if isinstance(entry.get("parentId"), str)}
+    branch, current = set(), leaf
+    while current is not None and current not in branch:
+        branch.add(current)
+        current = parents.get(current)
+    if any("parentId" not in entry for entry in entries):
+        return None
+    return branch
+
 
 
 def raw_settings(source):
@@ -391,6 +480,8 @@ def summary_counts(summary):
         "boosts": summary.get("boosts", 0),
         "downloads": summary.get("downloads", 0),
         "agent chats": summary.get("agentChats", 0),
+        "agent chat messages": summary.get("agentChatMessages", 0),
+        "agent chat answers": summary.get("agentChatAnswers", 0),
     }
 
 

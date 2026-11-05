@@ -854,7 +854,9 @@ touches; `AGENTS.md` holds the rules.
   `BrowserAgentChatRecord`: id, title — the first message's first line, cut
   to 80, or the user's — created, updated, pinned; newest change first; a
   bad entry skipped, an unreadable file kept as `.corrupt`;
-  `BrowserDataCheck.summary` `agentChats`) and gives each chat a folder,
+  `BrowserDataCheck.summary` `agentChats`, and `agentChatMessages` and
+  `agentChatAnswers` as each chat's session file reads back, which
+  `data-guard.py` counts from the raw JSONL the same way) and gives each chat a folder,
   `<support>/Agent Chats/<id>/`, omp's `--session-dir` for it; deleting a
   chat takes it off the list at once and moves the folder to the Trash
   once its omp has ended (`BrowserAgentSession.stop(then:)`: omp writes

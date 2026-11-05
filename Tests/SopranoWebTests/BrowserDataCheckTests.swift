@@ -53,6 +53,37 @@ struct BrowserDataCheckTests {
         #expect(summary["movedAside"] as? [String] == [])
     }
 
+    /// A saved chat counts by what its session file shows, not only by its
+    /// row in the list: a reader that loses the conversation fails the
+    /// install guard (`data-guard.py` counts the same from the raw file).
+    @Test func countsWhatSavedChatsHold() throws {
+        let root = try folder()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let support = root.appendingPathComponent("support", isDirectory: true)
+        let chats = BrowserAgentChatStore(supportDirectory: support)
+        let chat = chats.create(firstMessage: "First")
+        chats.create(firstMessage: "Never answered")
+        let directory = chats.directory(for: chat.id)
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        let lines = [
+            #"{"type":"title","v":1,"title":""}"#,
+            #"{"type":"session","version":3,"id":"s"}"#,
+            #"{"type":"message","id":"u1","parentId":null,"message":{"role":"user","content":"First","timestamp":1}}"#,
+            #"{"type":"message","id":"e1","parentId":"u1","message":{"role":"assistant","content":[],"stopReason":"error","retryRecovery":{},"timestamp":2}}"#,
+            #"{"type":"message","id":"a1","parentId":"e1","message":{"role":"assistant","content":[{"type":"text","text":"One."}],"stopReason":"stop","timestamp":3}}"#,
+            #"{"type":"message","id":"u2","parentId":"a1","message":{"role":"user","content":"Abandoned","timestamp":4}}"#,
+            #"{"type":"message","id":"u3","parentId":"a1","message":{"role":"user","content":"Second","timestamp":5}}"#,
+            #"{"type":"message","id":"x1","parentId":"u3","message":{"role":"user","content":"Advice","attribution":"agent","timestamp":6}}"#,
+            #"{"type":"message","id":"a2","parentId":"x1","message":{"role":"assistant","content":[{"type":"text","text":"Two."}],"stopReason":"stop","timestamp":7}}"#,
+        ]
+        try Data(lines.joined(separator: "\n").utf8).write(to: directory.appendingPathComponent("2026-11-05T08-00-00-000Z_s.jsonl"))
+
+        let summary = BrowserDataCheck.summary(support: support, settingsURL: root.appendingPathComponent("settings.json"))
+        #expect(summary["agentChats"] as? Int == 2)
+        #expect(summary["agentChatMessages"] as? Int == 2)
+        #expect(summary["agentChatAnswers"] as? Int == 2)
+    }
+
     @Test func reportsAFileAStoreMovedAside() throws {
         let root = try folder()
         defer { try? FileManager.default.removeItem(at: root) }

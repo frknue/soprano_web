@@ -114,7 +114,21 @@ enum BrowserDataCheck {
         report["linkRouting"] = BrowserLinkRoutingStore(url: support.appendingPathComponent("link-routing.json")).rules.count
         report["boosts"] = BrowserBoostStore(url: support.appendingPathComponent("boosts.json")).boosts.count
         report["downloads"] = BrowserDownloadStore(url: support.appendingPathComponent("downloads.json")).records.count
-        report["agentChats"] = BrowserAgentChatStore(supportDirectory: support).records.count
+        let agentChats = BrowserAgentChatStore(supportDirectory: support)
+        report["agentChats"] = agentChats.records.count
+        // What each chat's session file shows when it opens: a reader that
+        // loses messages loses the conversation.
+        var messages = 0
+        var answers = 0
+        for record in agentChats.records {
+            guard let file = agentChats.sessionFile(for: record.id),
+                  let transcript = BrowserAgentSessionFile.transcript(at: file)
+            else { continue }
+            messages += transcript.entries.count { $0.kind == .user }
+            answers += transcript.entries.count { $0.kind == .assistant }
+        }
+        report["agentChatMessages"] = messages
+        report["agentChatAnswers"] = answers
 
         let after = asideFiles(support: support, settingsURL: settingsURL)
         report["movedAside"] = after.filter { !before.contains($0) }
