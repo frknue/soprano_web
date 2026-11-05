@@ -584,6 +584,9 @@ enum SnapshotCommand {
             options.agent.run(controller: controller)
             wait(0.2)
         }
+        if options.agent.showsChats {
+            options.agent.runChats(controller: controller, manager: manager) { wait($0) }
+        }
         if let credentials = options.signIn {
             submitSignIn(credentials, controller: controller)
             wait(options.wait)

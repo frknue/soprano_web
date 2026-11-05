@@ -150,17 +150,17 @@ struct BrowserAgentProtocolTests {
             ["boost", "css", "example.com", "--tab", "2", "-"],
         ] {
             #expect(throws: BrowserAutomationError.self, "\(words)") {
-                try BrowserAgentChat.toolRequest(words, workingDirectory: "/Users/me")
+                try BrowserAgentConversation.toolRequest(words, workingDirectory: "/Users/me")
             }
         }
     }
 
     @Test func toolCallsParseAsTheCLIWouldFromOmpsFolder() throws {
-        let shot = try BrowserAgentChat.toolRequest(["--window", "2", "screenshot", "page.png"], workingDirectory: "/Users/me")
+        let shot = try BrowserAgentConversation.toolRequest(["--window", "2", "screenshot", "page.png"], workingDirectory: "/Users/me")
         #expect(shot.command == "screenshot")
         #expect(shot.windowIndex == 2)
         #expect(shot.arguments == ["/Users/me/page.png"])
-        #expect(try BrowserAgentChat.toolRequest(["boost", "zap", "example.com", ".ad"], workingDirectory: "/").command == "boost")
+        #expect(try BrowserAgentConversation.toolRequest(["boost", "zap", "example.com", ".ad"], workingDirectory: "/").command == "boost")
     }
 
     @Test func launchFollowsSettingsAgent() throws {
@@ -182,6 +182,38 @@ struct BrowserAgentProtocolTests {
         #expect(arguments[model + 1] == "opus")
         let thinking = try #require(arguments.firstIndex(of: "--thinking"))
         #expect(arguments[thinking + 1] == "low")
+    }
+
+    @Test func aSavedChatStartsInItsFolderAndContinuesItsSession() throws {
+        var launch = BrowserAgentLaunch(settings: .default, home: "/Users/me")
+        #expect(!launch.arguments.contains("--session-dir"))
+        #expect(!launch.arguments.contains("--resume"))
+        launch.sessionDirectory = "/Support/Agent Chats/A"
+        launch.resume = "/Support/Agent Chats/A/2026-11-05T08-45-32-604Z_x.jsonl"
+        let arguments = launch.arguments
+        let directory = try #require(arguments.firstIndex(of: "--session-dir"))
+        #expect(arguments[directory + 1] == "/Support/Agent Chats/A")
+        let resume = try #require(arguments.firstIndex(of: "--resume"))
+        #expect(arguments[resume + 1] == "/Support/Agent Chats/A/2026-11-05T08-45-32-604Z_x.jsonl")
+        // The system prompt stays last: omp re-reads only its digest.
+        #expect(arguments.suffix(2).first == "--append-system-prompt")
+    }
+
+    @Test func aSentMessageParsesBackIntoTextAndTab() {
+        let page = BrowserAgentPage(title: "Docs — Getting started", url: "https://example.com/a?b=c")
+        let sent = BrowserAgentProtocol.message("What is this?\n\nTwo lines.", page: page)
+        let parsed = BrowserAgentProtocol.parseMessage(sent)
+        #expect(parsed.text == "What is this?\n\nTwo lines.")
+        #expect(parsed.page == page)
+        // An untitled tab was sent with its address as the title.
+        let untitled = BrowserAgentProtocol.parseMessage(
+            BrowserAgentProtocol.message("Hi", page: BrowserAgentPage(title: "", url: "https://example.com/"))
+        )
+        #expect(untitled.page == BrowserAgentPage(title: "", url: "https://example.com/"))
+        // Without a tab, or a bracket that isn't the tab line, the text is as typed.
+        #expect(BrowserAgentProtocol.parseMessage("Hi").page == nil)
+        #expect(BrowserAgentProtocol.parseMessage("Array access: a[0]").text == "Array access: a[0]")
+        #expect(BrowserAgentProtocol.parseMessage("x\n\n[Current tab: no separator]").page == nil)
     }
 
     @Test func agentSettingsDecodeTolerantly() throws {

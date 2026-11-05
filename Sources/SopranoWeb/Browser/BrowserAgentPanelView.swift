@@ -19,6 +19,9 @@ final class BrowserAgentPanelView: NSView, NSTextViewDelegate {
     var onClose: (() -> Void)?
     /// The model chip: Settings ▸ Agent.
     var onSettings: (() -> Void)?
+    /// The Chats button's menu: recent chats, Open Chat as Page, Show All
+    /// Chats.
+    var chatsMenu: (() -> NSMenu)?
 
     /// Whether a message carries the selected tab (the page chip).
     private(set) var includesPage = true
@@ -30,6 +33,7 @@ final class BrowserAgentPanelView: NSView, NSTextViewDelegate {
     private var theme: AppTheme
     private let divider: ChromeRuleView
     private let titleLabel = NSTextField(labelWithString: "Agent")
+    private let chatsButton: ChromeIconButton
     private let newChatButton: ChromeIconButton
     private let closeButton: ChromeIconButton
     private let scrollView = NSScrollView()
@@ -70,7 +74,7 @@ final class BrowserAgentPanelView: NSView, NSTextViewDelegate {
     private static let composerInset = NSSize(width: 4, height: 2)
     private static let composerMaxHeight: CGFloat = 160
     /// A message after this long a pause gets the time over it.
-    private static let stampPause: TimeInterval = 15 * 60
+    static let stampPause: TimeInterval = 15 * 60
 
     /// Rendered pieces by entry, revision and placement; a render keeps
     /// the ones it used.
@@ -89,6 +93,14 @@ final class BrowserAgentPanelView: NSView, NSTextViewDelegate {
     init(theme: AppTheme) {
         self.theme = theme
         divider = ChromeRuleView(axis: .vertical, color: theme.colors.borderSubtle)
+        chatsButton = ChromeIconButton(
+            symbolName: "clock.arrow.circlepath",
+            accessibilityLabel: "Chats",
+            pointSize: 13,
+            size: 26,
+            target: nil,
+            action: nil
+        )
         newChatButton = ChromeIconButton(
             symbolName: "square.and.pencil",
             accessibilityLabel: "New Chat",
@@ -127,8 +139,10 @@ final class BrowserAgentPanelView: NSView, NSTextViewDelegate {
         titleLabel.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
         addSubview(titleLabel)
 
+        chatsButton.toolTip = "Chats"
         newChatButton.toolTip = "New chat (⇧⌘E)"
         for (button, action) in [
+            (chatsButton, #selector(chatsPressed)),
             (newChatButton, #selector(newChatPressed)),
             (closeButton, #selector(closePressed)),
         ] {
@@ -226,10 +240,12 @@ final class BrowserAgentPanelView: NSView, NSTextViewDelegate {
             closeButton.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -10),
             newChatButton.centerYAnchor.constraint(equalTo: closeButton.centerYAnchor),
             newChatButton.trailingAnchor.constraint(equalTo: closeButton.leadingAnchor, constant: -2),
+            chatsButton.centerYAnchor.constraint(equalTo: closeButton.centerYAnchor),
+            chatsButton.trailingAnchor.constraint(equalTo: newChatButton.leadingAnchor, constant: -2),
 
             titleLabel.centerYAnchor.constraint(equalTo: closeButton.centerYAnchor),
             titleLabel.leadingAnchor.constraint(equalTo: leadingAnchor, constant: 16),
-            titleLabel.trailingAnchor.constraint(lessThanOrEqualTo: newChatButton.leadingAnchor, constant: -8),
+            titleLabel.trailingAnchor.constraint(lessThanOrEqualTo: chatsButton.leadingAnchor, constant: -8),
 
             scrollView.topAnchor.constraint(equalTo: closeButton.bottomAnchor, constant: 4),
             scrollView.leadingAnchor.constraint(equalTo: divider.trailingAnchor),
@@ -281,6 +297,7 @@ final class BrowserAgentPanelView: NSView, NSTextViewDelegate {
         titleLabel.textColor = colors.textPrimary
         emptyLabel.textColor = colors.textMuted
         placeholderLabel.textColor = colors.textMuted
+        chatsButton.apply(theme: theme)
         newChatButton.apply(theme: theme)
         closeButton.apply(theme: theme)
         composerFrame.apply(theme: theme)
@@ -299,14 +316,15 @@ final class BrowserAgentPanelView: NSView, NSTextViewDelegate {
         render()
     }
 
-    /// Shows `transcript`; `model` is the model chip's title.
-    func update(_ transcript: BrowserAgentTranscript, model: String) {
+    /// Shows `transcript`; `model` is the model chip's title, `title` the
+    /// chat's (else its first message's first line).
+    func update(_ transcript: BrowserAgentTranscript, model: String, title: String? = nil) {
         self.transcript = transcript
         modelButton.title = model
         modelButton.isHidden = model.isEmpty
-        let title = transcript.entries.first { $0.kind == .user }?.text
+        let first = transcript.entries.first { $0.kind == .user }?.text
             .split(whereSeparator: \.isNewline).first.map(String.init)
-        titleLabel.stringValue = title ?? "Agent"
+        titleLabel.stringValue = title ?? first ?? "Agent"
         emptyLabel.isHidden = !transcript.isEmpty
         placeholderLabel.stringValue = transcript.isEmpty ? "Ask the agent…" : "Reply…"
         spinner.isHidden = !transcript.isWorking
@@ -322,6 +340,15 @@ final class BrowserAgentPanelView: NSView, NSTextViewDelegate {
     /// The icon of the tab a message goes with, for its card.
     func setIcon(_ icon: NSImage?, for page: BrowserAgentPage) {
         pageIcons[page.url] = icon
+    }
+
+    /// Another chat is about to show: its entries' ids start over, so
+    /// nothing rendered or expanded for the last one carries over.
+    func resetTranscript() {
+        cache = RenderCache(width: 0)
+        expandedRuns.removeAll()
+        copiedRun = nil
+        answers.removeAll()
     }
 
     func focusComposer() {
@@ -389,6 +416,13 @@ final class BrowserAgentPanelView: NSView, NSTextViewDelegate {
 
     @objc private func settingsPressed() { onSettings?() }
     @objc private func closePressed() { onClose?() }
+
+    /// The Chats menu, under its button.
+    @objc private func chatsPressed() {
+        guard let menu = chatsMenu?() else { return }
+        let below = chatsButton.isFlipped ? chatsButton.bounds.maxY + 4 : chatsButton.bounds.minY - 4
+        menu.popUp(positioning: nil, at: NSPoint(x: 0, y: below), in: chatsButton)
+    }
 
     /// The page chip's state for a new chat (Settings ▸ Agent).
     func setIncludesPage(_ on: Bool) {

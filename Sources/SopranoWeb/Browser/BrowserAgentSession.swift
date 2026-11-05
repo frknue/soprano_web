@@ -121,8 +121,13 @@ final class BrowserAgentSession {
 
     /// Aborts the run and ends the process: stdin closes (omp exits on
     /// EOF), then SIGTERM after 3 s and SIGKILL 2 s later if it lingers.
-    func stop() {
-        guard let process else { return }
+    /// `completion` runs once the process is gone (at once when none runs):
+    /// omp still writes its session file while it shuts down.
+    func stop(then completion: (@MainActor () -> Void)? = nil) {
+        guard let process else {
+            completion?()
+            return
+        }
         send(["type": "abort"])
         try? input?.close()
         input = nil
@@ -134,6 +139,19 @@ final class BrowserAgentSession {
             DispatchQueue.main.asyncAfter(deadline: .now() + 2) {
                 if process.isRunning { kill(pid, SIGKILL) }
             }
+        }
+        if let completion {
+            Self.whenEnded(process, completion)
+        }
+    }
+
+    private static func whenEnded(_ process: Process, _ completion: @escaping @MainActor () -> Void) {
+        guard process.isRunning else {
+            completion()
+            return
+        }
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.25) {
+            MainActor.assumeIsolated { whenEnded(process, completion) }
         }
     }
 

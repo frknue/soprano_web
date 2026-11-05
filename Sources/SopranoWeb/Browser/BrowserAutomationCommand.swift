@@ -220,7 +220,8 @@ struct BrowserCommandRequest: Codable, Equatable, Sendable {
         }
         if command == "agent" {
             let valid = switch arguments.first {
-            case nil, "show", "hide", "new", "stop": arguments.count <= 1
+            case nil, "show", "hide", "new", "stop", "chats": arguments.count <= 1
+            case "resume": arguments.count == 2
             case "send": arguments.count > 1
             default: false
             }
@@ -430,7 +431,7 @@ struct BrowserCommandRequest: Codable, Equatable, Sendable {
     """
     static let readerUsage = "Usage: soprano-web browser [--window n] [--tab n] reader [on|off]"
     static let translateUsage = "Usage: soprano-web browser [--window n] [--tab n] translate [to <language>|off]"
-    static let agentUsage = "Usage: soprano-web browser [--window n] agent [show|hide|new|stop|send <message>]"
+    static let agentUsage = "Usage: soprano-web browser [--window n] agent [show|hide|new|stop|chats|resume <id>|send <message>]"
     static let liveFolderUsage = """
     Usage: soprano-web browser live-folders
            soprano-web browser [--window n] live-folder add <owner/repo|github.com link|search query>
@@ -508,7 +509,7 @@ enum BrowserCommand {
       soprano-web browser [--window n] [--tab n] media [info|play|pause|next|previous|mute]
       soprano-web browser [--window n] [--tab n] reader [on|off]
       soprano-web browser [--window n] [--tab n] translate [to <language>|off]
-      soprano-web browser [--window n] agent [show|hide|new|stop|send <message>]
+      soprano-web browser [--window n] agent [show|hide|new|stop|chats|resume <id>|send <message>]
       soprano-web browser [--window n] [--tab n] devtools [show|hide|toggle|dock|window]
       soprano-web browser boost [list]
       soprano-web browser boost show|enable|disable|remove <host>
@@ -563,7 +564,9 @@ enum BrowserCommand {
     idle, what it does now) and its chat; `show` and `hide` toggle the
     panel, `new` starts a new chat, `stop` stops the agent, `send` sends a
     message as typed into the panel (with the selected tab) and returns
-    at once: poll `agent` for the answer.
+    at once: poll `agent` for the answer. `chats` lists the saved chats (id,
+    last change, pinned, title), newest first; `resume <id>` shows that
+    chat in the panel, and its next message continues it.
     `extensions` lists the installed Chrome extensions: id, name, version,
     state (on, off, not running, installing), private windows, site access,
     source and how many errors WebKit reported. `extension install` takes a

@@ -4,8 +4,8 @@ import AppKit
 /// store the way the app does at launch and prints one JSON summary of
 /// what it sees (settings, profiles, Spaces with their pins and
 /// favorites, the session's windows and tabs, Archive, History per
-/// profile, site decisions, extensions, link rules, Boosts, downloads),
-/// plus the files reading them moved aside or added (`*.corrupt`,
+/// profile, site decisions, extensions, link rules, Boosts, downloads,
+/// Agent chats), plus the files reading them moved aside or added (`*.corrupt`,
 /// `*.unreadable`, `*.migrated`). `scripts/data-guard.py` runs it with the
 /// installed build and the new one on copies of the user's data before an
 /// install: the new build must see everything the installed one sees.
@@ -114,6 +114,7 @@ enum BrowserDataCheck {
         report["linkRouting"] = BrowserLinkRoutingStore(url: support.appendingPathComponent("link-routing.json")).rules.count
         report["boosts"] = BrowserBoostStore(url: support.appendingPathComponent("boosts.json")).boosts.count
         report["downloads"] = BrowserDownloadStore(url: support.appendingPathComponent("downloads.json")).records.count
+        report["agentChats"] = BrowserAgentChatStore(supportDirectory: support).records.count
 
         let after = asideFiles(support: support, settingsURL: settingsURL)
         report["movedAside"] = after.filter { !before.contains($0) }

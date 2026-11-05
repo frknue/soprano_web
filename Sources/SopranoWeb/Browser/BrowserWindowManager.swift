@@ -101,6 +101,13 @@ final class BrowserWindowManager {
     /// Live folders: pinned folders that show GitHub pull requests through
     /// `gh`, fetched every 5 minutes and when opened, kept in memory.
     let liveFolders: BrowserLiveFolders
+    /// Agent chats (`agent-chats.json`, `Agent Chats/`): the panels' and
+    /// the chats pages' conversations, one omp per open chat.
+    let agentChats: BrowserAgentChats
+    /// A chats-page refresh or a sweep of unshown chats is due this turn
+    /// of the run loop.
+    var agentChatsRefreshScheduled = false
+    var agentChatsSweepScheduled = false
     /// The one Mini Player (a tab's video in a floating panel).
     private(set) lazy var miniPlayer = BrowserMiniPlayer(defaults: defaults, isOffscreen: placement.isOffscreen)
 
@@ -208,6 +215,7 @@ final class BrowserWindowManager {
             checksForUpdates: checksExtensionUpdates
         )
         self.liveFolders = BrowserLiveFolders(spaces: spaces)
+        self.agentChats = BrowserAgentChats(store: BrowserAgentChatStore(supportDirectory: supportDirectory))
         historyStores[BrowserProfile.defaultID] = defaultHistory
         themeManager.onThemeChanged = { [weak self] theme in
             self?.websitesSheet?.apply(theme: theme)
@@ -219,6 +227,7 @@ final class BrowserWindowManager {
             self?.shortcutsSheet?.apply(theme: theme)
             self?.themeChanges.notify(theme)
             self?.refreshSettingsPages()
+            self?.refreshAgentChatsPages()
         }
         // Every Space has a profile of its own: Spaces the Space store
         // separated from a shared profile get theirs (once; a later launch
@@ -239,6 +248,7 @@ final class BrowserWindowManager {
                 self?.applyHistoryRetention(settings.historyRetention)
                 self?.contentBlocker.setEnabled(settings.blockAdsAndTrackers)
                 self?.refreshSettingsPages()
+                self?.refreshAgentChatsPages()
             },
             contentBlocker.changes.observe { [weak self] in self?.refreshSettingsPages() },
             profiles.changes.observe { [weak self] in
@@ -256,8 +266,13 @@ final class BrowserWindowManager {
             liveFolders.changes.observe { [weak self] in
                 self?.controllers.forEach { $0.liveFoldersChanged() }
             },
+            agentChats.changes.observe { [weak self] _ in self?.scheduleAgentChatsRefresh() },
         ]
         downloadManager.fallbackWindow = { [weak self] in self?.activeController?.window }
+        agentChats.isShown = { [weak self] conversation in self?.isShowingAgentConversation(conversation) ?? false }
+        agentChats.defaultLaunch = { [weak self] in
+            BrowserAgentLaunch(settings: self?.settingsStore.settings ?? .default)
+        }
         downloadManager.profileContext = { [weak self] id in
             guard let self else { return nil }
             return Self.existingProfileContext(id, profiles: self.profiles, context: self.context(for:))
@@ -747,14 +762,20 @@ final class BrowserWindowManager {
         return configuration
     }
 
-    /// Serves each web view the start page of the tab it belongs to, or
-    /// Settings.
+    /// Serves each web view the start page of the tab it belongs to,
+    /// Settings or the chats page.
     func makeStartPageSchemeHandler() -> BrowserStartPageSchemeHandler {
         BrowserStartPageSchemeHandler { [weak self] webView, url in
             guard let self else { return "" }
             let tab = self.tab(forWebView: webView)
             if BrowserSettingsWebPage.isSettings(url) {
                 return BrowserSettingsWebPage.html(state: self.settingsPageState(for: tab))
+            }
+            if BrowserAgentChatsPage.isChats(url) {
+                // A request carries no fragment; the web view's address,
+                // already the one loading, names the chat.
+                let selected = BrowserAgentChatsPage.chatID(in: webView.url)
+                return BrowserAgentChatsPage.html(state: self.agentChatsPageState(for: tab, selected: selected))
             }
             return self.startPageHTML(for: tab)
         }

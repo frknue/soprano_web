@@ -277,16 +277,15 @@ struct BrowserAgentRenderer {
 
     // MARK: Markdown
 
-    /// Markdown by lines: paragraphs, `#` headings, bullet and numbered
-    /// lists (nested by indent), `>` quotes, fenced code in a box, table
-    /// rows in mono; inline bold, italic, code, strikethrough and web
-    /// links. Text that isn't Markdown shows as written.
+    /// Markdown (`BrowserAgentMarkdown`): paragraphs, `#` headings, bullet
+    /// and numbered lists (nested by indent), `>` quotes, fenced code in a
+    /// box, table rows in mono; inline bold, italic, code, strikethrough
+    /// and web links. Text that isn't Markdown shows as written.
     func markdown(_ text: String, size: CGFloat, color: NSColor, before first: CGFloat) -> NSAttributedString {
-        enum Kind { case text, heading, list, quote, code, table }
+        typealias Kind = BrowserAgentMarkdown.Kind
         let output = NSMutableAttributedString()
         var previous: Kind?
         var gap = false
-        var code: [String]?
         let font = ChromeFont.sans(size: size)
 
         func spacing(_ kind: Kind) -> CGFloat {
@@ -299,137 +298,102 @@ struct BrowserAgentRenderer {
             default: return 2
             }
         }
-        func add(_ kind: Kind, _ piece: NSAttributedString) {
-            output.append(piece)
-            previous = kind
-            gap = false
-        }
-        func flushCode() {
-            guard let lines = code else { return }
-            code = nil
-            let pad: CGFloat = 10
-            let body = ChromeText.attributed(
-                lines.joined(separator: Self.lineBreak),
-                font: ChromeFont.monospaced(size: size - 2),
-                color: color,
-                lineBreakMode: .byCharWrapping
-            )
-            let piece = NSMutableAttributedString(attributedString: paragraph(
-                body,
-                before: spacing(.code) + pad,
-                after: pad,
-                head: pad,
-                tail: -pad,
-                lineSpacing: 2
-            ))
-            add(.code, boxed(piece, BrowserAgentBox(
-                minX: 0,
-                maxX: width,
-                padding: pad,
-                radius: Chrome.Radius.card,
-                fill: colors.raised,
-                edge: colors.borderSubtle
-            )))
-        }
 
-        for line in text.components(separatedBy: "\n") {
-            let trimmed = line.trimmingCharacters(in: .whitespaces)
-            if code != nil {
-                if trimmed.hasPrefix("```") {
-                    flushCode()
-                } else {
-                    code?.append(line)
-                }
-                continue
-            }
-            if trimmed.hasPrefix("```") {
-                code = []
-                continue
-            }
-            if trimmed.isEmpty || trimmed.wholeMatch(of: #/([-*_]\s*){3,}/#) != nil {
-                gap = previous != nil
-                continue
-            }
-            if let match = trimmed.wholeMatch(of: #/(#{1,6})\s+(.*)/#) {
-                let level = match.1.count
+        for block in BrowserAgentMarkdown.blocks(text) {
+            gap = block.afterGap
+            let piece: NSAttributedString
+            switch block.content {
+            case let .paragraph(line):
+                piece = paragraph(inline(line, font: font, color: color), before: spacing(.text))
+            case let .heading(level, line):
                 let headingFont = ChromeFont.sans(size: level <= 2 ? size + 2 : size, weight: .semibold)
-                add(.heading, paragraph(inline(String(match.2), font: headingFont, color: color), before: spacing(.heading)))
-            } else if let match = line.wholeMatch(of: #/(\s*)(?:([-*+•])|(\d{1,3})[.)])\s+(.*)/#) {
-                let depth = min(3, match.1.count / 2)
+                piece = paragraph(inline(line, font: headingFont, color: color), before: spacing(.heading))
+            case let .item(depth, number, line):
                 let indent = CGFloat(depth) * 18
-                let marker = match.2.map { _ in "•" } ?? "\(match.3 ?? "")."
-                let hang: CGFloat = match.2 == nil ? 22 : 16
+                let marker = number.map { "\($0)." } ?? "•"
+                let hang: CGFloat = number == nil ? 16 : 22
                 let item = NSMutableAttributedString(attributedString: ChromeText.attributed(
                     marker + "\t",
                     font: font,
                     color: colors.textMuted
                 ))
-                item.append(inline(String(match.4), font: font, color: color))
-                add(.list, paragraph(
+                item.append(inline(line, font: font, color: color))
+                piece = paragraph(
                     item,
                     before: spacing(.list),
                     head: indent + hang,
                     firstHead: indent + 2,
                     tabs: [NSTextTab(textAlignment: .left, location: indent + hang)]
-                ))
-            } else if let match = trimmed.wholeMatch(of: #/>\s?(.*)/#) {
-                add(.quote, paragraph(
-                    inline(String(match.1), font: Self.italic(font), color: colors.textMuted),
+                )
+            case let .quote(line):
+                piece = paragraph(
+                    inline(line, font: Self.italic(font), color: colors.textMuted),
                     before: spacing(.quote),
                     head: 12,
                     firstHead: 12
-                ))
-            } else if trimmed.hasPrefix("|"), trimmed.hasSuffix("|"), trimmed.count > 1 {
-                // A table's separator row only lines the columns up.
-                if trimmed.wholeMatch(of: #/[|:\-\s]+/#) != nil { continue }
-                add(.table, paragraph(
-                    ChromeText.attributed(trimmed, font: ChromeFont.monospaced(size: size - 2), color: color, lineBreakMode: .byCharWrapping),
+                )
+            case let .tableRow(row):
+                piece = paragraph(
+                    ChromeText.attributed(row, font: ChromeFont.monospaced(size: size - 2), color: color, lineBreakMode: .byCharWrapping),
                     before: spacing(.table)
-                ))
-            } else {
-                add(.text, paragraph(inline(trimmed, font: font, color: color), before: spacing(.text)))
+                )
+            case let .code(lines):
+                let pad: CGFloat = 10
+                let body = ChromeText.attributed(
+                    lines.joined(separator: Self.lineBreak),
+                    font: ChromeFont.monospaced(size: size - 2),
+                    color: color,
+                    lineBreakMode: .byCharWrapping
+                )
+                piece = boxed(
+                    NSMutableAttributedString(attributedString: paragraph(
+                        body,
+                        before: spacing(.code) + pad,
+                        after: pad,
+                        head: pad,
+                        tail: -pad,
+                        lineSpacing: 2
+                    )),
+                    BrowserAgentBox(
+                        minX: 0,
+                        maxX: width,
+                        padding: pad,
+                        radius: Chrome.Radius.card,
+                        fill: colors.raised,
+                        edge: colors.borderSubtle
+                    )
+                )
             }
+            output.append(piece)
+            previous = block.kind
         }
-        // A fence still streaming shows what came so far.
-        flushCode()
         return output
     }
 
     /// One line's inline Markdown in `font` and `color`.
     func inline(_ text: String, font: NSFont, color: NSColor) -> NSAttributedString {
-        let options = AttributedString.MarkdownParsingOptions(
-            interpretedSyntax: .inlineOnlyPreservingWhitespace,
-            failurePolicy: .returnPartiallyParsedIfPossible
-        )
-        guard let parsed = try? AttributedString(markdown: text, options: options) else {
-            return ChromeText.attributed(text, font: font, color: color, lineBreakMode: .byWordWrapping)
-        }
         let size = font.pointSize
         let bold = font.fontDescriptor.symbolicTraits.contains(.bold)
         let output = NSMutableAttributedString()
-        for run in parsed.runs {
-            let piece = String(parsed[run.range].characters)
-            let intent = run.inlinePresentationIntent ?? []
+        for span in BrowserAgentMarkdown.spans(text) {
             var runFont = font
-            if intent.contains(.code) {
+            if span.code {
                 runFont = ChromeFont.monospaced(size: size - 1)
-            } else if intent.contains(.stronglyEmphasized) || bold {
+            } else if span.bold || bold {
                 runFont = ChromeFont.sans(size: size, weight: .semibold)
-                if intent.contains(.emphasized) { runFont = Self.italic(runFont) }
-            } else if intent.contains(.emphasized) {
+                if span.italic { runFont = Self.italic(runFont) }
+            } else if span.italic {
                 runFont = Self.italic(font)
             }
             var attributes: [NSAttributedString.Key: Any] = [.font: runFont, .foregroundColor: color]
-            if intent.contains(.strikethrough) {
+            if span.strikethrough {
                 attributes[.strikethroughStyle] = NSUnderlineStyle.single.rawValue
             }
-            // Web and mail links only: a `file:` link would open (or launch)
-            // whatever it names.
-            if let link = run.link, ["http", "https", "mailto"].contains(link.scheme?.lowercased() ?? "") {
+            if let link = span.link {
                 attributes[.link] = link
                 attributes[.underlineStyle] = NSUnderlineStyle.single.rawValue
             }
-            output.append(NSAttributedString(string: piece, attributes: attributes))
+            output.append(NSAttributedString(string: span.text, attributes: attributes))
         }
         return output
     }
@@ -518,7 +482,7 @@ struct BrowserAgentRenderer {
         return "\(total / 3600)h \(total % 3600 / 60)m"
     }
 
-    private static let stampFormatter: DateFormatter = {
+    static let stampFormatter: DateFormatter = {
         let formatter = DateFormatter()
         formatter.dateStyle = .medium
         formatter.timeStyle = .short
@@ -526,7 +490,7 @@ struct BrowserAgentRenderer {
         return formatter
     }()
 
-    private static let timeFormatter: DateFormatter = {
+    static let timeFormatter: DateFormatter = {
         let formatter = DateFormatter()
         formatter.dateStyle = .none
         formatter.timeStyle = .short

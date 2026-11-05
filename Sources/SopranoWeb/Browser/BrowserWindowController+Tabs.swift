@@ -425,6 +425,9 @@ extension BrowserWindowController {
         // A tab leaving the window (closed, moved, its web view replaced)
         // takes its web view out of the Mini Player first.
         releaseMiniPlayer(of: tab)
+        if BrowserAgentChatsPage.isChats(tab.webView.url) {
+            manager.scheduleAgentChatsSweep()
+        }
         let webView = tab.webView
         webView.navigationDelegate = nil
         webView.uiDelegate = nil
@@ -445,6 +448,7 @@ extension BrowserWindowController {
     /// selecting (and so loading) the lazily restored ones.
     func tearDown() {
         agentChat?.shutdown()
+        agentChat = nil
         splits.removeAll()
         closePeek()
         cancelStoreObservations()
@@ -454,6 +458,9 @@ extension BrowserWindowController {
         tabs.removeAll()
         selectedIndex = 0
         spaceSelections.removeAll()
+        // Chats this window's panel and pages showed end unless another
+        // window shows them.
+        manager.agentChats.windowClosed(self)
         for tab in closing {
             unbindTab(tab)
             tab.webView.removeFromSuperview()

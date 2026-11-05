@@ -47,13 +47,19 @@ enum BrowserAgentThinking: String, CaseIterable, Codable, Sendable {
     }
 }
 
-/// How a window's omp starts: its folder, model and thinking level, read
-/// from Settings ▸ Agent when a chat's first message starts omp.
+/// How a chat's omp starts: its folder, model and thinking level, read
+/// from Settings ▸ Agent when the chat's next message starts omp, and
+/// where the chat keeps its session.
 struct BrowserAgentLaunch: Equatable, Sendable {
     var workingDirectory: String
     /// Empty: omp's default model.
     var model: String = ""
     var thinking: BrowserAgentThinking = .default
+    /// The chat's own folder (`Agent Chats/<id>/`): omp writes its session
+    /// file there instead of under `~/.omp`. Nil: omp's default.
+    var sessionDirectory: String?
+    /// The session file to continue (an earlier message's), if any.
+    var resume: String?
 
     init(workingDirectory: String, model: String = "", thinking: BrowserAgentThinking = .default) {
         self.workingDirectory = workingDirectory
@@ -70,12 +76,15 @@ struct BrowserAgentLaunch: Equatable, Sendable {
         )
     }
 
-    /// `omp --mode rpc --no-ui --allow-home --cwd <dir> [--model <m>]
-    /// [--thinking <level>] --append-system-prompt <prompt>`. No UI
-    /// requests: omp's dialogs resolve to their defaults and a tool its
-    /// approval policy would prompt for fails closed.
+    /// `omp --mode rpc --no-ui --allow-home --cwd <dir> [--session-dir
+    /// <chat folder>] [--resume <session file>] [--model <m>] [--thinking
+    /// <level>] --append-system-prompt <prompt>`. No UI requests: omp's
+    /// dialogs resolve to their defaults and a tool its approval policy
+    /// would prompt for fails closed.
     var arguments: [String] {
         var arguments = ["--mode", "rpc", "--no-ui", "--allow-home", "--cwd", workingDirectory]
+        if let sessionDirectory { arguments += ["--session-dir", sessionDirectory] }
+        if let resume { arguments += ["--resume", resume] }
         if !model.isEmpty { arguments += ["--model", model] }
         if thinking != .default { arguments += ["--thinking", thinking.rawValue] }
         return arguments + ["--append-system-prompt", BrowserAgentProtocol.systemPrompt]
@@ -191,6 +200,23 @@ enum BrowserAgentProtocol {
         guard let page else { return text }
         let title = page.title.isEmpty ? page.url : page.title
         return "\(text)\n\n[Current tab: \(title) — \(page.url)]"
+    }
+
+    /// What the user typed and the tab it went with, from a sent message
+    /// (`message(_:page:)`), as omp's session file keeps it.
+    static func parseMessage(_ message: String) -> (text: String, page: BrowserAgentPage?) {
+        let marker = "\n\n[Current tab: "
+        guard message.hasSuffix("]"), let start = message.range(of: marker, options: .backwards) else {
+            return (message, nil)
+        }
+        let line = message[start.upperBound..<message.index(before: message.endIndex)]
+        // The address has no " — "; the title may.
+        guard !line.contains("\n"), let separator = line.range(of: " — ", options: .backwards) else {
+            return (message, nil)
+        }
+        let title = String(line[..<separator.lowerBound])
+        let url = String(line[separator.upperBound...])
+        return (String(message[..<start.lowerBound]), BrowserAgentPage(title: title == url ? "" : title, url: url))
     }
 
     // MARK: - stdout

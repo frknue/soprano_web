@@ -295,3 +295,8 @@ The offscreen UI harness (`.build/debug/SopranoWeb snapshot …`,
   composer's model chip, so `--settings --settings-search privacy --agent-gear
   --print-settings` shows the search cleared and Agent current;
   `--url 'soprano-web://settings#agent'` opens Settings ▸ Agent.
+  `--agent-chats` saves two chats as omp session files in the run's
+  support folder (one pinned, from 9 days ago), opens the chats page at
+  the newer one, which reads both from disk, and prints `agent-chats:`
+  lines: each listed chat, then `page <title> | <listed chats> | <tool
+  steps> | <answers>`.

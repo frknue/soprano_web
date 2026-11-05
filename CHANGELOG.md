@@ -23,6 +23,14 @@ app.
   level and working folder, shows where omp was found, and whether messages include the
   current tab; changes apply to the next chat.
   Needs `omp` installed and logged in; private windows have no Agent panel.
+- Agent chats are saved and can be resumed, as in Aside. View ▸ Show Agent Chats (`⌥⌘E`)
+  opens a Chats page with every chat: search, grouped as Pinned, Today, Yesterday,
+  Previous 7 Days and Older, and the chat itself with its steps, Copy, Rename, Pin, Open in
+  Panel and Delete, and a message field to carry on there. The Agent panel's Chats button
+  (clock icon) lists recent chats to switch to, opens the chat as a page or shows them
+  all. A resumed chat picks up where it left off, after a restart too: the agent still
+  knows the conversation. Chats live in Soprano Web's folder (`Agent Chats/`) and are
+  backed up with the rest of its data; deleting one moves it to the Trash.
 - Downloads in progress show at the bottom of the rail, above the Space icons, as in
   Arc: the file's name, how much has arrived of the whole and the time left ("200 MB of
   450 MB · 5 min left"; the speed when the server gives no size), a progress line and a

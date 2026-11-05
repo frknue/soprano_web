@@ -14,17 +14,23 @@ import AppKit
 /// - `--agent-gear`: after `--settings-search`, presses the composer's
 ///   model chip (Settings ▸ Agent) and prints `agent-gear: pressed`;
 ///   `--print-settings` then shows where the Settings page went.
+/// - `--agent-chats`: saves two chats as omp session files in the run's
+///   support folder (one pinned, from 9 days ago), opens the chats page
+///   (`soprano-web://chats`) at the newer one, as it reads them from
+///   disk, and prints `agent-chats:` lines (each listed chat, then what the
+///   page shows).
 struct SnapshotAgentOptions {
     var shows = false
     var draft: String?
     var expandsSteps = false
     var buttonPresses = 0
     var pressesGear = false
+    var showsChats = false
 
     var isActive: Bool { shows || buttonPresses > 0 }
 
     static let usage = """
-                               [--agent] [--agent-draft <text>] [--agent-steps] [--agent-button]... [--agent-gear]
+                               [--agent] [--agent-draft <text>] [--agent-steps] [--agent-button]... [--agent-gear] [--agent-chats]
     """
 
     /// True when `option` is one of these flags (its value read).
@@ -42,6 +48,8 @@ struct SnapshotAgentOptions {
             options.buttonPresses += 1
         case "--agent-gear":
             options.pressesGear = true
+        case "--agent-chats":
+            options.showsChats = true
         default:
             return false
         }
@@ -109,6 +117,93 @@ struct SnapshotAgentOptions {
     @MainActor
     private static func buttons(in view: NSView) -> [NSButton] {
         view.subviews.flatMap { ($0 as? NSButton).map { [$0] } ?? buttons(in: $0) }
+    }
+
+    /// `--agent-chats`: two saved chats, the chats page at the newer.
+    @MainActor
+    func runChats(controller: BrowserWindowController, manager: BrowserWindowManager, wait: (TimeInterval) -> Void) {
+        guard showsChats, let tab = controller.selectedTab else { return }
+        let store = manager.agentChats.store
+        let now = Date()
+        let older = store.create(firstMessage: "Summarize the release notes", at: now.addingTimeInterval(-9 * 86_400))
+        store.setPinned(older.id, true)
+        Self.writeSession(store: store, id: older.id, at: now.addingTimeInterval(-9 * 86_400), lines: [
+            Self.message(role: "user", content: [["type": "text", "text": "Summarize the release notes"]]),
+            Self.message(role: "assistant", content: [["type": "text", "text": "Three fixes and one new shortcut."]], stopReason: "stop"),
+        ])
+        let newer = store.create(firstMessage: "What is this page about? Then open its link.", at: now)
+        Self.writeSession(store: store, id: newer.id, at: now, lines: [
+            Self.message(role: "user", content: [[
+                "type": "text",
+                "text": BrowserAgentProtocol.message(
+                    "What is this page about? Then open its link.",
+                    page: BrowserAgentPage(title: "Example Domain", url: "https://example.com/")
+                ),
+            ]]),
+            Self.message(role: "assistant", content: [
+                ["type": "toolCall", "id": "t1", "name": "browser", "arguments": ["args": ["get", "text", "body"], "i": "Reading the page"]],
+            ], stopReason: "toolUse"),
+            ["role": "toolResult", "toolCallId": "t1", "toolName": "browser", "content": [["type": "text", "text": "Example Domain…"]], "isError": false],
+            Self.message(role: "assistant", content: [
+                ["type": "toolCall", "id": "t2", "name": "browser", "arguments": ["args": ["click", "@e9"], "i": "Opening the link"]],
+            ], stopReason: "toolUse"),
+            ["role": "toolResult", "toolCallId": "t2", "toolName": "browser", "content": [["type": "text", "text": "Element not found: @e9"]], "isError": true],
+            Self.message(role: "assistant", content: [["type": "text", "text": """
+            It's **Example Domain**, a page reserved for documentation examples (`example.com`).
+
+            **What's on it**
+
+            - One heading and a short paragraph saying the domain is for examples.
+            - A single link, *Learn more*, which goes to [iana.org](https://www.iana.org/help/example-domains).
+            """]], stopReason: "stop"),
+        ])
+        controller.navigate(tab, to: BrowserAgentChatsPage.url(for: newer.id))
+        let deadline = Date().addingTimeInterval(5)
+        repeat {
+            wait(0.05)
+        } while (tab.webView.isLoading || !BrowserAgentChatsPage.isChats(tab.webView.url)) && Date() < deadline
+        wait(0.3)
+        for record in store.records {
+            print("agent-chats: \(record.pinned ? "pinned " : "")\(record.title)")
+        }
+        var finished = false
+        tab.webView.evaluateJavaScript(
+            "[document.title, document.querySelectorAll('.chat').length, document.querySelectorAll('.tool').length, document.querySelectorAll('.answer').length].join(' | ')",
+            in: nil,
+            in: .page
+        ) { result in
+            if case let .success(value) = result, let line = value as? String {
+                print("agent-chats: page \(line)")
+            }
+            finished = true
+        }
+        let printed = Date().addingTimeInterval(2)
+        while !finished, Date() < printed {
+            wait(0.05)
+        }
+    }
+
+    private static func message(role: String, content: [[String: Any]], stopReason: String? = nil) -> [String: Any] {
+        var message: [String: Any] = ["role": role, "content": content]
+        message["stopReason"] = stopReason
+        return message
+    }
+
+    /// A session file as omp writes it: a title slot, a header, then one
+    /// message entry per line, a second apart from `date`.
+    @MainActor
+    private static func writeSession(store: BrowserAgentChatStore, id: UUID, at date: Date, lines: [[String: Any]]) {
+        let folder = store.directory(for: id)
+        try? FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
+        var text = #"{"type":"title","v":1,"title":""}"# + "\n" + #"{"type":"session","version":3,"id":"harness"}"# + "\n"
+        for (index, var message) in lines.enumerated() {
+            message["timestamp"] = (date.timeIntervalSince1970 + Double(index)) * 1000
+            let parent: Any = index == 0 ? NSNull() : "e\(index - 1)"
+            let entry: [String: Any] = ["type": "message", "id": "e\(index)", "parentId": parent, "message": message]
+            guard let data = try? JSONSerialization.data(withJSONObject: entry) else { continue }
+            text += String(decoding: data, as: UTF8.self) + "\n"
+        }
+        try? Data(text.utf8).write(to: folder.appendingPathComponent("2026-01-01T00-00-00-000Z_harness.jsonl"))
     }
 
     static let seededEvents: [BrowserAgentEvent] = [

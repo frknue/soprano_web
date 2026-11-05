@@ -17,7 +17,7 @@ enum BrowserCommandID: String, CaseIterable, Sendable {
     case back, forward, home, reload, stop
     case zoomIn = "zoom-in", zoomOut = "zoom-out", actualSize = "actual-size"
     case toggleSidebar = "toggle-sidebar", toggleRail = "toggle-rail", toggleToolbar = "toggle-toolbar"
-    case toggleAgent = "toggle-agent", newAgentChat = "new-agent-chat"
+    case toggleAgent = "toggle-agent", newAgentChat = "new-agent-chat", showAgentChats = "show-agent-chats"
     case fullScreen = "full-screen"
     case splitAdd = "split-add", splitClose = "split-close"
     case splitPane1 = "split-pane-1", splitPane2 = "split-pane-2", splitPane3 = "split-pane-3"
@@ -429,6 +429,10 @@ struct BrowserAppCommand: Sendable {
         make(.newAgentChat, "New Agent Chat", .view, 4, "shift+cmd+e", synonyms: ["agent", "ask", "omp"],
              symbol: "square.and.pencil", state: { .when($0.controller?.canShowAgent ?? false) }) {
             $0.controller?.newAgentChat()
+        },
+        make(.showAgentChats, "Show Agent Chats", .view, 4, "opt+cmd+e",
+             synonyms: ["agent", "chats", "history", "resume", "omp"], symbol: "clock.arrow.circlepath") { context in
+            context.manager?.showAgentChats(id: context.controller?.agentChat?.conversation.chatID)
         },
         system(.fullScreen, "Enter Full Screen", .view, 5, "ctrl+cmd+f", "toggleFullScreen:"),
         make(

@@ -353,7 +353,7 @@ def raw_counts(source):
             pass
     counts["site decisions"] = sites
     for name, key, label in (("link-routing.json", "rules", "link rules"), ("boosts.json", "entries", "boosts"),
-                             ("downloads.json", "entries", "downloads")):
+                             ("downloads.json", "entries", "downloads"), ("agent-chats.json", "entries", "agent chats")):
         stored = load(name)
         if stored is not None:
             counts[label] = len(stored.get(key, []))
@@ -390,6 +390,7 @@ def summary_counts(summary):
         "link rules": summary.get("linkRouting", 0),
         "boosts": summary.get("boosts", 0),
         "downloads": summary.get("downloads", 0),
+        "agent chats": summary.get("agentChats", 0),
     }
 
 

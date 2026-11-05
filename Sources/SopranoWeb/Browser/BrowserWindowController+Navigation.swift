@@ -277,6 +277,8 @@ extension BrowserWindowController: WKNavigationDelegate {
     func webView(_ webView: WKWebView, didCommit navigation: WKNavigation!) {
         guard let tab = tab(for: webView) else { return }
         clearCrashState(tab)
+        // A chats page that navigated away no longer shows its chat.
+        manager.scheduleAgentChatsSweep()
         if tab.awaitsLinkLanding {
             // Where the pin's load landed, redirects followed: not "away".
             tab.awaitsLinkLanding = false
@@ -356,6 +358,7 @@ extension BrowserWindowController: WKNavigationDelegate {
     /// and it isn't Settings (`about:start` only ever asks for it).
     nonisolated static func showsStartPage(_ url: URL?) -> Bool {
         url?.scheme?.lowercased() == BrowserStartPageSchemeHandler.scheme && !BrowserSettingsWebPage.isSettings(url)
+            && !BrowserAgentChatsPage.isChats(url)
     }
 
     func webView(

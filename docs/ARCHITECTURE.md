@@ -765,8 +765,9 @@ touches; `AGENTS.md` holds the rules.
   capture, or "no popup") drive them. `errors` includes the background's
   uncaught exceptions and the console errors WebKit records.
 - `Browser/BrowserAgentProtocol.swift`, `BrowserAgentSession.swift`,
-  `BrowserAgentTranscript.swift`, `BrowserAgentChat.swift`,
-  `BrowserAgentPanelView.swift`, `BrowserAgentRenderer.swift`,
+  `BrowserAgentTranscript.swift`, `BrowserAgentConversation.swift`,
+  `BrowserAgentChat.swift`, `BrowserAgentPanelView.swift`,
+  `BrowserAgentRenderer.swift`, `BrowserAgentMarkdown.swift`,
   `BrowserWindowController+Agent.swift` —
   the Agent panel (View ▸ Show Agent, ⌘E, the toolbar's Agent button at
   its trailing edge — `BrowserToolbarView.setShowsAgentButton`, hidden in
@@ -779,18 +780,27 @@ touches; `AGENTS.md` holds the rules.
   (`BrowserAgentThinking`), `agentDirectory` (nil: home; Change is a folder
   panel) and `agentIncludesPage` (the page button's start state), and
   shows where omp was found. `BrowserAgentLaunch(settings:)` turns them
-  into `omp --mode rpc --no-ui --allow-home --cwd <folder> [--model m]
-  [--thinking t] --append-system-prompt …`; `BrowserAgentChat` re-reads
-  it whenever no omp runs, so a change applies to the next chat.
-  `BrowserAgentSession` runs one omp per window, started by the first
-  message (omp and `bun` looked up in `~/.bun/bin`, `~/.local/bin` and
+  into `omp --mode rpc --no-ui --allow-home --cwd <folder> [--session-dir
+  <chat folder>] [--resume <session file>] [--model m] [--thinking t]
+  --append-system-prompt …`; a conversation re-reads it whenever its omp
+  isn't running (`syncLaunch`), so a change applies to the next start.
+  `BrowserAgentConversation` is one chat and its omp
+  (`BrowserAgentSession`, started by the chat's first message after it
+  opened: omp and `bun` looked up in `~/.bun/bin`, `~/.local/bin` and
   Homebrew first, as `gh` is; a missing working folder is a note, not a
-  launch), stdin `F_SETNOSIGPIPE`; it registers an
-  event filter (deltas only) and one host tool, `browser`. Window close
-  and New Chat send `abort`, close stdin (omp exits on EOF), SIGTERM after
-  3 s; the app quitting closes the pipe the same way. Nothing is stored by
-  the app but those settings: omp keeps each session's file in its own
-  folder.
+  launch; stdin `F_SETNOSIGPIPE`; it registers an event filter (deltas
+  only) and one host tool, `browser`). Its first message makes it a saved
+  chat (`BrowserAgentChats`, see the chats page entry below): omp then
+  writes the chat's session into the chat's folder, and the next omp for
+  it continues that file (`--resume`). The panel (`BrowserAgentChat`)
+  shows one conversation at a time: New Chat (⇧⌘E) switches to one not
+  saved yet, the header's Chats button (`chatsMenu`) lists the 15 newest
+  chats by group (pinned first) to switch to, Open Chat as Page and Show
+  All Chats (⌥⌘E). A conversation the panel leaves keeps working;
+  `BrowserAgentChats.sweep` ends its omp (`abort`, stdin closed, SIGTERM
+  after 3 s) once its session settled and no panel or chats page shows
+  it; a window closing ends the chats only it showed; the app quitting
+  closes the pipes the same way.
   `BrowserAgentProtocol` encodes the frames and decodes omp's stdout into
   `BrowserAgentEvent`; `BrowserAgentTranscript` (pure) folds those into
   dated entries with a `revision`, and `blocks` groups them as the panel
@@ -804,7 +814,7 @@ touches; `AGENTS.md` holds the rules.
   thinking, text or a tool call afterwards resumes it; the run's last
   user message records how long the run took to answer (`duration`, from
   its first message, a steer included) and when it answered. `BrowserAgentPanelView`
-  shows the chat's first message as its header, then one selectable
+  shows the chat's title (`BrowserAgentChatStore`, else its first message) as its header, then one selectable
   TextKit 1 text view rendered by `BrowserAgentRenderer` (pieces cached
   by entry and revision, once per run loop turn): a centered time over a
   message after a 15-minute pause, the message's tab as a card (its
@@ -812,8 +822,9 @@ touches; `AGENTS.md` holds the rules.
   edge (`BrowserAgentBox` runs that `BrowserAgentLayoutManager` draws
   under the text), "Worked for 16s ›" (while working, the running tool's
   intent) whose `soprano-agent://steps/<run>` link shows the steps, the
-  answer's Markdown (paragraphs, headings, nested lists, quotes, fenced
-  code in a box, table rows in mono, inline styles, web links), and a
+  answer's Markdown (`BrowserAgentMarkdown`, shared with the chats page:
+  paragraphs, headings, nested lists, quotes, fenced code in a box,
+  table rows in mono, inline styles, web links), and a
   footer with Copy (`soprano-agent://copy/<run>`, the answer's Markdown)
   and the time. The composer grows to 160 pt; under it sit the page chip,
   the model chip (model without provider, thinking level), a spinner
@@ -823,18 +834,64 @@ touches; `AGENTS.md` holds the rules.
   a start page) as a closing
   `[Current tab: title — url]` line, unless the composer's page chip
   is off; while a run is live it goes in with `streamingBehavior: steer`.
-  `browser` host tool calls are `browser` CLI words: `BrowserAgentChat`
+  `browser` host tool calls are `browser` CLI words: `BrowserAgentConversation`
   parses them with `BrowserCommandRequest.parse` (`PWD` = omp's folder,
   no stdin) and runs them through `BrowserAutomationRouter.perform(…,
-  defaultWindow:)`, so without `--window` they act on the chat's own
-  window; with a Peek open `site`, `reader`, `translate` and `devtools`
+  defaultWindow:)`, so without `--window` they act on the window the
+  chat's last message came from; with a Peek open `site`, `reader`, `translate` and `devtools`
   get the selected tab's `--tab` (the CLI would act on the Peek), `agent`
   and any command that reads stdin (`boost css|js <host> -`, flags anywhere; `toolRequest`) are refused, the CLI's timeouts
   apply (`BrowserAutomationReplyOnce`), and an answer for an ended omp
   process (`generation`) is dropped; when omp exits, the transcript drops
   its message ids (`processEnded`: the next process starts at `msg-1`
-  again). `browser agent [show|hide|new|stop|send
-  <message>]` drives the panel and prints its state and chat.
+  again). `browser agent [show|hide|new|stop|chats|resume <id>|send
+  <message>]` drives the panel and prints its state and chat; `chats`
+  lists the saved chats, `resume <id>` shows one in the panel.
+- `Browser/BrowserAgentChatStore.swift`, `BrowserAgentSessionFile.swift`,
+  `BrowserAgentChatsPage.swift`, `BrowserWindowManager+AgentChats.swift` —
+  saved Agent chats and the chats page, after Aside's. `BrowserAgentChatStore`
+  keeps the list in `<support>/agent-chats.json` (`JSONList` of
+  `BrowserAgentChatRecord`: id, title — the first message's first line, cut
+  to 80, or the user's — created, updated, pinned; newest change first; a
+  bad entry skipped, an unreadable file kept as `.corrupt`;
+  `BrowserDataCheck.summary` `agentChats`) and gives each chat a folder,
+  `<support>/Agent Chats/<id>/`, omp's `--session-dir` for it; deleting a
+  chat takes it off the list at once and moves the folder to the Trash
+  once its omp has ended (`BrowserAgentSession.stop(then:)`: omp writes
+  the session file while it shuts down). `BrowserAgentChatGroups` groups the
+  list as the panel's menu and the page show it: Pinned, Today,
+  Yesterday, Previous 7 Days, Older. `BrowserAgentSessionFile` reads a
+  chat's newest session file (omp's JSONL v3) back into a transcript by
+  feeding the `message` entries of its active branch (omp's leaf back
+  along `parentId`; failed replies omp retried, `retryRecovery`, left out)
+  through `BrowserAgentTranscript` as omp's events would be (a reply at
+  its `completedAt`; the tab from the `[Current tab: …]` line,
+  `BrowserAgentProtocol.parseMessage`; tool calls and results; failed and
+  stopped replies as notes; a run the file ends in the middle of ends
+  there), so a chat shows and resumes without omp running.
+  `BrowserAgentChats` (the window manager's `agentChats`) holds the
+  store and the open conversations, one per chat however many panels and
+  pages show it (`conversation(for:)` reads a closed one from its file);
+  `isShown` asks the manager which a panel or chats page shows.
+  The chats page (View ▸ Show Agent Chats ⌥⌘E; `showAgentChats(id:)`
+  reuses the chats tab of the most recent normal window) is
+  `soprano-web://chats`, served like Settings (excluded from
+  `isStartPage`/`showsStartPage`; never in History or the Archive), with
+  the chat shown in the fragment (`#<id>`; none: a new chat): a rail with
+  search, New chat and the grouped list (a dot on working chats), and the
+  chat rendered as HTML by `transcriptHTML` the way the panel lays it out
+  (steps in `<details data-run>`, Copy per answer, escaped text, only web
+  and mail links, opening in a new tab), with Rename, Pin/Unpin, Open in
+  Panel and Delete (a second click confirms), and a composer (Return
+  sends, ⇧Return a new line; stop while a run works and nothing is
+  typed). A message from the page carries no tab; the chat's `browser`
+  commands then act on the page's window. The page posts
+  `{type: "agentChats", action, …}` (`Message`, checked: ids are UUIDs,
+  text non-empty and at most 100,000 characters), accepted only from its
+  own main frame and origin; every change answers with the whole state
+  (`__sopranoChats.apply`), and conversation changes refresh open chats
+  pages once per run loop turn (`scheduleAgentChatsRefresh`). In a
+  private window the page shows no chat and sends nothing.
 - `Browser/BrowserWebInspector.swift` — WebKit's Web Inspector in the app
   (View ▸ Show Web Inspector, F12; WebKit's own "Inspect Element" in the
   page's context menu). Private WebKit API, each selector checked before

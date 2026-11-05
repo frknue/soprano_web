@@ -428,7 +428,7 @@ enum BrowserAddressResolver {
     /// `about:start`.
     static func isStartPage(_ url: URL?) -> Bool {
         if url?.scheme?.lowercased() == BrowserStartPageSchemeHandler.scheme {
-            return !BrowserSettingsWebPage.isSettings(url)
+            return !BrowserSettingsWebPage.isSettings(url) && !BrowserAgentChatsPage.isChats(url)
         }
         return url?.scheme == "about" && url?.path == "start"
     }

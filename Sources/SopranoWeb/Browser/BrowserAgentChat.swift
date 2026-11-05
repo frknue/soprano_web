@@ -1,119 +1,100 @@
 import AppKit
 
-/// A window's Agent panel and the omp behind it: what the user sends goes
-/// to omp with the tab they look at, omp's events update the transcript,
-/// and omp's `browser` tool calls run as `browser` CLI commands on this
-/// window (`BrowserAutomationRouter`, the window as the default target).
-/// The chat lasts while the window is open; New Chat ends the omp process
-/// and the next message starts a fresh one (omp keeps each session's file
-/// in its own folder, as in the terminal).
+/// A window's Agent panel: it shows one chat (`BrowserAgentConversation`)
+/// at a time and sends what the user types to it with the tab they look
+/// at, so the chat's `browser` commands act on this window. New Chat
+/// (⇧⌘E) switches to a chat not saved yet (it becomes one with its first
+/// message); the Chats menu switches to a saved chat (resuming it: its
+/// next message continues its omp session), opens the shown one as a page
+/// or shows every chat (`soprano-web://chats`). A chat the panel leaves
+/// keeps working until its run ends; `BrowserAgentChats` then ends its omp
+/// once nothing shows it.
 @MainActor
 final class BrowserAgentChat {
     let view: BrowserAgentPanelView
-    private(set) var transcript = BrowserAgentTranscript()
-    private let session: BrowserAgentSession
+    private(set) var conversation: BrowserAgentConversation
+    private let chats: BrowserAgentChats
     private weak var window: BrowserWindowController?
+    private var observation: BrowserObservation?
+    private var listObservation: BrowserObservation?
+
+    /// How many chats the Chats menu lists.
+    static let menuLimit = 15
 
     init(window: BrowserWindowController, theme: AppTheme) {
         self.window = window
+        chats = window.manager.agentChats
+        conversation = chats.newConversation()
         view = BrowserAgentPanelView(theme: theme)
-        session = BrowserAgentSession(
-            launch: BrowserAgentLaunch(settings: window.settingsStore.settings),
-            hostTool: BrowserAgentProtocol.hostToolDefinition(help: BrowserCommand.help)
-        )
-        session.onEvent = { [weak self] event in self?.handle(event) }
-        session.onExit = { [weak self] message in self?.exited(message) }
         view.onSend = { [weak self] text in self?.send(text) }
         view.onStop = { [weak self] in self?.stop() }
         view.onNewChat = { [weak self] in self?.newChat() }
         view.onClose = { [weak window] in window?.hideAgent() }
         view.onSettings = { [weak window] in window?.manager.showSettings(section: "agent") }
+        view.chatsMenu = { [weak self] in self?.makeChatsMenu() ?? NSMenu() }
         view.setIncludesPage(window.settingsStore.settings.agentIncludesPage)
+        // A rename on the chats page retitles the panel.
+        listObservation = chats.changes.observe { [weak self] id in
+            guard let self, id == nil else { return }
+            self.refresh()
+        }
+        bind()
         updatePage()
-        refresh()
     }
+
+    var transcript: BrowserAgentTranscript { conversation.transcript }
 
     /// One line on the panel's state (`browser agent`).
-    var statusLine: String {
-        guard transcript.isWorking else { return "idle" }
-        return "working: \(transcript.activity ?? "Working")"
-    }
+    var statusLine: String { conversation.statusLine }
 
     func send(_ text: String) {
-        let page = view.includesPage ? window?.agentPage : nil
+        guard let window else { return }
+        let page = view.includesPage ? window.agentPage : nil
         rememberIcon(of: page)
-        transcript.addUser(text, page: page)
-        do {
-            syncLaunch()
-            try session.startIfNeeded()
-            session.send(BrowserAgentProtocol.prompt(BrowserAgentProtocol.message(text, page: page)))
-        } catch {
-            transcript.addNote(error.localizedDescription)
-            transcript.endWork()
-        }
-        refresh()
+        conversation.send(text, page: page, from: window)
     }
 
     /// Aborts the run; omp's `prompt_result` ends it in the transcript.
     func stop() {
-        guard transcript.isWorking else { return }
-        if session.isRunning {
-            session.send(["type": "abort"])
-        } else {
-            transcript.endWork()
-            refresh()
-        }
+        conversation.stop()
     }
 
+    /// A chat not saved yet; the one shown goes on until its run ends.
     func newChat() {
-        session.stop()
-        transcript.clear()
+        show(chats.newConversation())
         view.setIncludesPage(window?.settingsStore.settings.agentIncludesPage ?? true)
-        refresh()
     }
 
-    /// The window closed.
+    /// Shows the saved chat `id`; false when there is no such chat.
+    @discardableResult
+    func open(_ id: UUID) -> Bool {
+        guard let conversation = chats.conversation(for: id) else { return false }
+        if conversation !== self.conversation {
+            show(conversation)
+        }
+        return true
+    }
+
+    /// The window closed: a chat not saved yet ends with it.
     func shutdown() {
-        session.stop()
+        observation = nil
+        listObservation = nil
+        if conversation.chatID == nil {
+            conversation.shutdown()
+        }
     }
 
     func updatePage() {
         view.pageTitle = window?.agentPage.map { $0.title.isEmpty ? $0.url : $0.title }
     }
 
-    /// The selected tab's icon, for the card of a message sent with it.
-    private func rememberIcon(of page: BrowserAgentPage?) {
-        guard let page else { return }
-        view.setIcon(window?.selectedTab?.favicon, for: page)
-    }
-
-    private func handle(_ event: BrowserAgentEvent) {
-        if case let .hostToolCall(id, toolName, arguments) = event {
-            runHostTool(id: id, toolName: toolName, arguments: arguments)
-            return
-        }
-        transcript.apply(event)
-        refresh()
-    }
-
-    private func exited(_ message: String) {
-        transcript.addNote(message)
-        transcript.processEnded()
-        refresh()
-    }
-
-    /// While no omp runs, Settings ▸ Agent is read again, so the next
-    /// message starts omp the way it says.
-    private func syncLaunch() {
-        if !session.isRunning, let settings = window?.settingsStore.settings {
-            session.launch = BrowserAgentLaunch(settings: settings)
-        }
-    }
-
     /// Redraws the panel (with the model omp runs or will start with).
     func refresh() {
-        syncLaunch()
-        view.update(transcript, model: Self.modelName(session.launch))
+        if let settings = window?.settingsStore.settings {
+            conversation.syncLaunch(settings)
+        }
+        let title = conversation.chatID.flatMap { chats.store.record($0)?.title }
+        view.update(conversation.transcript, model: Self.modelName(conversation.launch), title: title)
     }
 
     /// The model chip: the model's name without its provider, and the
@@ -123,119 +104,113 @@ final class BrowserAgentChat {
         return launch.thinking == .default ? model : "\(model) · \(launch.thinking.name)"
     }
 
-    // MARK: - The browser tool
-
-    private func runHostTool(id: String, toolName: String, arguments: [String]?) {
-        let generation = session.generation
-        let reply: @MainActor (Result<String, Error>) -> Void = { [weak self] result in
-            guard let self, self.session.generation == generation else { return }
-            let frame: [String: Any] = switch result {
-            case let .success(output):
-                BrowserAgentProtocol.hostToolResult(id: id, text: output.isEmpty ? "Done." : output, isError: false)
-            case let .failure(error):
-                BrowserAgentProtocol.hostToolResult(id: id, text: error.localizedDescription, isError: true)
-            }
-            self.session.send(frame)
+    private func show(_ next: BrowserAgentConversation) {
+        let previous = conversation
+        conversation = next
+        view.resetTranscript()
+        bind()
+        // A chat never sent has nothing to keep; a saved one ends once its
+        // run settles and nothing shows it.
+        if previous.chatID == nil {
+            previous.shutdown()
         }
-        guard toolName == BrowserAgentProtocol.hostToolName, let arguments, !arguments.isEmpty else {
-            reply(.failure(BrowserAutomationError.invalidArguments(
-                "`browser` takes {\"args\": [command, arguments…]}, e.g. {\"args\": [\"goto\", \"https://example.com\"]}."
-            )))
-            return
-        }
-        guard let window else {
-            reply(.failure(BrowserAutomationError.unavailable("The window closed.")))
-            return
-        }
-        var request: BrowserCommandRequest
-        do {
-            request = try Self.toolRequest(arguments, workingDirectory: session.workingDirectory)
-        } catch {
-            reply(.failure(error))
-            return
-        }
-        // `site`, `reader`, `translate` and `devtools` act on a Peek when
-        // one is open; the agent's messages name the selected tab under it.
-        if request.windowIndex == nil, request.tabIndex == nil, window.peek != nil,
-           Self.peekCommands.contains(request.command),
-           let selected = window.selectedTab,
-           let index = window.visibleTabs.firstIndex(where: { $0 === selected })
-        {
-            request = BrowserCommandRequest(
-                command: request.command,
-                arguments: request.arguments,
-                tabIndex: index + 1,
-                windowIndex: nil,
-                timeout: request.timeout,
-                space: request.space
-            )
-        }
-        if request.command == "help" {
-            reply(.success(BrowserCommand.help))
-            return
-        }
-        if request.command == "agent" {
-            reply(.failure(BrowserAutomationError.unavailable("`agent` commands drive this panel; they aren't available to the agent.")))
-            return
-        }
-        // The first answer wins: the command's, or the timeout's.
-        let once = BrowserAutomationReplyOnce { response in
-            DispatchQueue.main.async {
-                MainActor.assumeIsolated {
-                    reply(response.ok
-                        ? .success(response.output ?? "")
-                        : .failure(BrowserAutomationError.unavailable(response.error ?? "Failed.")))
-                }
-            }
-        }
-        let timeout = request.serverTimeout
-        DispatchQueue.main.asyncAfter(deadline: .now() + timeout) {
-            once.send(BrowserAutomationResponse(result: .failure(BrowserAutomationError.unavailable(
-                "Timed out after \(BrowserCommandRequest.seconds(timeout)) s waiting for `\(request.command)`."
-            ))))
-        }
-        BrowserAutomationRouter.perform(request, in: window.manager, defaultWindow: window) { result in
-            once.send(BrowserAutomationResponse(result: result))
-        }
+        chats.sweep()
     }
 
-    /// The `browser` CLI request for a tool call's words. A relative
-    /// screenshot path is under omp's folder. A command that reads the
-    /// CLI's standard input (`boost css|js <host> -`, wherever `--window`
-    /// or `--tab` sit) is refused: the agent has none, and an empty read
-    /// would replace the Boost with nothing.
-    nonisolated static func toolRequest(_ arguments: [String], workingDirectory: String) throws -> BrowserCommandRequest {
-        var readsStandardInput = false
-        let parsed = try BrowserCommandRequest.parse(
-            ["soprano-web", "browser"] + arguments,
-            environment: ["PWD": workingDirectory],
-            standardInput: {
-                readsStandardInput = true
-                return Data()
-            }
-        )
-        if readsStandardInput {
-            throw BrowserAutomationError.invalidArguments(
-                "`-` reads standard input, which the agent has none of; write the code to a file and pass its path."
-            )
-        }
-        guard let parsed else { throw BrowserAutomationError.invalidArguments(BrowserCommand.help) }
-        return parsed
+    private func bind() {
+        observation = conversation.changes.observe { [weak self] in self?.refresh() }
+        refresh()
     }
 
-    /// Commands that act on a Peek, without `--tab`, instead of the
-    /// selected tab.
-    private static let peekCommands: Set<String> = ["site", "reader", "translate", "devtools"]
+    /// The selected tab's icon, for the card of a message sent with it.
+    private func rememberIcon(of page: BrowserAgentPage?) {
+        guard let page else { return }
+        view.setIcon(window?.selectedTab?.favicon, for: page)
+    }
+
+    // MARK: - The Chats menu
+
+    /// Recent chats by group (Pinned, Today, Yesterday, …; the shown one
+    /// checked), then Open Chat as Page and Show All Chats.
+    private func makeChatsMenu() -> NSMenu {
+        let menu = NSMenu()
+        menu.autoenablesItems = false
+        let saved = chats.store.records
+        let records = Array((saved.filter(\.pinned) + saved.filter { !$0.pinned }).prefix(Self.menuLimit))
+        for group in BrowserAgentChatGroups.groups(records) {
+            let header = NSMenuItem(title: group.title, action: nil, keyEquivalent: "")
+            header.isEnabled = false
+            menu.addItem(header)
+            for record in group.records {
+                let item = NSMenuItem(title: record.title, action: #selector(BrowserAgentChatMenuTarget.pick(_:)), keyEquivalent: "")
+                item.target = menuTarget
+                item.representedObject = record.id
+                item.state = record.id == conversation.chatID ? .on : .off
+                item.indentationLevel = 1
+                menu.addItem(item)
+            }
+        }
+        if menu.items.isEmpty {
+            let none = NSMenuItem(title: "No chats yet", action: nil, keyEquivalent: "")
+            none.isEnabled = false
+            menu.addItem(none)
+        }
+        menu.addItem(.separator())
+        let page = NSMenuItem(title: "Open Chat as Page", action: #selector(BrowserAgentChatMenuTarget.openAsPage(_:)), keyEquivalent: "")
+        page.target = menuTarget
+        page.isEnabled = conversation.chatID != nil
+        menu.addItem(page)
+        let all = NSMenuItem(title: "Show All Chats", action: #selector(BrowserAgentChatMenuTarget.showAll(_:)), keyEquivalent: "e")
+        all.keyEquivalentModifierMask = [.command, .option]
+        all.target = menuTarget
+        menu.addItem(all)
+        return menu
+    }
+
+    private lazy var menuTarget = BrowserAgentChatMenuTarget(chat: self)
+
+    fileprivate func pick(_ id: UUID) {
+        open(id)
+        view.focusComposer()
+    }
+
+    fileprivate func openAsPage() {
+        guard let id = conversation.chatID else { return }
+        window?.manager.showAgentChats(id: id)
+    }
+
+    fileprivate func showAll() {
+        window?.manager.showAgentChats(id: conversation.chatID)
+    }
 
     // MARK: - The harness
 
     /// Feeds `events` as if omp sent them (`--agent` seeds a chat).
     func replay(user text: String, page: BrowserAgentPage?, events: [BrowserAgentEvent]) {
         rememberIcon(of: page)
-        transcript.addUser(text, page: page)
-        for event in events {
-            transcript.apply(event)
-        }
-        refresh()
+        conversation.replay(user: text, page: page, events: events)
+    }
+}
+
+/// The Chats menu's items' target (menu actions need an Objective-C one).
+@MainActor
+final class BrowserAgentChatMenuTarget: NSObject {
+    private weak var chat: BrowserAgentChat?
+
+    init(chat: BrowserAgentChat) {
+        self.chat = chat
+    }
+
+    @objc func pick(_ sender: NSMenuItem) {
+        guard let id = sender.representedObject as? UUID else { return }
+        chat?.pick(id)
+    }
+
+    @objc func openAsPage(_ sender: NSMenuItem) {
+        chat?.openAsPage()
+    }
+
+    @objc func showAll(_ sender: NSMenuItem) {
+        chat?.showAll()
     }
 }

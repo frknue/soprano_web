@@ -13,7 +13,7 @@ extension BrowserWindowController {
     /// pane), the one the `browser` tool's page commands act on; never a
     /// Peek over it. Nil on a start page.
     var agentPage: BrowserAgentPage? {
-        guard let tab = selectedTab, !tab.isStartPage else { return nil }
+        guard let tab = selectedTab, !tab.isStartPage, !BrowserAgentChatsPage.isChats(tab.webView.url) else { return nil }
         guard let url = tab.webView.url?.absoluteString ?? tab.state.url, !url.isEmpty else { return nil }
         return BrowserAgentPage(title: tab.displayTitle, url: url)
     }
@@ -94,7 +94,7 @@ extension BrowserWindowController {
         return chat
     }
 
-    /// `browser agent [show|hide|new|stop|send <message>]`.
+    /// `browser agent [show|hide|new|stop|chats|resume <id>|send <message>]`.
     func performAgentCommand(_ arguments: [String]) -> Result<String, Error> {
         guard canShowAgent else {
             return .failure(BrowserAutomationError.unavailable("This window has no Agent panel."))
@@ -109,6 +109,20 @@ extension BrowserWindowController {
             agentChat?.newChat()
         case "stop":
             agentChat?.stop()
+        case "chats":
+            let formatter = ISO8601DateFormatter()
+            let lines = manager.agentChats.store.records.map { record in
+                "\(record.id.uuidString)\t\(formatter.string(from: record.updated))\t\(record.pinned ? "pinned\t" : "")\(record.title)"
+            }
+            return .success(lines.isEmpty ? "no chats" : lines.joined(separator: "\n"))
+        case "resume":
+            guard arguments.count == 2, let id = UUID(uuidString: arguments[1]) else {
+                return .failure(BrowserAutomationError.invalidArguments("usage: agent resume <chat id> (ids: `agent chats`)"))
+            }
+            showAgent(focus: false)
+            guard agentChat?.open(id) == true else {
+                return .failure(BrowserAutomationError.unavailable("No chat \(arguments[1])."))
+            }
         case "send":
             showAgent(focus: false)
             guard let chat = agentChat else { break }
