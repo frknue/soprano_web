@@ -12,7 +12,7 @@ struct BrowserAgentPanelViewTests {
         transcript.addUser("Open it", page: nil)
         transcript.apply(.toolStart(callID: "t", title: "browser click @e2", intent: "Opening the link"))
         transcript.apply(.toolEnd(callID: "t", error: nil))
-        transcript.apply(.assistantEnd(messageID: "m", text: "Opened **it**."))
+        transcript.apply(.assistantEnd(messageID: "m", text: "Opened **it**.", callsTools: false))
         transcript.apply(.settled)
         view.update(transcript, model: "")
         return view

@@ -45,7 +45,9 @@ struct BrowserAgentTranscript: Equatable, Sendable {
     }
 
     private(set) var entries: [Entry] = []
-    /// From a send until omp reports the session settled.
+    /// From a send until the agent answers (its message without tool
+    /// calls) or omp reports the run ended; again while omp acts after
+    /// the answer (its advisor's review sends it back to work).
     private(set) var isWorking = false
     /// What the agent is doing now ("Thinking", "Running browser"); nil
     /// while idle.
@@ -74,10 +76,9 @@ struct BrowserAgentTranscript: Equatable, Sendable {
     /// The run ended without omp saying so (stop, crash): nothing works
     /// any more, running tools stop.
     mutating func endWork(at date: Date = Date()) {
-        if let runStart, let index = entries.lastIndex(where: { $0.kind == .user }) {
-            entries[index].duration = max(0, date.timeIntervalSince(runStart))
-            entries[index].runEnd = date
-            entries[index].revision += 1
+        // An answered run keeps the time it took to answer.
+        if isWorking {
+            recordDuration(at: date)
         }
         runStart = nil
         isWorking = false
@@ -105,7 +106,8 @@ struct BrowserAgentTranscript: Equatable, Sendable {
         var id: Int
         var steps: [Entry]
         var answer: [Entry]
-        /// How long the agent worked, on the run that ended its work.
+        /// How long the agent worked until it answered, on the run that
+        /// ended its work.
         var duration: TimeInterval?
         /// When the run ended, or its last entry was added.
         var end: Date
@@ -168,24 +170,32 @@ struct BrowserAgentTranscript: Equatable, Sendable {
             isWorking = true
             activity = "Thinking"
         case .thinking:
+            isWorking = true
             activity = "Thinking"
         case let .textDelta(messageID, index, text):
+            isWorking = true
             activity = "Writing"
             var message = streaming[messageID] ?? [:]
             message[index, default: ""] += text
             streaming[messageID] = message
             let joined = message.keys.sorted().compactMap { message[$0] }.joined(separator: "\n\n")
             upsertAssistant(messageID, text: joined, at: date)
-        case let .assistantEnd(messageID, text):
+        case let .assistantEnd(messageID, text, callsTools):
             streaming.removeValue(forKey: messageID)
             let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
             if trimmed.isEmpty {
-                // A message of tool calls only.
+                // No text: tool calls only, or a failed or aborted reply.
                 entries.removeAll { $0.kind == .assistant && $0.key == messageID }
             } else {
                 upsertAssistant(messageID, text: trimmed, at: date)
             }
+            // The answer: omp can still spend a while before it yields
+            // (its advisor reviews the turn), and none of that is writing.
+            if !callsTools {
+                answered(at: date)
+            }
         case let .toolStart(callID, title, intent):
+            isWorking = true
             activity = "Running \(title.split(separator: " ").first.map(String.init) ?? title)"
             if let index = entries.firstIndex(where: { $0.kind == .tool && $0.key == callID }) {
                 entries[index].text = title
@@ -248,6 +258,21 @@ struct BrowserAgentTranscript: Equatable, Sendable {
         } else {
             append(Entry(id: takeID(), kind: .assistant, date: date, text: text, key: messageID))
         }
+    }
+
+    /// The agent answered: the run shows as done, timed to the answer.
+    /// `runStart` stays, so work that resumes counts from the same start.
+    private mutating func answered(at date: Date) {
+        recordDuration(at: date)
+        isWorking = false
+        activity = nil
+    }
+
+    private mutating func recordDuration(at date: Date) {
+        guard let runStart, let index = entries.lastIndex(where: { $0.kind == .user }) else { return }
+        entries[index].duration = max(0, date.timeIntervalSince(runStart))
+        entries[index].runEnd = date
+        entries[index].revision += 1
     }
 
     private mutating func append(_ entry: Entry) {

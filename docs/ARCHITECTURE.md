@@ -796,9 +796,13 @@ touches; `AGENTS.md` holds the rules.
   dated entries with a `revision`, and `blocks` groups them as the panel
   shows them: each user message and note, and the agent's entries between
   them as a run whose steps (tool calls and the text between them) come
-  before its answer (the text after the last tool call); the run's last
-  user message records how long the run took (`duration`, from its first
-  message, a steer included) and when it ended. `BrowserAgentPanelView`
+  before its answer (the text after the last tool call). An assistant
+  message without tool calls (`assistantEnd` with `callsTools: false`)
+  is the answer: work ends there, not at omp's later `prompt_result`
+  (omp's advisor can review the turn for seconds before it yields), and
+  thinking, text or a tool call afterwards resumes it; the run's last
+  user message records how long the run took to answer (`duration`, from
+  its first message, a steer included) and when it answered. `BrowserAgentPanelView`
   shows the chat's first message as its header, then one selectable
   TextKit 1 text view rendered by `BrowserAgentRenderer` (pieces cached
   by entry and revision, once per run loop turn): a centered time over a

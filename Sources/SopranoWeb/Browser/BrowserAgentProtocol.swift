@@ -10,8 +10,9 @@ enum BrowserAgentEvent: Equatable, Sendable {
     case textDelta(messageID: String, index: Int, text: String)
     /// The assistant message is thinking (a thinking block streams).
     case thinking(messageID: String)
-    /// The assistant message ended: its text blocks, joined.
-    case assistantEnd(messageID: String, text: String)
+    /// The assistant message ended: its text blocks, joined, and whether it
+    /// called tools. One that didn't is the run's answer.
+    case assistantEnd(messageID: String, text: String, callsTools: Bool)
     case toolStart(callID: String, title: String, intent: String?)
     /// `error` is the tool's output when it failed.
     case toolEnd(callID: String, error: String?)
@@ -225,7 +226,11 @@ enum BrowserAgentProtocol {
                 .filter { $0["type"] as? String == "text" }
                 .compactMap { $0["text"] as? String }
                 .joined(separator: "\n\n")
-            return .assistantEnd(messageID: messageID, text: text)
+            return .assistantEnd(
+                messageID: messageID,
+                text: text,
+                callsTools: blocks.contains { $0["type"] as? String == "toolCall" }
+            )
         case "tool_execution_start":
             guard let callID = frame["toolCallId"] as? String,
                   let name = frame["toolName"] as? String

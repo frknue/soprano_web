@@ -55,7 +55,10 @@ struct BrowserAgentProtocolTests {
         let event = BrowserAgentProtocol.decode(#"""
         {"type":"message_end","messageId":"msg-6","message":{"role":"assistant","content":[{"type":"thinking","thinking":"hm"},{"type":"text","text":"One."},{"type":"toolCall","id":"t","name":"browser","arguments":{}},{"type":"text","text":"Two."}]}}
         """#)
-        #expect(event == .assistantEnd(messageID: "msg-6", text: "One.\n\nTwo."))
+        #expect(event == .assistantEnd(messageID: "msg-6", text: "One.\n\nTwo.", callsTools: true))
+        #expect(BrowserAgentProtocol.decode(#"""
+        {"type":"message_end","messageId":"msg-7","message":{"role":"assistant","stopReason":"stop","content":[{"type":"text","text":"Done."}]}}
+        """#) == .assistantEnd(messageID: "msg-7", text: "Done.", callsTools: false))
     }
 
     @Test func userAndCustomMessagesAreIgnored() {

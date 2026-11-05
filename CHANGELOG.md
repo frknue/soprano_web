@@ -607,6 +607,9 @@ app.
   opens its popover, now under the address field.
 
 ### Fixed
+- Agent panel: once the agent's answer is in, "Writing…" and the spinner go away and
+  the button sends again, instead of spinning on for several seconds while omp reviews
+  the turn. If omp goes back to work after that review, the spinner returns.
 - Switching the right sidebar to History or Archive with its own buttons now turns the
   Downloads button off, and the next click on it shows Downloads instead of closing the
   sidebar.

@@ -134,7 +134,8 @@ struct SnapshotAgentOptions {
             - A single link, *Learn more*, which goes to [iana.org](https://www.iana.org/help/example-domains).
 
             I opened that link; the tab now shows IANA's page on example domains.
-            """
+            """,
+            callsTools: false
         ),
         .promptResult(status: "completed", error: nil, settled: true),
     ]
