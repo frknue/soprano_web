@@ -161,20 +161,22 @@ APIs WebKit lacks (Universal Autofill until it runs; no own vault).
 
 ## Linux (Omarchy)
 
-Furkan moves to Omarchy (Arch Linux, Hyprland, Wayland) later. Today only macOS builds:
-about 76,000 lines of AppKit and WebKit, no separate core target.
+Furkan wechselt später auf Omarchy (Arch Linux, Hyprland, Wayland). Heute baut die App nur auf
+macOS: etwa 76.000 Zeilen AppKit und WebKit, kein eigenes Core-Target.
 
-- Engine: WebKitGTK is the same engine with a different API, so every `WKWebView` call site
-  is rewritten. Split a Foundation-only core (sessions, Spaces, the Arc importer, the `browser`
-  CLI) out first, and build it on Linux (Swift through `swiftly`) with a Linux CI job.
-- No WebKitGTK counterpart: `WKWebExtension` (the 1Password extension and the Chrome API
-  stand-ins), so passwords need a new plan (1Password's Linux desktop app, or another).
-- Other macOS-only parts: `WKContentRuleList` (→ WebKitGTK's user content filters),
-  `_WKInspector` (→ WebKitGTK's inspector), Keychain `SecItem` (→ libsecret), CryptoKit and
-  CommonCrypto (→ swift-crypto), Translation and NaturalLanguage (no system counterpart),
-  AppleScript and the Dock menu.
-- The UI is rebuilt on the toolkit chosen once for the family, in Soprano first (every app
-  syncs its chrome from there).
+- Engine: WebKitGTK ist dieselbe Engine mit anderer API, also wird jede `WKWebView`-Aufrufstelle
+  neu geschrieben. Zuerst einen reinen Foundation-Core abspalten (Sessions, Spaces, der
+  Arc-Importer, die `browser`-CLI) und auf Linux bauen (Swift über `swiftly`), mit einem
+  Linux-CI-Job.
+- Ohne WebKitGTK-Gegenstück: `WKWebExtension` (die 1Password-Erweiterung und die Ersatzteile für
+  die Chrome-APIs), Passwörter brauchen also einen neuen Plan (1Passwords Linux-Desktop-App
+  oder etwas anderes).
+- Weitere macOS-only-Teile: `WKContentRuleList` (→ WebKitGTKs User Content Filter),
+  `_WKInspector` (→ WebKitGTKs Inspector), Keychain `SecItem` (→ libsecret), CryptoKit und
+  CommonCrypto (→ swift-crypto), Translation und NaturalLanguage (kein Systemgegenstück),
+  AppleScript und das Dock-Menü.
+- Die UI wird auf dem Toolkit neu gebaut, das einmal für die ganze Familie gewählt wird, zuerst
+  in Soprano (jede App synct ihr Chrome von dort).
 
 ## Not copied
 
