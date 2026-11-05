@@ -55,10 +55,14 @@ struct BrowserAgentProtocolTests {
         let event = BrowserAgentProtocol.decode(#"""
         {"type":"message_end","messageId":"msg-6","message":{"role":"assistant","content":[{"type":"thinking","thinking":"hm"},{"type":"text","text":"One."},{"type":"toolCall","id":"t","name":"browser","arguments":{}},{"type":"text","text":"Two."}]}}
         """#)
-        #expect(event == .assistantEnd(messageID: "msg-6", text: "One.\n\nTwo.", callsTools: true))
+        #expect(event == .assistantEnd(messageID: "msg-6", text: "One.\n\nTwo.", answers: false))
         #expect(BrowserAgentProtocol.decode(#"""
         {"type":"message_end","messageId":"msg-7","message":{"role":"assistant","stopReason":"stop","content":[{"type":"text","text":"Done."}]}}
-        """#) == .assistantEnd(messageID: "msg-7", text: "Done.", callsTools: false))
+        """#) == .assistantEnd(messageID: "msg-7", text: "Done.", answers: true))
+        // A failed reply has no tool calls but isn't the answer: omp may retry.
+        #expect(BrowserAgentProtocol.decode(#"""
+        {"type":"message_end","messageId":"msg-8","message":{"role":"assistant","stopReason":"error","content":[]}}
+        """#) == .assistantEnd(messageID: "msg-8", text: "", answers: false))
     }
 
     @Test func userAndCustomMessagesAreIgnored() {

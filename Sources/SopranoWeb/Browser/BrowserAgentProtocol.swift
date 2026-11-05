@@ -11,8 +11,10 @@ enum BrowserAgentEvent: Equatable, Sendable {
     /// The assistant message is thinking (a thinking block streams).
     case thinking(messageID: String)
     /// The assistant message ended: its text blocks, joined, and whether it
-    /// called tools. One that didn't is the run's answer.
-    case assistantEnd(messageID: String, text: String, callsTools: Bool)
+    /// is the run's answer: it stopped normally (`stopReason: stop`, not
+    /// `error` or `aborted`, after which omp may still retry) and called no
+    /// tools.
+    case assistantEnd(messageID: String, text: String, answers: Bool)
     case toolStart(callID: String, title: String, intent: String?)
     /// `error` is the tool's output when it failed.
     case toolEnd(callID: String, error: String?)
@@ -229,7 +231,8 @@ enum BrowserAgentProtocol {
             return .assistantEnd(
                 messageID: messageID,
                 text: text,
-                callsTools: blocks.contains { $0["type"] as? String == "toolCall" }
+                answers: message["stopReason"] as? String == "stop"
+                    && !blocks.contains { $0["type"] as? String == "toolCall" }
             )
         case "tool_execution_start":
             guard let callID = frame["toolCallId"] as? String,

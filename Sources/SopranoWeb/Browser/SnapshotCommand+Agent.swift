@@ -135,7 +135,7 @@ struct SnapshotAgentOptions {
 
             I opened that link; the tab now shows IANA's page on example domains.
             """,
-            callsTools: false
+            answers: true
         ),
         .promptResult(status: "completed", error: nil, settled: true),
     ]

@@ -797,8 +797,9 @@ touches; `AGENTS.md` holds the rules.
   shows them: each user message and note, and the agent's entries between
   them as a run whose steps (tool calls and the text between them) come
   before its answer (the text after the last tool call). An assistant
-  message without tool calls (`assistantEnd` with `callsTools: false`)
-  is the answer: work ends there, not at omp's later `prompt_result`
+  message that stopped normally without tool calls (`assistantEnd` with
+  `answers`; a failed or aborted one isn't, omp may retry it) is the
+  answer: work ends there, not at omp's later `prompt_result`
   (omp's advisor can review the turn for seconds before it yields), and
   thinking, text or a tool call afterwards resumes it; the run's last
   user message records how long the run took to answer (`duration`, from

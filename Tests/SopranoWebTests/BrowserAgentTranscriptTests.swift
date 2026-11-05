@@ -21,7 +21,7 @@ struct BrowserAgentTranscriptTests {
         transcript.apply(.textDelta(messageID: "m", index: 1, text: "World"))
         transcript.apply(.textDelta(messageID: "m", index: 0, text: "Hello"))
         #expect(transcript.entries.last?.text == "Hello\n\nWorld")
-        transcript.apply(.assistantEnd(messageID: "m", text: "Hello, world.", callsTools: false))
+        transcript.apply(.assistantEnd(messageID: "m", text: "Hello, world.", answers: true))
         #expect(transcript.entries.map(\.kind) == [.user, .assistant])
         #expect(transcript.entries.last?.text == "Hello, world.")
     }
@@ -29,7 +29,7 @@ struct BrowserAgentTranscriptTests {
     @Test func messagesOfToolCallsOnlyLeaveNoEntry() {
         var transcript = sent()
         transcript.apply(.thinking(messageID: "m"))
-        transcript.apply(.assistantEnd(messageID: "m", text: "  ", callsTools: true))
+        transcript.apply(.assistantEnd(messageID: "m", text: "  ", answers: false))
         #expect(transcript.entries.map(\.kind) == [.user])
         #expect(transcript.isWorking)
         #expect(transcript.activity == "Thinking")
@@ -38,7 +38,7 @@ struct BrowserAgentTranscriptTests {
     @Test func eachMessageGetsItsOwnEntry() {
         var transcript = sent()
         transcript.apply(.textDelta(messageID: "a", index: 0, text: "First"))
-        transcript.apply(.assistantEnd(messageID: "a", text: "First", callsTools: false))
+        transcript.apply(.assistantEnd(messageID: "a", text: "First", answers: true))
         transcript.apply(.textDelta(messageID: "b", index: 0, text: "Second"))
         #expect(transcript.entries.filter { $0.kind == .assistant }.map(\.text) == ["First", "Second"])
     }
@@ -50,7 +50,7 @@ struct BrowserAgentTranscriptTests {
         transcript.apply(.agentStart, at: start + 1)
         transcript.apply(.textDelta(messageID: "m", index: 0, text: "Connected."), at: start + 2)
         #expect(transcript.activity == "Writing")
-        transcript.apply(.assistantEnd(messageID: "m", text: "Connected.", callsTools: false), at: start + 3)
+        transcript.apply(.assistantEnd(messageID: "m", text: "Connected.", answers: true), at: start + 3)
         // omp's advisor reviews the turn before omp yields: no more "Writing…".
         #expect(!transcript.isWorking)
         #expect(transcript.activity == nil)
@@ -64,7 +64,7 @@ struct BrowserAgentTranscriptTests {
         let start = Date(timeIntervalSinceReferenceDate: 1_000)
         var transcript = BrowserAgentTranscript()
         transcript.addUser("Open it", page: nil, at: start)
-        transcript.apply(.assistantEnd(messageID: "m1", text: "Opened.", callsTools: false), at: start + 2)
+        transcript.apply(.assistantEnd(messageID: "m1", text: "Opened.", answers: true), at: start + 2)
         #expect(!transcript.isWorking)
         // The advisor's note sends the agent back to work.
         transcript.apply(.thinking(messageID: "m2"), at: start + 5)
@@ -72,9 +72,23 @@ struct BrowserAgentTranscriptTests {
         #expect(transcript.activity == "Thinking")
         transcript.apply(.toolStart(callID: "t", title: "browser reload", intent: nil), at: start + 6)
         transcript.apply(.toolEnd(callID: "t", error: nil), at: start + 7)
-        transcript.apply(.assistantEnd(messageID: "m3", text: "Reloaded too.", callsTools: false), at: start + 8)
+        transcript.apply(.assistantEnd(messageID: "m3", text: "Reloaded too.", answers: true), at: start + 8)
         #expect(!transcript.isWorking)
         #expect(transcript.entries.first?.duration == 8)
+    }
+
+    @Test func aFailedReplyKeepsWorkingWhileOmpRetries() {
+        let start = Date(timeIntervalSinceReferenceDate: 1_000)
+        var transcript = BrowserAgentTranscript()
+        transcript.addUser("test", page: nil, at: start)
+        transcript.apply(.agentStart, at: start + 1)
+        transcript.apply(.assistantEnd(messageID: "m1", text: "", answers: false), at: start + 2)
+        // omp backs off and retries: Stop stays.
+        #expect(transcript.isWorking)
+        transcript.apply(.textDelta(messageID: "m2", index: 0, text: "Hi."), at: start + 9)
+        transcript.apply(.assistantEnd(messageID: "m2", text: "Hi.", answers: true), at: start + 10)
+        #expect(!transcript.isWorking)
+        #expect(transcript.entries.first?.duration == 10)
     }
 
     @Test func aRestartedOmpReusingMessageIDsAddsNewEntries() {
@@ -85,7 +99,7 @@ struct BrowserAgentTranscriptTests {
         transcript.addUser("Again", page: nil)
         // The next omp process numbers its messages from msg-1 again.
         transcript.apply(.textDelta(messageID: "msg-2", index: 0, text: "back"))
-        transcript.apply(.assistantEnd(messageID: "msg-2", text: "back", callsTools: false))
+        transcript.apply(.assistantEnd(messageID: "msg-2", text: "back", answers: true))
         #expect(transcript.entries.map(\.kind) == [.user, .assistant, .note, .user, .assistant])
         #expect(transcript.entries.filter { $0.kind == .assistant }.map(\.text) == ["1 2 3", "back"])
     }
@@ -106,7 +120,7 @@ struct BrowserAgentTranscriptTests {
         var transcript = sent()
         transcript.apply(.textDelta(messageID: "m", index: 0, text: "Hi"))
         let first = transcript.entries.last?.revision
-        transcript.apply(.assistantEnd(messageID: "m", text: "Hi", callsTools: false))
+        transcript.apply(.assistantEnd(messageID: "m", text: "Hi", answers: true))
         #expect(transcript.entries.last?.revision == first)
         transcript.apply(.textDelta(messageID: "m", index: 0, text: "!"))
         #expect((transcript.entries.last?.revision ?? 0) > (first ?? 0))
@@ -149,7 +163,7 @@ struct BrowserAgentTranscriptTests {
         var transcript = sent("Open it")
         transcript.apply(.toolStart(callID: "t", title: "browser click @e2", intent: "Opening"))
         transcript.apply(.toolEnd(callID: "t", error: "gone"))
-        transcript.apply(.assistantEnd(messageID: "m", text: "Done.", callsTools: false))
+        transcript.apply(.assistantEnd(messageID: "m", text: "Done.", answers: true))
         #expect(transcript.plainText == """
         you: Open it
         tool failed: browser click @e2 (Opening): gone
@@ -167,9 +181,9 @@ struct BrowserAgentTranscriptTests {
         transcript.addUser("Faster", page: nil, at: start + 3)
         transcript.apply(.toolEnd(callID: "t", error: nil), at: start + 4)
         transcript.apply(.textDelta(messageID: "m2", index: 0, text: "Opened."), at: start + 5)
-        transcript.apply(.assistantEnd(messageID: "m2", text: "Opened.", callsTools: false), at: start + 5)
+        transcript.apply(.assistantEnd(messageID: "m2", text: "Opened.", answers: true), at: start + 5)
         transcript.apply(.textDelta(messageID: "m3", index: 0, text: "It's IANA."), at: start + 6)
-        transcript.apply(.assistantEnd(messageID: "m3", text: "It's IANA.", callsTools: false), at: start + 6)
+        transcript.apply(.assistantEnd(messageID: "m3", text: "It's IANA.", answers: true), at: start + 6)
         transcript.apply(.settled, at: start + 16)
 
         let runs = transcript.blocks.compactMap { block -> BrowserAgentTranscript.Run? in

@@ -180,7 +180,7 @@ struct BrowserAgentTranscript: Equatable, Sendable {
             streaming[messageID] = message
             let joined = message.keys.sorted().compactMap { message[$0] }.joined(separator: "\n\n")
             upsertAssistant(messageID, text: joined, at: date)
-        case let .assistantEnd(messageID, text, callsTools):
+        case let .assistantEnd(messageID, text, answers):
             streaming.removeValue(forKey: messageID)
             let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
             if trimmed.isEmpty {
@@ -191,7 +191,7 @@ struct BrowserAgentTranscript: Equatable, Sendable {
             }
             // The answer: omp can still spend a while before it yields
             // (its advisor reviews the turn), and none of that is writing.
-            if !callsTools {
+            if answers {
                 answered(at: date)
             }
         case let .toolStart(callID, title, intent):
