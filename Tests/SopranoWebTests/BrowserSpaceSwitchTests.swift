@@ -65,4 +65,55 @@ struct BrowserSpaceSwitchTests {
         #expect(swipe.scroll(phase: [], momentumPhase: .changed, deltaX: 200, deltaY: 0, invertedFromDevice: false) == nil)
         #expect(swipe.scroll(phase: [], momentumPhase: [], deltaX: 200, deltaY: 0, invertedFromDevice: false) == nil)
     }
+
+    @Test func aSidewaysSwipeCountsWhenTheHandDriftsVertically() {
+        var swipe = BrowserSpaceSwipe()
+        _ = swipe.scroll(phase: .began, momentumPhase: [], deltaX: 0, deltaY: 0, invertedFromDevice: false)
+        // A real hand moves down as it swipes; the sideways lead decides.
+        #expect(swipe.scroll(phase: .changed, momentumPhase: [], deltaX: 25, deltaY: 12, invertedFromDevice: false) == nil)
+        #expect(swipe.isSwiping)
+        #expect(swipe.scroll(phase: .changed, momentumPhase: [], deltaX: 25, deltaY: 12, invertedFromDevice: false) == nil)
+        #expect(swipe.scroll(phase: .changed, momentumPhase: [], deltaX: 25, deltaY: 12, invertedFromDevice: false) == .next)
+    }
+
+    @Test func aVerticalScrollWithSidewaysDriftNeverSwitches() {
+        var swipe = BrowserSpaceSwipe()
+        _ = swipe.scroll(phase: .began, momentumPhase: [], deltaX: 0, deltaY: 0, invertedFromDevice: false)
+        // Scrolling the tab list: the sideways drift stays the list's too.
+        for _ in 0..<4 {
+            #expect(swipe.scroll(phase: .changed, momentumPhase: [], deltaX: 8, deltaY: 30, invertedFromDevice: false) == nil)
+            #expect(!swipe.isSwiping)
+        }
+        _ = swipe.scroll(phase: .ended, momentumPhase: [], deltaX: 0, deltaY: 0, invertedFromDevice: false)
+        // Its momentum doesn't switch either.
+        #expect(swipe.scroll(phase: [], momentumPhase: .changed, deltaX: 120, deltaY: 0, invertedFromDevice: false) == nil)
+    }
+
+    @Test func aShortSidewaysFlickSwitchesOnItsMomentum() {
+        var swipe = BrowserSpaceSwipe()
+        _ = swipe.scroll(phase: .began, momentumPhase: [], deltaX: 0, deltaY: 0, invertedFromDevice: false)
+        #expect(swipe.scroll(phase: .changed, momentumPhase: [], deltaX: 40, deltaY: 3, invertedFromDevice: false) == nil)
+        _ = swipe.scroll(phase: .ended, momentumPhase: [], deltaX: 0, deltaY: 0, invertedFromDevice: false)
+        #expect(!swipe.isSwiping)
+        // The flick's momentum carries the rest, then switches nothing more.
+        #expect(swipe.scroll(phase: [], momentumPhase: .began, deltaX: 0, deltaY: 0, invertedFromDevice: false) == nil)
+        #expect(swipe.scroll(phase: [], momentumPhase: .changed, deltaX: 30, deltaY: 0, invertedFromDevice: false) == .next)
+        #expect(swipe.scroll(phase: [], momentumPhase: .changed, deltaX: 90, deltaY: 0, invertedFromDevice: false) == nil)
+        #expect(swipe.scroll(phase: [], momentumPhase: .ended, deltaX: 0, deltaY: 0, invertedFromDevice: false) == nil)
+    }
+
+    @Test func aSystemSwipeEventSwitchesOncePerGesture() {
+        var swipe = BrowserSpaceSwipe()
+        // Fingers left is deltaX 1, right -1, whatever the scrolling setting.
+        #expect(swipe.swipe(deltaX: 1, phase: .began) == .next)
+        #expect(swipe.swipe(deltaX: 1, phase: .changed) == nil)
+        #expect(swipe.swipe(deltaX: 1, phase: .changed) == nil)
+        #expect(swipe.swipe(deltaX: 0, phase: .ended) == nil)
+        // The next swipe starts fresh.
+        #expect(swipe.swipe(deltaX: -1, phase: .began) == .previous)
+        // A device that sends one event per swipe without a phase switches
+        // on each of them.
+        #expect(swipe.swipe(deltaX: 1, phase: []) == .next)
+        #expect(swipe.swipe(deltaX: -1, phase: []) == .previous)
+    }
 }

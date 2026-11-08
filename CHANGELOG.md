@@ -615,6 +615,11 @@ app.
   opens its popover, now under the address field.
 
 ### Fixed
+- Spaces: a two-finger swipe on the sidebar switches Spaces reliably now. The gesture
+  locks onto the sideways movement in its first points, so a swipe that drifts up or
+  down still counts, a scroll of the tab list never flips Spaces, and a short flick
+  switches while its momentum runs. The trackpad's own swipe gesture (Trackpad ▸
+  "Swipe between pages") over the sidebar switches too, instead of doing nothing.
 - Agent panel: once the agent's answer is in, "Writing…" and the spinner go away and
   the button sends again, instead of spinning on for several seconds while omp reviews
   the turn. If omp goes back to work after that review, the spinner returns.

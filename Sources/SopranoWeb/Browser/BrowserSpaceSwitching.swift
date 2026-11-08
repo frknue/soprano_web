@@ -31,9 +31,13 @@ enum BrowserSpaceSwitch {
 }
 
 /// The rail's two-finger horizontal swipe: fingers moving left show the
-/// next Space, right the previous one, once per gesture. Feed it every
-/// scroll event of the rail; vertical scrolling, momentum and wheel mice
-/// (no phase) never switch.
+/// next Space, right the previous one, once per gesture. A two-finger
+/// gesture is never perfectly straight, so it locks onto the axis it leads
+/// with in its first points: a vertical scroll of the tab list stays the
+/// list's even when the hand drifts sideways, and a sideways swipe still
+/// counts when it drifts up or down. A sideways flick that falls short of
+/// the threshold switches while its momentum runs; momentum after a
+/// vertical scroll and wheel mice (no phases) never switch.
 struct BrowserSpaceSwipe: Equatable {
     enum Direction: Equatable {
         case previous
@@ -43,12 +47,27 @@ struct BrowserSpaceSwipe: Equatable {
     /// How far (points) the fingers travel sideways before the Space
     /// changes.
     static let threshold: CGFloat = 60
+    /// How far a gesture travels before its axis is known, and how much
+    /// one axis has to lead the other there.
+    private static let axisTravel: CGFloat = 10
+    private static let axisRatio: CGFloat = 1.5
 
+    private enum Axis: Equatable {
+        case undecided
+        case horizontal
+        case vertical
+    }
+
+    private var axis = Axis.undecided
     private var horizontal: CGFloat = 0
     private var vertical: CGFloat = 0
     private var fired = false
+    /// The fingers lifted on a sideways gesture that fell short: what the
+    /// flick's momentum adds may still switch.
+    private var tracksMomentum = false
+    private var systemSwipeFired = false
 
-    /// One scroll event. `invertedFromDevice` is
+    /// One scroll event of the rail. `invertedFromDevice` is
     /// `NSEvent.isDirectionInvertedFromDevice` (natural scrolling), so the
     /// fingers' direction is the same either way. Returns the switch the
     /// gesture asks for, at most once per gesture.
@@ -59,29 +78,72 @@ struct BrowserSpaceSwipe: Equatable {
         deltaY: CGFloat,
         invertedFromDevice: Bool
     ) -> Direction? {
-        guard momentumPhase.isEmpty, !phase.isEmpty else { return nil }
+        guard !phase.isEmpty || !momentumPhase.isEmpty else { return nil }
         if phase.contains(.began) || phase.contains(.mayBegin) {
-            horizontal = 0
-            vertical = 0
-            fired = false
+            self = Self()
         }
         if phase.contains(.ended) || phase.contains(.cancelled) {
-            horizontal = 0
-            vertical = 0
-            fired = false
+            if !fired, axis == .horizontal {
+                // Short of the threshold with the fingers still going: the
+                // flick's momentum can carry it over.
+                tracksMomentum = true
+                axis = .undecided
+            } else {
+                self = Self()
+            }
             return nil
         }
-        guard !fired else { return nil }
-        horizontal += invertedFromDevice ? deltaX : -deltaX
-        vertical += abs(deltaY)
-        guard abs(horizontal) >= Self.threshold, abs(horizontal) > 2 * vertical else { return nil }
+        if momentumPhase.contains(.ended) || momentumPhase.contains(.cancelled) {
+            self = Self()
+            return nil
+        }
+        let sideways = invertedFromDevice ? deltaX : -deltaX
+        if momentumPhase.isEmpty {
+            guard !phase.isEmpty, !fired else { return nil }
+            if axis == .undecided {
+                horizontal += sideways
+                vertical += abs(deltaY)
+                if max(abs(horizontal), vertical) >= Self.axisTravel {
+                    if abs(horizontal) >= Self.axisRatio * vertical {
+                        axis = .horizontal
+                    } else if vertical >= Self.axisRatio * abs(horizontal) {
+                        axis = .vertical
+                    }
+                }
+            } else if axis == .horizontal {
+                horizontal += sideways
+            }
+        } else {
+            guard tracksMomentum, !fired else { return nil }
+            horizontal += sideways
+        }
+        let sidewaysGesture = momentumPhase.isEmpty ? axis == .horizontal : tracksMomentum
+        guard sidewaysGesture, abs(horizontal) >= Self.threshold else { return nil }
         fired = true
         return horizontal > 0 ? .previous : .next
+    }
+
+    /// A system swipe event (`NSResponder.swipe(with:)`): the trackpad's
+    /// own gesture, `deltaX` 1 for fingers left and -1 for right, the same
+    /// with or without natural scrolling. A gesture that reports phases
+    /// switches once, however many events it sends; a device that sends one
+    /// phase-less event per gesture switches per event.
+    mutating func swipe(deltaX: CGFloat, phase: NSEvent.Phase) -> Direction? {
+        if phase.contains(.ended) || phase.contains(.cancelled) {
+            systemSwipeFired = false
+            return nil
+        }
+        if phase.contains(.began) || phase.contains(.mayBegin) || phase.isEmpty {
+            systemSwipeFired = false
+        }
+        guard deltaX != 0, !systemSwipeFired else { return nil }
+        systemSwipeFired = true
+        return deltaX > 0 ? .next : .previous
     }
 
     /// Whether the gesture in progress is a sideways swipe (the rail keeps
     /// it from scrolling the tab list).
     var isSwiping: Bool {
-        fired || (horizontal != 0 && abs(horizontal) > 2 * vertical)
+        axis == .horizontal
     }
 }
