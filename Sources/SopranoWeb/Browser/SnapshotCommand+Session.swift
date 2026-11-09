@@ -717,7 +717,7 @@ struct SnapshotSessionOptions {
     }
 
     /// `--swipe-rail`: a two-finger sideways swipe made of real scroll
-    /// events (began, three changes, ended; fingers left for the next
+    /// events (began, three changes, ended; fingers right for the next
     /// Space) through the rail's scroll handling.
     @MainActor
     private static func swipeRail(next: Bool, in controller: BrowserWindowController, manager: BrowserWindowManager) {
@@ -725,8 +725,8 @@ struct SnapshotSessionOptions {
             id.flatMap(manager.spaces.space(id:))?.displayName ?? "-"
         }
         let before = controller.currentSpaceID
-        // Without natural scrolling, fingers moving left scroll right.
-        let step: Int64 = next ? 30 : -30
+        // Without natural scrolling, fingers moving right scroll left.
+        let step: Int64 = next ? -30 : 30
         let events: [(phase: Int64, delta: Int64)] = [(1, 0), (2, step), (2, step), (2, step), (4, 0)]
         var described: [String] = []
         for (phase, delta) in events {

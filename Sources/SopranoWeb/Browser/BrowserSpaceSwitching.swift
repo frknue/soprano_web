@@ -30,8 +30,8 @@ enum BrowserSpaceSwitch {
     }
 }
 
-/// The rail's two-finger horizontal swipe: fingers moving left show the
-/// next Space, right the previous one, once per gesture. A two-finger
+/// The rail's two-finger horizontal swipe: fingers moving right show the
+/// next Space, left the previous one, once per gesture. A two-finger
 /// gesture is never perfectly straight, so it locks onto the axis it leads
 /// with in its first points: a vertical scroll of the tab list stays the
 /// list's even when the hand drifts sideways, and a sideways swipe still
@@ -120,7 +120,7 @@ struct BrowserSpaceSwipe: Equatable {
         let sidewaysGesture = momentumPhase.isEmpty ? axis == .horizontal : tracksMomentum
         guard sidewaysGesture, abs(horizontal) >= Self.threshold else { return nil }
         fired = true
-        return horizontal > 0 ? .previous : .next
+        return horizontal > 0 ? .next : .previous
     }
 
     /// A system swipe event (`NSResponder.swipe(with:)`): the trackpad's
@@ -138,7 +138,7 @@ struct BrowserSpaceSwipe: Equatable {
         }
         guard deltaX != 0, !systemSwipeFired else { return nil }
         systemSwipeFired = true
-        return deltaX > 0 ? .next : .previous
+        return deltaX < 0 ? .next : .previous
     }
 
     /// Whether the gesture in progress is a sideways swipe (the rail keeps

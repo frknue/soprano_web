@@ -36,22 +36,22 @@ struct BrowserSpaceSwitchTests {
         #expect(BrowserSpaceSwitch.selection(remembered: old.id, tabs: []) == nil)
     }
 
-    @Test func swipingLeftShowsTheNextSpaceOncePerGesture() {
+    @Test func swipingRightShowsTheNextSpaceOncePerGesture() {
         var swipe = BrowserSpaceSwipe()
-        // Without natural scrolling, fingers moving left scroll right.
+        // Without natural scrolling, fingers moving right scroll left.
         #expect(swipe.scroll(phase: .began, momentumPhase: [], deltaX: 0, deltaY: 0, invertedFromDevice: false) == nil)
-        #expect(swipe.scroll(phase: .changed, momentumPhase: [], deltaX: 30, deltaY: 2, invertedFromDevice: false) == nil)
+        #expect(swipe.scroll(phase: .changed, momentumPhase: [], deltaX: -30, deltaY: 2, invertedFromDevice: false) == nil)
         #expect(swipe.isSwiping)
-        #expect(swipe.scroll(phase: .changed, momentumPhase: [], deltaX: 40, deltaY: 1, invertedFromDevice: false) == .next)
+        #expect(swipe.scroll(phase: .changed, momentumPhase: [], deltaX: -40, deltaY: 1, invertedFromDevice: false) == .next)
         // The rest of the gesture switches nothing more.
-        #expect(swipe.scroll(phase: .changed, momentumPhase: [], deltaX: 90, deltaY: 0, invertedFromDevice: false) == nil)
+        #expect(swipe.scroll(phase: .changed, momentumPhase: [], deltaX: -90, deltaY: 0, invertedFromDevice: false) == nil)
         #expect(swipe.isSwiping)
         #expect(swipe.scroll(phase: .ended, momentumPhase: [], deltaX: 0, deltaY: 0, invertedFromDevice: false) == nil)
         #expect(!swipe.isSwiping)
-        // With natural scrolling the deltas follow the fingers: right is
+        // With natural scrolling the deltas follow the fingers: left is
         // the previous Space.
         _ = swipe.scroll(phase: .began, momentumPhase: [], deltaX: 0, deltaY: 0, invertedFromDevice: true)
-        #expect(swipe.scroll(phase: .changed, momentumPhase: [], deltaX: 70, deltaY: 0, invertedFromDevice: true) == .previous)
+        #expect(swipe.scroll(phase: .changed, momentumPhase: [], deltaX: -70, deltaY: 0, invertedFromDevice: true) == .previous)
     }
 
     @Test func verticalScrollsMomentumAndWheelsNeverSwitch() {
@@ -73,7 +73,7 @@ struct BrowserSpaceSwitchTests {
         #expect(swipe.scroll(phase: .changed, momentumPhase: [], deltaX: 25, deltaY: 12, invertedFromDevice: false) == nil)
         #expect(swipe.isSwiping)
         #expect(swipe.scroll(phase: .changed, momentumPhase: [], deltaX: 25, deltaY: 12, invertedFromDevice: false) == nil)
-        #expect(swipe.scroll(phase: .changed, momentumPhase: [], deltaX: 25, deltaY: 12, invertedFromDevice: false) == .next)
+        #expect(swipe.scroll(phase: .changed, momentumPhase: [], deltaX: 25, deltaY: 12, invertedFromDevice: false) == .previous)
     }
 
     @Test func aVerticalScrollWithSidewaysDriftNeverSwitches() {
@@ -97,7 +97,7 @@ struct BrowserSpaceSwitchTests {
         #expect(!swipe.isSwiping)
         // The flick's momentum carries the rest, then switches nothing more.
         #expect(swipe.scroll(phase: [], momentumPhase: .began, deltaX: 0, deltaY: 0, invertedFromDevice: false) == nil)
-        #expect(swipe.scroll(phase: [], momentumPhase: .changed, deltaX: 30, deltaY: 0, invertedFromDevice: false) == .next)
+        #expect(swipe.scroll(phase: [], momentumPhase: .changed, deltaX: 30, deltaY: 0, invertedFromDevice: false) == .previous)
         #expect(swipe.scroll(phase: [], momentumPhase: .changed, deltaX: 90, deltaY: 0, invertedFromDevice: false) == nil)
         #expect(swipe.scroll(phase: [], momentumPhase: .ended, deltaX: 0, deltaY: 0, invertedFromDevice: false) == nil)
     }
@@ -105,15 +105,15 @@ struct BrowserSpaceSwitchTests {
     @Test func aSystemSwipeEventSwitchesOncePerGesture() {
         var swipe = BrowserSpaceSwipe()
         // Fingers left is deltaX 1, right -1, whatever the scrolling setting.
-        #expect(swipe.swipe(deltaX: 1, phase: .began) == .next)
+        #expect(swipe.swipe(deltaX: 1, phase: .began) == .previous)
         #expect(swipe.swipe(deltaX: 1, phase: .changed) == nil)
         #expect(swipe.swipe(deltaX: 1, phase: .changed) == nil)
         #expect(swipe.swipe(deltaX: 0, phase: .ended) == nil)
         // The next swipe starts fresh.
-        #expect(swipe.swipe(deltaX: -1, phase: .began) == .previous)
+        #expect(swipe.swipe(deltaX: -1, phase: .began) == .next)
         // A device that sends one event per swipe without a phase switches
         // on each of them.
-        #expect(swipe.swipe(deltaX: 1, phase: []) == .next)
-        #expect(swipe.swipe(deltaX: -1, phase: []) == .previous)
+        #expect(swipe.swipe(deltaX: 1, phase: []) == .previous)
+        #expect(swipe.swipe(deltaX: -1, phase: []) == .next)
     }
 }
