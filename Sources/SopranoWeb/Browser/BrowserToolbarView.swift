@@ -26,7 +26,13 @@ final class BrowserToolbarView: NSView, NSTextFieldDelegate {
 
     let addressField = BrowserAddressField()
     let navigationControls: BrowserNavigationControls
-    private let addressFrame: ChromeFieldView
+    /// The address area: the field's surface shows only while the address
+    /// is edited; otherwise the site and title sit bare in the toolbar, as
+    /// in Aside.
+    private let addressFrame = BrowserAddressFrameView()
+    private let fieldSurface: ChromeFieldView
+    /// The site and the page's title over the field while it isn't edited.
+    private let addressSummary: BrowserAddressSummaryView
     private let securityIcon = NSImageView()
     /// Status controls at the address field's trailing edge (the pop-up
     /// blocked control). Hidden arranged views take no space.
@@ -75,8 +81,9 @@ final class BrowserToolbarView: NSView, NSTextFieldDelegate {
 
     private var theme: AppTheme
     private var security: BrowserSecurityState = .local
-    /// The selected page's address, as last passed to `setAddress`.
+    /// The selected page's address and title, as last passed to `setAddress`.
     private(set) var pageAddress = ""
+    private var pageTitle = ""
     /// The user changed the text since the field was last focused.
     private(set) var isAddressEdited = false
     /// A compact window's toolbar: navigation and the address only (read
@@ -126,7 +133,8 @@ final class BrowserToolbarView: NSView, NSTextFieldDelegate {
 
     init(theme: AppTheme) {
         self.theme = theme
-        self.addressFrame = ChromeFieldView(theme: theme)
+        self.fieldSurface = ChromeFieldView(theme: theme)
+        self.addressSummary = BrowserAddressSummaryView(theme: theme)
         self.windowMark = BrowserWindowMarkView(theme: theme)
         self.navigationControls = BrowserNavigationControls(theme: theme)
         self.verticalTabsButton = ChromeIconButton(
@@ -219,6 +227,9 @@ final class BrowserToolbarView: NSView, NSTextFieldDelegate {
 
         addSubview(navigationControls)
         addSubview(addressFrame)
+        fieldSurface.isHidden = true
+        addressFrame.addSubview(fieldSurface)
+        addressFrame.field = addressField
         securityIcon.translatesAutoresizingMaskIntoConstraints = false
         securityIcon.imageScaling = .scaleProportionallyDown
         addressFrame.addSubview(securityIcon)
@@ -235,13 +246,17 @@ final class BrowserToolbarView: NSView, NSTextFieldDelegate {
         addressField.delegate = self
         addressField.target = self
         addressField.action = #selector(addressSubmitted)
-        addressField.onFocus = { [weak self] in self?.isAddressEdited = false }
+        addressField.onFocus = { [weak self] in
+            self?.isAddressEdited = false
+            self?.updateAddressPresentation()
+        }
         addressField.translatesAutoresizingMaskIntoConstraints = false
         // The field takes the toolbar's spare width and gives way first in
         // a narrow (pop-up) window; the navigation buttons keep their size.
         addressField.setContentHuggingPriority(.init(1), for: .horizontal)
         addressField.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
         addressFrame.addSubview(addressField)
+        addressFrame.addSubview(addressSummary)
         addressAccessories.orientation = .horizontal
         addressAccessories.spacing = 4
         addressAccessories.translatesAutoresizingMaskIntoConstraints = false
@@ -293,6 +308,10 @@ final class BrowserToolbarView: NSView, NSTextFieldDelegate {
             mediaControls.centerYAnchor.constraint(equalTo: addressFrame.centerYAnchor),
             addressFrame.centerYAnchor.constraint(equalTo: verticalTabsButton.centerYAnchor),
             addressFrame.heightAnchor.constraint(equalToConstant: Chrome.fieldHeight),
+            fieldSurface.leadingAnchor.constraint(equalTo: addressFrame.leadingAnchor),
+            fieldSurface.trailingAnchor.constraint(equalTo: addressFrame.trailingAnchor),
+            fieldSurface.topAnchor.constraint(equalTo: addressFrame.topAnchor),
+            fieldSurface.bottomAnchor.constraint(equalTo: addressFrame.bottomAnchor),
 
             securityIcon.leadingAnchor.constraint(equalTo: addressFrame.leadingAnchor, constant: 8),
             securityIcon.centerYAnchor.constraint(equalTo: addressFrame.centerYAnchor),
@@ -304,6 +323,10 @@ final class BrowserToolbarView: NSView, NSTextFieldDelegate {
             addressAccessories.trailingAnchor.constraint(equalTo: addressFrame.trailingAnchor, constant: -4),
             addressAccessories.centerYAnchor.constraint(equalTo: addressFrame.centerYAnchor),
             addressField.centerYAnchor.constraint(equalTo: addressFrame.centerYAnchor),
+            addressSummary.leadingAnchor.constraint(equalTo: addressField.leadingAnchor),
+            addressSummary.trailingAnchor.constraint(equalTo: addressField.trailingAnchor),
+            addressSummary.topAnchor.constraint(equalTo: addressFrame.topAnchor),
+            addressSummary.bottomAnchor.constraint(equalTo: addressFrame.bottomAnchor),
 
             progressBar.leadingAnchor.constraint(equalTo: leadingAnchor),
             progressBar.trailingAnchor.constraint(equalTo: trailingAnchor),
@@ -336,7 +359,8 @@ final class BrowserToolbarView: NSView, NSTextFieldDelegate {
             button.apply(theme: theme)
         }
         navigationControls.apply(theme: theme)
-        addressFrame.apply(theme: theme)
+        fieldSurface.apply(theme: theme)
+        addressSummary.apply(theme: theme)
         ChromeFieldView.styleEmbedded(addressField, colors: theme.colors, font: ChromeFont.row)
         addressField.placeholderAttributedString = NSAttributedString(
             string: "Search or enter address",
@@ -353,14 +377,40 @@ final class BrowserToolbarView: NSView, NSTextFieldDelegate {
         needsDisplay = true
     }
 
-    func setAddress(_ text: String, security: BrowserSecurityState) {
+    func setAddress(_ text: String, title: String, security: BrowserSecurityState) {
         pageAddress = text
+        pageTitle = title
         // A focused field follows navigation until the user edits it.
         if !isEditingAddress || !isAddressEdited {
             showAddress(text)
         }
         self.security = security
         refreshSecurityIcon()
+        updateAddressPresentation()
+    }
+
+    /// What the unfocused address shows instead of the address (nil: the
+    /// field itself — while edited, on the start page, or with text the
+    /// user typed and left).
+    var shownAddressSummary: BrowserAddressSummary? {
+        addressSummary.isHidden ? nil : BrowserAddressSummary(site: addressSummary.shownSite, title: addressSummary.shownTitle)
+    }
+
+    /// The field's surface and full address while it is edited; otherwise
+    /// the bare site and title, as in Aside.
+    private func updateAddressPresentation(editing: Bool? = nil) {
+        let editing = editing ?? isEditingAddress
+        fieldSurface.isHidden = !editing
+        fieldSurface.isFocused = editing
+        let summary = editing || addressField.stringValue != pageAddress
+            ? nil
+            : BrowserAddressSummary.make(address: pageAddress, title: pageTitle)
+        if let summary {
+            addressSummary.set(summary)
+        }
+        addressSummary.isHidden = summary == nil
+        // Transparent, not hidden: the field stays the click target.
+        addressField.alphaValue = summary == nil ? 1 : 0
     }
 
     /// The playing tab's controls (nil hides them).
@@ -533,15 +583,14 @@ final class BrowserToolbarView: NSView, NSTextFieldDelegate {
     var openInAnchor: NSView { openInButton }
 
     func controlTextDidBeginEditing(_ notification: Notification) {
-        addressFrame.isFocused = true
+        updateAddressPresentation(editing: true)
         ChromeFieldView.styleEditor(of: addressField, colors: theme.colors)
         onAddressFocusChange?(true)
     }
 
     func controlTextDidEndEditing(_ notification: Notification) {
-        addressFrame.isFocused = false
-        addressFrame.needsDisplay = true
         isAddressEdited = false
+        updateAddressPresentation(editing: false)
         onAddressFocusChange?(false)
     }
 
@@ -594,6 +643,32 @@ final class BrowserToolbarView: NSView, NSTextFieldDelegate {
         )?.withSymbolConfiguration(configuration)
         securityIcon.contentTintColor = security.tint(in: theme.colors)
         securityIcon.toolTip = security.toolTip
+    }
+}
+
+/// The address field's area. A click anywhere in it (the padding, the
+/// lock's margins, the bare summary) focuses the field.
+private final class BrowserAddressFrameView: NSView {
+    weak var field: NSTextField?
+
+    init() {
+        super.init(frame: .zero)
+        translatesAutoresizingMaskIntoConstraints = false
+    }
+
+    @available(*, unavailable)
+    required init?(coder: NSCoder) {
+        fatalError("init(coder:) is not supported")
+    }
+
+    override func mouseDown(with event: NSEvent) {
+        guard let field, field.isEditable || field.isSelectable, let window else {
+            super.mouseDown(with: event)
+            return
+        }
+        if field.currentEditor() == nil {
+            window.makeFirstResponder(field)
+        }
     }
 }
 

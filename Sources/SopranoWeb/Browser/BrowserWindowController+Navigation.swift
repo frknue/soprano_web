@@ -229,7 +229,11 @@ extension BrowserWindowController {
         updateTabChrome(for: tab)
         let url = tab.webView.url
         let shownURL = tab.failedURL ?? url?.absoluteString ?? ""
-        toolbar.setAddress(tab.isStartPage ? "" : shownURL, security: securityState(for: tab))
+        toolbar.setAddress(
+            tab.isStartPage ? "" : shownURL,
+            title: tab.isStartPage ? "" : tab.title,
+            security: securityState(for: tab)
+        )
         toolbar.setProgress(tab.webView.estimatedProgress, isLoading: tab.webView.isLoading)
         toolbar.setSidebarToggle(isSidebarVisible)
         toolbar.setAgentToggle(isAgentVisible)

@@ -10,7 +10,9 @@ The offscreen UI harness (`.build/debug/SopranoWeb snapshot …`,
   visits over several days (the day headers), `--address <text>` seeds visits
   and typed visits and prints `address-history` (pages and visits in the
   database), `address-rows` and `address-history-candidates` (what the
-  database returned, with frecency).
+  database returned, with frecency). `--focus-page` gives the page focus
+  after `--url`, as Return in the address bar does, so the toolbar shows
+  the unfocused address (site and title).
   Every window it opens stays off every display and never becomes key or front.
   Run it without `--out` for every flag: clicks and modifier clicks, sign-in
   sheets, session restore and crashes, address-bar typing, tab audio and hover,

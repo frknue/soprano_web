@@ -731,7 +731,12 @@ touches; `AGENTS.md` holds the rules.
 - `Browser/BrowserPageScripts.swift` — every injected page script and the
   `sopranoWeb` message channel; messages are accepted only from the world (page or
   isolated) their type was written for.
-- `Browser/BrowserToolbarView.swift`, `BrowserAddressBarController.swift`,
+- `Browser/BrowserToolbarView.swift` (unfocused, the address shows as
+  Aside's: `BrowserAddressSummaryView.swift` puts the site and the page's
+  title over the transparent field, which stays the click target, and the
+  field's `ChromeFieldView` surface shows only while it is edited;
+  `BrowserAddressField` selects the whole address on the focusing click),
+  `BrowserAddressBarController.swift`,
   `BrowserAddressSuggestions.swift`, `BrowserTabStripView.swift` (favorite
   and pinned tabs first, icon-only), `BrowserVerticalTabsView.swift` (the
   rail: Space header, Favorites, the pinned outline, Today with "+ New

@@ -510,6 +510,10 @@ app.
   runs an extension from the Extensions menu and prints (and captures) its popup.
 
 ### Changed
+- The address bar looks like Aside's while you're not typing in it: no field outline,
+  just the site (`github.com`) and the page's title in grey. Click it or press `⌘L` and
+  it turns back into the field with the full address, all of it selected on the first
+  click. Text you typed and left stays visible instead.
 - The Downloads button sits at the bottom left of the rail (vertical tabs), before the
   Space icons, as in Arc; it is lit while the right sidebar shows Downloads, and `⌥⌘L`
   still opens it. With horizontal tabs, the rail collapsed (`⌘S`) or in a private window

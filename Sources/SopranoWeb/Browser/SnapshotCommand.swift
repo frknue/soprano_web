@@ -49,6 +49,9 @@ enum SnapshotCommand {
         var backURL: String?
         var address: String?
         var focusAddress = false
+        /// `--focus-page`: the page takes focus after `--url` loads, as after
+        /// Return in the address bar (the toolbar shows the site and title).
+        var focusPage = false
         /// `--site-permission host:permission=allow|deny`, seeded before the window.
         var sitePermissions: [(host: String, permission: SitePermission, decision: SitePermissionDecision)] = []
         var autoplay: AutoplayPolicy?
@@ -110,7 +113,7 @@ enum SnapshotCommand {
     \(SnapshotAppleScriptOptions.usage)
                                [--tabs <url>,<url>…] [--tab-audio] [--hover <css selector>]
                                [--back-url <url>]
-                               [--address <text>] [--focus-address]
+                               [--address <text>] [--focus-address] [--focus-page]
                                [--site-permission host:permission=allow|deny] [--autoplay <policy>]
                                [--mute-after <seconds>] [--trace-audio] [--websites]
                                [--capture camera|microphone|camera-muted-mic|microphone-muted]
@@ -264,6 +267,8 @@ enum SnapshotCommand {
                 options.address = try value(option)
             case "--focus-address":
                 options.focusAddress = true
+            case "--focus-page":
+                options.focusPage = true
             case "--site-permission":
                 let value = try value(option)
                 let parts = value.split(separator: "=", maxSplits: 1).map(String.init)
@@ -470,6 +475,9 @@ enum SnapshotCommand {
                 }
                 controller.navigate(tab, to: url)
             }
+        }
+        if options.focusPage {
+            controller.focusPage()
         }
         for value in options.extraTabs {
             controller.newTab(url: value, select: false)
